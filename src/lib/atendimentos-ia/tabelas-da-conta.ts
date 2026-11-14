@@ -91,12 +91,18 @@ async function vinculosDaConta(tenantId: string): Promise<Map<string, string[]>>
  * O FORNECEDOR PRINCIPAL DE CADA CATEGORIA desta conta (dono do produto, 12/11/2026, 1.2: "o escopo do insumo é o fornecedor principal da
  * CATEGORIA"): categoria → fornecedor, pelo `principal` de `orcamentista_mp_categoria_fornecedor`. A categoria com DOIS principais (duas
  * matérias-primas que discordam) não entra em `principais`: vai para `ambiguas`, e o insumo dela é falta nomeada — nunca o primeiro.
+ *
+ * OS SEGUINTES (dono do produto, 14/11/2026, tarefa 0010: "pesquisar na tabela principal; se não, vai para a segunda; se não, vai para a
+ * terceira"): categoria → os OUTROS fornecedores dela, em grupos pela `ordem` do cadastro, do menor para o maior. Cada grupo é um degrau da
+ * descida; dois fornecedores com a MESMA ordem ficam no mesmo grupo (nenhum é escolhido sobre o outro). O fornecedor que aparece em mais de uma
+ * matéria-prima vale pela menor ordem; o principal não entra nos seguintes. A categoria ambígua não tem seguintes: sem principal, não há por
+ * onde começar a ordem. Ordem nula vai para o fim, sem inventar posição.
  */
-export type PrincipaisDaConta = { principais: Map<string, string>; ambiguas: string[] }
+export type PrincipaisDaConta = { principais: Map<string, string>; ambiguas: string[]; seguintes: Map<string, string[][]> }
 export async function principaisDaConta(tenantId: string): Promise<PrincipaisDaConta> {
     const [categorias, vinculos] = await Promise.all([
         ler('orcamentista_mp_categoria', db().from('orcamentista_mp_categoria').select('id, categoria_chave').eq('tenant_id', tenantId)),
-        ler('orcamentista_mp_categoria_fornecedor', db().from('orcamentista_mp_categoria_fornecedor').select('mp_categoria_id, fornecedor_id, principal').eq('tenant_id', tenantId).eq('principal', true)),
+        ler('orcamentista_mp_categoria_fornecedor', db().from('orcamentista_mp_categoria_fornecedor').select('mp_categoria_id, fornecedor_id, principal, ordem').eq('tenant_id', tenantId)),
     ])
     const chaveDa = new Map(categorias.map((c) => [String(c.id), String(c.categoria_chave)]))
     const porCategoria = new Map<string, Set<string>>()
@@ -109,7 +115,26 @@ export async function principaisDaConta(tenantId: string): Promise<PrincipaisDaC
     const principais = new Map<string, string>()
     const ambiguas: string[] = []
     for (const [c, fs] of porCategoria) { if (fs.size === 1) principais.set(c, [...fs][0]); else ambiguas.push(c) }
-    return { principais, ambiguas: ambiguas.sort(porTexto) }
+
+    // os seguintes: os não principais de cada categoria que tem principal, pela menor ordem de cada fornecedor
+    const ordemDe = new Map<string, Map<string, number>>()
+    for (const v of vinculos) {
+        const chave = chaveDa.get(String(v.mp_categoria_id))
+        if (!chave || v.principal === true || !principais.has(chave)) continue
+        const f = String(v.fornecedor_id)
+        if (f === principais.get(chave)) continue
+        const o = typeof v.ordem === 'number' && Number.isFinite(v.ordem) ? v.ordem : Number.POSITIVE_INFINITY
+        if (!ordemDe.has(chave)) ordemDe.set(chave, new Map())
+        const m = ordemDe.get(chave)!
+        m.set(f, Math.min(m.get(f) ?? Number.POSITIVE_INFINITY, o))
+    }
+    const seguintes = new Map<string, string[][]>()
+    for (const [c, m] of ordemDe) {
+        const grupos = new Map<number, string[]>()
+        for (const [f, o] of m) grupos.set(o, [...(grupos.get(o) ?? []), f].sort(porTexto))
+        seguintes.set(c, [...grupos.keys()].sort((a, b) => a - b).map((o) => grupos.get(o)!))
+    }
+    return { principais, ambiguas: ambiguas.sort(porTexto), seguintes }
 }
 
 export async function derivarTabelasDaConta(tenantId: string): Promise<DerivacaoDaConta> {
