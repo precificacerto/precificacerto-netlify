@@ -23,6 +23,12 @@ jest.mock('@/supabase/admin', () => ({
         },
     },
 }))
+// o cálculo do levantamento é substituído por um resultado fixo (o caminho dele tem portão próprio): só o caso (4), de ponta a ponta, o usa
+const calculo = { valor: null as unknown }
+jest.mock('@/lib/atendimentos-ia/levantamento-da-conversa', () => ({
+    calcularOLevantamento: async (): Promise<unknown> => calculo.valor,
+    mensagemDoCalculo: () => ({ texto: '', desfecho: 'levantou' }),
+}))
 /* eslint-disable @typescript-eslint/no-require-imports */
 const S = () => require('@/lib/atendimentos-ia/custo-do-orcamento-servidor') as typeof import('@/lib/atendimentos-ia/custo-do-orcamento-servidor')
 const TC = () => require('@/lib/atendimentos-ia/tabelas-da-conta') as typeof import('@/lib/atendimentos-ia/tabelas-da-conta')
@@ -115,6 +121,17 @@ describe('(2) os degraus da descida', () => {
             ['21495', 'SIL-DOWCOR'],
         ])
     })
+    it('PERFIL e VIDRO não descem, nem com um segundo fornecedor cadastrado neles', async () => {
+        banco.db.orcamentista_mp_categoria_fornecedor.push(
+            { tenant_id: T, mp_categoria_id: 'c-vid', fornecedor_id: 'vidraria2', principal: false, ordem: 2 },
+            { tenant_id: T, mp_categoria_id: 'c-per', fornecedor_id: 'perfil2', principal: false, ordem: 2 },
+        )
+        const p = await TC().principaisDaConta(T)
+        const todos = [...TODOS, item('VX', 'VIDRO FUME', 9, 'vidraria2', 'VIDRO'), item('PX', 'PERFIL X', 9, 'perfil2', 'PERFIL')]
+        expect(S().niveisDoInsumo(todos, p).flat().map((i) => i.codigo)).not.toEqual(expect.arrayContaining(['VX']))
+        expect(S().niveisDoInsumo(todos, p).flat().map((i) => i.codigo)).not.toEqual(expect.arrayContaining(['PX']))
+        expect(S().niveisDoInsumo(todos, p).flat().map((i) => i.codigo)).toEqual(['10158', '1326/WOLFF', '10457', '12183', '21495', 'SIL-DOWCOR'])
+    })
     it('o degrau 1 é o escopo de antes, sem mudança', async () => {
         const p = await TC().principaisDaConta(T)
         expect(S().niveisDoInsumo(TODOS, p)[0]).toEqual(S().escopoDoInsumo(TODOS, p))
@@ -189,6 +206,39 @@ describe('(3) a resolução que desce', () => {
         expect('motivo' in r && r.motivo).toBe('DESCRICAO_NAO_CONCORDA')
         expect('frase' in r && r.frase).toContain('MAÇANETA CELSUS')
         expect('frase' in r && r.frase).toContain('procurado em 2 fornecedores')
+    })
+})
+
+describe('(4) de ponta a ponta: o custo do orçamento leva o insumo do TERCEIRO fornecedor, com o preço dele', () => {
+    const BLOCO = { unidade: 'PC', cred_icms_pct: 12, cred_pis_cofins_pct: 9.25, cred_ipi_pct: 0, nc_ipi_pct: N, cred_ibs_pct: N, cred_cbs_pct: N }
+    beforeEach(() => {
+        calculo.valor = {
+            lev: { nome: 'Luiz Castro', itens: [{ vidro: null, vidro_codigo: N }] },
+            grupos: [{ familia: { rotulo: 'PVC' }, indices: [0] }],
+            calculos: [{
+                d: { cor: 'Branco', esquadrias: [{ numero: 1, tipologia: 'DP-07' }] },
+                r: {
+                    esquadrias: [{ tipologia: 'DP-07', quantidade: 2, pecas: [], vidros: [], faltasDoAvaliador: [],
+                        insumos: [
+                            { codigo: '21495', descricao: 'CREMONA DE CORRER | E15 | 1600MM | INOX 304', quantidade: 1 },
+                            { codigo: '99999', descricao: 'PECA INEXISTENTE', quantidade: 1 },
+                        ] }],
+                    total: { barras_por_codigo: {} }, faltas: [], resolucoes: {},
+                },
+                maos: [{ ok: true, custoMensal: 1000, minutosDaEmpresa: 1000, minutosPorUnidade: 10, quantidade: 2 }],
+                daFamilia: { todos: TODOS.map((i) => ({ ...i, ...BLOCO })), noEscopoDoMotor: [], fornecedorDoMotor: 'wolf' },
+                cores: CTX.cores,
+            }],
+        }
+    })
+    it('o 21495 (Diversos, ordem 3) entra no custo com 212,78 × 2; o 99999 é falta que diz em quantos fornecedores procurou', async () => {
+        const r = await S().custoDoLevantamento(T, { ok: true } as never, (calculo.valor as { lev: never }).lev)
+        if ('recusas' in r) throw new Error(r.recusas.join(' | '))
+        const l = r.itens[0].materiais.find((m) => m.caminho === 'insumo' && m.codigo === '21495')!
+        expect([l.consumo_item, l.custo_bruto_material]).toEqual([2, 212.78 * 2])
+        expect(r.faltas.filter((f) => f.codigo_do_motor === '21495')).toEqual([])
+        const f = r.faltas.find((x) => x.codigo_do_motor === '99999' && x.motivo === 'NAO_ACHADA')!
+        expect(f.frase).toContain('procurado em 4 fornecedores, na ordem cadastrada')
     })
 })
 
