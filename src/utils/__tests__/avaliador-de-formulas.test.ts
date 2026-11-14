@@ -441,4 +441,107 @@ describe('(10) RECUSAS NOMEADAS da avaliação — ciclo, nome solto, quantidade
     })
 })
 
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// Tarefa 0006 do ciclo (14/11/2026): o levantamento "Jeferson Barros" não fechava — "Item 5 (DP-07): Linha 44 da aba
+// Perfis (1318.1/WOLFF), Qtd: A fórmula ROUND(QTPAL-(ROUND(QTPAL*0.8)))*2 usa a função ROUND, que não existe aqui".
+// MEDIDO em produção (14/11/2026, só leitura), nas colunas que o avaliador lê (Perfis qtd/medida/condição, Fórmulas,
+// Insumos, Vidros, Validações): as funções são IIF, ARREDMAIOR e ROUND, e os operadores `and`/`or`, SEMPRE em minúscula e
+// infixos — `(X=1) and (Y=2)`, nenhum `AND(`/`OR(` e nenhum maiúsculo. ROUND aparece só na coluna qtd do Perfil, em 8
+// formas, TODAS com UM argumento (2.130 linhas, 25 tipologias, 5 motores). As 8 estão abaixo, como estão no banco.
+describe('(11) ROUND, and e or — as funções que os dados do motor usam (tarefa 0006)', () => {
+    const FORMAS_DO_BANCO: Array<[string, number]> = [
+        // QTPAL = 24 (DP-07, H = 1000: ARREDMAIOR((1000-0-130)/37) = ⌈23,51⌉ = 24); QTPAL*0.8 = 19,2 → 19
+        ['ROUND(QTPAL*0.8)', 19],
+        ['ROUND(QTPAL*0.8)*2', 38],
+        ['ROUND(QTPAL-(ROUND(QTPAL*0.8)))', 5],
+        ['ROUND(QTPAL-(ROUND(QTPAL*0.8)))*2', 10],
+        // PLHT = 7: PLHT*0.8 = 5,6 → 6
+        ['ROUND(PLHT*0.8)', 6],
+        ['ROUND(PLHT*0.8)*2', 12],
+        ['ROUND(PLHT-(ROUND(PLHT*0.8)))', 1],
+        ['ROUND(PLHT-(ROUND(PLHT*0.8)))*2', 2],
+    ]
+    it.each(FORMAS_DO_BANCO)('a forma real %s avalia certo, com ROUND aninhado', (formula, esperado) => {
+        expect(valor(formula, { QTPAL: 24, PLHT: 7 })).toBe(esperado)
+    })
+
+    it('ROUND é o da planilha: o mais próximo, e a meia unidade vai para LONGE do zero (0,5 → 1; −0,5 → −1)', () => {
+        expect(valor('ROUND(0.5)')).toBe(1)
+        expect(valor('ROUND(0-0.5)')).toBe(-1)
+        expect(valor('ROUND(2.5)')).toBe(3)
+        expect(valor('ROUND(0-2.5)')).toBe(-3)
+        expect(valor('ROUND(1.5)')).toBe(2)
+        expect(valor('ROUND(2.4999)')).toBe(2)
+        expect(valor('ROUND(2.5001)')).toBe(3)
+        expect(valor('ROUND(0-2.4)')).toBe(-2)
+        expect(valor('ROUND(0-2.6)')).toBe(-3)
+        expect(valor('ROUND(7)')).toBe(7)
+        expect(valor('ROUND(0)')).toBe(0)
+    })
+
+    it('ROUND é EXATO: ROUND(1.005*100) é 101 — em ponto flutuante 1.005*100 = 100,49999… e daria 100', () => {
+        // medido em JavaScript: 1.005*100 = 100.49999999999999, e Math.round dá 100
+        expect(Math.round(1.005 * 100)).toBe(100)
+        expect(valor('ROUND(1.005*100)')).toBe(101)
+    })
+
+    it('ROUND não é ARREDMAIOR: 2,1 arredonda para 2 e sobe para 3 — um não substitui o outro', () => {
+        expect(valor('ROUND(2.1)')).toBe(2)
+        expect(valor('ARREDMAIOR(2.1)')).toBe(3)
+        expect(valor('ROUND(2.9)')).toBe(3)
+        expect(valor('ARREDMAIOR(2.9)')).toBe(3)
+    })
+
+    it('ROUND com dois argumentos é recusa nomeada: os dados não usam a casa decimal (medido: 0 de 3.195), e não se adivinha', () => {
+        expect(recusa('ROUND(2.55,1)')).toEqual(expect.objectContaining({ motivo: 'ARGUMENTOS_DA_FUNCAO', formula: 'ROUND(2.55,1)' }))
+        expect(recusa('ROUND(2.55,1)').mensagem).toContain('ROUND recebe 1')
+    })
+
+    it('ROUND de uma condição é recusa de tipo, não um número', () => {
+        expect(recusa('ROUND(1=1)')).toEqual(expect.objectContaining({ motivo: 'TIPO_ERRADO' }))
+    })
+
+    it('função realmente desconhecida continua falta nomeada, COM o nome dela — e a lista diz as três que existem', () => {
+        const r = recusa('TRUNC(QTPAL*0.8)', { QTPAL: 24 })
+        expect(r).toEqual(expect.objectContaining({ motivo: 'FUNCAO_DESCONHECIDA', formula: 'TRUNC(QTPAL*0.8)' }))
+        expect(r.mensagem).toContain('"TRUNC"')
+        expect(r.mensagem).toContain('IIF, ARREDMAIOR e ROUND')
+    })
+
+    it('a função desconhecida no ramo do IIF que NÃO roda também é recusada (conferida na leitura) — ROUND no ramo morto passa', () => {
+        expect(recusa('IIF(1=1,2,TRUNC(3))')).toEqual(expect.objectContaining({ motivo: 'FUNCAO_DESCONHECIDA' }))
+        expect(valor('IIF(1=1,2,ROUND(3.6))')).toBe(2)
+        expect(valor('IIF(1=2,2,ROUND(3.6))')).toBe(4)
+    })
+
+    it('and e or, nas formas REAIS do banco (minúscula, infixo, aninhado)', () => {
+        expect(valor('(TF=3) or (TF=4)', { TF: 4 })).toBe(true)
+        expect(valor('(TF=3) or (TF=4)', { TF: 2 })).toBe(false)
+        expect(valor('(MD=1) and (PP=37)', { MD: 1, PP: 37 })).toBe(true)
+        expect(valor('(MD=1) and (PP=37)', { MD: 1, PP: 38 })).toBe(false)
+        expect(valor('(MFX=1) and (M=2) and (N>1)', { MFX: 1, M: 2, N: 2 })).toBe(true)
+        expect(valor('(MFX=1) and (M=2) and (N>1)', { MFX: 1, M: 2, N: 1 })).toBe(false)
+        expect(valor('(ARRP=1) and ((ARI=1) or (ARI=2))', { ARRP: 1, ARI: 2 })).toBe(true)
+        expect(valor('(ARRP=1) and ((ARI=1) or (ARI=2))', { ARRP: 1, ARI: 3 })).toBe(false)
+        expect(valor('(ARRP=1) and ((ARI=1) or (ARI=2))', { ARRP: 2, ARI: 1 })).toBe(false)
+    })
+
+    it('AND maiúsculo não existe nos dados (medido: 0) e não é aceito por adivinhação: é recusa nomeada', () => {
+        expect(recusa('(1=1) AND (2=2)')).toEqual(expect.objectContaining({ motivo: 'NAO_PARSEIA' }))
+    })
+
+    it('A LINHA DO DEFEITO, de ponta a ponta: DP-07 com as fórmulas do banco, H = 1000, PP = 37, MD = 1 → 1318 com 38 e 1318.1 com 10', () => {
+        const t = sintetica({
+            formulas: [['Y', '0'], ['PP', '37'], ['MD', '1'], ['LEST', '500'], ['QTPAL', '(ARREDMAIOR((H-Y-130)/PP))']],
+            perfis: [
+                { perfil: '1318/WOLFF', qtd: 'ROUND(QTPAL*0.8)*2', medida: 'LEST', condicao: '(MD=1) and (PP=37)' },
+                { perfil: '1318.1/WOLFF', qtd: 'ROUND(QTPAL-(ROUND(QTPAL*0.8)))*2', medida: 'LEST', condicao: '(MD=1) and (PP=37)' },
+                { perfil: '1318.2/WOLFF', qtd: 'ROUND(QTPAL*0.8)', medida: 'LEST', condicao: '(MD=2) or (PP=40)' },
+            ],
+        })
+        const r = ok({ L_mm: 1200, H_mm: 1000 }, t as never)
+        expect(r.pecas.map((x) => [x.codigo, x.quantidade])).toEqual([['1318/WOLFF', 38], ['1318.1/WOLFF', 10]])
+    })
+})
+
 export {}
