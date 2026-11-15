@@ -296,11 +296,57 @@ function completarDoisCodigos(r: RecusaDaPonte, itens: readonly ItemDaTabela[]):
         falta: `dizer qual código é o perfil ${r.perfil} em ${r.cor}: ${lista.length > 1 ? `${lista.slice(0, -1).join(', ')} ou ${lista[lista.length - 1]}` : lista.join('')}` }
 }
 
+/**
+ * A TABELA DO FORNECEDOR DESEMPATA — dono do produto, 15/11/2026, registrado como foi dito:
+ *
+ *   "a regra que comanda é a relação de material de cada tipologia, o motor aplica os calculos e
+ *    formulas para definição de medidas e relacionando os materiais"
+ *
+ * A relação de material (a aba de perfis da tipologia) pede UM item. A aba derivada, a do de-para por barra, pode oferecer MAIS DE UM código
+ * de compra para o mesmo par (código do motor, cor): medido em 15/11/2026 no motor da Wolff, `BZ4556/WOLFF` em BRANCO dá `10271`
+ * (TRILHO CENTRAL - ALUMÍNIO) e `1027,1` (TRILHO CENTRAL - PVC) — o que os separa é o MATERIAL, não a cor nem a grafia.
+ *
+ * Quem decide qual deles a empresa compra é **o que ela cadastrou**: o candidato que NÃO está na tabela do fornecedor não é candidato.
+ * Sobrando UM, a ponte resolve nele. Sobrando mais de um, continua falta nomeada — agora só com os que existem, e nunca contando como
+ * "código na tabela do fornecedor" um que não está lá.
+ *
+ * O código NÃO se normaliza para isto (`docs/regras/codigo-do-motor-nao-se-normaliza.md`): `1027.1` não vira `10271`. Ele apenas sai da lista
+ * por não estar cadastrado.
+ */
+function candidatosNaTabela(r: RecusaDaPonte, itens: readonly ItemDaTabela[]): string[] {
+    return (r.candidatos ?? []).map((c) => c.codigo).filter((codigo) =>
+        candidatasDoDegrau('ponte', { codigoDoMotor: r.perfil ?? codigo, codigoDaPonte: codigo, descricaoDoMotor: null, corPedida: null },
+            itens, { cores: [], grupoDeCor: GRUPO_DE_COR.perfil }).candidatas.length > 0)
+}
+/**
+ * A recusa `DOIS_CODIGOS` depois de a tabela do fornecedor desempatar. Três desfechos:
+ *   - UM candidato cadastrado: ele é o código da ponte, e não há falta;
+ *   - NENHUM: a ponte não tem o que oferecer, e quem decide é a escada da resolução — a frase dela diz a verdade ("não está na tabela de
+ *     preço"), em vez de afirmar que há N códigos na tabela do fornecedor quando não há nenhum;
+ *   - DOIS OU MAIS cadastrados: falta nomeada, só com os que existem.
+ */
+type Desempate = { desfecho: 'um'; codigo: string } | { desfecho: 'nenhum' } | { desfecho: 'varios'; recusa: RecusaDaPonte }
+function desempatarPelaTabela(r: RecusaDaPonte, itens: readonly ItemDaTabela[]): Desempate {
+    const existem = candidatosNaTabela(r, itens)
+    if (existem.length === 1) return { desfecho: 'um', codigo: existem[0] }
+    if (existem.length === 0) return { desfecho: 'nenhum' }
+    return { desfecho: 'varios', recusa: { ...r, candidatos: (r.candidatos ?? []).filter((c) => existem.includes(c.codigo)) } }
+}
+
 /** A ponte, para quem quer só o código de uma peça. A recusa sai sem esquadria. */
 export function codigoDaPeca(perfil: string, cor: string, regras: readonly RegraDoDePara[], itens: readonly ItemDaTabela[] = []): ResultadoDaPonte {
     const p = ponte(perfil, cor, regras)
     if (!('recusa' in p)) return p
-    const r = p.recusa.motivo === 'DOIS_CODIGOS' ? completarDoisCodigos(p.recusa, itens) : p.recusa
+    if (p.recusa.motivo === 'DOIS_CODIGOS') {
+        const d = desempatarPelaTabela(p.recusa, itens)
+        if (d.desfecho === 'um') return { ok: true, codigo: d.codigo, origem: 'COR' }
+        if (d.desfecho === 'varios') {
+            const c = completarDoisCodigos(d.recusa, itens)
+            const { texto, ...resto } = c
+            return { ok: false, recusa: { ...resto, esquadrias: [], mensagem: maiuscula(texto) } }
+        }
+    }
+    const r = p.recusa
     const { texto, ...resto } = r
     return { ok: false, recusa: { ...resto, esquadrias: [], mensagem: maiuscula(texto) } }
 }
@@ -405,9 +451,15 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
         if (!('recusa' in p)) codigoDaPonte = p.codigo
         else if (p.recusa.motivo === 'COR_EM_DUAS_GRAFIAS') { for (const esquadria of esquadrias) parciais.push({ ...p.recusa, esquadria }); continue }
         else if (p.recusa.motivo === 'DOIS_CODIGOS') {
-            const r = completarDoisCodigos(p.recusa, entrada.itens)
-            faltar('PONTE_AMBIGUA', r.texto, (r.candidatos ?? []).map((c) => ({ codigo: c.codigo, descricao: c.descricao })))
-            continue
+            // a tabela do fornecedor desempata: o candidato que ela não tem não é candidato (ver `desempatarPelaTabela`)
+            const d = desempatarPelaTabela(p.recusa, entrada.itens)
+            if (d.desfecho === 'um') codigoDaPonte = d.codigo
+            else if (d.desfecho === 'varios') {
+                const r = completarDoisCodigos(d.recusa, entrada.itens)
+                faltar('PONTE_AMBIGUA', r.texto, (r.candidatos ?? []).map((c) => ({ codigo: c.codigo, descricao: c.descricao })))
+                continue
+            }
+            // 'nenhum': segue sem ponte; a escada resolve ou nomeia a falta com a frase que corresponde ao que achou
         }
         const r = resolverReferencia({ codigoDoMotor: perfil, codigoDaPonte, descricaoDoMotor: descricao, corPedida: cor }, entrada.itens, contexto)
         if (!('item' in r)) {
