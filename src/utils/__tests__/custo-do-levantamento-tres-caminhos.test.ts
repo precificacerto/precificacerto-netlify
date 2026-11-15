@@ -12,7 +12,7 @@ jest.mock('@/lib/atendimentos-ia/levantamento-da-conversa', () => ({
     mensagemDoCalculo: () => ({ texto: '', desfecho: 'levantou' }),
 }))
 jest.mock('@/lib/atendimentos-ia/tabelas-da-conta', () => ({
-    principaisDaConta: async (): Promise<unknown> => ({ principais: new Map([['FERRAGENS', 'detoni'], ['VIDRO', 'estrela']]), ambiguas: [] }),
+    principaisDaConta: async (): Promise<unknown> => ({ principais: new Map([['FERRAGENS', 'detoni'], ['VIDRO', 'estrela']]), ambiguas: [], seguintes: new Map() }),
 }))
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const S = () => require('@/lib/atendimentos-ia/custo-do-orcamento-servidor') as typeof import('@/lib/atendimentos-ia/custo-do-orcamento-servidor')

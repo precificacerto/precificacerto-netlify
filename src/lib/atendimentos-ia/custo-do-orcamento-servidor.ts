@@ -11,13 +11,18 @@
  * CATEGORIA de cada tabela (`principaisDaConta`), fora das categorias PERFIL e VIDRO; o VIDRO, nas tabelas da categoria VIDRO do principal
  * dela, pelo código escolhido (`vidro_codigo`) ou pela tradução do texto (`traduzirVidro`).
  *
+ * A DESCIDA DO INSUMO (dono do produto, 14/11/2026, tarefa 0010): não achando no principal, a busca DESCE os outros fornecedores da categoria
+ * na ordem do cadastro (`niveisDoInsumo`, `resolverDescendo`) e para no primeiro que resolve. Duas candidatas no mesmo degrau continuam falta
+ * nomeada, e a descida para ali; entre degraus, vence o de menor ordem. Não achando em nenhum, a falta diz em quantos fornecedores procurou.
+ * O VIDRO não desce nesta tarefa (um fornecedor só de VIDRO na conta medida).
+ *
  * O MODO é o fallback SEM aproveitamento: as barras de cada FAMÍLIA são rateadas entre as esquadrias dela (as barras de uma família não
  * entram na otimização da outra — a mesma regra da conversa).
  */
 import { calcularOLevantamento, mensagemDoCalculo, type EsquadriaGravada, type FamiliasDaEmpresa, type ItemDaFamilia } from './levantamento-da-conversa'
 import { custoDoOrcamento, valorDoMinuto, chaveDoMaterial, PERCENTUAIS, type CaminhoDoCusto, type CustoDoItem, type MaterialDaTabela, type Percentuais, type ResolucaoGravada } from './custo-do-orcamento'
 import type { ItemDaTabela } from './levantamento-de-barras'
-import { resolverReferencia, GRUPO_DE_COR } from './resolucao-de-referencia'
+import { resolverReferencia, GRUPO_DE_COR, type ContextoDaResolucao, type ReferenciaProcurada, type ResolucaoDeReferencia } from './resolucao-de-referencia'
 import { traduzirVidro } from './vidro-da-tabela'
 import { principaisDaConta, type PrincipaisDaConta } from './tabelas-da-conta'
 
@@ -65,6 +70,43 @@ export function materialDoItem(caminho: CaminhoDoCusto, codigoDoMotor: string, i
 export function escopoDoInsumo<I extends ItemDaFamilia>(todos: readonly I[], p: PrincipaisDaConta): I[] {
     return todos.filter((i) => i.categoria !== null && !CATEGORIAS_FORA_DO_INSUMO.has(i.categoria) && p.principais.get(i.categoria) === i.fornecedor_id)
 }
+/**
+ * Os DEGRAUS da descida do insumo: o primeiro é `escopoDoInsumo` (os principais); o k-ésimo seguinte junta, de cada categoria, o k-ésimo grupo
+ * de `seguintes` (os fornecedores daquela ordem). Uma categoria com menos grupos simplesmente não entra nos degraus de baixo.
+ */
+export function niveisDoInsumo<I extends ItemDaFamilia>(todos: readonly I[], p: PrincipaisDaConta): I[][] {
+    const profundidade = Math.max(0, ...[...p.seguintes.values()].map((g) => g.length))
+    const niveis: I[][] = [escopoDoInsumo(todos, p)]
+    for (let k = 0; k < profundidade; k++) {
+        niveis.push(todos.filter((i) => i.categoria !== null && !CATEGORIAS_FORA_DO_INSUMO.has(i.categoria) && (p.seguintes.get(i.categoria)?.[k] ?? []).includes(i.fornecedor_id)))
+    }
+    return niveis
+}
+/** "procurado em 3 fornecedores, na ordem cadastrada" — o que a falta da descida acrescenta à frase. */
+export const fraseDosFornecedoresProcurados = (n: number) =>
+    n === 0 ? 'nenhum fornecedor das categorias do insumo tem tabela com itens' : `procurado em ${n} fornecedor${n === 1 ? '' : 'es'}, na ordem cadastrada`
+/**
+ * A RESOLUÇÃO QUE DESCE: degrau a degrau, a mesma `resolverReferencia` (com o guarda da descrição em cada um). Achou → para. `AMBIGUA` → para
+ * com a falta (duas candidatas no mesmo degrau não se escolhem). Qualquer outra falta → desce. Sem achar em nenhum, a falta é a primeira que
+ * não seja `NAO_ACHADA` (é ela que explica por que um fornecedor quase serviu), ou `NAO_ACHADA`; e a frase diz quantos fornecedores foram vistos.
+ */
+export function resolverDescendo<I extends ItemDaFamilia>(ref: ReferenciaProcurada, niveis: ReadonlyArray<readonly I[]>, ctx: ContextoDaResolucao): ResolucaoDeReferencia<I> {
+    const vistos = new Set<string>()
+    let primeira: Extract<ResolucaoDeReferencia<I>, { achada: false }> | null = null
+    let explica: Extract<ResolucaoDeReferencia<I>, { achada: false }> | null = null
+    const comContagem = (f: Extract<ResolucaoDeReferencia<I>, { achada: false }>) => ({ ...f, frase: `${f.frase} — ${fraseDosFornecedoresProcurados(vistos.size)}` })
+    for (const nivel of niveis) {
+        if (nivel.length === 0) continue
+        for (const i of nivel) vistos.add(i.fornecedor_id)
+        const r = resolverReferencia(ref, nivel, ctx)
+        if ('item' in r) return r
+        if (r.motivo === 'AMBIGUA') return comContagem(r)
+        if (primeira === null) primeira = r
+        if (explica === null && r.motivo !== 'NAO_ACHADA') explica = r
+    }
+    const f = explica ?? primeira ?? resolverReferencia(ref, [] as I[], ctx)
+    return 'item' in f ? f : comContagem(f)
+}
 /** Os itens do escopo do VIDRO: as tabelas da categoria VIDRO do fornecedor principal dela. */
 export function escopoDoVidro<I extends ItemDaFamilia>(todos: readonly I[], p: PrincipaisDaConta): I[] {
     const principal = p.principais.get('VIDRO')
@@ -105,14 +147,14 @@ export async function custoDoLevantamento(tenantId: string, fonte: FamiliasDaEmp
         for (const [codigo, { item, como }] of Object.entries(calculo.r.resolucoes)) materiais[chaveDoMaterial('perfil', codigo)] = materialDoItem('perfil', codigo, item, como)
         for (const f of calculo.r.faltas) faltar(f.esquadria, { caminho: 'perfil', codigo_do_motor: f.codigo_do_motor, descricao_do_motor: f.descricao_do_motor, motivo: f.motivo, frase: f.frase, candidatas: f.candidatas })
 
-        // INSUMO: uma resolução por código, no escopo do principal da categoria
-        const insumos = escopoDoInsumo(calculo.daFamilia.todos, principais)
+        // INSUMO: uma resolução por código, descendo a ordem dos fornecedores da categoria (o principal primeiro)
+        const niveis = niveisDoInsumo(calculo.daFamilia.todos, principais)
         const contexto = { cores: calculo.cores, grupoDeCor: GRUPO_DE_COR.insumo }
         const resolvidos = new Map<string, ReturnType<typeof resolverReferencia<ItemDaFamilia>>>()
         calculo.r.esquadrias.forEach((e, j0) => {
             for (const i of e.insumos) {
                 if (!resolvidos.has(i.codigo)) {
-                    resolvidos.set(i.codigo, resolverReferencia({ codigoDoMotor: i.codigo, codigoDaPonte: null, descricaoDoMotor: i.descricao, corPedida: cor }, insumos, contexto))
+                    resolvidos.set(i.codigo, resolverDescendo({ codigoDoMotor: i.codigo, codigoDaPonte: null, descricaoDoMotor: i.descricao, corPedida: cor }, niveis, contexto))
                 }
                 const r = resolvidos.get(i.codigo)!
                 if ('item' in r) materiais[chaveDoMaterial('insumo', i.codigo)] = materialDoItem('insumo', i.codigo, r.item, r.como)
