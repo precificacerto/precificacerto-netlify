@@ -78,13 +78,13 @@ function dp02() {
     return r.tipologia
 }
 /** Uma tipologia mínima, escrita à mão, para os casos que precisam de um perfil que a DP-02 não tem. */
-function tipologiaDeUmPerfil(codigo: string, perfil: string): import('@/lib/atendimentos-ia/avaliador-de-formulas').Tipologia {
+function tipologiaDeUmPerfil(codigo: string, perfil: string, descricao = 'PEÇA DE TESTE'): import('@/lib/atendimentos-ia/avaliador-de-formulas').Tipologia {
     return {
         codigo,
         detalhe: { larg_min_mm: null, larg_max_mm: null, alt_min_mm: null, alt_max_mm: null },
         variaveis: [],
         formulas: [],
-        perfis: [{ perfil, descricao: 'PEÇA DE TESTE', corte: '90/90', qtd: '1', medida: 'L', posicao: 'Largura', esp_vidro: null, condicao: 'sempre' }],
+        perfis: [{ perfil, descricao, corte: '90/90', qtd: '1', medida: 'L', posicao: 'Largura', esp_vidro: null, condicao: 'sempre' }],
         validacoes: [],
     }
 }
@@ -219,6 +219,37 @@ describe('(4) o código do item: um valor por código', () => {
         expect(x.frase).toContain(L().formatarReais(209.85989999999998))
         expect(x.frase).toContain(L().formatarReais(1055.25))
         expect(r.total.n_barras).toBe(0)
+    })
+
+    // A TABELA DO FORNECEDOR DESEMPATA — dono do produto, 15/11/2026: "a regra que comanda é a relação de material de cada tipologia".
+    // A relação de material pede UM item; a aba derivada do de-para pode oferecer dois códigos de compra para o mesmo par (perfil, cor) —
+    // medido no motor da Wolff: BZ4556/WOLFF em BRANCO dá 10271 (TRILHO CENTRAL - ALUMÍNIO) e 1027,1 (o mesmo em PVC). Quem decide qual a
+    // empresa compra é o que ELA cadastrou.
+    it('DOIS CÓDIGOS na regra e SÓ UM na tabela do fornecedor: a ponte resolve no que existe, SEM falta (o caso do BZ4556 em produção)', () => {
+        // a descrição que o motor dá a este perfil, medida em 15/11/2026: "GUIA CENTRAL" (a tabela o chama de "TRILHO CENTRAL")
+        const tipologias = { 'T-BZ4556': tipologiaDeUmPerfil('T-BZ4556', 'BZ4556/WOLFF', 'GUIA CENTRAL') }
+        // a tabela da empresa tem só o de alumínio: o 1027.1 (PVC) não está cadastrado
+        const itens = ITENS.filter((i) => i.codigo !== '1027.1')
+        const r = ok([esquadria({ tipologia: 'T-BZ4556', escolhas: {} })], { tipologias, itens })
+        expect(faltasDe(r)).toEqual([])
+        expect(r.por_codigo.map((c) => c.codigo)).toContain('10271')
+        expect(L().codigoDaPeca('BZ4556/WOLFF', 'BRANCO', REGRAS, itens)).toEqual({ ok: true, codigo: '10271', origem: 'COR' })
+    })
+
+    it('o código que não está na tabela NÃO é contado como código do fornecedor na frase da falta', () => {
+        // sem nenhum dos dois cadastrados, a falta continua — mas pelo caminho da resolução, não como "2 códigos na tabela"
+        const tipologias = { 'T-BZ4556': tipologiaDeUmPerfil('T-BZ4556', 'BZ4556/WOLFF', 'GUIA CENTRAL') }
+        const itens = ITENS.filter((i) => i.codigo !== '1027.1' && i.codigo !== '10271')
+        const r = ok([esquadria({ tipologia: 'T-BZ4556', escolhas: {} })], { tipologias, itens })
+        expect(r.faltas).toHaveLength(1)
+        expect(r.faltas[0].frase).not.toContain('2 códigos na tabela do fornecedor')
+    })
+
+    // o ponto NUNCA se dissolve: 1027.1 não é "1027 + a cor 1" (`codigo-do-motor-nao-se-normaliza.md`)
+    it('com os DOIS cadastrados, continua falta: o ponto não junta os códigos', () => {
+        const r = ok([esquadria({ tipologia: 'T-BZ4556', escolhas: {} })], { tipologias: { 'T-BZ4556': tipologiaDeUmPerfil('T-BZ4556', 'BZ4556/WOLFF') } })
+        expect(faltasDe(r)).toEqual([['PONTE_AMBIGUA', 'BZ4556/WOLFF', 1]])
+        expect(r.faltas[0].candidatas.map((c) => c.codigo)).toEqual(['1027.1', '10271'])
     })
 
     it('DOIS CÓDIGOS COM O MESMO PREÇO também é falta: nenhum dos dois entra', () => {
