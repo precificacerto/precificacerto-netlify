@@ -400,7 +400,7 @@ const ALTURA_DO_FECHO = 40
  * catálogo e o bloco OBSERVAÇÕES com texto livre); `observacoes-por-variaveis-2026-11-16` é esta — o bloco passou a
  * ser MONTADO das variáveis da base de conhecimento (prazos, validade, exclusões, parcelas do pagamento).
  */
-export const VERSAO_DO_ARQUIVO = 'definicoes-e-entrega-nas-observacoes-2026-11-16'
+export const VERSAO_DO_ARQUIVO = 'definicoes-entrega-e-rodape-2026-11-16'
 
 /** As linhas das faltas (1.5): uma por código, com os itens. */
 export function linhasDasFaltasDoArquivo(faltas: readonly FaltaDoArquivo[]): string[] {
@@ -441,6 +441,9 @@ function fecho(doc: Doc, d: DadosDoArquivoDoOrcamento, y: number) {
     fonte(doc, 'bold', 8); doc.text(d.empresa.razaoSocial, A4.margem, y + 34)
 }
 
+/** O rodapé de cada página: "Página 1 de 2", e mais nada. */
+export const rodapeDaPagina = (p: number, paginas: number) => `Página ${p} de ${paginas}`
+
 /** O arquivo do orçamento: confere, desenha e pagina. Recusa nomeada quando falta dado — nunca um arquivo aproximado. */
 export function gerarArquivoDoOrcamento(d: DadosDoArquivoDoOrcamento): ArquivoGerado | ArquivoRecusado {
     const recusas = conferirArquivoDoOrcamento(d)
@@ -474,7 +477,8 @@ export function gerarArquivoDoOrcamento(d: DadosDoArquivoDoOrcamento): ArquivoGe
     for (let p = 1; p <= paginas; p++) {
         doc.setPage(p)
         fonte(doc, 'normal', 7); doc.setTextColor(CINZA)
-        doc.text(`Orçamento ${d.numero} · Página ${p} de ${paginas}`, A4.margem + LARGURA / 2, A4.altura - A4.margem, { align: 'center' })
+        // só a página (dono do produto, 16/11/2026: "remova do rodapé o número do orçamento [...] Página 1 de 2, só isso")
+        doc.text(rodapeDaPagina(p, paginas), A4.margem + LARGURA / 2, A4.altura - A4.margem, { align: 'center' })
         doc.setTextColor(0)
     }
     doc.setProperties({ title: `Orçamento ${d.numero} — ${d.cliente.nome}`, creator: 'Precifica Certo' })
