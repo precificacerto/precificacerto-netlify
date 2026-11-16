@@ -43,7 +43,7 @@ export type Percentuais = Record<Percentual, number | null>
 
 export type CaminhoDoCusto = 'perfil' | 'insumo' | 'vidro'
 /** Como o preço foi achado: os degraus da resolução de referência e, no vidro, o código escolhido ou o texto traduzido (20261112000006). */
-export type ResolucaoGravada = ComoAchou | 'vidro_escolhido' | 'vidro_traduzido'
+export type ResolucaoGravada = ComoAchou | 'vidro_escolhido' | 'vidro_traduzido' | 'vidro_padrao'
 /** A chave de um material: o mesmo código pode entrar por dois caminhos (a UNIQUE da 20261112000006 inclui o caminho). */
 export const chaveDoMaterial = (caminho: CaminhoDoCusto, codigo: string) => `${caminho}:${codigo}`
 
