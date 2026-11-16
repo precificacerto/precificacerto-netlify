@@ -1170,9 +1170,8 @@ export const Content: FC<ContentProps> = ({
       }
 
       // o orçamento I.A. como produto: o código e o nome são do orçamento, a tabela é a do vendedor, e a quantidade é 1 (o total do orçamento)
-      const values = alvo
-        ? { ...productForm.getFieldsValue(), id: undefined, code: alvo.codigo, name: alvo.nome, commission_table_id: alvo.tabelaId, quantity: 1, unitType: 'UN' }
-        : productForm.getFieldsValue()
+      const values = productForm.getFieldsValue()
+      if (alvo) Object.assign(values, { id: undefined, code: alvo.codigo, name: alvo.nome, commission_table_id: alvo.tabelaId, quantity: 1, unitType: 'UN' })
       const tenantId = await getTenantId()
       if (!tenantId) {
         if (alvo) return 'não foi possível identificar a empresa'
