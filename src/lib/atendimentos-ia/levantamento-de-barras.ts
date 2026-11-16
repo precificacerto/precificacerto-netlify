@@ -97,6 +97,11 @@ export type ItemDaTabela = {
     valor_metro_interno: number | null
     /** A unidade e o bloco tributário: o cálculo das barras não os lê; o custo do orçamento I.A. por item, sim. Ausente é nulo. */
     unidade?: string | null
+    /**
+     * COMO O FORNECEDOR VENDE o item: `barra` (um rolo/barra de `medida_barra_m` metros) ou `unidade` (a peça). É o que diz, no caminho do
+     * INSUMO, se o consumo que o motor pede é COMPRIMENTO em milímetros (barra) ou CONTAGEM de peças (unidade) — ver `custo-do-orcamento.ts`.
+     */
+    vendido_por?: string | null
     /** O custo do item: o bruto da UNIDADE do insumo e do m² do vidro (dono do produto, 12/11/2026: "para item vendido por unidade, o bruto é `custo`"). */
     custo?: number | null
     cred_icms_pct?: number | null

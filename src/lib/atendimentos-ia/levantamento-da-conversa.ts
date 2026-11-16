@@ -521,7 +521,7 @@ export async function lerVariaveisDasTipologias(motorId: string): Promise<Record
  * coluna antiga `ipi` NÃO entra (dono do produto, 09/11/2026: duas fontes para o mesmo número).
  */
 export const COLUNAS_DO_ITEM_DA_TABELA =
-    'codigo, descricao, unidade, medida_barra_m, custo, valor_barra_interno, valor_metro_interno, cred_icms_pct, cred_pis_cofins_pct, cred_ipi_pct, nc_ipi_pct, cred_ibs_pct, cred_cbs_pct'
+    'codigo, descricao, unidade, vendido_por, medida_barra_m, custo, valor_barra_interno, valor_metro_interno, cred_icms_pct, cred_pis_cofins_pct, cred_ipi_pct, nc_ipi_pct, cred_ibs_pct, cred_cbs_pct'
 /**
  * OS ITENS NO ESCOPO DA RESOLUÇÃO (dono do produto, 12/11/2026: "escopo primeiro, sempre"): das tabelas que valem para a família, só os itens
  * das do FORNECEDOR e de uma FAMÍLIA do motor (`tabelaNoEscopo`). PROVA: o 8384 da tabela é uma cremona da Celsus; o 8384/WOLFF do motor é a

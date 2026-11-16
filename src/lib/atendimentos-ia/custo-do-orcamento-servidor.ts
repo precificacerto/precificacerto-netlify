@@ -69,6 +69,7 @@ export function materialDoItem(caminho: CaminhoDoCusto, codigoDoMotor: string, i
     return {
         caminho, codigo: codigoDoMotor, codigo_na_tabela: i.codigo, resolucao: como, descricao: i.descricao ?? null, unidade: i.unidade ?? null,
         medida_barra_m: numeroOuNulo(i.medida_barra_m), valor_barra_interno: numeroOuNulo(i.valor_barra_interno), custo: numeroOuNulo(i.custo), bloco,
+        vendido_por: typeof i.vendido_por === 'string' && i.vendido_por.trim() !== '' ? i.vendido_por.trim().toLowerCase() : null,
     }
 }
 

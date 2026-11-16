@@ -89,6 +89,25 @@ describe('o custo pelos três caminhos, no servidor', () => {
         c.calculos[0].daFamilia.todos = [...ITENS, { ...ITENS[1], codigo: 'VIN06', descricao: 'VIDRO COMUM INCOLOR 06MM', custo: 90 }]
         c.lev.itens[0].vidro = 'incolor'
     }
+    /**
+     * O `vendido_por` TEM DE CHEGAR do item da tabela até o material (16/11/2026): é ele que diz que o insumo é comprado em ROLO e que o
+     * consumo do motor está em milímetros. Perdido no caminho, a escova voltaria a ser cobrada a preço de rolo por milímetro.
+     */
+    it('o insumo em ROLO lido da TABELA: o vendido_por chega ao material e o custo sai por metro', async () => {
+        const c = calculo.valor as { lev: { itens: Array<Record<string, unknown>> }; calculos: Array<{ daFamilia: { todos: unknown[] }; r: { esquadrias: Array<Record<string, unknown>> } }> }
+        c.calculos[0].daFamilia.todos = [...ITENS, {
+            codigo: '946/WOLFF', descricao: 'ESCOVA DE VEDAÇÃO COM BARREIRA 6X7MM', custo: 613.872, unidade: 'MT', vendido_por: 'barra',
+            medida_barra_m: 300, valor_barra_interno: 613.872, valor_metro_interno: 2.04624, tabela_id: 't3', fornecedor_id: 'detoni', categoria: 'FERRAGENS', ...BLOCO,
+        }]
+        c.calculos[0].r.esquadrias[0].insumos = [{ codigo: '946/WOLFF', descricao: 'ESCOVA', quantidade: 25976 }]
+        const r = await ok()
+        const l = r.itens[0].materiais.find((m) => m.caminho === 'insumo')!
+        expect([l.codigo, l.medida_unidade, l.unidade_compra]).toEqual(['946/WOLFF', 300, 'MT'])
+        // a esquadria tem 3 unidades: 3 × 25.976 mm = 77,928 m
+        expect(l.consumo_item).toBeCloseTo(77.928, 9)
+        expect(l.custo_bruto_material).toBeCloseTo(77.928 * (613.872 / 300), 9)
+        expect(l.custo_bruto_material).toBeLessThan(170)
+    })
     it('o PADRÃO da empresa desempata o vidro que bate com dois itens, e a resolução é vidro_padrao', async () => {
         comDoisIncolores()
         padroes.codigos = ['VIN06']
