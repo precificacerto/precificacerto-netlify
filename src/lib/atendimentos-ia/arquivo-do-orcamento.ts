@@ -89,14 +89,6 @@ export type ItemDoArquivo = {
 }
 /** Uma falta de preço, como o arquivo a lista: o código, o que falta e as esquadrias (pela ORDEM do item). */
 export type FaltaDoArquivo = { codigo: string; frase: string; itens: number[] }
-/** O que vai ao VENDEDOR (4.3): sem reais — barras, aproveitamento e minutos. */
-export type ParaOVendedor = {
-    barras: Array<{ codigo: string; descricao: string | null; n_barras: number; comprimento_m: number | null }>
-    /** Nulo quando não há perfil para aproveitar. */
-    aproveitamento: { pct: number; metros_uteis: number; metros_comprados: number } | null
-    /** Os minutos de fabricação de cada item, pela ordem; nulo = sem tempo gravado. */
-    minutos: Array<{ ordem: number; minutos: number | null }>
-}
 export type DadosDoArquivoDoOrcamento = {
     empresa: EmpresaDoArquivo
     numero: number
@@ -115,7 +107,6 @@ export type DadosDoArquivoDoOrcamento = {
     geradoEm: Date
     /** As faltas de preço do cálculo vigente; vazia = o orçamento está completo. */
     faltas: FaltaDoArquivo[]
-    paraOVendedor: ParaOVendedor | null
 }
 export type ArquivoGerado = { ok: true; pdf: Uint8Array; paginas: number; nomeDoArquivo: string }
 export type ArquivoRecusado = { ok: false; recusas: string[] }
@@ -138,9 +129,6 @@ export const nomeDoArquivo = (numero: number, cliente: string) =>
 
 // ── O PARCIAL E A GUARDA DO CLIENTE ────────────────────────────────────────────────────────────────────────────────────────────────
 export const carimboDoParcial = (n: number) => `PARCIAL — ${n === 1 ? 'falta 1 valor' : `faltam ${n} valores`}`
-/** O que este orçamento cobre — o texto do arquivo (o da conversa fala só do levantamento, que é de perfis). */
-export const O_QUE_O_ORCAMENTO_COBRE = 'O que este preço cobre: os perfis (o baguete incluído), os insumos e acessórios (ferragens, escovas, calços e '
-    + 'outros) e o vidro, pelas tabelas dos fornecedores, e a mão de obra. O que não tem preço na tabela fica FORA do total e está listado como falta.'
 /** A guarda do envio ao CLIENTE (1.5): escrita e desligada por decisão do dono do produto. Ligar é trocar esta constante. */
 export const GUARDA_DO_ENVIO_AO_CLIENTE_LIGADA = false
 export const fraseDoParcialAoCliente = (numero: number, n: number) =>
@@ -195,6 +183,26 @@ const LARGURA_DO_TEXTO = LARGURA - LARGURA_DO_DESENHO - 2
 
 const fonte = (doc: Doc, peso: 'normal' | 'bold', corpo: number) => { doc.setFont('helvetica', peso); doc.setFontSize(corpo) }
 const quebrar = (doc: Doc, t: string, w: number) => (t === '' ? [''] : (doc.splitTextToSize(t, w) as string[]))
+/**
+ * UM NÚMERO NUNCA SAI CORTADO (dono do produto, 16/11/2026): a célula da tabela do item desenhava `quebrar(...)[0]` — a PRIMEIRA linha da
+ * quebra. "R$ 28.384.389,74" não cabe nos 23 mm da coluna, quebra em ["R$", "28.384.389,74"] e o PDF imprimia só **"R$"**, sem valor
+ * nenhum, exatamente como foi visto no ORC-6 (itens 1, 3 e 5 com o preço em branco e o total somando tudo).
+ *
+ * Agora o texto ENCOLHE até caber, de 7,5 pt até 4,5 pt. Abaixo disso ele é cortado COM reticência, que é sinal visível — nunca um valor
+ * que some em silêncio. Deixa a fonte do documento no tamanho em que a achou.
+ */
+function textoQueCabe(doc: Doc, t: string, x: number, y: number, w: number, alinha: 'left' | 'center' | 'right', corpo = 7.5) {
+    if (t === '') return
+    for (let tamanho = corpo; tamanho >= 4.5; tamanho -= 0.5) {
+        fonte(doc, 'normal', tamanho)
+        if (doc.getTextWidth(t) <= w) { doc.text(t, x, y, { align: alinha }); fonte(doc, 'normal', corpo); return }
+    }
+    fonte(doc, 'normal', 4.5)
+    let cortado = t
+    while (cortado.length > 1 && doc.getTextWidth(`${cortado}…`) > w) cortado = cortado.slice(0, -1)
+    doc.text(`${cortado}…`, x, y, { align: alinha })
+    fonte(doc, 'normal', corpo)
+}
 /** "RÓTULO: valor" numa linha: o rótulo em negrito, o valor normal ao lado (o vazio deixa só o rótulo). */
 function campo(doc: Doc, rotulo: string, valor: string, x: number, y: number, corpo = 7.5) {
     fonte(doc, 'bold', corpo); doc.text(rotulo, x, y)
@@ -294,7 +302,7 @@ function blocoDoItem(doc: Doc, i: ItemDoArquivo, r: ItemRateado, y: number, data
         doc.setFillColor(245, 245, 245); doc.rect(cx, ty, c.w, 5.2, 'FD'); doc.rect(cx, ty + 5.2, c.w, 5.2)
         const xt = c.alinha === 'center' ? cx + c.w / 2 : c.alinha === 'right' ? cx + c.w - 1.2 : cx + 1.2
         fonte(doc, 'bold', 6.5); doc.text(c.titulo, xt, ty + 3.6, { align: c.alinha })
-        fonte(doc, 'normal', 7.5); doc.text(quebrar(doc, valores[k], c.w - 2.4)[0], xt, ty + 8.8, { align: c.alinha })
+        textoQueCabe(doc, valores[k], xt, ty + 8.8, c.w - 2.4, c.alinha)
         cx += c.w
     })
     // a observação do item, em vermelho
@@ -325,19 +333,9 @@ const alturaDasObservacoes = (doc: Doc, d: DadosDoArquivoDoOrcamento) => {
 }
 const ALTURA_DO_FECHO = 40
 
-const numeroBR = (n: number, casas: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas })
 /** As linhas das faltas (1.5): uma por código, com os itens. */
 export function linhasDasFaltasDoArquivo(faltas: readonly FaltaDoArquivo[]): string[] {
     return faltas.map((f) => `• ${f.codigo} (${f.itens.length > 1 ? 'itens' : 'item'} ${f.itens.join(', ')}): ${f.frase.replace(/\.$/, '')}.`)
-}
-/** As linhas do que vai ao vendedor (4.3): barras, aproveitamento, minutos e o que o preço cobre. */
-export function linhasParaOVendedor(v: ParaOVendedor): string[] {
-    const linhas = ['Barras por código:', ...v.barras.map((b) => `• ${b.codigo}${b.descricao ? ` (${b.descricao})` : ''}: ${b.n_barras} barra(s)${b.comprimento_m ? ` de ${numeroBR(b.comprimento_m, 2)} m` : ''}`)]
-    linhas.push(v.aproveitamento === null ? 'Aproveitamento: não há peça para aproveitar.'
-        : `Aproveitamento: ${numeroBR(v.aproveitamento.pct, 1)}% (${numeroBR(v.aproveitamento.metros_uteis, 2)} m úteis de ${numeroBR(v.aproveitamento.metros_comprados, 2)} m comprados).`)
-    linhas.push(`Mão de obra: ${v.minutos.map((m) => `item ${m.ordem}: ${m.minutos === null ? 'sem tempo' : `${numeroBR(m.minutos, 0)} min`}`).join(' · ')}.`)
-    linhas.push(O_QUE_O_ORCAMENTO_COBRE)
-    return linhas
 }
 /** Um bloco de texto com título, em caixa: mede (sem `desenhar`) ou desenha. Devolve a altura. */
 function blocoDeTexto(doc: Doc, titulo: string, linhas: readonly string[], y: number, desenhar: boolean, cor: [number, number, number] | null = null): number {
@@ -389,10 +387,9 @@ export function gerarArquivoDoOrcamento(d: DadosDoArquivoDoOrcamento): ArquivoGe
         if (y + h > FIM) { doc.addPage('a4', 'portrait'); y = A4.margem }
         y = blocoDoItem(doc, i, doRateio.get(i.ordem) as ItemRateado, y, entrega)
     }
-    // as faltas e o que vai ao vendedor, depois dos itens; cada bloco na página em que cabe
+    // as faltas, depois dos itens, na página em que cabem (o bloco PARA O VENDEDOR saiu em 16/11/2026, por decisão do dono do produto)
     const blocos: Array<[string, string[], [number, number, number] | null]> = []
     if (d.faltas.length) blocos.push([`FALTAS DE PREÇO — ${carimboDoParcial(d.faltas.length)} (fora do total)`, linhasDasFaltasDoArquivo(d.faltas), VERMELHO])
-    if (d.paraOVendedor) blocos.push(['PARA O VENDEDOR', linhasParaOVendedor(d.paraOVendedor), null])
     for (const [titulo, linhas, cor] of blocos) {
         if (y + blocoDeTexto(doc, titulo, linhas, y, false) > FIM) { doc.addPage('a4', 'portrait'); y = A4.margem }
         y += blocoDeTexto(doc, titulo, linhas, y, true, cor)

@@ -10,17 +10,20 @@
  *       total do item               = custo de fabricação + custo líquido do item
  *   - O VALOR DO MINUTO é o da tela de produto: custo mensal da mão de obra ÷ minutos produtivos do mês — o `costPerMinute` de
  *     `calculatePricing` (`pricing-engine.ts:544`). Na De Paula, 40.813,03 ÷ 52.800 = 0,772974. NÃO é `productive_value_per_minute`.
- *   - O MODO É SEM APROVEITAMENTO (barra inteira), com origem `fallback_barra_inteira`: a base de conhecimento ainda não tem o campo do
- *     modo (medido em 09/11/2026), e "o fallback nunca pode ser o que barateia" (dono do produto). O rateio é POR CÓDIGO, na proporção
- *     do consumo daquele código em cada item, nunca por metro global nem pelo aproveitamento em metros (`custo-liquido-por-fracao.md`).
+ *   - O ORÇAMENTO COBRA O CONSUMO (dono do produto, 16/11/2026; REVOGA a barra inteira de 09/11/2026): o custo de cada item são os METROS
+ *     que ELE consome × o preço do metro. Nada de barra inteira, nada de rateio entre os itens — "ele deve considerar somente o consumo,
+ *     porque ele não sabe ainda se ocorrerá o aproveitamento". O aproveitamento real (uma barra de 6 m servindo duas ou três tipologias) é
+ *     do RELATÓRIO DE BARRAS do pedido, depois do fechamento. O modo continua `SEM`; a origem é `consumo_do_item`.
  *   - O LÍQUIDO DA UNIDADE é a CASCATA de `recalcularBloco` (ICMS sobre o bruto, PIS/COFINS sobre o saldo, IPI creditável com base
  *     própria, IPI sem crédito no custo), na unidade de compra; a fração divide depois (`custoLiquidoDaFracao`).
  *   - A FALTA SEMPRE VISÍVEL, E O FALLBACK QUE NÃO BARATEIA (decisão (b), 09/11/2026): IBS/CBS nulos não travam; ICMS e PIS/COFINS em
  *     cascata parcial (sem PIS/COFINS para depois do ICMS; sem ICMS, o líquido é o bruto); a linha nomeia QUAL crédito faltou. As
  *     CHECKs `..._falta_nomeada` e `..._sem_credito_nao_barateia` (migração 20261109000003) prendem o mesmo no banco.
  *   - OS TRÊS CAMINHOS (dono do produto, 12/11/2026, o comando único), separados aqui e em nenhum outro lugar:
- *       PERFIL → a barra inteira rateada por milímetro (o de sempre);
- *       INSUMO → a quantidade × o custo da unidade (`custo` do item: "para item vendido por unidade, o bruto é custo") × a cascata;
+ *       PERFIL → os metros consumidos pelo item × o preço do metro (16/11/2026);
+ *       INSUMO → por PEÇA (`vendido_por = 'unidade'`): a quantidade × o custo da unidade × a cascata. Por ROLO/BARRA
+ *                (`vendido_por = 'barra'`, 16/11/2026): o motor pede MILÍMETROS e o `custo` é o do rolo inteiro, então é
+ *                (mm ÷ 1000) × (líquido do rolo ÷ `medida_barra_m`) — `insumoPorComprimento`;
  *       VIDRO  → os m² × o preço por m² (`custo` do item) × a cascata. O `custo` da categoria VIDRO é R$/m² PELA CATEGORIA: `unidade = 'PC'` e
  *                `vendido_por = 'unidade'` nos itens da Estrela estão errados (`docs/regras/vidro-por-metro-quadrado.md`).
  *   - FALTA DE PREÇO NÃO IMPEDE A EVOLUÇÃO (12/11/2026, substitui o "nada evolui"): o código sem preço fica FORA do custo e sai em `faltas`,
@@ -32,9 +35,19 @@
 import { recalcularBloco, custoLiquidoDaFracao, blocoVazio } from '@/utils/atendimentos-ia-bloco-tributario'
 import type { ComoAchou } from '@/lib/atendimentos-ia/resolucao-de-referencia'
 
+/**
+ * O ORÇAMENTO COBRA O CONSUMO (dono do produto, 16/11/2026, registrado como foi dito): "quando a gente faz a criação, a concepção do
+ * orçamento, ele deve considerar SOMENTE O CONSUMO, porque ele não sabe ainda se ocorrerá o aproveitamento. [...] Posteriormente a isso, a
+ * gente faz o relatório de barras de cada pedido [...] a barra de 6 metros pode ser dividida em 2 ou 3 tipologias, dependendo do consumo de
+ * cada perfil."
+ *
+ * O modo continua `SEM`: o orçamento NÃO junta sobra entre tipologias — ele apenas não cobra a sobra, porque não sabe se ela será
+ * aproveitada. A origem passa a ser `consumo_do_item` (migração 20261116000001), que REVOGA o `fallback_barra_inteira` de 09/11/2026 para
+ * o orçamento. Os orçamentos gravados com a origem antiga ficam como estão: nada se recalcula para trás.
+ */
 export const MODO_DO_FALLBACK = 'SEM' as const
-export const ORIGEM_DO_FALLBACK = 'fallback_barra_inteira' as const
-export const MOTIVO_DO_FALLBACK = 'a base de conhecimento ainda nao tem o modo de aproveitamento: barra inteira, que nunca barateia'
+export const ORIGEM_DO_FALLBACK = 'consumo_do_item' as const
+export const MOTIVO_DO_FALLBACK = 'o orcamento cobra o consumo de cada item: o aproveitamento de barras e do relatorio do pedido, depois do fechamento'
 
 /** Os seis percentuais do bloco que o item e o material guardam, com os nomes de `orcamentista_tabela_item`. */
 export const PERCENTUAIS = ['cred_icms_pct', 'cred_pis_cofins_pct', 'cred_ipi_pct', 'nc_ipi_pct', 'cred_ibs_pct', 'cred_cbs_pct'] as const
@@ -42,6 +55,21 @@ export type Percentual = (typeof PERCENTUAIS)[number]
 export type Percentuais = Record<Percentual, number | null>
 
 export type CaminhoDoCusto = 'perfil' | 'insumo' | 'vidro'
+/**
+ * O INSUMO QUE SE COMPRA EM ROLO OU BARRA (dono do produto, 16/11/2026, medido no ORC-6): `vendido_por = 'barra'` com `medida_barra_m`
+ * preenchida. Para ele, a unidade de compra NÃO é a peça: é um rolo de N metros, e o `custo` do item é o do ROLO INTEIRO (a escova
+ * 946/WOLFF é um rolo de 300 m a R$ 613,87). O motor pede esses insumos por FÓRMULA DE COMPRIMENTO, em milímetros
+ * (`(((LFOL*2)+(HFOL*2))*2)*NF`, medido na aba Insumos do motor da Wolff).
+ *
+ * Sem esta separação o custo fazia `milímetros × preço do rolo` — ×1.000 por não converter mm→m e ×N por não dividir pela medida do rolo,
+ * ou seja ×300.000 na escova. Era o que inflava o orçamento (R$ 15,9 milhões numa linha de escova, medido em 16/11/2026).
+ *
+ * O insumo `vendido_por = 'unidade'` (roldana, cremona, parafuso, calço) continua como estava: a CONTAGEM de peças × o custo da peça.
+ * A regra é a de `custo-liquido-por-fracao.md`, que o caminho do perfil já aplicava: cascata na unidade de compra, divide pela medida.
+ */
+export function insumoPorComprimento(m: { caminho: CaminhoDoCusto; vendido_por: string | null; medida_barra_m: number | null }): boolean {
+    return m.caminho === 'insumo' && m.vendido_por === 'barra' && Number.isFinite(m.medida_barra_m as number) && (m.medida_barra_m as number) > 0
+}
 /** Como o preço foi achado: os degraus da resolução de referência e, no vidro, o código escolhido ou o texto traduzido (20261112000006). */
 export type ResolucaoGravada = ComoAchou | 'vidro_escolhido' | 'vidro_traduzido' | 'vidro_padrao'
 /** A chave de um material: o mesmo código pode entrar por dois caminhos (a UNIQUE da 20261112000006 inclui o caminho). */
@@ -59,6 +87,8 @@ export type MaterialDaTabela = {
     unidade: string | null
     /** A medida da unidade de compra, em metros (a barra). */
     medida_barra_m: number | null
+    /** Como o fornecedor vende: `barra` (rolo/barra de `medida_barra_m` m) ou `unidade` (peça). Decide a unidade do consumo do INSUMO. */
+    vendido_por: string | null
     /** O custo BRUTO da unidade de compra (a barra inteira) — o caminho do perfil. */
     valor_barra_interno: number | null
     /** O custo BRUTO da unidade (insumo) ou do m² (vidro) — a coluna `custo` do item. */
@@ -197,7 +227,8 @@ function efetivosDoItem(linhas: readonly LinhaDeMaterial[], bruto: number): Perc
 
 /**
  * O custo de cada item do orçamento. PERFIL no modo SEM aproveitamento (barra inteira): por código, as barras inteiras do pedido × o custo da
- * barra, rateadas entre os itens na proporção do consumo (mm) daquele código em cada item. INSUMO: a quantidade do item × o custo da unidade.
+ * barra, rateadas entre os itens na proporção do consumo (mm) daquele código em cada item. INSUMO: por peça, a quantidade × o custo da
+ * unidade; por rolo/barra, os metros do item × o custo do metro (`insumoPorComprimento`).
  * VIDRO: os m² do item × o preço por m². O código sem material ou sem valor fica FORA e sai em `faltas`; recusa só a falta de tempo, a do
  * valor do minuto, a das barras de um perfil consumido (incoerência do cálculo) e o IBS/CBS sem lugar.
  */
@@ -206,8 +237,6 @@ export function custoDoOrcamento(e: EntradaDoCusto): CustoDoOrcamento {
     const faltas: FaltaDoCusto[] = []
     // o bruto da unidade de cada caminho: a barra no perfil, `custo` no insumo e no vidro
     const brutoDe = (m: MaterialDaTabela) => (m.caminho === 'perfil' ? m.valor_barra_interno : m.custo)
-    const consumoTotal = new Map<string, number>()
-    for (const it of e.itens) for (const p of it.pecas) consumoTotal.set(p.codigo, (consumoTotal.get(p.codigo) ?? 0) + p.comprimento_mm * p.quantidade)
     // o que cada item consome, por caminho e código; a falta é registrada uma vez por (item, caminho, código)
     const consumos = e.itens.map((it) => {
         const c = new Map<string, { caminho: CaminhoDoCusto; codigo: string; qtd: number }>()
@@ -259,17 +288,25 @@ export function custoDoOrcamento(e: EntradaDoCusto): CustoDoOrcamento {
                 ordem: j + 1, caminho: x.caminho, codigo: x.codigo, codigo_na_tabela: u.m.codigo_na_tabela, resolucao: u.m.resolucao, descricao: u.m.descricao,
                 custo_bruto_unidade: bruto, ...u.m.bloco, credito_nao_apurado: u.nao_apurado, custo_liquido_unidade: u.liquido,
             }
-            if (x.caminho === 'perfil') {
-                // a barra inteira rateada pelo milímetro: a parte deste item no consumo do código
-                const parte = x.qtd / consumoTotal.get(x.codigo)!
-                const barras = e.barras_por_codigo[x.codigo]
+            if (x.caminho === 'perfil' || insumoPorComprimento(u.m)) {
+                // O CONSUMO DO ITEM (16/11/2026): os metros que ESTE item usa × o preço do metro. Nada de barra inteira e nada de rateio
+                // entre os itens — o item fecha em si mesmo, e por isso a mesma tipologia custa o mesmo em qualquer orçamento.
+                const medida = u.m.medida_barra_m
+                const metros = x.qtd / 1000
+                const liquidoDoMetro = custoLiquidoDaFracao(u.liquido, medida)
+                // sem a medida da barra não há metro: o material fica pela unidade de compra, e a falta aparece no número, nunca num chute
+                if (liquidoDoMetro === null) {
+                    return {
+                        ...base, unidade_compra: u.m.unidade, medida_unidade: null, custo_liquido_fracao: null,
+                        consumo_item: metros, custo_bruto_material: metros * bruto, custo_liquido_material: metros * u.liquido,
+                    }
+                }
                 return {
-                    ...base, unidade_compra: u.m.unidade, medida_unidade: u.m.medida_barra_m,
-                    custo_liquido_fracao: custoLiquidoDaFracao(u.liquido, u.m.medida_barra_m),
-                    consumo_item: x.qtd / 1000, custo_bruto_material: barras * bruto * parte, custo_liquido_material: barras * u.liquido * parte,
+                    ...base, unidade_compra: u.m.unidade, medida_unidade: medida, custo_liquido_fracao: liquidoDoMetro,
+                    consumo_item: metros, custo_bruto_material: metros * (bruto / (medida as number)), custo_liquido_material: metros * liquidoDoMetro,
                 }
             }
-            // insumo (unidades) e vidro (m²): a quantidade vezes a unidade; a unidade já é a fração
+            // insumo por PEÇA (unidades) e vidro (m²): a quantidade vezes a unidade; a unidade já é a fração
             return {
                 ...base, unidade_compra: x.caminho === 'vidro' ? 'M2' : u.m.unidade, medida_unidade: null, custo_liquido_fracao: null,
                 consumo_item: x.qtd, custo_bruto_material: x.qtd * bruto, custo_liquido_material: x.qtd * u.liquido,
