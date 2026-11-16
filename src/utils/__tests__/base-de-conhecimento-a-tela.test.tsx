@@ -221,10 +221,10 @@ describe('(h) a empresa no topo, e o portão da tela', () => {
         expect(barra.textContent).toContain('Esquadrias')
     })
 
-    it('os cinco blocos, nesta ordem: a MARCA (16/11/2026), o cartão das matérias-primas e os três da empresa', async () => {
+    it('os seis blocos, nesta ordem: a MARCA e as OBSERVAÇÕES (16/11/2026), o cartão das matérias-primas e os três da empresa', async () => {
         const host = await montar()
         expect(Array.from(host.querySelectorAll('[data-bloco]')).map((b) => b.getAttribute('data-bloco'))).toEqual(
-            ['marca', 'materias', 'ambientes', 'vendedores', 'adicionais'])
+            ['marca', 'observacoes', 'materias', 'ambientes', 'vendedores', 'adicionais'])
     })
 
     it('os cinco blocos de esquadrias de um nível NÃO estão mais na tela, e a tela não lê mais as tabelas em uso', async () => {

@@ -253,8 +253,8 @@ describe('(1) o cartão, os blocos e as categorias na ordem do CATÁLOGO', () =>
         const host = await montar()
         expect(cartao(host).textContent).toContain(A().TITULO_DO_CARTAO)
         expect(cartao(host).querySelectorAll('[data-materia-prima]')).toHaveLength(1)
-        // a MARCA da empresa abre a tela desde 16/11/2026
-        expect(Array.from(host.querySelectorAll('[data-bloco]')).map((b) => b.getAttribute('data-bloco'))).toEqual(['marca', 'materias', 'ambientes', 'vendedores', 'adicionais'])
+        // a MARCA e as OBSERVAÇÕES do orçamento abrem a tela desde 16/11/2026
+        expect(Array.from(host.querySelectorAll('[data-bloco]')).map((b) => b.getAttribute('data-bloco'))).toEqual(['marca', 'observacoes', 'materias', 'ambientes', 'vendedores', 'adicionais'])
     })
 
     it('o cabeçalho (29/10/2026): o nome e, na BORDA DIREITA, "Remover família" — o "N de M categorias" saiu', async () => {

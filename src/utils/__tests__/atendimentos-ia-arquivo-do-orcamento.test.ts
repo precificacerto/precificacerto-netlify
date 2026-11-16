@@ -157,6 +157,45 @@ describe('a figura do catálogo no lugar do esquema de traços', () => {
     })
 })
 
+// ══ AS OBSERVAÇÕES DO ORÇAMENTO (dono do produto, 16/11/2026) ══
+describe('o bloco OBSERVAÇÕES, no pé', () => {
+    const OBS = [
+        'Prazos de entrega após a medição final (salvo alterações em período de férias coletivas).',
+        'PVC: BRANCO 45 DIAS · LAMINADO TOTAL 60 DIAS',
+        'PROPOSTA VÁLIDA POR 7 DIAS A PARTIR DA EMISSÃO DA PRESENTE DATA.',
+        'NÃO CONTEMPLA REMOÇÃO E DESCARTE DE ESQUADRIA EXISTENTE.',
+    ].join('\n')
+
+    it('o texto da empresa sai no bloco, UMA LINHA DO TEXTO POR LINHA DO BLOCO (a quebra é respeitada)', () => {
+        const t = textoDoPdf(gerar(dados({ observacoesGerais: OBS })).pdf)
+        expect(t).toContain('OBSERVAÇÕES')
+        for (const l of OBS.split('\n')) expect(t).toContain(l)
+        // a ordem é a do texto, e a do rótulo antes delas
+        const posicao = (x: string) => t.indexOf(x)
+        expect(posicao('OBSERVAÇÕES')).toBeLessThan(posicao(OBS.split('\n')[0]))
+        expect(posicao(OBS.split('\n')[0])).toBeLessThan(posicao(OBS.split('\n')[3]))
+    })
+    it('sem texto, o bloco sai com o rótulo e o corpo vazio — como saía antes de haver de onde ler', () => {
+        const t = textoDoPdf(gerar(dados({ observacoesGerais: null })).pdf)
+        expect(t).toContain('OBSERVAÇÕES')
+        expect(t).toContain('Atenciosamente,')
+    })
+    it('o texto LONGO empurra o fecho para baixo e NUNCA sobe acima do topo (o bloco não sai da página)', () => {
+        // 80 linhas curtas cabem nos 3.000 caracteres do limite e NÃO cabem no rodapé de uma página: é o caso que a
+        // guarda prende. Sem ela, o bloco começaria acima do topo e as primeiras linhas sairiam fora do papel.
+        const longo = Array.from({ length: 80 }, (_, k) => `L${k + 1}`).join('\n')
+        expect(longo.length).toBeLessThanOrEqual(3000)
+        const r = gerar(dados({ observacoesGerais: longo }))
+        const t = textoDoPdf(r.pdf)
+        expect(t).toContain('L1')
+        expect(t).toContain('L80')
+        // nenhum texto é desenhado acima do topo do papel (o y do Td é medido do PÉ: 841,89 pt é a altura da A4)
+        const alturas = [...cru(r.pdf).matchAll(/([\d.]+) ([\d.]+) Td/g)].map((m) => Number(m[2]))
+        expect(Math.max(...alturas)).toBeLessThanOrEqual(841.89)
+        expect(alturaDe(r.pdf, 'L1')).not.toBeNull()
+    })
+})
+
 describe('as recusas, nomeadas — nunca um arquivo aproximado', () => {
     it('a venda diferente da interna (tributos por fora ou despesa acessória): recusa, porque imprimir a diferença seria imprimir imposto', () => {
         expect(conferirArquivoDoOrcamento(dados({ valorVenda: 7700 }))).toEqual([fraseDaVendaDiferente(7700, INTERNA)])
