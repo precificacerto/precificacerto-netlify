@@ -24,6 +24,7 @@ import {
 } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
 import { FALTA_DO_ICMS, FALTA_DO_PIS_COFINS } from '@/utils/tributo-por-dentro-informado'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
+import { resolveProductCostAndLabor } from '@/utils/item-tax-rates'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 Object.defineProperty(window, 'matchMedia', {
@@ -51,10 +52,11 @@ function consulta(tabela: string) {
     q.then = (ok: (v: unknown) => unknown, erro?: (e: unknown) => unknown) => resposta().then(ok, erro)
     return q
 }
+const mockInvocacoes: string[] = []
 jest.mock('@/supabase/client', () => ({
     supabase: {
         from: (t: string) => consulta(t),
-        functions: { invoke: async (): Promise<unknown> => ({ data: null, error: null }) },
+        functions: { invoke: async (nome: string): Promise<unknown> => { mockInvocacoes.push(nome); return { data: null, error: null } } },
     },
 }))
 jest.mock('next/router', () => ({ useRouter: () => ({ push: jest.fn(), back: jest.fn(), query: {} }) }))
@@ -151,6 +153,7 @@ beforeEach(() => {
     mockPrecoEmitido = null
     banco.escritas = []
     banco.lidas = []
+    mockInvocacoes.length = 0
     banco.respostas = {
         tenant_settings: { ibs_reference_pct: 0, cbs_reference_pct: 0, state_code: 'RS' },
         brazilian_states: { icms_internal_rate: 0.17 },
@@ -322,6 +325,66 @@ describe('(C) OS DOIS MODOS SÃO O MESMO CÁLCULO, e cada um fica no seu ramo', 
         expect(preco).toBeGreaterThan(0)
         expect(g.valor_venda).toBeCloseTo(preco, 2)
         expect(banco.escritas.filter((e) => e.tabela === 'products' || e.tabela === 'product_items' || e.tabela === 'stock')).toEqual([])
+    })
+})
+
+describe('(H) O ORÇAMENTO VIRA PRODUTO NA TABELA DO VENDEDOR, pelo salvar do produto comum (dono do produto, 16/11/2026)', () => {
+    const TABELA = { id: 'tabela-cristiano', nome: 'Orçamentos Cristiano' }
+    const escritasDe = (tabela: string) => banco.escritas.filter((e) => e.tabela === tabela)
+    it('com a tabela do vendedor: grava o produto IA-<número>, com o nome, a tabela, 1 unidade e o preço que o orçamento gravou — sem insumos nem estoque', async () => {
+        banco.respostas.products = []
+        let gravado = 0
+        const salvar = jest.fn(async (g: GravacaoDaPrecificacao) => { gravado = g.valor_venda; return { tabela: TABELA, aviso: null as string | null } })
+        const depois = jest.fn()
+        const msg = mensagens()
+        const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: salvar, onOrcamentoSalvo: depois, messageApi: msg })
+        await clicar(botao(host, 'Salvar precificação do orçamento'))
+        const inseridos = escritasDe('products').filter((e) => e.op === 'insert')
+        expect(inseridos).toHaveLength(1)
+        expect(inseridos[0].carga).toMatchObject({
+            tenant_id: 'tenant-1', code: 'IA-42', name: 'Orçamento I.A. Nº 42 — Geronimo Silva', commission_table_id: 'tabela-cristiano',
+            yield_quantity: 1, unit: 'UN', product_type: 'PRODUZIDO', profit_percent: 10, commission_percent: 5, rt_reserve_percent: 3,
+        })
+        const carga = inseridos[0].carga as { sale_price: number; cost_total: number }
+        expect(gravado).toBeGreaterThan(0)
+        expect(carga.sale_price).toBeCloseTo(gravado, 2)
+        expect(carga.cost_total).toBeGreaterThan(0)
+        // os tributos e o destino das categorias vão como no produto comum (é o que a decomposição lê)
+        const extras = escritasDe('products').filter((e) => e.op === 'update').map((e) => e.carga as Record<string, unknown>)
+        expect(extras.some((x) => 'icms_pct' in x && 'pis_cofins_pct' in x && 'sale_price_after_taxes' in x)).toBe(true)
+        expect(extras.some((x) => 'destination_snapshot' in x)).toBe(true)
+        expect(escritasDe('product_items')).toEqual([])
+        expect(escritasDe('stock')).toEqual([])
+        expect(depois).toHaveBeenCalledTimes(1)
+        // o motor fiscal NÃO roda: ele formaria o custo só pelos insumos, que o orçamento não tem
+        expect(mockInvocacoes).toEqual([])
+        // A DECOMPOSIÇÃO DO ORÇAMENTO COMERCIAL lê este produto e separa materiais e mão de obra AO CENTAVO, pela mesma função que ela usa
+        const o = orcamento()
+        const materiais = o.itens.reduce((t, i) => t + (i.custo_liquido_materiais ?? 0), 0)
+        const fabricacao = o.itens.reduce((t, i) => t + (i.custo_fabricacao ?? 0), 0)
+        expect((inseridos[0].carga as { productive_labor_total: number }).productive_labor_total).toBeCloseTo(fabricacao, 2)
+        const comoOComercialLe = { ...(inseridos[0].carga as object), product_items: [] as unknown[], pricing_calculations: [] as unknown[], labor_costs: [] as unknown[] }
+        const { costTotal, productiveLaborUnit } = resolveProductCostAndLabor(comoOComercialLe)
+        expect(productiveLaborUnit).toBeCloseTo(fabricacao, 2)
+        expect(costTotal).toBeCloseTo(materiais, 1)
+    })
+    it('precificado de novo: ATUALIZA o produto IA-<número> que já está na empresa, e não cria outro', async () => {
+        banco.respostas.products = [{ id: 'p-ia-42' }]
+        const salvar = jest.fn(async () => ({ tabela: TABELA, aviso: null as string | null }))
+        const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: salvar })
+        await clicar(botao(host, 'Salvar precificação do orçamento'))
+        expect(escritasDe('products').filter((e) => e.op === 'insert')).toEqual([])
+        expect(escritasDe('products').some((e) => e.op === 'update' && (e.carga as { code?: string }).code === 'IA-42')).toBe(true)
+    })
+    it('sem tabela (o aviso nomeado): nada em products, o aviso aparece, e a página relê', async () => {
+        const salvar = jest.fn(async () => ({ tabela: null as { id: string; nome: string } | null, aviso: 'A precificação foi salva, mas o orçamento não entrou em tabela de produtos: o vendedor X não tem tabela de produtos.' }))
+        const depois = jest.fn()
+        const msg = mensagens()
+        const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: salvar, onOrcamentoSalvo: depois, messageApi: msg })
+        await clicar(botao(host, 'Salvar precificação do orçamento'))
+        expect(escritasDe('products')).toEqual([])
+        expect(msg.warning).toHaveBeenCalledWith(expect.stringContaining('não tem tabela de produtos'), 10)
+        expect(depois).toHaveBeenCalledTimes(1)
     })
 })
 

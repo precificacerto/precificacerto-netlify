@@ -3,7 +3,8 @@
  *
  * É a tela de Produtos no modo "orçamento" (decisão 2: "sem segunda cópia da precificação"): o `Content` de Produtos recebe o orçamento, e a
  * entrada do cálculo é a dele — o líquido dos materiais e os minutos da fabricação dos itens calculados. O cabeçalho é fixo (código = o número;
- * Produzido, UN, Orçamentos I.A.), e salvar grava NO ORÇAMENTO, pela rota `/precificacao` — nunca em `products`.
+ * Produzido, UN, Orçamentos I.A.), e salvar grava NO ORÇAMENTO, pela rota `/precificacao`; depois, a tela grava o orçamento como PRODUTO na
+ * tabela do vendedor da conversa (16/11/2026), para o orçamento comercial puxá-lo.
  *
  * O `calcBase` é montado como na página de produto (`buildCalcBase` sobre a configuração de despesas da empresa): é ele que faz a mão de obra
  * da tela ser a mesma do cálculo do servidor, e a reconciliação da D2 na tela confere isso.
@@ -24,7 +25,7 @@ import { fetchTaxPreview } from '@/utils/calc-tax-preview'
 import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { buildCalcBase } from '@/utils/build-calc-base'
 import type { CalcBaseType } from '@/types/calc-base.type'
-import type { GravacaoDaPrecificacao, OrcamentoNaPrecificacao } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
+import type { DestinoDoProdutoDoOrcamento, GravacaoDaPrecificacao, OrcamentoNaPrecificacao } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
 import type { ClienteDoArquivo, ItemDoArquivo } from '@/lib/atendimentos-ia/arquivo-do-orcamento'
 import { AvisoDoFiscalDivergente, TopoDoOrcamento } from '@/page-parts/atendimentos-ia/topo-do-orcamento.component'
 import { rastroDoFiscalSobrescrito, type CampoDivergente } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
@@ -75,19 +76,22 @@ function PrecificacaoDoOrcamento() {
     }, [id])
     useEffect(() => { void carregar() }, [carregar])
 
-    const salvar = useCallback(async (g: GravacaoDaPrecificacao): Promise<string[] | null> => {
+    const salvar = useCallback(async (g: GravacaoDaPrecificacao): Promise<string[] | DestinoDoProdutoDoOrcamento> => {
         const r = await fetch(`/api/atendimentos-ia/orcamentos/${id}/precificacao`, {
             method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(g),
         })
         if (!r.ok) return recusasDaResposta(r, 'Não foi possível salvar a precificação.')
         // o ARQUIVO "Orçamento" sai ao salvar (11/11/2026); quando não sai, o preço fica salvo e a tela diz por quê
-        const corpo = (await r.json().catch(() => ({}))) as { arquivo?: { nomeDoArquivo: string } | null; recusas_do_arquivo?: string[]; fiscal_sobrescrito?: CampoDivergente[] }
+        const corpo = (await r.json().catch(() => ({}))) as {
+            arquivo?: { nomeDoArquivo: string } | null; recusas_do_arquivo?: string[]; fiscal_sobrescrito?: CampoDivergente[]
+            tabela_do_vendedor?: { id: string; nome: string } | null; aviso_da_tabela?: string | null
+        }
         if (corpo.arquivo) messageApi.success(`Arquivo gerado: ${corpo.arquivo.nomeDoArquivo}`)
         if (corpo.fiscal_sobrescrito?.length) messageApi.info(`O fiscal gravado voltou ao padrão (registrado): ${rastroDoFiscalSobrescrito(corpo.fiscal_sobrescrito)}`)
         setRecusasDoArquivo(corpo.recusas_do_arquivo ?? [])
-        await carregar()
-        return null
-    }, [id, carregar, messageApi])
+        // a releitura vem DEPOIS de a tela gravar o produto do orçamento na tabela (`onOrcamentoSalvo`): reler antes remontaria a tela no meio
+        return { tabela: corpo.tabela_do_vendedor ?? null, aviso: corpo.aviso_da_tabela ?? null }
+    }, [id, messageApi])
 
     const recalcular = useCallback(async () => {
         const r = await fetch(`/api/atendimentos-ia/orcamentos/${id}/calcular`, { method: 'POST' })
@@ -125,6 +129,7 @@ function PrecificacaoDoOrcamento() {
                         itensDoArquivo={estado.itensDoArquivo}
                         recusaDosItensDoArquivo={estado.recusaDosItens}
                         onSalvarOrcamento={salvar}
+                        onOrcamentoSalvo={() => { void carregar() }}
                         onRecalcularOrcamento={recalcular}
                         // o link do último PDF vai ao FIM da tela, abaixo dos itens precificados (dono do produto, 11/11/2026)
                         rodapeDoOrcamento={id ? <a href={`/api/atendimentos-ia/orcamentos/${id}/arquivo`} target="_blank" rel="noopener noreferrer" data-abrir-arquivo="">Abrir o último arquivo do orçamento (PDF)</a> : null}

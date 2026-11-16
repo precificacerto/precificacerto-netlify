@@ -135,6 +135,14 @@ export const somaDasLinhas = (itens: readonly ItemNaPrecificacao[]) =>
     itens.reduce((t, i) => t + (i.custo_liquido_materiais ?? 0) + (i.custo_fabricacao ?? 0), 0)
 
 /**
+ * A MÃO DE OBRA PRODUTIVA do produto que o orçamento vira na tabela do vendedor (16/11/2026): a soma da FABRICAÇÃO das esquadrias, ao centavo.
+ * Vai a `products.productive_labor_total`, a fonte canônica que o orçamento comercial lê primeiro (`resolveProductLaborTotal`); com o
+ * `cost_total` (materiais + fabricação, o custo que a tela formou), a decomposição separa materiais e mão de obra sem inferir nada.
+ */
+export const fabricacaoDoOrcamento = (itens: readonly ItemNaPrecificacao[]) =>
+    Math.round(itens.reduce((t, i) => t + (i.custo_fabricacao ?? 0), 0) * 100) / 100
+
+/**
  * A RECONCILIAÇÃO DA D2, sobre o número que a TELA formou: o custo do produto do motor (`productCost`, o CMV) contra a soma das linhas. O
  * motor arredonda o custo dos itens e a mão de obra ao centavo (`pricing-engine.ts`, passos 1 e 2); as linhas, não: a diferença cabe num
  * centavo — o mesmo limite do teste da D2 no servidor.
@@ -253,6 +261,9 @@ export type GravacaoDaPrecificacao = FiscalDaTela & {
     reserva_tecnica_percentual: number
     lucro_projetado_percentual: number
 }
+
+/** Para onde o orçamento salvo vai como produto: a tabela do vendedor da conversa, ou o aviso nomeado de por que não vai (16/11/2026). */
+export type DestinoDoProdutoDoOrcamento = { tabela: { id: string; nome: string } | null; aviso: string | null }
 
 // ── A OPERAÇÃO INTERNA (20261110000001, dono do produto, 10/11/2026) ─────────────────────────────────────────────────────────────
 const emCentavos = (v: number) => Math.round(v * 100)
