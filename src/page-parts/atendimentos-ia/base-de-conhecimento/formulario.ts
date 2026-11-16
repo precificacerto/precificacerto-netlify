@@ -42,6 +42,8 @@ export const ROTAS_DA_BASE = {
     nomeDaMateriaPrima: (tenantId: string) => daEmpresa('/nome-da-materia-prima', tenantId),
     /** GET e PUT `{ logo }` — a MARCA da empresa (16/11/2026): a logo do cabeçalho do arquivo do orçamento. */
     marca: (tenantId: string) => daEmpresa('/marca', tenantId),
+    /** GET e PUT `{ observacoes }` — as OBSERVAÇÕES do arquivo do orçamento (16/11/2026): prazos, validade, exclusões. */
+    observacoes: (tenantId: string) => daEmpresa('/observacoes', tenantId),
     /** PUT de UMA categoria de UMA matéria-prima — `superadmin_gravar_mp_categoria`, que faz MERGE no config. */
     categoria: (tenantId: string, materiaPrimaId: string, categoria: string) =>
         `${daEmpresa('/categoria', tenantId)}&materia_prima=${encodeURIComponent(materiaPrimaId)}&categoria=${encodeURIComponent(categoria)}`,

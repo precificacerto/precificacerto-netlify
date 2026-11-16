@@ -13,7 +13,8 @@
  *     FIXO ou a CELULAR pela FORMA do número (o celular brasileiro tem 9 dígitos começando por 9); NÃO HÁ coluna para TEL2, IE/RG, CEP nem
  *     CNPJ/CPF do cliente;
  *   - vendedor: o nome gravado no levantamento e o e-mail do funcionário dele; o "Contato" não tem fonte;
- *   - OBSERVAÇÕES gerais (prazos, validade, exclusões): NÃO HÁ, hoje, de onde lê-las — o bloco sai vazio;
+ *   - OBSERVAÇÕES gerais (prazos, validade, exclusões): `tenant_settings.orcamento_observacoes` (16/11/2026), o texto
+ *     fixo que a base de conhecimento da empresa grava; sem ele, o bloco sai vazio, como saía antes;
  *   - as FALTAS (12/11/2026): `orcamentista_orcamento_falta` do cálculo vigente de cada item (sem a migração 20261112000006, nenhuma);
  *   - PARA O VENDEDOR: o bloco SAIU em 16/11/2026, por decisão do dono do produto — o arquivo não traz mais as barras por código, o
  *     aproveitamento, os minutos nem o "o que este preço cobre".
@@ -149,16 +150,30 @@ export async function lerLogo(url: string | null): Promise<EmpresaDoArquivo['log
     }
 }
 
-async function lerEmpresa(tenantId: string): Promise<EmpresaDoArquivo> {
+/**
+ * A empresa e as OBSERVAÇÕES do arquivo, na mesma leitura (16/11/2026): o bloco "OBSERVAÇÕES" do rodapé imprime o
+ * texto fixo da base de conhecimento — prazos, validade, exclusões. Sem a migração 20261116000004 (coluna ausente,
+ * 42703/PGRST204), as observações saem NULAS e o bloco sai vazio, como saía antes.
+ */
+async function lerEmpresa(tenantId: string): Promise<{ empresa: EmpresaDoArquivo; observacoes: string | null }> {
     const t = ((await ler('tenants', db().from('tenants').select('name, cnpj_cpf, email, phone, cep, street, number, complement, neighborhood, city, state_code, logo_url')
         .eq('id', tenantId).maybeSingle())) ?? {}) as Linha
-    const s = ((await ler('tenant_settings', db().from('tenant_settings').select('inscricao_estadual, logo_url').eq('tenant_id', tenantId).maybeSingle())) ?? {}) as Linha
+    const comObservacoes = await db().from('tenant_settings').select('inscricao_estadual, logo_url, orcamento_observacoes').eq('tenant_id', tenantId).maybeSingle()
+    const semColuna = comObservacoes.error && semMigracao(comObservacoes.error)
+    const lido = semColuna
+        ? await db().from('tenant_settings').select('inscricao_estadual, logo_url').eq('tenant_id', tenantId).maybeSingle()
+        : comObservacoes
+    if (lido.error) throw new Error(`tenant_settings: ${lido.error.message ?? 'erro'}`)
+    const s = (lido.data ?? {}) as Linha
     const rua = [texto(t.street), texto(t.number)].filter(Boolean).join(', ')
     const endereco = [rua, texto(t.complement), texto(t.neighborhood)].filter(Boolean).join(' - ')
     const cidadeUf = [texto(t.city), texto(t.state_code)].filter(Boolean).join('/')
     return {
-        razaoSocial: texto(t.name) ?? '', endereco: endereco || null, cidadeUf: cidadeUf || null, cep: texto(t.cep), telefone: texto(t.phone), telefone2: null,
-        cnpj: texto(t.cnpj_cpf), ie: texto(s.inscricao_estadual), site: null, email: texto(t.email), logo: await lerLogo(texto(s.logo_url) ?? texto(t.logo_url)),
+        empresa: {
+            razaoSocial: texto(t.name) ?? '', endereco: endereco || null, cidadeUf: cidadeUf || null, cep: texto(t.cep), telefone: texto(t.phone), telefone2: null,
+            cnpj: texto(t.cnpj_cpf), ie: texto(s.inscricao_estadual), site: null, email: texto(t.email), logo: await lerLogo(texto(s.logo_url) ?? texto(t.logo_url)),
+        },
+        observacoes: texto(s.orcamento_observacoes),
     }
 }
 
@@ -198,14 +213,14 @@ export async function lerDadosDoArquivo(tenantId: string, orcamentoId: string, a
     if (!orc) return { recusa: 'o orçamento não foi achado' }
     const itens = await itensDoArquivo(tenantId, orcamentoId)
     if ('recusa' in itens) return itens
-    const [empresa, cv] = await Promise.all([lerEmpresa(tenantId), lerClienteEVendedor(tenantId, texto(orc.levantamento_id), String(orc.nome ?? ''))])
+    const [daEmpresa, cv] = await Promise.all([lerEmpresa(tenantId), lerClienteEVendedor(tenantId, texto(orc.levantamento_id), String(orc.nome ?? ''))])
     const calculos = [...new Set(itens.linhas.map((l) => texto(l.calculo_id)))]
     const faltas = await lerFaltasDoArquivo(tenantId, itens.linhas)
     return {
         calculoId: calculos.length === 1 ? calculos[0] : null,
         dados: {
-            empresa, numero: Number(orc.numero), vendedor: cv.vendedor, contato: null, emailDoVendedor: cv.emailDoVendedor, cliente: cv.cliente, dataEntrega: cv.dataEntrega,
-            itens: await comOsDesenhos(itens.itens, itens.paraODesenho), observacoesGerais: null, operacaoInterna: a.operacaoInterna, valorVenda: a.valorVenda, rateio: a.rateio, geradoEm: a.geradoEm,
+            empresa: daEmpresa.empresa, numero: Number(orc.numero), vendedor: cv.vendedor, contato: null, emailDoVendedor: cv.emailDoVendedor, cliente: cv.cliente, dataEntrega: cv.dataEntrega,
+            itens: await comOsDesenhos(itens.itens, itens.paraODesenho), observacoesGerais: daEmpresa.observacoes, operacaoInterna: a.operacaoInterna, valorVenda: a.valorVenda, rateio: a.rateio, geradoEm: a.geradoEm,
             faltas,
         },
     }

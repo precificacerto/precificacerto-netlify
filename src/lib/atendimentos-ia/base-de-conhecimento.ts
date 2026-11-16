@@ -267,6 +267,31 @@ export function lerCorpoDaMarca(corpo: unknown): { erros: ErroNomeado[]; logo: s
     return { erros: [], logo: aparado }
 }
 
+/**
+ * AS OBSERVAÇÕES DO ORÇAMENTO (dono do produto, 16/11/2026): o texto fixo da empresa que o bloco "OBSERVAÇÕES" do
+ * arquivo imprime — prazos, validade, exclusões. Ele mandou como modelo o orçamento 1154 da De Paula e pediu ênfase
+ * nesse quesito; perguntado de onde o texto deve vir, escolheu a BASE DE CONHECIMENTO DA EMPRESA.
+ *
+ * Texto, ou null para limpar; vazio e só-espaço contam como null (`ausente-vs-falso.md`). O limite de 3.000
+ * caracteres é o mesmo da função `superadmin_gravar_observacoes_do_orcamento`: a recusa aqui é a frase que o
+ * usuário lê antes de salvar, e a do banco é a que não deixa passar por outro caminho.
+ */
+export const LIMITE_DAS_OBSERVACOES = 3000
+export const fraseDasObservacoesGrandes = (n: number) =>
+    `as observações têm ${n} caracteres, acima do limite de ${LIMITE_DAS_OBSERVACOES}`
+
+export function lerCorpoDasObservacoes(corpo: unknown): { erros: ErroNomeado[]; observacoes: string | null } {
+    const c = (corpo ?? {}) as Record<string, unknown>
+    if (!('observacoes' in c)) return { erros: [{ campo: 'observacoes', mensagem: 'obrigatório: o texto, ou null para limpar' }], observacoes: null }
+    const v = c.observacoes
+    if (v === null) return { erros: [], observacoes: null }
+    if (typeof v !== 'string') return { erros: [{ campo: 'observacoes', mensagem: 'tem de ser texto ou null' }], observacoes: null }
+    const aparado = v.trim()
+    if (aparado === '') return { erros: [], observacoes: null }
+    if (aparado.length > LIMITE_DAS_OBSERVACOES) return { erros: [{ campo: 'observacoes', mensagem: fraseDasObservacoesGrandes(aparado.length) }], observacoes: null }
+    return { erros: [], observacoes: aparado }
+}
+
 export function lerCorpoDosAmbientes(corpo: unknown) {
     return lerLista(corpo, 'ambientes', CAMPOS_DO_AMBIENTE, 'ambiente')
 }

@@ -16,6 +16,10 @@ const estado = {
     ops: [] as Array<{ tabela: string; op: string; filtros: Array<[string, unknown]>; carga?: unknown }>,
     uploads: [] as Array<{ bucket: string; caminho: string; bytes: Buffer; opcoes: unknown }>,
     erroDoUpload: null as string | null,
+    /** Sem a migração 20261116000004: o select que pede a coluna nova volta 42703, como o PostgREST o faz. */
+    semColunaDasObservacoes: false,
+    /** Uma falha do banco que NÃO é a coluna ausente (o 42703): ela tem de estourar, nunca virar "sem observações". */
+    erroDoSettings: null as { code: string; message: string } | null,
 }
 const NULO = Symbol('is null')
 
@@ -28,9 +32,14 @@ jest.mock('@/supabase/admin', () => ({
             let ordem: [string, boolean] | null = null
             let limite: number | null = null
             let faixa: [number, number] | null = null
+            let colunas = ''
             const q: Record<string, unknown> = {}
             const rodar = () => {
                 estado.ops.push({ tabela, op, filtros, carga })
+                if (estado.semColunaDasObservacoes && colunas.includes('orcamento_observacoes')) {
+                    return Promise.resolve({ data: null, error: { code: '42703', message: 'column tenant_settings.orcamento_observacoes does not exist' } })
+                }
+                if (estado.erroDoSettings && tabela === 'tenant_settings') return Promise.resolve({ data: null, error: estado.erroDoSettings })
                 if (op === 'insert') { (estado.db[tabela] ??= []).push(carga as Linha); return Promise.resolve({ data: null, error: null }) }
                 let r = (estado.db[tabela] ?? []).filter((l) => filtros.every(([c, v]) => (v === NULO ? (l[c] ?? null) === null : Array.isArray(v) ? (v as unknown[]).includes(l[c]) : l[c] === v)))
                 if (ordem) { const [c, asc] = ordem; r = [...r].sort((a, b) => (String(a[c]) < String(b[c]) ? -1 : String(a[c]) > String(b[c]) ? 1 : 0) * (asc ? 1 : -1)) }
@@ -39,7 +48,7 @@ jest.mock('@/supabase/admin', () => ({
                 if (faixa !== null) r = r.slice(faixa[0], faixa[1] + 1)
                 return Promise.resolve({ data: r.map((l) => ({ ...l })), error: null })
             }
-            q.select = () => q
+            q.select = (c?: string) => { colunas = c ?? ''; return q }
             q.order = (c: string, o?: { ascending?: boolean }) => { ordem = [c, o?.ascending !== false]; return q }
             q.limit = (n: number) => { limite = n; return q }
             q.range = (de: number, ate: number) => { faixa = [de, ate]; return q }
@@ -82,7 +91,7 @@ const { fraseDoArquivoQueNaoBaixou } = require('@/lib/atendimentos-ia/desenho-do
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 beforeEach(() => {
-    estado.ops = []; estado.uploads = []; estado.erroDoUpload = null
+    estado.ops = []; estado.uploads = []; estado.erroDoUpload = null; estado.semColunaDasObservacoes = false; estado.erroDoSettings = null
     estado.db = {
         tenants: [{ id: T, name: 'ESQUADRIAS DE PAULA LTDA', cnpj_cpf: '12.345.678/0001-90', email: null, phone: null, cep: '90000-000', street: 'Rua das Flores', number: '100',
             complement: null, neighborhood: 'Centro', city: 'Porto Alegre', state_code: 'RS', logo_url: null }],
@@ -280,6 +289,40 @@ describe('a figura do catálogo nos itens do arquivo', () => {
         if ('recusa' in lido) throw new Error(lido.recusa)
         expect(lido.dados.itens[0].figura?.formato).toBe('PNG')
         expect(lido.dados.itens[1].semFigura).toBe(fraseSemCandidata('DP-02'))
+    })
+})
+
+// ══ AS OBSERVAÇÕES DO ORÇAMENTO (dono do produto, 16/11/2026) ══
+describe('as observações da empresa chegam ao arquivo', () => {
+    const OBS = 'PROPOSTA VÁLIDA POR 7 DIAS.\nNÃO CONTEMPLA REMOÇÃO E DESCARTE DE ESQUADRIA EXISTENTE.'
+    const lerDados = async () => {
+        const r = ratearOperacaoInterna(7000, [{ ordem: 1, quantidade: 1, peso: 2594.15 }, { ordem: 2, quantidade: 2, peso: 2225.04 }])
+        if ('recusa' in r) throw new Error(r.recusa)
+        const lido = await S.lerDadosDoArquivo(T, ORC, { operacaoInterna: 7000, valorVenda: 7000, rateio: r.itens, geradoEm: new Date('2026-11-16T15:00:00Z') })
+        if ('recusa' in lido) throw new Error(lido.recusa)
+        return lido.dados
+    }
+
+    it('o texto gravado na base de conhecimento vai para `observacoesGerais`, com as quebras de linha', async () => {
+        (estado.db.tenant_settings as Linha[])[0].orcamento_observacoes = OBS
+        expect((await lerDados()).observacoesGerais).toBe(OBS)
+    })
+    it('sem texto gravado, NULO — e o bloco do PDF sai vazio, como saía antes', async () => {
+        expect((await lerDados()).observacoesGerais).toBeNull()
+        ;(estado.db.tenant_settings as Linha[])[0].orcamento_observacoes = '   '
+        expect((await lerDados()).observacoesGerais).toBeNull()
+    })
+    it('SEM A MIGRAÇÃO 20261116000004 o arquivo sai igual, sem observações: a coluna ausente não derruba a geração', async () => {
+        estado.semColunaDasObservacoes = true
+        const d = await lerDados()
+        expect(d.observacoesGerais).toBeNull()
+        // e o resto da empresa continua lido: a leitura sem a coluna é a de antes, não uma empresa em branco
+        expect(d.empresa.razaoSocial).toBe('ESQUADRIAS DE PAULA LTDA')
+        expect(d.empresa.ie).toBe('0960000000')
+    })
+    it('o erro que NÃO é a coluna ausente ESTOURA: nunca se engole uma falha do banco como "sem observações"', async () => {
+        estado.erroDoSettings = { code: '57014', message: 'canceling statement due to statement timeout' }
+        await expect(lerDados()).rejects.toThrow('canceling statement due to statement timeout')
     })
 })
 
