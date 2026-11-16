@@ -147,9 +147,15 @@ async function gravarOCalculo(tenantId: string, id: string, orc: Lido['orc'], do
     const calculo_id = novoId()
     const calculado_em = agora.toISOString()
     // 0. o cálculo de antes deixa de valer: os totais e o valor de venda ficam nulos até o passo 3
+    //
+    // O `valor_operacao_interna` SAI JUNTO COM A VENDA (16/11/2026). A CHECK `orcamentista_orcamento_operacao_interna_com_a_venda` exige
+    // que os dois sejam nulos juntos: anular só a venda estourava com 23514 em todo orçamento que JÁ TINHA PREÇO FORMADO, e o vendedor
+    // recebia "o cálculo do orçamento N falhou". Era defeito latente — o recálculo de um orçamento precificado nunca passava —, e só
+    // apareceu quando o cálculo de outra versão (20261116000002) passou a forçar a atualização em vez de reenviar o arquivo velho.
+    // Medido em produção em 16/11/2026, no orçamento 6 da De Paula, duas vezes (13:24:13 e 13:25:25 UTC).
     {
         const { data, error } = await db().from(TABELA_DO_ORCAMENTO)
-            .update({ valor_total_bruto: null, valor_total_liquido: null, valor_venda: null, atualizado_em: calculado_em })
+            .update({ valor_total_bruto: null, valor_total_liquido: null, valor_venda: null, valor_operacao_interna: null, atualizado_em: calculado_em })
             .eq('tenant_id', tenantId).eq('id', id).select('id')
         if (error) falhou(TABELA_DO_ORCAMENTO, error)
         if (!data || data.length !== 1) throw new Error(`${TABELA_DO_ORCAMENTO}: o orçamento ${id} não foi atingido ao anular os totais; nada foi gravado`)
