@@ -6,7 +6,7 @@
  * em vermelho; as recusas nomeadas; e os mesmos bytes para a mesma entrada.
  */
 import {
-    COLUNAS_DO_ITEM, GUARDA_DO_ENVIO_AO_CLIENTE_LIGADA, carimboDoParcial, conferirArquivoDoOrcamento, dataDeEntrega, fraseDaVendaDiferente,
+    COLUNAS_DO_ITEM, GUARDA_DO_ENVIO_AO_CLIENTE_LIGADA, linhasDoRodape, carimboDoParcial, conferirArquivoDoOrcamento, dataDeEntrega, fraseDaVendaDiferente,
     gerarArquivoDoOrcamento, linhaDoItem, nomeDoArquivo, recusaDoEnvioAoCliente, type DadosDoArquivoDoOrcamento, type ItemDoArquivo,
 } from '@/lib/atendimentos-ia/arquivo-do-orcamento'
 import { ratearOperacaoInterna, reais } from '@/lib/atendimentos-ia/rateio-do-orcamento'
@@ -53,7 +53,7 @@ describe('a estrutura, de cima para baixo', () => {
         const t = textoDoPdf(gerar().pdf)
         const ordem = ['ESQUADRIAS DE PAULA LTDA', 'ORÇAMENTO', 'Número:', 'Emissão:', 'Vendedor:', 'Contato:', 'CLIENTE:', 'TEL. FIXO:', 'CELULAR:',
             'TEL2/Fax:', 'ENDEREÇO:', 'IE/RG:', 'CNPJ/CPF:', 'ITEM 1', '*LOCAL/AMBIENTE:', 'TIPO:', 'PORTA DE CORRER 2 FOLHAS | EUROPA 60', '*COR PERFIL:', '*COR ACESSÓRIO:',
-            'LINHA:', 'DATA ENTREGA:', ...COLUNAS_DO_ITEM.map((c) => c.titulo), 'OBSERVAÇÕES DESTE ITEM', 'OBSERVAÇÕES', 'Atenciosamente,', 'Dt.Venda:', 'Impresso em:', 'Aceite do Cliente']
+            'LINHA:', ...COLUNAS_DO_ITEM.map((c) => c.titulo), 'OBSERVAÇÕES DESTE ITEM', 'OBSERVAÇÕES', 'Atenciosamente,', 'Dt.Venda:', 'Impresso em:', 'Aceite do Cliente']
         let k = -1
         for (const rotulo of ordem) {
             const achado = t.findIndex((x, j) => j > k && x === rotulo)
@@ -119,11 +119,17 @@ describe('vazio é vazio, a observação em vermelho, a data de entrega', () => 
         const pdf = cru(gerar().pdf)
         expect(pdf).toMatch(/0\.784 0\.118 0\.118 rg[\s\S]{0,80}\(instalar com cuidado no vão de gesso\) Tj/)
     })
-    it('a data de entrega em dd/mm/aaaa; sem ela, o campo em branco do modelo', () => {
+    it('a data de entrega em dd/mm/aaaa, UMA VEZ, nas OBSERVAÇÕES; sem ela, nenhuma linha (o " / / " saiu)', () => {
         expect(dataDeEntrega('2026-12-01')).toBe('01/12/2026')
         expect(dataDeEntrega(null)).toBe(' / / ')
         expect(dataDeEntrega('dezembro')).toBe(' / / ')
-        expect(textoDoPdf(gerar(dados({ dataEntrega: '2026-12-01' })).pdf)).toContain('01/12/2026')
+        const t = textoDoPdf(gerar(dados({ dataEntrega: '2026-12-01' })).pdf)
+        expect(t.filter((x) => x.includes('01/12/2026'))).toEqual(['DATA DE ENTREGA: 01/12/2026'])
+        expect(t.indexOf('DATA DE ENTREGA: 01/12/2026')).toBeGreaterThan(t.indexOf('OBSERVAÇÕES'))
+        expect(t.indexOf('DATA DE ENTREGA: 01/12/2026')).toBeLessThan(t.indexOf('Atenciosamente,'))
+        const sem = textoDoPdf(gerar(dados({ dataEntrega: null })).pdf).join(' ')
+        expect(sem).not.toContain('DATA ENTREGA')
+        expect(sem).not.toContain('DATA DE ENTREGA')
     })
     it('a linha do item: fornecedor | linha, só o que existe', () => {
         expect(linhaDoItem({ fornecedor: 'Wolf', linha: 'EUROPA 60' })).toBe('Wolf | EUROPA 60')
@@ -239,7 +245,9 @@ describe('determinismo e paginação', () => {
         const g = gerar(dados({ itens: muitos, rateio: r.itens, operacaoInterna: 14000, valorVenda: 14000 }))
         expect(g.paginas).toBeGreaterThan(1)
         const t = textoDoPdf(g.pdf)
-        expect(t).toContain(`Orçamento 1 · Página 1 de ${g.paginas}`)
+        // o rodapé é só a página: "Página 1 de N", sem o número do orçamento (dono do produto, 16/11/2026)
+        for (let p = 1; p <= g.paginas; p++) expect(t).toContain(`Página ${p} de ${g.paginas}`)
+        expect(t.filter((x) => x.includes('Página '))).toEqual(Array.from({ length: g.paginas }, (_, k) => `Página ${k + 1} de ${g.paginas}`))
         expect(t.indexOf('Aceite do Cliente')).toBeGreaterThan(t.lastIndexOf('*LOCAL/AMBIENTE:'))
     })
 })
@@ -283,10 +291,22 @@ describe('O ARQUIVO VAI AO VENDEDOR (12/11/2026, o comando único)', () => {
         // e o que FICA não foi levado junto: as faltas continuam carimbadas e listadas
         expect(t).toContain('FALTAS DE PREÇO')
     })
-    it('4.2 — as definições de instalação e arremate de cada esquadria, com "(padrão)" na que o vendedor não disse', () => {
-        const itens = [item(1, { definicoes: ['ARREMATE INTERNO: 65 mm', 'ARREMATE EXTERNO: sem (padrão)'] }), ITENS[1], ITENS[2]]
-        const t = textoDoPdf(gerar(dados({ itens })).pdf).join(' ')
-        expect(t).toContain('DEFINIÇÕES: ARREMATE INTERNO: 65 mm · ARREMATE EXTERNO: sem (padrão)')
+    it('4.2 — as definições saem UMA VEZ, nas OBSERVAÇÕES, depois de todos os itens (dono do produto, 16/11/2026)', () => {
+        const defs = ['ARREMATE INTERNO: 65 mm', 'ARREMATE EXTERNO: sem (padrão)']
+        const itens = [item(1, { definicoes: defs }), { ...ITENS[1], definicoes: defs }, { ...ITENS[2], definicoes: defs }]
+        const t = textoDoPdf(gerar(dados({ itens })).pdf)
+        const linha = 'DEFINIÇÕES: ARREMATE INTERNO: 65 mm · ARREMATE EXTERNO: sem (padrão)'
+        expect(t.filter((x) => x.startsWith('DEFINIÇÕES'))).toEqual([linha])
+        expect(t.indexOf(linha)).toBeGreaterThan(t.lastIndexOf('*LOCAL/AMBIENTE:'))
+        expect(t.indexOf(linha)).toBeGreaterThan(t.indexOf('OBSERVAÇÕES'))
+    })
+    it('linhasDoRodape: definições iguais numa linha; diferentes, uma por conjunto com os itens; item sem definição não entra', () => {
+        const a = ['ARREMATE INTERNO: 65 mm'], b = ['ARREMATE INTERNO: sem']
+        expect(linhasDoRodape([{ ordem: 2, definicoes: a }, { ordem: 1, definicoes: a }, { ordem: 3, definicoes: [] }], null))
+            .toEqual(['DEFINIÇÕES: ARREMATE INTERNO: 65 mm'])
+        expect(linhasDoRodape([{ ordem: 1, definicoes: a }, { ordem: 2, definicoes: b }, { ordem: 3, definicoes: a }], '2026-12-01'))
+            .toEqual(['DEFINIÇÕES (ITENS 1, 3): ARREMATE INTERNO: 65 mm', 'DEFINIÇÕES (ITEM 2): ARREMATE INTERNO: sem', 'DATA DE ENTREGA: 01/12/2026'])
+        expect(linhasDoRodape([{ ordem: 1, definicoes: [] }], null)).toEqual([])
     })
     it('4.1 — o RODAPÉ no PÉ da página, sempre: as observações e o fecho encostados no fim, com poucos itens também', () => {
         const pdf = gerar().pdf
