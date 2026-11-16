@@ -21,6 +21,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/router'
 import { Alert, Button, Card, Input, InputNumber, Select, Space, Tag, Typography, message } from 'antd'
+import { MarcaDaEmpresa } from './marca-da-empresa.component'
 import { ErroDaRota, chamarRota } from '@/page-parts/atendimentos-ia/api'
 import type { ErroNomeado } from '@/lib/atendimentos-ia/base-de-conhecimento'
 import {
@@ -427,6 +428,8 @@ export function BaseDeConhecimento({ tenantId, topo }: { tenantId: string; topo:
         <div>
             {topo(acao)}
             {painelDoResultado}
+            {/* A marca grava sozinha, fora do "Salvar alterações": subir a imagem é a ação inteira (16/11/2026) */}
+            <MarcaDaEmpresa tenantId={tenantId} />
             {ORDEM_DOS_BLOCOS.map((b) => (b === 'ambientes' ? blocoDosAmbientes
                 : b === 'vendedores' ? blocoDosVendedores
                     : b === 'adicionais' ? blocoDosAdicionais
