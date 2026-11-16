@@ -28,9 +28,11 @@ jest.mock('@/supabase/admin', () => ({
 }))
 jest.mock('@/lib/atendimentos-ia/arquivo-do-orcamento-servidor', () => ({ lerUltimoArquivo: jest.fn() }))
 jest.mock('@/lib/atendimentos-ia/preco-do-orcamento-servidor', () => ({ precificarComoAgente: jest.fn() }))
+jest.mock('@/lib/atendimentos-ia/orcamento-precificado', () => ({ regerarOArquivo: jest.fn() }))
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const C = require('@/lib/atendimentos-ia/cadeia-do-sim') as typeof import('@/lib/atendimentos-ia/cadeia-do-sim')
+const { VERSAO_DO_ARQUIVO } = require('@/lib/atendimentos-ia/arquivo-do-orcamento') as typeof import('@/lib/atendimentos-ia/arquivo-do-orcamento')
 /* eslint-enable @typescript-eslint/no-require-imports */
 type Deps = import('@/lib/atendimentos-ia/cadeia-do-sim').DependenciasDaEtapa
 type Precificacao = import('@/lib/atendimentos-ia/preco-do-orcamento-servidor').PrecificacaoDoAgente
@@ -49,7 +51,8 @@ function deps(p: Precificacao, extra: Partial<Deps> = {}) {
     let t = 1000
     const d = {
         precificar: jest.fn(async () => p),
-        lerArquivo: jest.fn(async () => ({ pdf: PDF })),
+        // por padrão, o arquivo guardado É o do desenho de hoje: o reenvio manda ele mesmo, sem regerar
+        lerArquivo: jest.fn(async (): Promise<{ pdf: Uint8Array; versao?: string | null } | null> => ({ pdf: PDF, versao: VERSAO_DO_ARQUIVO })),
         telefoneDoDono: jest.fn(async (): Promise<{ id: string; telefone: string } | null> => ({ id: 'rem-dono', telefone: '5551999990000' })),
         registrarMedido: jest.fn(async () => 'gravado'),
         enviar: jest.fn(async () => ({ ok: true, status: 200, prazoEsgotado: false })),
@@ -207,10 +210,10 @@ describe('o "sim" SEM MUDANÇA: o arquivo que JÁ existe vai de novo (dono do pr
         expect(d.precificar).not.toHaveBeenCalled()
         expect(d.lerArquivo).toHaveBeenCalledWith(T, ORC)
         expect(d.enviar).toHaveBeenCalledWith('5551999990000', 'Orcamento 7 - Geraldo Huck.pdf', PDF)
-        expect(r).toEqual({ rastro: expect.stringMatching(/^reenvio=ok ms_envio=\d+$/), paraOVendedor: C.fraseDoOrcamentoEnviado(7, 'Geraldo Huck'), enviadoPara: '5551999990000', idDoEnvio: null })
+        expect(r).toEqual({ rastro: expect.stringMatching(/^reenvio=ok reenvio_versao=igual ms_envio=\d+$/), paraOVendedor: C.fraseDoOrcamentoEnviado(7, 'Geraldo Huck'), enviadoPara: '5551999990000', idDoEnvio: null })
     })
     it('sem arquivo: nada é enviado, e quem chama roda a atualização inteira', async () => {
-        const d = deps(gravado(true), { lerArquivo: jest.fn(async (): Promise<{ pdf: Uint8Array } | null> => null) })
+        const d = deps(gravado(true), { lerArquivo: jest.fn(async (): Promise<{ pdf: Uint8Array; versao?: string | null } | null> => null) })
         expect(await C.reenviarOArquivo(T, ORCAMENTO, d)).toEqual({ rastro: 'reenvio=sem_arquivo', paraOVendedor: null, semArquivo: true })
         expect(d.enviar).not.toHaveBeenCalled()
     })
@@ -220,5 +223,59 @@ describe('o "sim" SEM MUDANÇA: o arquivo que JÁ existe vai de novo (dono do pr
         const falhou = await C.reenviarOArquivo(T, ORCAMENTO, deps(gravado(true), { enviar: jest.fn(async (): Promise<{ ok: boolean; status: number | null; prazoEsgotado: boolean }> => ({ ok: false, status: 500, prazoEsgotado: false })) }))
         expect(falhou.paraOVendedor).toBe(C.fraseDoEnvioQueFalhou(7, 'Geraldo Huck'))
         expect('enviadoPara' in falhou).toBe(false)
+    })
+})
+
+// ══ O ARQUIVO GUARDADO DE OUTRO DESENHO (dono do produto, 16/11/2026) ══
+// O caso real: o PDF do orçamento 6 era das 14:05 UTC, os desenhos foram ao ar às 16:33 e as observações às 17:52, e
+// às 18:01 o reenvio mandou o de 14:05 — sem figuras e sem observações. A versão é o que faz o reenvio perceber.
+describe('o reenvio REGERA quando o arquivo guardado é de outra versão de desenho', () => {
+    const ORCAMENTO = { id: ORC, numero: 7, nome: 'Geraldo Huck' }
+    const NOVO = new Uint8Array([37, 80, 68, 70, 45, 110, 111, 118, 111])
+    /** O arquivo guardado é de antes (versão nula, como as 7 linhas de produção), e o regerado é o de hoje. */
+    const deAntes = () => {
+        let regerado = false
+        return {
+            lerArquivo: jest.fn(async (): Promise<{ pdf: Uint8Array; versao?: string | null } | null> =>
+                (regerado ? { pdf: NOVO, versao: VERSAO_DO_ARQUIVO } : { pdf: PDF, versao: null })),
+            regerarArquivo: jest.fn(async (): Promise<{ ok: true } | { recusas: string[] }> => { regerado = true; return { ok: true } }),
+        }
+    }
+
+    it('rege, RELÊ e manda o arquivo NOVO — nunca o guardado', async () => {
+        const d = deps(gravado(true), deAntes())
+        const r = await C.reenviarOArquivo(T, ORCAMENTO, d)
+        expect(d.regerarArquivo).toHaveBeenCalledWith(T, ORC)
+        expect(d.lerArquivo).toHaveBeenCalledTimes(2)
+        expect(d.enviar).toHaveBeenCalledWith('5551999990000', 'Orcamento 7 - Geraldo Huck.pdf', NOVO)
+        expect(r.rastro).toContain('reenvio_versao=outra regerou=ok')
+        // e nada é precificado: a regeneração usa os números já gravados
+        expect(d.precificar).not.toHaveBeenCalled()
+    })
+    it('a versão IGUAL não rege nem relê: o arquivo guardado vai como está', async () => {
+        const d = deps(gravado(true), { regerarArquivo: jest.fn(async (): Promise<{ ok: true }> => ({ ok: true })) })
+        const r = await C.reenviarOArquivo(T, ORCAMENTO, d)
+        expect(d.regerarArquivo).not.toHaveBeenCalled()
+        expect(d.lerArquivo).toHaveBeenCalledTimes(1)
+        expect(d.enviar).toHaveBeenCalledWith('5551999990000', 'Orcamento 7 - Geraldo Huck.pdf', PDF)
+        expect(r.rastro).toContain('reenvio_versao=igual')
+    })
+    it('a regeneração que RECUSA não deixa o vendedor sem nada: vai o que existe, e o rastro diz o motivo', async () => {
+        const d = deps(gravado(true), {
+            lerArquivo: jest.fn(async (): Promise<{ pdf: Uint8Array; versao?: string | null } | null> => ({ pdf: PDF, versao: 'de-ontem' })),
+            regerarArquivo: jest.fn(async (): Promise<{ recusas: string[] }> => ({ recusas: ['o rateio não fecha com a interna'] })),
+        })
+        const r = await C.reenviarOArquivo(T, ORCAMENTO, d)
+        expect(d.enviar).toHaveBeenCalledWith('5551999990000', 'Orcamento 7 - Geraldo Huck.pdf', PDF)
+        expect(r.rastro).toContain('regerou=recusou')
+        expect(r.rastro).toContain('o rateio não fecha com a interna')
+        expect(r.enviadoPara).toBe('5551999990000')
+    })
+    it('SEM regerador (a dependência ausente), o arquivo que existe vai, e o rastro o diz — nunca em silêncio', async () => {
+        const d = deps(gravado(true), { lerArquivo: jest.fn(async (): Promise<{ pdf: Uint8Array; versao?: string | null } | null> => ({ pdf: PDF, versao: null })) })
+        delete (d as { regerarArquivo?: unknown }).regerarArquivo
+        const r = await C.reenviarOArquivo(T, ORCAMENTO, d)
+        expect(d.enviar).toHaveBeenCalledWith('5551999990000', 'Orcamento 7 - Geraldo Huck.pdf', PDF)
+        expect(r.rastro).toContain('reenvio_versao=outra sem_regerador')
     })
 })
