@@ -107,6 +107,11 @@ export type DadosDoArquivoDoOrcamento = {
     /** A data de entrega do levantamento (AAAA-MM-DD); nula sai " / / ". */
     dataEntrega: string | null
     itens: ItemDoArquivo[]
+    /**
+     * O texto do bloco OBSERVAÇÕES, no pé: prazos, validade, exclusões (16/11/2026). Vem da base de conhecimento da
+     * EMPRESA, igual em todo orçamento dela; as QUEBRAS DE LINHA são respeitadas, uma linha do texto é uma linha do
+     * bloco. Nulo = não informado, e o bloco sai com o rótulo e o corpo vazio.
+     */
     observacoesGerais: string | null
     /** A operação interna gravada e o valor de venda gravado, em reais. */
     operacaoInterna: number
@@ -415,7 +420,8 @@ export function gerarArquivoDoOrcamento(d: DadosDoArquivoDoOrcamento): ArquivoGe
     // O RODAPÉ NO PÉ DA PÁGINA, SEMPRE (4.1): as observações e o fecho encostados no fim da última página; sem lugar, uma página nova
     const rodape = alturaDasObservacoes(doc, d) + ALTURA_DO_FECHO
     if (y + rodape > FIM) doc.addPage('a4', 'portrait')
-    y = FIM - rodape
+    // nunca acima da margem: uma observação longa empurra o fecho para baixo em vez de subir para fora da página
+    y = Math.max(A4.margem, FIM - rodape)
     y = blocoDasObservacoes(doc, d, y)
     fecho(doc, d, y)
     if (d.faltas.length) carimbo(doc, d.faltas.length)
