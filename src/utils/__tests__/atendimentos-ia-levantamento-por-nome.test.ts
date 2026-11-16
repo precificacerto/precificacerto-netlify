@@ -4603,6 +4603,29 @@ describe('(37) Jorge Koss: o cliente no primeiro turno, as duas esquadrias até 
         expect(daAna().map((i) => [i.ordem, i.cor_perfil])).toEqual([[1, 'BRANCO'], [2, 'BRANCO'], [3, 'BRANCO']])
     })
 
+    /**
+     * O CONTEXTO QUE NÃO SE PERDE (dono do produto, 16/11/2026) — o caso real medido na De Paula:
+     *   12:13:43  vendedor: "é o mesmo de antes"
+     *   12:13:50  agente:   "Qual é o cliente?"
+     * treze segundos depois de o agente ter escrito "Jorge Lemos". O nome agora é retomado das mensagens da conversa.
+     */
+    it('"é o mesmo de antes": o nome vem da CONVERSA, e a rota não cai em SEM_NOME', async () => {
+        await fecharDp02('Jorge Lemos')
+        const antes = linhaIa().length
+        llmResponde({ nome: 'Jorge Lemos' })
+        await chamar('é o mesmo de antes')
+        expect(linhaIa()[antes]).not.toContain('rota=SEM_NOME')
+        // o log diz DE ONDE veio o nome: retomado da conversa, não inventado nem dito nesta mensagem
+        expect(linhaIa()[antes]).toMatch(/ nome=da_conversa(\s|$)/)
+    })
+    it('A GUARDA FICA: um nome que não está nem na mensagem nem na conversa continua caindo em SEM_NOME', async () => {
+        await fecharDp02('Jorge Lemos')
+        const antes = linhaIa().length
+        llmResponde({ nome: 'Maria Souza' })
+        await chamar('é o mesmo de antes')
+        expect(linhaIa()[antes]).toContain('rota=SEM_NOME')
+    })
+
     it('o que a produção devolvia (itens só com abertura e família): nada entra em lugar nenhum, e a linha [IA] diz itens_sem_campos=', async () => {
         llmResponde({ itens: [{ abertura: 'porta', familia: 'x' }, { abertura: 'janela', familia: 'PVC / Alumínio ignorado' }] })
         await chamar(T1)
