@@ -319,6 +319,37 @@ describe('as observações da empresa chegam ao arquivo', () => {
         ;(estado.db.tenant_settings as Linha[])[0].orcamento_observacoes = '   '
         expect((await lerDados()).observacoesGerais).toBeNull()
     })
+    it('AS VARIÁVEIS gravadas MONTAM o bloco, e o texto livre vai por último — as parcelas saem do valor de venda', async () => {
+        (estado.db.tenant_settings as Linha[])[0].orcamento_observacoes = 'Obra com acesso por elevador.'
+        ;(estado.db.tenant_settings as Linha[])[0].orcamento_observacoes_campos = {
+            prazosAbertura: 'Prazos de entrega após a medição final.',
+            prazos: [{ grupo: 'PVC', acabamento: 'BRANCO', dias: 45 }],
+            validadeDias: 7,
+            exclusoes: ['NÃO CONTEMPLA REMOÇÃO E DESCARTE DO QUE JÁ ESTÁ INSTALADO.'],
+            pagamento: [{ percentual: 50, rotulo: 'de Entrada' }, { percentual: 50, rotulo: 'na Entrega' }],
+        }
+        const linhas = ((await lerDados()).observacoesGerais ?? '').split('\n')
+        expect(linhas).toEqual([
+            'Prazos de entrega após a medição final.',
+            'PVC:',
+            '• BRANCO: 45 DIAS',
+            'PROPOSTA VÁLIDA POR 7 DIAS A PARTIR DA EMISSÃO DA PRESENTE DATA.',
+            'NÃO CONTEMPLA REMOÇÃO E DESCARTE DO QUE JÁ ESTÁ INSTALADO.',
+            'Forma de Pagamento:',
+            '50% de Entrada - R$ 3.500,00',
+            '50% na Entrega - R$ 3.500,00',
+            'Total: R$ 7.000,00',
+            'Obra com acesso por elevador.',
+        ])
+    })
+    it('o campo com LIXO no banco não imprime linha torta: ele some, e o resto do bloco sai', async () => {
+        (estado.db.tenant_settings as Linha[])[0].orcamento_observacoes_campos = {
+            prazos: [{ grupo: 'PVC', acabamento: 'BRANCO', dias: 0 }],
+            validadeDias: 7,
+        }
+        expect((await lerDados()).observacoesGerais).toBe('PROPOSTA VÁLIDA POR 7 DIAS A PARTIR DA EMISSÃO DA PRESENTE DATA.')
+    })
+
     it('SEM A MIGRAÇÃO 20261116000004 o arquivo sai igual, sem observações: a coluna ausente não derruba a geração', async () => {
         estado.semColunaDasObservacoes = true
         const d = await lerDados()
