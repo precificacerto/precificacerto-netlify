@@ -11,6 +11,11 @@
  * CATEGORIA de cada tabela (`principaisDaConta`), fora das categorias PERFIL e VIDRO; o VIDRO, nas tabelas da categoria VIDRO do principal
  * dela, pelo código escolhido (`vidro_codigo`) ou pela tradução do texto (`traduzirVidro`).
  *
+ * O VIDRO NOMEADO SEM ESPESSURA (dono do produto, 15/11/2026): "mini boreal" bate com vários itens da tabela. Quando EXATAMENTE UM dos
+ * candidatos é um código que a empresa cadastrou como vidro padrão (`orcamentista_vidro_padrao`), ele desempata, e a resolução gravada é
+ * `vidro_padrao` (a 20261115000002). Sem padrão entre eles, ou com mais de um, continua falta nomeada — nada se completa, nada se escolhe
+ * por ser o mais barato. A tabela que não existe (`sem_migracao`) ou a leitura que falha deixam a lista vazia: o empate volta a ser falta.
+ *
  * A DESCIDA DO INSUMO (dono do produto, 14/11/2026, tarefa 0010): não achando no principal, a busca DESCE os outros fornecedores da categoria
  * na ordem do cadastro (`niveisDoInsumo`, `resolverDescendo`) e para no primeiro que resolve. Duas candidatas no mesmo degrau continuam falta
  * nomeada, e a descida para ali; entre degraus, vence o de menor ordem. Não achando em nenhum, a falta diz em quantos fornecedores procurou.
@@ -24,6 +29,7 @@ import { custoDoOrcamento, valorDoMinuto, chaveDoMaterial, PERCENTUAIS, type Cam
 import type { ItemDaTabela } from './levantamento-de-barras'
 import { resolverReferencia, GRUPO_DE_COR, type ContextoDaResolucao, type ReferenciaProcurada, type ResolucaoDeReferencia } from './resolucao-de-referencia'
 import { traduzirVidro } from './vidro-da-tabela'
+import { lerVidrosPadraoDaConta } from './vidro-padrao'
 import { principaisDaConta, type PrincipaisDaConta } from './tabelas-da-conta'
 
 /** O valor do minuto e a configuração da empresa de onde ele saiu — o mesmo par que a precificação final usa. */
@@ -124,6 +130,9 @@ export async function custoDoLevantamento(tenantId: string, fonte: FamiliasDaEmp
     const mensagem = mensagemDoCalculo(c)
     if (mensagem.desfecho !== 'levantou') return { ok: false, recusas: [mensagem.texto] }
     const principais = await principaisDaConta(tenantId)
+    // os CÓDIGOS que a empresa cadastrou como vidro padrão: desempatam o texto que bate com vários itens (nunca completam nem escolhem o mais barato)
+    const padroes = await lerVidrosPadraoDaConta(tenantId)
+    const codigosDoPadrao = padroes.ok ? [...new Set([...padroes.porFamilia.values()].flat().map((l) => l.item_codigo))] : []
 
     const porItem: Array<CustoDoItem | undefined> = new Array(lev.itens.length)
     const recusas: string[] = []
@@ -179,13 +188,13 @@ export async function custoDoLevantamento(tenantId: string, fonte: FamiliasDaEmp
                 faltar(j0 + 1, { caminho: 'vidro', codigo_do_motor: texto ?? 'VIDRO', descricao_do_motor: texto, motivo: 'VIDRO_PRINCIPAL_AMBIGUO', frase: fraseDaCategoriaSemPrincipal('VIDRO'), candidatas: [] })
                 return null
             }
-            const t = traduzirVidro(texto, textoOuNulo(gravada?.vidro_codigo), vidros)
+            const t = traduzirVidro(texto, textoOuNulo(gravada?.vidro_codigo), vidros, codigosDoPadrao)
             if (!('item' in t)) {
                 faltar(j0 + 1, { caminho: 'vidro', codigo_do_motor: textoOuNulo(gravada?.vidro_codigo) ?? texto ?? 'VIDRO', descricao_do_motor: texto, motivo: t.motivo, frase: t.frase,
                     candidatas: t.candidatos.map((x) => ({ codigo: x.codigo, descricao: x.descricao ?? null })) })
                 return null
             }
-            materiais[chaveDoMaterial('vidro', t.item.codigo)] = materialDoItem('vidro', t.item.codigo, t.item, t.como === 'codigo' ? 'vidro_escolhido' : 'vidro_traduzido')
+            materiais[chaveDoMaterial('vidro', t.item.codigo)] = materialDoItem('vidro', t.item.codigo, t.item, t.como === 'codigo' ? 'vidro_escolhido' : t.como === 'padrao' ? 'vidro_padrao' : 'vidro_traduzido')
             return { codigo: t.item.codigo }
         })
 

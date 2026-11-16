@@ -13,6 +13,9 @@
  * O resultado: UM item → o item; mais de um → AMBÍGUO, com os candidatos (nunca o primeiro); nenhum → SEM CADASTRO ("temperado 5mm", "vidro
  * comum 8 mm incolor"), para o dono do produto ver o que falta na tabela; nada reconhecível no texto → NÃO TRADUZIDO. Tudo é falta nomeada.
  *
+ * O PADRÃO DA EMPRESA DESEMPATA (15/11/2026): “mini boreal”, sem espessura, acha vários itens; se EXATAMENTE UM deles for um código que a
+ * empresa cadastrou como vidro padrão, é ele, e `como` é `padrao`. Mais de um padrão entre os candidatos, ou nenhum: segue AMBÍGUO.
+ *
  * O CÓDIGO ESCOLHIDO VENCE O TEXTO (3.5): quando o item da esquadria tem `vidro_codigo`, quem chama acha o item por ele e não traduz nada.
  * Puro: não lê banco.
  */
@@ -69,7 +72,7 @@ export function vidroDoItem(descricao: string | null | undefined): VidroDoItem {
 
 export type ItemDeVidro = { codigo: string; descricao?: string | null }
 export type MotivoDoVidro = 'VIDRO_NAO_DITO' | 'VIDRO_NAO_TRADUZIDO' | 'VIDRO_AMBIGUO' | 'VIDRO_SEM_CADASTRO' | 'VIDRO_CODIGO_FORA_DA_TABELA'
-export type TraducaoDoVidro<I> = { item: I; como: 'codigo' | 'texto' } | { motivo: MotivoDoVidro; frase: string; candidatos: I[] }
+export type TraducaoDoVidro<I> = { item: I; como: 'codigo' | 'texto' | 'padrao' } | { motivo: MotivoDoVidro; frase: string; candidatos: I[] }
 
 /** Os candidatos: todo atributo DITO tem de bater; o que não foi dito não filtra. O composto só sem espessura e sem tipo ditos. */
 export function candidatosDoVidro<I extends ItemDeVidro>(dito: VidroDito, itens: readonly I[]): I[] {
@@ -83,8 +86,21 @@ export function candidatosDoVidro<I extends ItemDeVidro>(dito: VidroDito, itens:
     })
 }
 
-/** O item do vidro: pelo código escolhido, quando há; senão, pelo texto. */
-export function traduzirVidro<I extends ItemDeVidro>(texto: string | null | undefined, codigoEscolhido: string | null | undefined, itens: readonly I[]): TraducaoDoVidro<I> {
+/**
+ * O PADRÃO DA EMPRESA DESEMPATA (dono do produto, 15/11/2026): quando o texto bate com vários itens e EXATAMENTE UM deles é um código que a
+ * empresa cadastrou como vidro padrão (`orcamentista_vidro_padrao`), é ele. Nada se completa e nada se escolhe por ser o mais barato: o padrão
+ * só decide entre os candidatos que o TEXTO já elegeu, e o texto gravado continua sendo o do vendedor (a regra de 04/11/2026). Nenhum padrão
+ * entre os candidatos, ou mais de um, continua AMBÍGUO — falta nomeada.
+ */
+export function desempatarPeloPadrao<I extends ItemDeVidro>(candidatos: readonly I[], codigosPadrao: readonly string[]): I | null {
+    const padrao = new Set(codigosPadrao.map((c) => c.trim().toUpperCase()).filter((c) => c !== ''))
+    if (padrao.size === 0) return null
+    const dos = candidatos.filter((c) => padrao.has(c.codigo.trim().toUpperCase()))
+    return dos.length === 1 ? dos[0] : null
+}
+
+/** O item do vidro: pelo código escolhido, quando há; senão, pelo texto — e, no empate, pelo padrão da empresa. */
+export function traduzirVidro<I extends ItemDeVidro>(texto: string | null | undefined, codigoEscolhido: string | null | undefined, itens: readonly I[], codigosPadrao: readonly string[] = []): TraducaoDoVidro<I> {
     if (codigoEscolhido) {
         const achados = itens.filter((i) => i.codigo === codigoEscolhido)
         if (achados.length === 1) return { item: achados[0], como: 'codigo' }
@@ -98,6 +114,8 @@ export function traduzirVidro<I extends ItemDeVidro>(texto: string | null | unde
     const candidatos = candidatosDoVidro(dito, itens)
     if (candidatos.length === 1) return { item: candidatos[0], como: 'texto' }
     if (candidatos.length > 1) {
+        const doPadrao = desempatarPeloPadrao(candidatos, codigosPadrao)
+        if (doPadrao !== null) return { item: doPadrao, como: 'padrao' }
         return { motivo: 'VIDRO_AMBIGUO', candidatos,
             frase: `o vidro “${texto.trim()}” bate com ${candidatos.length} itens da tabela de vidro, e nenhum é escolhido: ${candidatos.map((c) => `${c.codigo}${c.descricao ? ` (${c.descricao})` : ''}`).join('; ')}` }
     }
