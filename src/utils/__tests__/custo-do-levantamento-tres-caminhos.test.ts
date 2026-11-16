@@ -11,6 +11,13 @@ jest.mock('@/lib/atendimentos-ia/levantamento-da-conversa', () => ({
     calcularOLevantamento: async (): Promise<unknown> => calculo.valor,
     mensagemDoCalculo: () => ({ texto: '', desfecho: 'levantou' }),
 }))
+const padroes = { codigos: [] as string[] }
+jest.mock('@/lib/atendimentos-ia/vidro-padrao', () => ({
+    lerVidrosPadraoDaConta: async (): Promise<unknown> => ({
+        ok: true, descricaoDo: new Map(),
+        porFamilia: new Map([['PVC', padroes.codigos.map((c) => ({ materia_prima_id: 'mp', abertura: null as string | null, tipo: 'correr', tipologia: null as string | null, item_codigo: c }))]]),
+    }),
+}))
 jest.mock('@/lib/atendimentos-ia/tabelas-da-conta', () => ({
     principaisDaConta: async (): Promise<unknown> => ({ principais: new Map([['FERRAGENS', 'detoni'], ['VIDRO', 'estrela']]), ambiguas: [], seguintes: new Map() }),
 }))
@@ -44,7 +51,7 @@ function montar() {
         }],
     }
 }
-beforeEach(montar)
+beforeEach(() => { montar(); padroes.codigos = [] })
 const ok = async () => {
     // o levantamento que chega ao servidor é o mesmo que o cálculo leu: o vidro e o vidro escolhido vêm dele
     const r = await S().custoDoLevantamento('t', { ok: true } as never, (calculo.valor as { lev: never }).lev)
@@ -73,6 +80,28 @@ describe('o custo pelos três caminhos, no servidor', () => {
         ;(calculo.valor as { lev: { itens: Array<Record<string, unknown>> } }).lev.itens[0].vidro = 'qualquer coisa'
         const r = await ok()
         expect(r.itens[0].materiais.find((m) => m.caminho === 'vidro')!.resolucao).toBe('vidro_escolhido')
+    })
+
+    // O VIDRO NOMEADO SEM ESPESSURA (dono do produto, 15/11/2026): o texto bate com dois itens; o padrão da empresa desempata, e a
+    // resolução gravada diz que foi por ele. Sem padrão, continua falta nomeada — nada se escolhe por ser o mais barato.
+    const comDoisIncolores = () => {
+        const c = calculo.valor as { lev: { itens: Array<Record<string, unknown>> }; calculos: Array<{ daFamilia: { todos: unknown[] } }> }
+        c.calculos[0].daFamilia.todos = [...ITENS, { ...ITENS[1], codigo: 'VIN06', descricao: 'VIDRO COMUM INCOLOR 06MM', custo: 90 }]
+        c.lev.itens[0].vidro = 'incolor'
+    }
+    it('o PADRÃO da empresa desempata o vidro que bate com dois itens, e a resolução é vidro_padrao', async () => {
+        comDoisIncolores()
+        padroes.codigos = ['VIN06']
+        const r = await ok()
+        const l = r.itens[0].materiais.find((m) => m.caminho === 'vidro')!
+        expect([l.codigo, l.resolucao]).toEqual(['VIN06', 'vidro_padrao'])
+        expect(r.faltas.some((f) => f.caminho === 'vidro')).toBe(false)
+    })
+    it('sem padrão cadastrado, o mesmo vidro continua falta nomeada (AMBÍGUO), e o custo não escolhe nenhum', async () => {
+        comDoisIncolores()
+        const r = await ok()
+        expect(r.faltas.filter((f) => f.caminho === 'vidro').map((f) => f.motivo)).toEqual(['VIDRO_AMBIGUO'])
+        expect(r.itens[0].materiais.some((m) => m.caminho === 'vidro')).toBe(false)
     })
 })
 

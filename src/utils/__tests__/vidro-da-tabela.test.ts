@@ -3,7 +3,7 @@
  * item ÚNICO. Os itens abaixo são as descrições da tabela de vidro da Estrela como estão no banco (lidas em 12/11/2026); os textos, os doze que
  * os levantamentos gravaram. O que cada um deve dar é a regra do dono do produto, escrita no comando.
  */
-import { candidatosDoVidro, traduzirVidro, vidroDito, vidroDoItem } from '@/lib/atendimentos-ia/vidro-da-tabela'
+import { candidatosDoVidro, desempatarPeloPadrao, traduzirVidro, vidroDito, vidroDoItem } from '@/lib/atendimentos-ia/vidro-da-tabela'
 
 const TABELA = [
     ['DPVBO3,4/6,5/VTIN05', 'MINI BOREAL 3,4/6,5/TEMPERADO INCOLOR 05'], ['DPVTIN06/6,5/VTAC08', 'TEMPERADO INCOLOR 06/6,5/TEMPERADO ACIDATO 08 DP'],
@@ -60,5 +60,47 @@ describe('as peças da tradução', () => {
         expect(vidroDoItem('MINI BOREAL 3,4/6,5/TEMPERADO INCOLOR 05')).toMatchObject({ composto: true, espessura: null })
         expect(candidatosDoVidro({ tipo: null, espessura: '5', familia: null }, TABELA).map((c) => c.codigo)).toEqual(['VIN05'])
         expect(vidroDoItem('VIDRO TEMPERADO SG NEUTRAL 14 06MM')).toMatchObject({ espessura: '6', familias: ['SG NEUTRAL'] })
+    })
+})
+
+/**
+ * O PADRÃO DA EMPRESA DESEMPATA (dono do produto, 15/11/2026): o caso real do ORC-5, em que "mini boreal" — a família, sem a espessura —
+ * deixou o orçamento PARCIAL. O padrão só decide entre os candidatos que o TEXTO elegeu: não completa o que não foi dito, não cadastra o que
+ * falta e não escolhe o mais barato.
+ */
+describe('o vidro nomeado sem espessura e o padrão da empresa', () => {
+    const achar = (texto: string, padrao: string[]) => traduzirVidro(texto, null, TABELA, padrao)
+
+    it('“mini boreal” com UM dos cinco candidatos cadastrado como padrão resolve nele, e diz que foi pelo padrão', () => {
+        const r = achar('mini boreal', ['VBO3,4'])
+        expect('item' in r ? [r.item.codigo, r.como] : r.motivo).toEqual(['VBO3,4', 'padrao'])
+    })
+
+    it('DOIS candidatos cadastrados como padrão não desempatam: continua AMBÍGUO, com os cinco candidatos', () => {
+        const r = achar('mini boreal', ['VBO3,4', 'VBO7,5'])
+        expect('candidatos' in r && r.motivo).toBe('VIDRO_AMBIGUO')
+        expect('candidatos' in r ? r.candidatos.length : 0).toBe(5)
+    })
+
+    it('o padrão que não está entre os candidatos não desempata, e a lista vazia deixa tudo como era', () => {
+        expect('motivo' in achar('mini boreal', ['VIN05']) && (achar('mini boreal', ['VIN05']) as { motivo: string }).motivo).toBe('VIDRO_AMBIGUO')
+        expect('motivo' in achar('mini boreal', []) && (achar('mini boreal', []) as { motivo: string }).motivo).toBe('VIDRO_AMBIGUO')
+    })
+
+    it('o padrão NÃO vence o texto que já fecha sozinho, nem o código escolhido', () => {
+        const um = achar('5mm', ['VBO3,4'])
+        expect('item' in um ? [um.item.codigo, um.como] : um.motivo).toEqual(['VIN05', 'texto'])
+        expect(traduzirVidro('mini boreal', 'VBO7,5', TABELA, ['VBO3,4'])).toEqual({ item: TABELA[6], como: 'codigo' })
+    })
+
+    it('o padrão não cadastra o que falta: “temperado 5mm” continua falta de cadastro', () => {
+        expect('motivo' in achar('temperado 5mm', ['VBO3,4']) && (achar('temperado 5mm', ['VBO3,4']) as { motivo: string }).motivo).toBe('VIDRO_SEM_CADASTRO')
+    })
+
+    it('o desempate compara o código aparado e sem olhar a caixa, e o padrão em branco não conta', () => {
+        expect(desempatarPeloPadrao(TABELA, [' vbo3,4 '])?.codigo).toBe('VBO3,4')
+        expect(desempatarPeloPadrao([{ codigo: ' VBO3,4 ', descricao: 'VIDRO MINI BOREAL 3,4MM' }], ['VBO3,4'])?.codigo).toBe(' VBO3,4 ')
+        expect(desempatarPeloPadrao(TABELA, ['  ', ''])).toBeNull()
+        expect(desempatarPeloPadrao([], ['VBO3,4'])).toBeNull()
     })
 })
