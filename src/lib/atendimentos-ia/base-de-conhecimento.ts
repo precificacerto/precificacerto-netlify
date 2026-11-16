@@ -241,6 +241,32 @@ function lerLista(corpo: unknown, chave: string, campos: Readonly<Record<string,
     return { lista, erros }
 }
 
+/**
+ * A MARCA DA EMPRESA (dono do produto, 16/11/2026): a logo que o cabeçalho do arquivo do orçamento já desenha e que
+ * nenhuma tela gravava. Um data URL de PNG ou JPEG, ou null para limpar; vazio e só-espaço contam como null.
+ *
+ * O limite de 400.000 caracteres (~300 KB de imagem) é o mesmo da função `superadmin_gravar_marca_da_empresa`: a
+ * recusa aqui é a frase que o usuário lê antes de subir, e a do banco é a que não deixa passar por outro caminho.
+ */
+export const LIMITE_DA_MARCA = 400_000
+export const FORMA_DA_MARCA = /^data:image\/(png|jpeg|jpg);base64,[A-Za-z0-9+/]+={0,2}$/i
+export const fraseDaMarcaForaDoFormato = 'a marca tem de ser uma imagem PNG ou JPEG'
+export const fraseDaMarcaGrande = (n: number) =>
+    `a marca tem ${Math.round(n / 1000)} mil caracteres, acima do limite de ${Math.round(LIMITE_DA_MARCA / 1000)} mil (cerca de 300 KB de imagem)`
+
+export function lerCorpoDaMarca(corpo: unknown): { erros: ErroNomeado[]; logo: string | null } {
+    const c = (corpo ?? {}) as Record<string, unknown>
+    if (!('logo' in c)) return { erros: [{ campo: 'logo', mensagem: 'obrigatório: a marca, ou null para limpar' }], logo: null }
+    const v = c.logo
+    if (v === null) return { erros: [], logo: null }
+    if (typeof v !== 'string') return { erros: [{ campo: 'logo', mensagem: 'tem de ser texto (o data URL da imagem) ou null' }], logo: null }
+    const aparado = v.trim()
+    if (aparado === '') return { erros: [], logo: null }
+    if (!FORMA_DA_MARCA.test(aparado)) return { erros: [{ campo: 'logo', mensagem: fraseDaMarcaForaDoFormato }], logo: null }
+    if (aparado.length > LIMITE_DA_MARCA) return { erros: [{ campo: 'logo', mensagem: fraseDaMarcaGrande(aparado.length) }], logo: null }
+    return { erros: [], logo: aparado }
+}
+
 export function lerCorpoDosAmbientes(corpo: unknown) {
     return lerLista(corpo, 'ambientes', CAMPOS_DO_AMBIENTE, 'ambiente')
 }
