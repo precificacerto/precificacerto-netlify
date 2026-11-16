@@ -20,6 +20,8 @@ const estado = {
     semColunaDasObservacoes: false,
     /** Uma falha do banco que NÃO é a coluna ausente (o 42703): ela tem de estourar, nunca virar "sem observações". */
     erroDoSettings: null as { code: string; message: string } | null,
+    /** Sem a migração 20261116000005: quem pede ou grava `arquivo_versao` volta 42703. */
+    semColunaDaVersao: false,
 }
 const NULO = Symbol('is null')
 
@@ -40,6 +42,10 @@ jest.mock('@/supabase/admin', () => ({
                     return Promise.resolve({ data: null, error: { code: '42703', message: 'column tenant_settings.orcamento_observacoes does not exist' } })
                 }
                 if (estado.erroDoSettings && tabela === 'tenant_settings') return Promise.resolve({ data: null, error: estado.erroDoSettings })
+                const pedeVersao = colunas.includes('arquivo_versao') || (op === 'insert' && !!carga && typeof carga === 'object' && 'arquivo_versao' in (carga as Linha))
+                if (estado.semColunaDaVersao && pedeVersao) {
+                    return Promise.resolve({ data: null, error: { code: '42703', message: 'column orcamentista_orcamento_arquivo.arquivo_versao does not exist' } })
+                }
                 if (op === 'insert') { (estado.db[tabela] ??= []).push(carga as Linha); return Promise.resolve({ data: null, error: null }) }
                 let r = (estado.db[tabela] ?? []).filter((l) => filtros.every(([c, v]) => (v === NULO ? (l[c] ?? null) === null : Array.isArray(v) ? (v as unknown[]).includes(l[c]) : l[c] === v)))
                 if (ordem) { const [c, asc] = ordem; r = [...r].sort((a, b) => (String(a[c]) < String(b[c]) ? -1 : String(a[c]) > String(b[c]) ? 1 : 0) * (asc ? 1 : -1)) }
@@ -88,10 +94,11 @@ const S = require('@/lib/atendimentos-ia/arquivo-do-orcamento-servidor') as type
 const { ratearOperacaoInterna } = require('@/lib/atendimentos-ia/rateio-do-orcamento') as typeof import('@/lib/atendimentos-ia/rateio-do-orcamento')
 const { fraseSemCandidata, fraseSemArquivo } = require('@/lib/atendimentos-ia/desenho-do-catalogo') as typeof import('@/lib/atendimentos-ia/desenho-do-catalogo')
 const { fraseDoArquivoQueNaoBaixou } = require('@/lib/atendimentos-ia/desenho-do-catalogo-servidor') as typeof import('@/lib/atendimentos-ia/desenho-do-catalogo-servidor')
+const { VERSAO_DO_ARQUIVO } = require('@/lib/atendimentos-ia/arquivo-do-orcamento') as typeof import('@/lib/atendimentos-ia/arquivo-do-orcamento')
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 beforeEach(() => {
-    estado.ops = []; estado.uploads = []; estado.erroDoUpload = null; estado.semColunaDasObservacoes = false; estado.erroDoSettings = null
+    estado.ops = []; estado.uploads = []; estado.erroDoUpload = null; estado.semColunaDasObservacoes = false; estado.erroDoSettings = null; estado.semColunaDaVersao = false
     estado.db = {
         tenants: [{ id: T, name: 'ESQUADRIAS DE PAULA LTDA', cnpj_cpf: '12.345.678/0001-90', email: null, phone: null, cep: '90000-000', street: 'Rua das Flores', number: '100',
             complement: null, neighborhood: 'Centro', city: 'Porto Alegre', state_code: 'RS', logo_url: null }],
@@ -335,6 +342,41 @@ describe('o cliente do TOPO da tela (11/11/2026)', () => {
     })
     it('o orçamento de outra empresa não é achado: nulo', async () => {
         expect(await S.lerClienteDoOrcamento(OUTRO, ORC)).toBeNull()
+    })
+})
+
+// ══ A VERSÃO DO DESENHO DO ARQUIVO (dono do produto, 16/11/2026) ══
+describe('a versão do desenho fica gravada no arquivo', () => {
+    const gerar = async () => {
+        const r = ratearOperacaoInterna(7000, [{ ordem: 1, quantidade: 1, peso: 2594.15 }, { ordem: 2, quantidade: 2, peso: 2225.04 }])
+        if ('recusa' in r) throw new Error(r.recusa)
+        const lido = await S.lerDadosDoArquivo(T, ORC, { operacaoInterna: 7000, valorVenda: 7000, rateio: r.itens, geradoEm: new Date('2026-11-16T19:00:00Z') })
+        if ('recusa' in lido) throw new Error(lido.recusa)
+        return S.gerarEGravarArquivo(T, ORC, null, lido.dados, lido.calculoId)
+    }
+
+    it('o arquivo gerado hoje grava `arquivo_versao`, e a leitura a devolve', async () => {
+        const g = await gerar()
+        expect('arquivo' in g).toBe(true)
+        expect((estado.db[S.TABELA_DO_ARQUIVO] as Linha[])[0].arquivo_versao).toBe(VERSAO_DO_ARQUIVO)
+        const lido = await S.lerUltimoArquivo(T, ORC)
+        expect(lido?.versao).toBe(VERSAO_DO_ARQUIVO)
+    })
+    it('SEM A MIGRAÇÃO 20261116000005: o arquivo é gravado sem a coluna, e a versão lida é NULA — que lê como "de outra versão" e faz regerar', async () => {
+        estado.semColunaDaVersao = true
+        const g = await gerar()
+        expect('arquivo' in g).toBe(true)
+        expect((estado.db[S.TABELA_DO_ARQUIVO] as Linha[])[0].arquivo_versao).toBeUndefined()
+        const lido = await S.lerUltimoArquivo(T, ORC)
+        expect(lido?.versao).toBeNull()
+    })
+    it('o arquivo de ANTES da versão lê NULO: é o caso dos 7 arquivos que estavam em produção em 16/11', async () => {
+        estado.db[S.TABELA_DO_ARQUIVO] = [{
+            id: 'a-velho', tenant_id: T, orcamento_id: ORC, bucket: 'atendimentos-ia', caminho: 'orcamentos/velho.pdf',
+            gerado_em: '2026-11-16T14:05:23.000Z', arquivo_versao: null,
+        }]
+        estado.uploads.push({ bucket: 'atendimentos-ia', caminho: 'orcamentos/velho.pdf', bytes: Buffer.from('%PDF'), opcoes: null })
+        expect((await S.lerUltimoArquivo(T, ORC))?.versao).toBeNull()
     })
 })
 

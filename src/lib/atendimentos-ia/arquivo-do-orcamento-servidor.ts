@@ -29,7 +29,8 @@ import { escolhasDescritas, lerEscolhasDoItem } from './escolhas-da-tipologia'
 import { valoresDoDesenho } from './desenho-do-catalogo'
 import { comAsFiguras, type CatalogoDeDesenhos, type ItemComDesenho } from './desenho-do-catalogo-servidor'
 import {
-    gerarArquivoDoOrcamento, type ClienteDoArquivo, type DadosDoArquivoDoOrcamento, type EmpresaDoArquivo, type FaltaDoArquivo, type ItemDoArquivo,
+    gerarArquivoDoOrcamento, VERSAO_DO_ARQUIVO,
+    type ClienteDoArquivo, type DadosDoArquivoDoOrcamento, type EmpresaDoArquivo, type FaltaDoArquivo, type ItemDoArquivo,
 } from './arquivo-do-orcamento'
 import type { ItemRateado } from './rateio-do-orcamento'
 import type { AmbienteDaFolha } from './folha-do-levantamento'
@@ -270,21 +271,37 @@ export async function gerarEGravarArquivo(tenantId: string, orcamentoId: string,
     const sha256 = createHash('sha256').update(gerado.pdf).digest('hex')
     const { error: eUp } = await supabaseAdmin.storage.from(BUCKET_DO_CATALOGO).upload(caminho, Buffer.from(gerado.pdf), { contentType: 'application/pdf', upsert: false })
     if (eUp) throw new Error(`storage ${BUCKET_DO_CATALOGO}: ${eUp.message}`)
-    const { error } = await db().from(TABELA_DO_ARQUIVO).insert({
+    const linha = {
         id, tenant_id: tenantId, orcamento_id: orcamentoId, calculo_id: calculoId, bucket: BUCKET_DO_CATALOGO, caminho, sha256,
         tamanho_bytes: gerado.pdf.byteLength, valor_venda: dados.valorVenda, gerado_origem: autor ? 'manual' : 'agente', gerado_por: autor, gerado_em: dados.geradoEm.toISOString(),
-    })
+    }
+    // A VERSÃO DO DESENHO (16/11/2026): sem a coluna (a 20261116000005 pendente), a linha é gravada sem ela — a versão
+    // fica nula, que lê como "de outra versão", e o arquivo é regerado no próximo pedido. É o lado seguro da falta.
+    let { error } = await db().from(TABELA_DO_ARQUIVO).insert({ ...linha, arquivo_versao: VERSAO_DO_ARQUIVO })
+    if (error && semMigracao(error) && (error.message ?? '').includes('arquivo_versao')) {
+        ;({ error } = await db().from(TABELA_DO_ARQUIVO).insert(linha))
+    }
     if (error) throw new Error(`${TABELA_DO_ARQUIVO}: ${error.message}`)
     return { ok: true, arquivo: { id, caminho, sha256, tamanho_bytes: gerado.pdf.byteLength, paginas: gerado.paginas, nomeDoArquivo: gerado.nomeDoArquivo } }
 }
 
-/** O último arquivo gerado do orçamento (o mais novo), no tenant do chamador — os bytes, para a tela abrir; nulo quando ainda não há. */
-export async function lerUltimoArquivo(tenantId: string, orcamentoId: string): Promise<{ pdf: Buffer; caminho: string } | null> {
-    const linhas = ((await ler(TABELA_DO_ARQUIVO, db().from(TABELA_DO_ARQUIVO).select('bucket, caminho, gerado_em').eq('tenant_id', tenantId).eq('orcamento_id', orcamentoId)
-        .order('gerado_em', { ascending: false }).limit(1))) ?? []) as Linha[]
-    const a = linhas[0]
+/**
+ * O último arquivo gerado do orçamento (o mais novo), no tenant do chamador — os bytes, para a tela abrir; nulo quando
+ * ainda não há. `versao` é a do DESENHO com que ele foi gerado: nula = de antes de a versão existir, logo de OUTRA
+ * versão. Quem reenvia compara com `VERSAO_DO_ARQUIVO` e rege quando difere (16/11/2026).
+ */
+export async function lerUltimoArquivo(tenantId: string, orcamentoId: string): Promise<{ pdf: Buffer; caminho: string; versao: string | null } | null> {
+    const comVersao = await db().from(TABELA_DO_ARQUIVO).select('bucket, caminho, gerado_em, arquivo_versao').eq('tenant_id', tenantId).eq('orcamento_id', orcamentoId)
+        .order('gerado_em', { ascending: false }).limit(1)
+    const semColuna = comVersao.error && semMigracao(comVersao.error)
+    const lido = semColuna
+        ? await db().from(TABELA_DO_ARQUIVO).select('bucket, caminho, gerado_em').eq('tenant_id', tenantId).eq('orcamento_id', orcamentoId)
+            .order('gerado_em', { ascending: false }).limit(1)
+        : comVersao
+    if (lido.error) throw new Error(`${TABELA_DO_ARQUIVO}: ${lido.error.message ?? 'erro'}`)
+    const a = ((lido.data ?? []) as Linha[])[0]
     if (!a) return null
     const { data, error } = await supabaseAdmin.storage.from(String(a.bucket)).download(String(a.caminho))
     if (error || !data) throw new Error(`storage ${String(a.bucket)}: ${error?.message ?? 'objeto ausente'}`)
-    return { pdf: Buffer.from(await data.arrayBuffer()), caminho: String(a.caminho) }
+    return { pdf: Buffer.from(await data.arrayBuffer()), caminho: String(a.caminho), versao: texto(a.arquivo_versao) }
 }
