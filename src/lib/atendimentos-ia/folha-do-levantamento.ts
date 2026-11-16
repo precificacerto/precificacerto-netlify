@@ -473,6 +473,35 @@ const alturaDoCorpoDoItem = (doc: Doc, i: ItemDaFolha) => ALTURA_DA_FAIXA + linh
 /** A altura que o item ocupa na folha: a paginação a conta ANTES de decidir se ele cabe (a OBS de duas linhas inclusive). */
 const alturaDoItem = (doc: Doc, i: ItemDaFolha) => alturaDoCorpoDoItem(doc, i) + ESPACO_ENTRE_ITENS
 
+/**
+ * A FIGURA DO CATÁLOGO NA PROPORÇÃO DA IMAGEM, E MENOR (dono do produto, 16/11/2026): "as figuras estão distorcidas. Sempre tem
+ * que ser proporcional" e "ela pode ser um pouco reduzida, porque está ocupando muito espaço". A imagem era esticada até a
+ * célula inteira (`addImage` com a largura e a altura da caixa), e a célula quase nunca tem a proporção da imagem. Aqui a
+ * imagem cresce pela SUA proporção (largura e altura em pixels) até caber na caixa, é reduzida a `ESCALA_DA_FIGURA` e fica
+ * centrada. Sem as dimensões da imagem (zero, negativa, não número), devolve nulo: o lugar fica em branco, nunca esticado.
+ */
+export const ESCALA_DA_FIGURA = 0.8
+export function caixaDaImagem(
+    caixa: { x: number; y: number; w: number; h: number },
+    larguraDaImagem: number,
+    alturaDaImagem: number,
+): { x: number; y: number; w: number; h: number } | null {
+    if (!(Number.isFinite(larguraDaImagem) && larguraDaImagem > 0 && Number.isFinite(alturaDaImagem) && alturaDaImagem > 0)) return null
+    const escala = Math.min(caixa.w / larguraDaImagem, caixa.h / alturaDaImagem) * ESCALA_DA_FIGURA
+    const w = larguraDaImagem * escala
+    const h = alturaDaImagem * escala
+    return { x: caixa.x + (caixa.w - w) / 2, y: caixa.y + (caixa.h - h) / 2, w, h }
+}
+
+/** Desenha a figura do catálogo na proporção da imagem (`caixaDaImagem`). Imagem que o jsPDF não lê ou sem dimensões: nada. */
+export function desenharFiguraProporcional(doc: Doc, figura: { dados: string; formato: 'PNG' | 'JPEG' }, caixa: { x: number; y: number; w: number; h: number }): void {
+    try {
+        const { width, height } = doc.getImageProperties(figura.dados)
+        const c = caixaDaImagem(caixa, width, height)
+        if (c) doc.addImage(figura.dados, figura.formato, c.x, c.y, c.w, c.h, undefined, 'FAST')
+    } catch { /* imagem que o jsPDF não lê: o lugar fica em branco, nunca outro desenho */ }
+}
+
 /** A caixa do desenho: a célula da figura INTEIRA (a altura do item todo), com a folga; o desenho centra nela, na proporção real. */
 export const caixaDaFigura = (x: number, y: number, alturaDoCorpo: number) =>
     ({ x: x + FOLGA_DO_DESENHO, y: y + FOLGA_DO_DESENHO, w: COLUNAS.fig - 2 * FOLGA_DO_DESENHO, h: alturaDoCorpo - 2 * FOLGA_DO_DESENHO })
@@ -687,7 +716,7 @@ function blocoDoItem(doc: Doc, i: ItemDaFolha, y: number): number {
     // Não resolvendo (`semFigura`), NÃO SE DESENHA NADA — a célula fica vazia e a linha SEM FIGURA diz por quê.
     const caixa = caixaDaFigura(x, y, altura)
     if (i.figura) {
-        try { doc.addImage(i.figura.dados, i.figura.formato, caixa.x, caixa.y, caixa.w, caixa.h, undefined, 'FAST') } catch { /* imagem que o jsPDF não lê: a célula fica vazia */ }
+        desenharFiguraProporcional(doc, i.figura, caixa)
     } else if (i.semFigura === null) {
         const tracos = tracosDoDesenho(desenhoDaTipologia(i), caixa)
         doc.setDrawColor(PRETO); doc.setLineWidth(0.35)

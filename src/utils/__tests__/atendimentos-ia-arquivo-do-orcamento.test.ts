@@ -52,7 +52,7 @@ describe('a estrutura, de cima para baixo', () => {
     it('o cabeçalho da empresa, a caixa ORÇAMENTO, o cliente, cada item com a faixa e a tabela, as OBSERVAÇÕES e o fecho — nessa ordem', () => {
         const t = textoDoPdf(gerar().pdf)
         const ordem = ['ESQUADRIAS DE PAULA LTDA', 'ORÇAMENTO', 'Número:', 'Emissão:', 'Vendedor:', 'Contato:', 'CLIENTE:', 'TEL. FIXO:', 'CELULAR:',
-            'TEL2/Fax:', 'ENDEREÇO:', 'IE/RG:', 'CNPJ/CPF:', '*LOCAL/AMBIENTE:', 'TIPO:', 'PORTA DE CORRER 2 FOLHAS | EUROPA 60', '*COR PERFIL:', '*COR ACESSÓRIO:',
+            'TEL2/Fax:', 'ENDEREÇO:', 'IE/RG:', 'CNPJ/CPF:', 'ITEM 1', '*LOCAL/AMBIENTE:', 'TIPO:', 'PORTA DE CORRER 2 FOLHAS | EUROPA 60', '*COR PERFIL:', '*COR ACESSÓRIO:',
             'LINHA:', 'DATA ENTREGA:', ...COLUNAS_DO_ITEM.map((c) => c.titulo), 'OBSERVAÇÕES DESTE ITEM', 'OBSERVAÇÕES', 'Atenciosamente,', 'Dt.Venda:', 'Impresso em:', 'Aceite do Cliente']
         let k = -1
         for (const rotulo of ordem) {
@@ -70,8 +70,24 @@ describe('a estrutura, de cima para baixo', () => {
             // cada coluna desenha o título e o valor: a sequência das três últimas colunas da linha do item, exata
             const v = t.indexOf(i.vidro!)
             expect(t.slice(v - 1, v + 5)).toEqual(['COR E ESPESSURA', i.vidro, 'VLR. UNIT.', reais(r.unitario), 'VLR. TOTAL', reais(r.total)])
-            expect(t.slice(v - 9, v - 1)).toEqual(['ITEM', String(i.ordem), 'QTDE.', String(i.quantidade), 'LARGURA', new Intl.NumberFormat('pt-BR').format(i.largura_mm!), 'ALTURA', new Intl.NumberFormat('pt-BR').format(i.altura_mm!)])
+            expect(t.slice(v - 7, v - 1)).toEqual(['QTDE.', String(i.quantidade), 'LARGURA', new Intl.NumberFormat('pt-BR').format(i.largura_mm!), 'ALTURA', new Intl.NumberFormat('pt-BR').format(i.altura_mm!)])
         }
+    })
+})
+
+describe('o item na faixa, antes do ambiente (dono do produto, 16/11/2026)', () => {
+    it('"ITEM N" vem logo antes de "*LOCAL/AMBIENTE:", na mesma faixa, e a tabela não tem mais a coluna ITEM', () => {
+        const t = textoDoPdf(gerar().pdf)
+        for (const i of ITENS) {
+            const k = t.indexOf(`ITEM ${i.ordem}`)
+            expect(k).toBeGreaterThan(-1)
+            expect(t[k + 1]).toBe('*LOCAL/AMBIENTE:')
+        }
+        expect(COLUNAS_DO_ITEM.map((c) => c.titulo)).toEqual(['QTDE.', 'LARGURA', 'ALTURA', 'COR E ESPESSURA', 'VLR. UNIT.', 'VLR. TOTAL'])
+        expect(t).not.toContain('ITEM')
+    })
+    it('a tabela continua com a largura de antes: a coluna ITEM foi para COR E ESPESSURA', () => {
+        expect(COLUNAS_DO_ITEM.reduce((s, c) => s + c.w, 0)).toBe(151)
     })
 })
 

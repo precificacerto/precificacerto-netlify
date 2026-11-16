@@ -12,7 +12,7 @@ import { readFileSync, writeFileSync } from 'fs'
 import { jsPDF } from 'jspdf'
 import { join } from 'path'
 import {
-    ALTURA_DA_FAIXA, ALTURA_DA_LINHA_DO_ITEM, COLUNAS, PX_DO_MOCKUP, FOLHA, caixaDaFigura, conferirFolha, linhasDoNome, nomeDaTipologiaNaFaixa, dataCurta, desenhoDaTipologia, gerarFolhaDoLevantamento, linhaDasVariaveis, linhaDosAmbientes,
+    ALTURA_DA_FAIXA, ALTURA_DA_LINHA_DO_ITEM, COLUNAS, PX_DO_MOCKUP, FOLHA, caixaDaFigura, caixaDaImagem, ESCALA_DA_FIGURA, conferirFolha, linhasDoNome, nomeDaTipologiaNaFaixa, dataCurta, desenhoDaTipologia, gerarFolhaDoLevantamento, linhaDasVariaveis, linhaDosAmbientes,
     linhaDeIdentificacao, nomeDoArquivo, paginar, percentual, planoDaFolha, tracosDoDesenho, variavelNaFolha, ROTULO_DO_CONSIDERADO,
     type AlturasDaFolha, type DadosDaFolha, type ItemDaFolha, type VariavelDita,
 } from '@/lib/atendimentos-ia/folha-do-levantamento'
@@ -477,6 +477,25 @@ describe('(III-b) A DENSIDADE DO MOCKUP (dono do produto, 07/11/2026): 794 px = 
     })
 })
 
+describe('A FIGURA DO CATÁLOGO NA PROPORÇÃO DA IMAGEM, E MENOR (dono do produto, 16/11/2026)', () => {
+    const caixa = { x: 10, y: 50, w: 30, h: 40 }
+    it.each([[800, 600], [600, 800], [1000, 1000], [3000, 200], [200, 3000]])('imagem %ix%i: mesma proporção, centrada, %s da caixa no eixo que encosta', (lw, lh) => {
+        const c = caixaDaImagem(caixa, lw, lh)!
+        expect(c.w / c.h).toBeCloseTo(lw / lh, 9)
+        expect(c.x + c.w / 2).toBeCloseTo(caixa.x + caixa.w / 2, 9)
+        expect(c.y + c.h / 2).toBeCloseTo(caixa.y + caixa.h / 2, 9)
+        expect(Math.max(c.w / caixa.w, c.h / caixa.h)).toBeCloseTo(ESCALA_DA_FIGURA, 9)
+    })
+    it('a escala é menor que a caixa (reduzida), e não é esticada até ela', () => {
+        expect(ESCALA_DA_FIGURA).toBeLessThan(1)
+        const c = caixaDaImagem(caixa, 800, 600)!
+        expect([c.w, c.h]).not.toEqual([caixa.w, caixa.h])
+    })
+    it.each([[0, 600], [800, 0], [-1, 600], [NaN, 600], [800, Infinity]])('sem dimensões da imagem (%s x %s): nulo, nunca esticada', (lw, lh) => {
+        expect(caixaDaImagem(caixa, lw, lh)).toBeNull()
+    })
+})
+
 describe('(III-c) O NOME DA TIPOLOGIA NA FAIXA: primeira maiúscula por trecho, o cinza da ÚLTIMA barra, até 2 linhas com reticências', () => {
     const casos: Array<[string, string, string, string]> = [
         // DP-01: a linha DESIGN (não é "EUROPA")
@@ -623,6 +642,15 @@ describe('(IV) o que a folha escreve', () => {
         if ('recusas' in sem) throw new Error(sem.recusas.join(' | '))
         expect(textoDoPdf(sem.pdf)).not.toMatch(/\/Subtype \/Image/)
         expect(textoDoPdf(sem.pdf)).toMatch(/0\.9921259842519685 w/)
+    })
+    it('a figura entra no PDF na PROPORÇÃO DA IMAGEM (2x1 sai com largura = 2 x altura), nunca esticada até a célula', () => {
+        const PNG2x1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAAC0lEQVR4nGNgAAMAAAcAAbKGrPQAAAAASUVORK5CYII='
+        const r = gerarFolhaDoLevantamento(dados({ itens: [{ ...ITENS_DE_EXEMPLO[0], figura: { dados: PNG2x1, formato: 'PNG' } }] }))
+        if ('recusas' in r) throw new Error(r.recusas.join(' | '))
+        // o jsPDF põe a imagem com a matriz "w 0 0 h x y cm" seguida de "/I.. Do"
+        const m = textoDoPdf(r.pdf).match(/([\d.]+) 0 0 ([\d.]+) [\d.-]+ [\d.-]+ cm\s*\/I\d+ Do/)
+        expect(m).not.toBeNull()
+        expect(Number(m![1]) / Number(m![2])).toBeCloseTo(2, 6)
     })
     it('o item que NÃO resolveu a figura sai com a linha SEM FIGURA, dizendo por quê — e a célula Fig. fica vazia', () => {
         const falta = 'o desenho da tipologia DP-02 não está no catálogo de desenhos: o item sai sem figura'
