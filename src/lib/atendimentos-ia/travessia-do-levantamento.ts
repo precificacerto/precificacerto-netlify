@@ -28,6 +28,7 @@ import { supabaseAdmin } from '@/supabase/admin'
 import { ErroNaoEncontrado, ErroSemMigracao, TABELA_DO_ITEM, TABELA_DO_ORCAMENTO, tabelaAusente } from './orcamentos-ia'
 import { lerPerfilDoVendedor } from './arquivo-do-levantamento'
 import { calcularOrcamento, ErroDoCalculo, faltaDoParcial, type FaltaDoParcial } from './orcamento-calculado'
+import { VERSAO_DO_CALCULO } from './custo-do-orcamento'
 import type { ResultadoDaEtapa } from './cadeia-do-sim'
 import { fraseDoArquivoQueNaoChegou } from './arquivo-que-nao-chegou'
 import {
@@ -212,7 +213,13 @@ export async function percentuaisDoOrcamento(tenantId: string, id: string): Prom
 // ── A ATUALIZAÇÃO DO ORÇAMENTO N, COM O MESMO NÚMERO (dono do produto, 13/11/2026) ─────────────────────────────────────────────────────
 export type ResultadoDaAtualizacao = {
     orcamento: { id: string; numero: number; nome: string }
+    /**
+     * NADA MUDOU — no levantamento E nas REGRAS DE CUSTO (16/11/2026). Um orçamento calculado com uma versão anterior
+     * (`calculo_versao` diferente da de hoje, ou nula) NÃO está atualizado, por mais que o levantamento esteja igual: ele recalcula.
+     */
     semMudanca: boolean
+    /** A versão das regras de custo com que o orçamento gravado foi calculado; nula = antes da 20261116000002, ou coluna ausente. */
+    calculoDeOutraVersao: boolean
     novos: number; mudados: number; removidos: number; cabecalhoMudou: boolean
     /** A edição manual (a tela) MAIS NOVA que a última atualização foi substituída por esta — a conversa avisa, nunca em silêncio. */
     edicaoManualSubstituida: boolean
@@ -234,9 +241,13 @@ export const edicaoManualMaisNova = (o: { editado_manualmente_em?: unknown; atua
  * edição manual NÃO é apagada (nem a data nem o autor): `atualizado_em` passa a ser o mais novo, e o aviso para sozinho.
  */
 export async function atualizarOrcamento(tenantId: string, levantamentoId: string, orcamentoId: string, agora: Date = new Date()): Promise<ResultadoDaAtualizacao> {
-    const { data: orc, error } = await db().from(TABELA_DO_ORCAMENTO)
-        .select(`id, numero, deleted_at, editado_manualmente_em, atualizado_em, ${CABECALHO_SINCRONIZADO.join(', ')}`)
-        .eq('tenant_id', tenantId).eq('id', orcamentoId).maybeSingle()
+    const colunas = `id, numero, deleted_at, editado_manualmente_em, atualizado_em, ${CABECALHO_SINCRONIZADO.join(', ')}`
+    // sem a 20261116000002 a coluna não existe: lê-se sem ela, e a versão fica nula — "de antes", que recalcula
+    let { data: orc, error } = await db().from(TABELA_DO_ORCAMENTO)
+        .select(`${colunas}, calculo_versao`).eq('tenant_id', tenantId).eq('id', orcamentoId).maybeSingle()
+    if (error && (error.code === '42703' || error.code === 'PGRST204')) {
+        ;({ data: orc, error } = await db().from(TABELA_DO_ORCAMENTO).select(colunas).eq('tenant_id', tenantId).eq('id', orcamentoId).maybeSingle())
+    }
     if (error) falhou(TABELA_DO_ORCAMENTO, error)
     if (!orc) throw new ErroNaoEncontrado()
     if (orc.deleted_at) throw new ErroOrcamentoArquivado(Number(orc.numero))
@@ -247,12 +258,16 @@ export async function atualizarOrcamento(tenantId: string, levantamentoId: strin
     const comparado = plano.itens.map((i) => ({ ...i, familia: familias.get(String(i.levantamento_item_id)) ?? null }))
     const d = diferencaDoOrcamento(orc, plano.orcamento, ativos, comparado)
     const numero = Number(orc.numero)
+    // A VERSÃO DAS REGRAS DE CUSTO (16/11/2026): o levantamento igual não basta — um cálculo feito com outra versão está obsoleto e
+    // refaz-se. A coluna ausente lê como nula, e nula é "de antes": recalcula, que é o lado seguro da falta.
+    const calculoDeOutraVersao = textoOuNulo((orc as { calculo_versao?: unknown }).calculo_versao) !== VERSAO_DO_CALCULO
+    const semMudanca = d.semMudanca && !calculoDeOutraVersao
     const resultado: ResultadoDaAtualizacao = {
-        orcamento: { id: orcamentoId, numero, nome: plano.orcamento.nome }, semMudanca: d.semMudanca,
+        orcamento: { id: orcamentoId, numero, nome: plano.orcamento.nome }, semMudanca, calculoDeOutraVersao,
         novos: d.novos.length, mudados: d.mudados.length, removidos: d.removidos.length, cabecalhoMudou: d.cabecalhoMudou,
         edicaoManualSubstituida: !d.semMudanca && edicaoManualMaisNova(orc), itens: plano.itens.length, origens: plano.origens,
     }
-    if (d.semMudanca) return resultado
+    if (semMudanca) return resultado
     const quando = agora.toISOString()
     // 1. o REMOVIDO, primeiro: a marca (nunca DELETE) — e ela libera a ordem para o item novo (o índice único é só entre os que valem)
     if (d.removidos.length) {

@@ -90,12 +90,20 @@ function cliente() {
 }
 jest.mock('@/supabase/admin', () => ({ supabaseAdmin: cliente() }))
 // o cálculo tem portão próprio (`atendimentos-ia-orcamento-calculado.test.ts`); aqui só importa que o "sim" o chama, com o orçamento criado
-const calculo = { chamadas: [] as Array<[string, string]>, resposta: null as null | (() => unknown), parcial: { parcial: false } as unknown, conferidos: [] as string[] }
+const calculo = { chamadas: [] as Array<[string, string]>, resposta: null as null | (() => unknown), parcial: { parcial: false } as unknown, conferidos: [] as string[], versaoGravada: VERSAO_DO_CALCULO }
+import { VERSAO_DO_CALCULO } from '@/lib/atendimentos-ia/custo-do-orcamento'
+
 jest.mock('@/lib/atendimentos-ia/orcamento-calculado', () => {
     class ErroDoCalculo extends Error { constructor(readonly recusas: string[]) { super(recusas.join(' | ')) } }
     return {
         ErroDoCalculo,
-        calcularOrcamento: async (t: string, id: string) => { calculo.chamadas.push([t, id]); return calculo.resposta ? calculo.resposta() : { valor_total_liquido: 5240.395, valor_total_bruto: 5483.2, faltas: [], parcial: false } },
+        calcularOrcamento: async (t: string, id: string) => {
+            calculo.chamadas.push([t, id])
+            // o cálculo de verdade grava a VERSÃO DAS REGRAS no orçamento (16/11/2026); o mock faz o mesmo, ou o "sem mudança" nunca valeria
+            const o = (estado.db.orcamentista_orcamento ?? []).find((x: Record<string, unknown>) => String(x.id) === id)
+            if (o) o.calculo_versao = calculo.versaoGravada
+            return calculo.resposta ? calculo.resposta() : { valor_total_liquido: 5240.395, valor_total_bruto: 5483.2, faltas: [], parcial: false }
+        },
         // a conferência do PARCIAL tem portão próprio (`atendimentos-ia-orcamento-calculado.test.ts`, (5)); aqui, o que o "sim" faz com ela
         faltaDoParcial: async (_t: string, id: string) => { calculo.conferidos.push(id); return calculo.parcial },
     }
@@ -135,7 +143,7 @@ function semear(lev: Partial<LevantamentoNaTravessia> = {}, itens = ITENS) {
     estado.db.orcamentista_levantamento_item = [...itens.map((i) => ({ ...i, tenant_id: l.tenant_id, levantamento_id: l.id })),
         { id: 'li-outra', ordem: 1, tenant_id: OUTRO, levantamento_id: LEV_OUTRO, tipologia: 'DP-02', largura_mm: 1, altura_mm: 1, quantidade: 1, cor_perfil: null, vidro: null, ambientes: null, escolhas: null }]
 }
-beforeEach(() => { estado.db = {}; estado.ops = []; estado.erros = {}; estado.antesDoInsert = null; seq = 0; semear(); calculo.chamadas = []; calculo.resposta = null })
+beforeEach(() => { estado.db = {}; estado.ops = []; estado.erros = {}; estado.antesDoInsert = null; seq = 0; semear(); calculo.chamadas = []; calculo.resposta = null; calculo.versaoGravada = VERSAO_DO_CALCULO })
 const escritas = () => estado.ops.filter((o) => o.op !== 'select')
 
 describe('(0) a comparação do levantamento com o orçamento (13/11/2026), pura', () => {
@@ -693,6 +701,28 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
         expect(calculo.conferidos).toHaveLength(1)
         expect(calculo.chamadas).toEqual([])
         expect(r.aviso).toBe(fraseDoOrcamentoJaAtualizado(1))
+    })
+    /**
+     * A VERSÃO DAS REGRAS DE CUSTO (dono do produto, 16/11/2026) — o caso real do orçamento 6: o levantamento não mudou, mas o cálculo
+     * foi feito com a regra anterior. Dizer "já está atualizado" e reenviar o PDF velho é o defeito; o certo é RECALCULAR.
+     */
+    it('CÁLCULO DE OUTRA VERSÃO: o levantamento igual NÃO é "sem mudança" — recalcula em vez de reenviar o arquivo velho', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        comFamilia('PVC')
+        orcamento1().calculo_versao = 'barra-inteira-2026-11-09'
+        calculo.chamadas = []
+        const r = await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)
+        expect(calculo.chamadas).toHaveLength(1)
+        expect(r.aviso).not.toBe(fraseDoOrcamentoJaAtualizado(1))
+        expect(r.rastro).not.toContain('atualizacao=sem_mudanca')
+    })
+    it('o orçamento SEM versão gravada (calculado antes da 20261116000002) também recalcula', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        comFamilia('PVC')
+        delete orcamento1().calculo_versao
+        calculo.chamadas = []
+        await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)
+        expect(calculo.chamadas).toHaveLength(1)
     })
     it('atualizarOrcamento sem mudança NÃO GRAVA nada', async () => {
         await atravessarNoSim(T, LEV, naEtapa)

@@ -45,6 +45,19 @@ import type { ComoAchou } from '@/lib/atendimentos-ia/resolucao-de-referencia'
  * aproveitada. A origem passa a ser `consumo_do_item` (migração 20261116000001), que REVOGA o `fallback_barra_inteira` de 09/11/2026 para
  * o orçamento. Os orçamentos gravados com a origem antiga ficam como estão: nada se recalcula para trás.
  */
+/**
+ * A VERSÃO DAS REGRAS DE CUSTO (16/11/2026). Ela é gravada no orçamento (`orcamentista_orcamento.calculo_versao`, migração
+ * 20261116000002) e o "sim sem mudança" (13/11/2026) a confere: um orçamento calculado com versão ANTERIOR não está atualizado, por mais
+ * que o levantamento não tenha mudado, e o pedido seguinte RECALCULA em vez de reenviar o arquivo velho.
+ *
+ * O defeito que ela fecha, medido na conversa da De Paula em 16/11/2026: o orçamento 6 foi calculado às 10:44 UTC com a barra inteira, a
+ * regra do consumo entrou às 12:04, e às 12:14 o agente respondeu "já está atualizado" e reenviou o PDF de R$ 92,9 milhões.
+ *
+ * QUEM MUDA REGRA DE CUSTO MUDA ESTA CONSTANTE. É o que faz os orçamentos de antes se refazerem sozinhos no próximo pedido — sem recalcular
+ * nada para trás por conta própria, que continua proibido.
+ */
+export const VERSAO_DO_CALCULO = 'consumo-do-item-2026-11-16'
+
 export const MODO_DO_FALLBACK = 'SEM' as const
 export const ORIGEM_DO_FALLBACK = 'consumo_do_item' as const
 export const MOTIVO_DO_FALLBACK = 'o orcamento cobra o consumo de cada item: o aproveitamento de barras e do relatorio do pedido, depois do fechamento'

@@ -174,3 +174,33 @@ describe('(6) palavrasNoTexto (dono do produto, 03/11/2026): a IA extrai o nome,
         expect(N().nomeDaMensagem(nome, texto)).toBe(esperado ? nome : null)
     })
 })
+
+/**
+ * O NOME RETOMADO DA CONVERSA (dono do produto, 16/11/2026) — o caso real medido na De Paula: "é o mesmo de antes" treze segundos depois de
+ * o agente ter escrito "Jorge Lemos", e o agente perguntando "Qual é o cliente?". A guarda contra a IA inventar nome continua inteira;
+ * o que muda é que ela também procura nas mensagens recentes da conversa.
+ */
+describe('o nome retomado da conversa', () => {
+    const CONVERSA = ['Levantamento 19 “Jorge Lemos”: o arquivo está acima, para você conferir.', 'quero orçamento 1 porta de correr 2,50 x 2,20']
+
+    it('o nome que está SÓ na conversa vale: "é o mesmo de antes" retoma o Jorge Lemos', () => {
+        expect(N().nomeDaMensagem('Jorge Lemos', 'é o mesmo de antes')).toBeNull()
+        expect(N().nomeDitoOuRetomado('Jorge Lemos', 'é o mesmo de antes', CONVERSA)).toBe('Jorge Lemos')
+    })
+    it('o nome na MENSAGEM continua valendo, e sem conversa nenhuma também', () => {
+        expect(N().nomeDitoOuRetomado('Jorge Lemos', 'é o Jorge Lemos', [])).toBe('Jorge Lemos')
+        expect(N().nomeDitoOuRetomado('Jorge Lemos', 'Jorge Lemos', CONVERSA)).toBe('Jorge Lemos')
+    })
+    it('A GUARDA FICA: o nome que não está nem na mensagem nem na conversa continua sendo invenção, e cai', () => {
+        expect(N().nomeDitoOuRetomado('Maria Souza', 'é o mesmo de antes', CONVERSA)).toBeNull()
+        expect(N().nomeDitoOuRetomado('Jorge Lemos', 'é o mesmo de antes', [])).toBeNull()
+        // meia-palavra não basta: as DUAS têm de estar
+        expect(N().nomeDitoOuRetomado('Jorge Koss', 'é o mesmo de antes', CONVERSA)).toBeNull()
+    })
+    it('o vazio, o não-texto e o só-espaço continuam nulos', () => {
+        expect(N().nomeDitoOuRetomado('', 'x', CONVERSA)).toBeNull()
+        expect(N().nomeDitoOuRetomado('   ', 'x', CONVERSA)).toBeNull()
+        expect(N().nomeDitoOuRetomado(null, 'x', CONVERSA)).toBeNull()
+        expect(N().nomeDitoOuRetomado(42, 'x', CONVERSA)).toBeNull()
+    })
+})

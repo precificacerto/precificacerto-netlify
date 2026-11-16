@@ -198,7 +198,7 @@ import { lerFluxo } from '@/lib/atendimentos-ia/resposta-em-fluxo'
 import { CODIGO_DE_FORNECEDOR, PALAVRA_ESQUADRIA, redigir, type MotivoDaRedacao, type Redacao } from '@/lib/atendimentos-ia/redacao-da-resposta'
 import { vidroPodado } from '@/lib/atendimentos-ia/vidro'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
-import { compararNome, formaComparavel, nomeDaMensagem, nomeDoCliente, nomeSemPrefixo, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
+import { compararNome, formaComparavel, nomeDaMensagem, nomeDitoOuRetomado, nomeDoCliente, nomeSemPrefixo, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 import { fraseDaCorForaDaLista, perguntasDaTipologia, type JaDito } from '@/lib/atendimentos-ia/pre-definicao'
 import { atributosNoLog, fraseDoPadraoQueFalta, origemDaTipologiaProposta, padraoDaEsquadria, type AtributoAssumido } from '@/lib/atendimentos-ia/tipologia-padrao'
 import { PROMPT_BASE } from '@/utils/atendimentos-ia-prompt-base'
@@ -250,7 +250,7 @@ export type Rota = 'MONTAGEM' | 'NOVO' | 'ALTERACAO' | 'ALTERACAO_ADMIN' | 'SEM_
  * `da_pergunta` (não está no texto, mas é um dos que a pergunta em aberto citou), `do_cliente` (o nome saiu do
  * cliente que está no texto, 03/11/2026).
  */
-type MarcaDoNome = '-' | 'veio' | 'faltou' | 'fora_do_texto' | 'da_pergunta' | 'do_cliente'
+type MarcaDoNome = '-' | 'veio' | 'faltou' | 'fora_do_texto' | 'da_pergunta' | 'da_conversa' | 'do_cliente'
 /**
  * A chamada à IA, medida (dono do produto, 26/10/2026): o tempo, do envio do pedido à resposta lida, e os tokens de
  * entrada e de saída que a própria API devolve em `usage`. SÓ NÚMERO — nunca o texto do pedido nem o da resposta.
@@ -1153,9 +1153,11 @@ function nomeDaPergunta(nome: unknown, aberta: PerguntaRefeita): string | null {
     return aberta.p.nome && formaComparavel(aberta.p.nome) === forma ? aberta.p.nome : null
 }
 
-function marcaDoNome(nome: unknown, noTexto: string | null, naPergunta: string | null, doCliente: string | null): MarcaDoNome {
+function marcaDoNome(nome: unknown, noTexto: string | null, naPergunta: string | null, daConversa: string | null, doCliente: string | null): MarcaDoNome {
     if (noTexto !== null) return 'veio'
     if (naPergunta !== null) return 'da_pergunta'
+    // RETOMADO das mensagens recentes da conversa (16/11/2026): não veio nesta mensagem, mas não foi inventado
+    if (daConversa !== null) return 'da_conversa'
     if (doCliente !== null) return 'do_cliente'
     return typeof nome !== 'string' || !nome.trim() ? 'faltou' : 'fora_do_texto'
 }
@@ -1376,7 +1378,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // A MONTAGEM NÃO ABSORVE OUTRO CLIENTE (dono do produto, 05/11/2026): "Cliente: Maria Cristina" virou levantamento "Jorge Koss" porque
         // a rota MONTAGEM decidia antes de ler o nome. Agora o nome/cliente da mensagem é lido também aqui: um cliente DIFERENTE do levantamento
         // em montagem, ou o pedido de "novo", tira a mensagem da montagem e ela segue o roteamento pelo nome (novo, ou o existente que ela cita)
-        const nomeNaMensagem = nomeDaMensagem(proposta.nome, c.texto) ?? nomeDoCliente(proposta, c.texto)
+        // AS MENSAGENS RECENTES DA CONVERSA (16/11/2026): onde o nome pode ter sido dito antes — "é o mesmo de antes" retoma o que está nelas
+        const naConversa = historico.map((m) => m.content)
+        const nomeNaMensagem = nomeDitoOuRetomado(proposta.nome, c.texto, naConversa) ?? nomeDoCliente(proposta, c.texto)
         const outroCliente = emMontagem !== undefined && nomeNaMensagem !== null && normalizarNome(nomeSemPrefixo(nomeNaMensagem)) !== normalizarNome(emMontagem.nome)
         const pedeNovo = emMontagem !== undefined && proposta.novo === true
         const saiDaMontagem = outroCliente || pedeNovo
@@ -1452,10 +1456,12 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         } else {
             const noTexto = nomeDaMensagem(proposta.nome, c.texto)
             const naPergunta = noTexto === null && aberta ? nomeDaPergunta(proposta.nome, aberta) : null
+            // RETOMADO DA CONVERSA (16/11/2026): o nome que está nas mensagens recentes, quando esta não o traz e não há pergunta que o dê
+            const retomado = noTexto === null && naPergunta === null ? nomeDitoOuRetomado(proposta.nome, c.texto, naConversa) : null
             // sem nome dito, o do CLIENTE que está no texto (03/11/2026): "Cliente: Geronimo Silva" é "Levantamento Geronimo Silva"
-            const doCliente = noTexto === null && naPergunta === null ? nomeDoCliente(proposta, c.texto) : null
-            rastro.nome = marcaDoNome(proposta.nome, noTexto, naPergunta, doCliente)
-            let lido = noTexto ?? naPergunta ?? doCliente
+            const doCliente = noTexto === null && naPergunta === null && retomado === null ? nomeDoCliente(proposta, c.texto) : null
+            rastro.nome = marcaDoNome(proposta.nome, noTexto, naPergunta, retomado, doCliente)
+            let lido = noTexto ?? naPergunta ?? retomado ?? doCliente
             // O APANHADO espera o "sim": a resposta sem nome — ou com o nome dele — é sobre o levantamento que ele
             // citou, achado pelo id, de qualquer vendedor. "sim" ou "não" confirmam; o resto ("a largura é 1500") é
             // alteração DELE, e entra no apanhado. O admin que alterou o de outro também passa por aqui (26/10/2026)
