@@ -15,7 +15,7 @@
  *
  * A GRAMÁTICA, medida no arquivo da Wolff:
  *     ou   := e ('or' e)*                 e    := cmp ('and' cmp)*
- *     cmp  := soma (('='|'<'|'>'|'<='|'>=') soma)?
+ *     cmp  := soma (('='|'<>'|'<'|'>'|'<='|'>=') soma)?
  *     soma := prod (('+'|'-') prod)*      prod := prim (('*'|'/') prim)*
  *     prim := número | '&' NOME | NOME '(' args ')' | NOME | '(' ou ')'
  *   - número com PONTO decimal (88.4). A VÍRGULA é separador de argumento: as fórmulas da linha escrevem
@@ -257,7 +257,15 @@ class ErroDeAvaliacao extends Error {
 
 // ── O tokenizador ─────────────────────────────────────────────────────────────────────────
 type Token = { t: 'num' | 'nome' | 'op' | 'amp' | 'fim'; v: string; pos: number }
-const OPERADORES = ['<=', '>=', '+', '-', '*', '/', '(', ')', ',', '=', '<', '>']
+/**
+ * O `<>` É "DIFERENTE" (16/11/2026), e vem ANTES de `<=` e `<` para o lexer o ler inteiro.
+ *
+ * Por que entrou: as condições dos DESENHOS das tipologias o usam — 107 das 771 condições por variável, medido em
+ * produção em 16/11/2026 —, e sem ele toda essa fatia recusava com NAO_PARSEIA, ou seja, a esquadria saía sem figura
+ * sem ninguém saber por quê. Medido no mesmo dia: `<>` NÃO aparece em NENHUMA das 231.700 condições e fórmulas do
+ * motor (regras, insumos, vidros e variáveis), então nada que hoje calcula muda — o operador só deixa de recusar.
+ */
+const OPERADORES = ['<>', '<=', '>=', '+', '-', '*', '/', '(', ')', ',', '=', '<', '>']
 
 function tokens(texto: string): Token[] {
     const saida: Token[] = []
@@ -320,7 +328,7 @@ function ler(texto: string): No {
     function cmp(): No {
         const a = somaOuSub()
         const t = olha()
-        if (t.t === 'op' && ['=', '<', '>', '<=', '>='].includes(t.v)) { i++; return { k: 'bin', op: t.v, a, b: somaOuSub() } }
+        if (t.t === 'op' && ['=', '<>', '<', '>', '<=', '>='].includes(t.v)) { i++; return { k: 'bin', op: t.v, a, b: somaOuSub() } }
         return a
     }
     function somaOuSub(): No {
@@ -425,6 +433,7 @@ function valorDo(no: No, amb: Ambiente, pilha: string[]): Valor {
                 case '*': return { tipo: 'n', q: produto(a, b) }
                 case '/': return { tipo: 'n', q: quociente(a, b) }
                 case '=': return { tipo: 'b', b: compara(a, b) === 0 }
+                case '<>': return { tipo: 'b', b: compara(a, b) !== 0 }
                 case '<': return { tipo: 'b', b: compara(a, b) < 0 }
                 case '>': return { tipo: 'b', b: compara(a, b) > 0 }
                 case '<=': return { tipo: 'b', b: compara(a, b) <= 0 }

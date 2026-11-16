@@ -25,6 +25,8 @@ import { contextoDaFolhaDaEmpresa } from './conversa-da-ia'
 import { corDoAcessorio, variaveisDitas } from './arquivo-do-levantamento'
 import { desenhoDaTipologia, linhaDosAmbientes, variavelNaFolha } from './folha-do-levantamento'
 import { escolhasDescritas, lerEscolhasDoItem } from './escolhas-da-tipologia'
+import { valoresDoDesenho } from './desenho-do-catalogo'
+import { comAsFiguras, type CatalogoDeDesenhos, type ItemComDesenho } from './desenho-do-catalogo-servidor'
 import {
     gerarArquivoDoOrcamento, type ClienteDoArquivo, type DadosDoArquivoDoOrcamento, type EmpresaDoArquivo, type FaltaDoArquivo, type ItemDoArquivo,
 } from './arquivo-do-orcamento'
@@ -64,7 +66,10 @@ export function definicoesDoItem(def: Parameters<typeof escolhasDescritas>[0], e
 const COLUNAS_DO_ITEM = 'id, ordem, levantamento_item_id, tipologia, largura_mm, altura_mm, quantidade, cor_perfil, vidro, obs, ambientes, escolhas, calculo_id, custo_liquido_total, tempo_fabricacao_min'
 
 /** Os itens do orçamento como o arquivo (e a faixa da tela) os mostra. A família vem do item do levantamento de origem; o manual não tem. */
-export async function itensDoArquivo(tenantId: string, orcamentoId: string): Promise<{ itens: ItemDoArquivo[]; linhas: Linha[] } | { recusa: string }> {
+/** O que a escolha do desenho precisa de cada item: o mesmo contrato do módulo do catálogo, sem cópia. */
+export type ItemParaODesenho = ItemComDesenho
+export async function itensDoArquivo(tenantId: string, orcamentoId: string):
+    Promise<{ itens: ItemDoArquivo[]; linhas: Linha[]; paraODesenho: ItemParaODesenho[] } | { recusa: string }> {
     const linhas = ((await ler('orcamentista_orcamento_item', db().from('orcamentista_orcamento_item').select(COLUNAS_DO_ITEM)
         // só os itens que VALEM: o removido (a marca `removido_em`, 20261113000002) fica no banco e sai de toda conta e de todo arquivo
         .eq('tenant_id', tenantId).eq('orcamento_id', orcamentoId).is('removido_em', null).order('ordem', { ascending: true }))) ?? []) as Linha[]
@@ -77,6 +82,7 @@ export async function itensDoArquivo(tenantId: string, orcamentoId: string): Pro
     }
     const contexto = await contextoDaFolhaDaEmpresa(tenantId)
     if ('recusa' in contexto) return { recusa: contexto.recusa }
+    const paraODesenho: ItemParaODesenho[] = []
     const itens = linhas.map((l): ItemDoArquivo => {
         const familia = familias.get(String(l.levantamento_item_id)) ?? null
         const tipologia = texto(l.tipologia)
@@ -90,15 +96,36 @@ export async function itensDoArquivo(tenantId: string, orcamentoId: string): Pro
         const largura = numero(l.largura_mm)
         const altura = numero(l.altura_mm)
         const ambientes = Array.isArray(l.ambientes) && l.ambientes.length ? linhaDosAmbientes({ ambientes: l.ambientes as AmbienteDaFolha[] }) : null
+        // o DESENHO IMPORTADO (16/11/2026): a condição do catálogo fala a língua do motor (N, UT, HI, LT), e os valores
+        // são as escolhas gravadas mais o padrão NUMÉRICO da aba Variáveis desta tipologia
+        paraODesenho.push({ tipologia: tipologia ?? '', descricao: d?.descricao ?? tipologia, familia, valores: valoresDoDesenho(def, escolhas ?? {}) })
         return {
             ordem: Number(l.ordem), quantidade: Number(l.quantidade), largura_mm: largura, altura_mm: altura, tipologia,
             descricao: d?.descricao ?? tipologia, tipo: d?.tipo ?? null, fornecedor: d?.fornecedor ?? null, linha: d?.linha ?? null,
             ambientes, corPerfil: texto(l.cor_perfil), corAcessorio: tipologia ? texto(corDoAcessorio(base, contexto.definicao)) : null, vidro: texto(l.vidro),
             variaveis: variaveis.map(variavelNaFolha), obs: texto(l.obs), definicoes,
             desenho: largura && altura && largura > 0 && altura > 0 ? desenhoDaTipologia({ descricao: d?.descricao ?? '', largura_mm: largura, altura_mm: altura, variaveis }) : null,
+            // a figura e a falta entram em `comOsDesenhos`: a escolha é do catálogo, e é UMA SÓ para os três lugares
+            figura: null, semFigura: null,
         }
     })
-    return { itens, linhas }
+    return { itens, linhas, paraODesenho }
+}
+
+/**
+ * OS DESENHOS IMPORTADOS nos itens (dono do produto, 11/11/2026, implementado em 16/11/2026): a figura do catálogo
+ * (`orcamentista_tipologia_desenho`) no lugar do esquema de traços gerado por código. Quem não resolve sai SEM FIGURA,
+ * com a frase da falta nas observações do item — nunca a figura mais parecida.
+ *
+ * O item SEM TIPOLOGIA (o manual) não tem desenho de catálogo e não ganha frase: não há tipologia a nomear.
+ */
+export async function comOsDesenhos(itens: readonly ItemDoArquivo[], paraODesenho: readonly ItemParaODesenho[], catalogo?: CatalogoDeDesenhos): Promise<ItemDoArquivo[]> {
+    return comAsFiguras(
+        itens,
+        paraODesenho.map((x) => (x.tipologia === '' ? null : x)),
+        (i, d): ItemDoArquivo => ('imagem' in d ? { ...i, figura: d.imagem, semFigura: null } : { ...i, figura: null, semFigura: d.frase }),
+        catalogo,
+    )
 }
 
 // ── A EMPRESA, O CLIENTE E O VENDEDOR ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -178,7 +205,7 @@ export async function lerDadosDoArquivo(tenantId: string, orcamentoId: string, a
         calculoId: calculos.length === 1 ? calculos[0] : null,
         dados: {
             empresa, numero: Number(orc.numero), vendedor: cv.vendedor, contato: null, emailDoVendedor: cv.emailDoVendedor, cliente: cv.cliente, dataEntrega: cv.dataEntrega,
-            itens: itens.itens, observacoesGerais: null, operacaoInterna: a.operacaoInterna, valorVenda: a.valorVenda, rateio: a.rateio, geradoEm: a.geradoEm,
+            itens: await comOsDesenhos(itens.itens, itens.paraODesenho), observacoesGerais: null, operacaoInterna: a.operacaoInterna, valorVenda: a.valorVenda, rateio: a.rateio, geradoEm: a.geradoEm,
             faltas,
         },
     }
