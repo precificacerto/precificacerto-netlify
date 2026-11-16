@@ -34,7 +34,7 @@ import { supabaseAdmin } from '@/supabase/admin'
 import { lerOrcamento, ErroSemMigracao, TABELA_DO_ITEM, TABELA_DO_ORCAMENTO, tabelaAusente } from './orcamentos-ia'
 import { custoDoLevantamento } from './custo-do-orcamento-servidor'
 import { lerFamiliasDaEmpresa, type EsquadriaGravada } from './levantamento-da-conversa'
-import { MODO_DO_FALLBACK, ORIGEM_DO_FALLBACK, MOTIVO_DO_FALLBACK, PERCENTUAIS, type CustoDoItem } from './custo-do-orcamento'
+import { MODO_DO_FALLBACK, ORIGEM_DO_FALLBACK, MOTIVO_DO_FALLBACK, VERSAO_DO_CALCULO, PERCENTUAIS, type CustoDoItem } from './custo-do-orcamento'
 import type { FaltaDoOrcamento } from './custo-do-orcamento-servidor'
 import { avisosDeDivergencia, type LinhaDaTabelaCongelada } from './divergencia-da-tabela'
 
@@ -206,12 +206,19 @@ async function gravarOCalculo(tenantId: string, id: string, orc: Lido['orc'], do
     // 3. o orçamento: o modo do pedido e os totais (o bruto é o dos materiais mais a fabricação; o líquido, a soma dos totais dos itens)
     const valor_total_bruto = custo.itens.reduce((t, c) => t + c.custo_bruto_materiais + c.custo_fabricacao, 0)
     const valor_total_liquido = custo.itens.reduce((t, c) => t + c.custo_liquido_total, 0)
-    const { data, error } = await db().from(TABELA_DO_ORCAMENTO)
-        .update({
-            aproveitamento_modo: MODO_DO_FALLBACK, aproveitamento_origem: ORIGEM_DO_FALLBACK, aproveitamento_motivo: MOTIVO_DO_FALLBACK, aproveitamento_por: null,
-            valor_total_bruto, valor_total_liquido, atualizado_em: calculado_em,
-        })
+    const doOrcamento = {
+        aproveitamento_modo: MODO_DO_FALLBACK, aproveitamento_origem: ORIGEM_DO_FALLBACK, aproveitamento_motivo: MOTIVO_DO_FALLBACK, aproveitamento_por: null as string | null,
+        valor_total_bruto, valor_total_liquido, atualizado_em: calculado_em,
+    }
+    // A VERSÃO DAS REGRAS DE CUSTO (16/11/2026): é ela que faz o "sim sem mudança" perceber que um cálculo de antes ficou obsoleto.
+    // Sem a coluna (a 20261116000002 pendente), o cálculo grava o resto e segue — a versão volta a ficar nula, e o orçamento recalcula
+    // no próximo pedido, que é o lado seguro da falta.
+    let { data, error } = await db().from(TABELA_DO_ORCAMENTO)
+        .update({ ...doOrcamento, calculo_versao: VERSAO_DO_CALCULO })
         .eq('tenant_id', tenantId).eq('id', id).select('id')
+    if (error && colunaAusente(error) && (error.message ?? '').includes('calculo_versao')) {
+        ;({ data, error } = await db().from(TABELA_DO_ORCAMENTO).update(doOrcamento).eq('tenant_id', tenantId).eq('id', id).select('id'))
+    }
     if (error) falhou(TABELA_DO_ORCAMENTO, error)
     if (!data || data.length !== 1) throw new Error(`${TABELA_DO_ORCAMENTO}: o orçamento ${id} não foi atualizado (os itens já apontam o cálculo ${calculo_id})`)
     return { calculo_id, calculado_em, itens, valor_total_bruto, valor_total_liquido, avisos, fotografia_da_resolucao, faltas, parcial: faltas.length > 0 }

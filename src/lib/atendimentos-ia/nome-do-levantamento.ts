@@ -113,6 +113,31 @@ export function nomeDaMensagem(nome: unknown, texto: string): string | null {
 }
 
 /**
+ * O NOME RETOMADO DA CONVERSA (dono do produto, 16/11/2026, registrado como foi dito): "o agente [...] tem que partir da onde que parou a
+ * última conversa, retomando. Ele tem que avaliar o contexto das últimas interações [...] como se fosse realmente um agente humano, uma
+ * secretária. [...] o contexto tem que ser considerado em cada conversa, a não ser que ele puxe um outro assunto e deixa claro que é um
+ * novo orçamento."
+ *
+ * O DEFEITO que isto fecha, medido na conversa da De Paula em 16/11/2026:
+ *   12:13:43  vendedor: "é o mesmo de antes"
+ *   12:13:50  agente:   "Qual é o cliente?"
+ * Treze segundos depois de o próprio agente ter escrito "Jorge Lemos" na linha acima. `nomeDaMensagem` só aceita o nome quando as palavras
+ * estão na mensagem DAQUELE momento — a guarda contra a IA inventar nome —, e por isso o agente não conseguia RETOMAR o que já estava dito.
+ *
+ * A guarda continua inteira, só muda o lugar onde ela procura: o nome vale quando as palavras estão na mensagem de agora OU em alguma
+ * mensagem recente da MESMA conversa (as que `lerHistorico` trouxe — 20 mensagens, 24 horas, do mesmo remetente e do mesmo tenant). Um nome
+ * que não está em lugar nenhum dos dois continua sendo invenção, e continua caindo.
+ */
+export function nomeDitoOuRetomado(nome: unknown, texto: string, naConversa: readonly string[] = []): string | null {
+    const daMensagem = nomeDaMensagem(nome, texto)
+    if (daMensagem !== null) return daMensagem
+    if (typeof nome !== 'string') return null
+    const aparado = nome.trim()
+    if (!aparado) return null
+    return naConversa.some((t) => palavrasNoTexto(aparado, t)) ? aparado : null
+}
+
+/**
  * O NOME QUE SAI DO CLIENTE (dono do produto, 03/11/2026): "aceite o nome derivado do cliente. 'Cliente: Geronimo Silva'
  * basta para o nome ser 'Geronimo Silva', sem perguntar. Só pergunte quando não houver cliente em lugar nenhum da conversa."
  * E, no mesmo dia: o nome é o do cliente, PURO — sem o prefixo "Levantamento".
