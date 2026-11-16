@@ -356,6 +356,20 @@ const alturaDasObservacoes = (doc: Doc, d: DadosDoArquivoDoOrcamento) => {
 }
 const ALTURA_DO_FECHO = 40
 
+/**
+ * A VERSÃO DO DESENHO DO ARQUIVO (dono do produto, 16/11/2026, depois de receber um orçamento "atualizado" sem as
+ * figuras e sem as observações): é ela que faz o REENVIO do "sim sem mudança" perceber que o PDF guardado é de outro
+ * desenho e REGERAR, em vez de mandar para sempre o arquivo velho.
+ *
+ * MEDIDO no dia: o PDF do orçamento 6 era das 14:05:23 UTC; os desenhos foram ao ar às 16:33:05 e as observações às
+ * 17:52:22; às 18:01 o agente reenviou o de 14:05. O cálculo já tinha `VERSAO_DO_CALCULO` desde 16/11 de manhã, e o
+ * ARQUIVO não tinha nenhuma — a mesma classe, no outro artefato.
+ *
+ * TROQUE ESTE VALOR sempre que o que o PDF MOSTRA mudar (um bloco novo, uma figura, uma coluna). Não o troque por
+ * mudança que não aparece no papel: cada troca regera todo arquivo guardado no próximo pedido.
+ */
+export const VERSAO_DO_ARQUIVO = 'desenho-do-catalogo-e-observacoes-2026-11-16'
+
 /** As linhas das faltas (1.5): uma por código, com os itens. */
 export function linhasDasFaltasDoArquivo(faltas: readonly FaltaDoArquivo[]): string[] {
     return faltas.map((f) => `• ${f.codigo} (${f.itens.length > 1 ? 'itens' : 'item'} ${f.itens.join(', ')}): ${f.frase.replace(/\.$/, '')}.`)

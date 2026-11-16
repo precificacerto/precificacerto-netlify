@@ -170,5 +170,32 @@ async function arquivoAoSalvar(tenantId: string, id: string, autor: string | nul
     }
 }
 
+/**
+ * REGERA o arquivo do orçamento SEM RECALCULAR (dono do produto, 16/11/2026): o PDF é desenhado de novo a partir dos
+ * NÚMEROS JÁ GRAVADOS — a operação interna, a venda e o rateio dos custos líquidos que estão no orçamento. Nenhum
+ * preço se move, nenhuma tabela é relida: "nada se recalcula para trás".
+ *
+ * É o que o reenvio do "sim sem mudança" chama quando o arquivo guardado é de OUTRA versão de desenho
+ * (`VERSAO_DO_ARQUIVO`) — o caso que mandou ao vendedor, às 18:01 de 16/11, o PDF das 14:05, sem as figuras e sem as
+ * observações que entraram no meio. Gerado pelo AGENTE (autor nulo): não é edição manual.
+ *
+ * A recusa e a falha voltam NOMEADAS, e quem chama decide: nunca se engole um arquivo que não saiu.
+ */
+export async function regerarOArquivo(tenantId: string, id: string, agora: Date = new Date()):
+    Promise<{ arquivo: ArquivoGravado } | { recusas: string[] }> {
+    const gravado = await lerOrcamentoParaPrecificar(tenantId, id)
+    const interna = gravado.valor_operacao_interna
+    const venda = gravado.valor_venda
+    if (!Number.isFinite(interna as number) || !Number.isFinite(venda as number)) {
+        return { recusas: [`o orçamento ${gravado.numero} não tem a operação interna e a venda gravadas: o arquivo não pode ser regerado sem recalcular`] }
+    }
+    const rateio = rateioDoOrcamento(gravado, interna as number)
+    if ('recusa' in rateio) return { recusas: [rateio.recusa] }
+    const lido = await lerDadosDoArquivo(tenantId, id, { operacaoInterna: interna as number, valorVenda: venda as number, rateio: rateio.itens, geradoEm: agora })
+    if ('recusa' in lido) return { recusas: [lido.recusa] }
+    const r = await gerarEGravarArquivo(tenantId, id, null, lido.dados, lido.calculoId)
+    return 'recusas' in r ? { recusas: r.recusas } : { arquivo: r.arquivo }
+}
+
 export const fraseDaFalhaDoArquivo = (e: unknown) =>
     `o arquivo não pôde ser gerado (${e instanceof Error ? e.message : String(e)}); a precificação está salva — salve de novo para tentar outra vez.`

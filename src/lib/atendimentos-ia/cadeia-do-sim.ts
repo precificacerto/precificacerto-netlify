@@ -21,13 +21,17 @@ import { lerUltimoArquivo } from './arquivo-do-orcamento-servidor'
 import { registrarFormatoMedido } from './telefone-medido'
 import { precificarComoAgente, type PrecificacaoDoAgente } from './preco-do-orcamento-servidor'
 import { fraseDoArquivoQueNaoChegou } from './arquivo-que-nao-chegou'
-import { nomeDoArquivo } from './arquivo-do-orcamento'
+import { nomeDoArquivo, VERSAO_DO_ARQUIVO } from './arquivo-do-orcamento'
+import { regerarOArquivo } from './orcamento-precificado'
 
 /** `destino`: o número que o canal ACEITOU (quando houve), para (c) — o palpite vira medição. */
 export type EnvioDoDocumento = { ok: boolean; status: number | null; prazoEsgotado: boolean; destino?: string; id?: string | null }
 export type DependenciasDaEtapa = {
     precificar: (tenantId: string, orcamentoId: string) => Promise<PrecificacaoDoAgente>
-    lerArquivo: (tenantId: string, orcamentoId: string) => Promise<{ pdf: Uint8Array } | null>
+    /** `versao` é a do DESENHO do PDF guardado: diferente da de hoje, o reenvio REGERA em vez de mandar o velho (16/11/2026). */
+    lerArquivo: (tenantId: string, orcamentoId: string) => Promise<{ pdf: Uint8Array; versao?: string | null } | null>
+    /** REGERA o PDF a partir dos números já gravados, sem recalcular nada; a recusa volta nomeada. */
+    regerarArquivo?: (tenantId: string, orcamentoId: string) => Promise<{ ok: true } | { recusas: string[] }>
     telefoneDoDono: (tenantId: string, orcamentoId: string) => Promise<DonoDoLevantamento | null>
     /** (c) grava no remetente a variante que o canal aceitou (`registrarFormatoMedido`). */
     registrarMedido: (tenantId: string, remetenteId: string, anterior: string, medido: string) => Promise<string>
@@ -114,19 +118,41 @@ export async function etapaDoPreco(tenantId: string, orcamentoId: string, deps: 
  */
 export async function reenviarOArquivo(
     tenantId: string, orcamento: { id: string; numero: number; nome: string },
-    deps: Pick<DependenciasDaEtapa, 'lerArquivo' | 'telefoneDoDono' | 'enviar' | 'registrarMedido' | 'agora'>,
+    deps: Pick<DependenciasDaEtapa, 'lerArquivo' | 'telefoneDoDono' | 'enviar' | 'registrarMedido' | 'agora'> & Pick<Partial<DependenciasDaEtapa>, 'regerarArquivo'>,
 ): Promise<ResultadoDaEtapa & { semArquivo?: true }> {
-    const [lido, dono] = await Promise.all([deps.lerArquivo(tenantId, orcamento.id), deps.telefoneDoDono(tenantId, orcamento.id)])
-    if (!lido) return { rastro: 'reenvio=sem_arquivo', paraOVendedor: null, semArquivo: true }
+    const [primeiro, dono] = await Promise.all([deps.lerArquivo(tenantId, orcamento.id), deps.telefoneDoDono(tenantId, orcamento.id)])
+    if (!primeiro) return { rastro: 'reenvio=sem_arquivo', paraOVendedor: null, semArquivo: true }
     if (!dono) return { rastro: 'reenvio=sem_telefone parou=envio', paraOVendedor: fraseDoDonoSemTelefone(orcamento.numero, orcamento.nome) }
+
+    // O ARQUIVO GUARDADO DE OUTRO DESENHO (dono do produto, 16/11/2026): o PDF mudou depois de ele ter sido gerado (as
+    // figuras do catálogo, as observações da empresa), e reenviá-lo mandaria para sempre o de antes. REGERA com os
+    // números já gravados — nada se recalcula — e manda o novo. A regeneração que recusa não impede o reenvio: o
+    // vendedor recebe o que existe, e o rastro diz por que não deu para refazer.
+    let lido = primeiro
+    let daVersao = 'reenvio_versao=igual'
+    if ((primeiro.versao ?? null) !== VERSAO_DO_ARQUIVO) {
+        if (!deps.regerarArquivo) {
+            daVersao = 'reenvio_versao=outra sem_regerador'
+        } else {
+            const r = await deps.regerarArquivo(tenantId, orcamento.id)
+            if ('recusas' in r) {
+                daVersao = `reenvio_versao=outra regerou=recusou motivo="${r.recusas.join('; ')}"`
+            } else {
+                const novo = await deps.lerArquivo(tenantId, orcamento.id)
+                lido = novo ?? primeiro
+                daVersao = `reenvio_versao=outra regerou=ok${novo ? '' : ' releu=nada'}`
+            }
+        }
+    }
+
     const t0 = deps.agora()
     const envio = await deps.enviar(dono.telefone, nomeDoArquivo(orcamento.numero, orcamento.nome), lido.pdf)
     const msEnvio = deps.agora() - t0
     if (!envio.ok) {
-        return { rastro: `reenvio=falhou status=${envio.status ?? 'nenhum'}${envio.prazoEsgotado ? ' prazo=esgotado' : ''} ms_envio=${msEnvio} parou=envio`, paraOVendedor: fraseDoEnvioQueFalhou(orcamento.numero, orcamento.nome) }
+        return { rastro: `reenvio=falhou ${daVersao} status=${envio.status ?? 'nenhum'}${envio.prazoEsgotado ? ' prazo=esgotado' : ''} ms_envio=${msEnvio} parou=envio`, paraOVendedor: fraseDoEnvioQueFalhou(orcamento.numero, orcamento.nome) }
     }
     const medido = envio.destino && envio.destino !== dono.telefone ? ` telefone=${await deps.registrarMedido(tenantId, dono.id, dono.telefone, envio.destino)}` : ''
-    return { rastro: `reenvio=ok ms_envio=${msEnvio}${medido}`, paraOVendedor: fraseDoOrcamentoEnviado(orcamento.numero, orcamento.nome), enviadoPara: envio.destino ?? dono.telefone, idDoEnvio: envio.id ?? null }
+    return { rastro: `reenvio=ok ${daVersao} ms_envio=${msEnvio}${medido}`, paraOVendedor: fraseDoOrcamentoEnviado(orcamento.numero, orcamento.nome), enviadoPara: envio.destino ?? dono.telefone, idDoEnvio: envio.id ?? null }
 }
 
 export type DonoDoLevantamento = { id: string; telefone: string }
@@ -171,6 +197,11 @@ export async function enviarAoPrimeiroQueAceitar(destinos: readonly string[], en
 export const dependenciasDoServidor = (enviar: DependenciasDaEtapa['enviar']): DependenciasDaEtapa => ({
     precificar: (t, o) => precificarComoAgente(t, o),
     lerArquivo: lerUltimoArquivo,
+    // o arquivo guardado de outro desenho é REFEITO com os números gravados, nunca recalculado (16/11/2026)
+    regerarArquivo: async (t, o) => {
+        const r = await regerarOArquivo(t, o)
+        return 'recusas' in r ? { recusas: r.recusas } : { ok: true }
+    },
     telefoneDoDono: telefoneDoDonoDoOrcamento,
     registrarMedido: (t, r, a, m) => registrarFormatoMedido(t, r, a, m, 'envio'),
     enviar,
