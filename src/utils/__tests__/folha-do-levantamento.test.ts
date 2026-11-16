@@ -26,7 +26,7 @@ const dita = (variavel: string, descricao: string, valor: number, semPadrao = tr
 const descricaoDe = (t: string) => (DESCRICOES as Array<[string, string]>).find(([c]) => c === t)![1]
 const item = (o: Partial<ItemDaFolha> = {}): ItemDaFolha => ({
     ordem: 1, tipologia: 'DP-02', descricao: descricaoDe('DP-02'), linha: 'PVC WOLFF EUROPA 42', quantidade: 1, largura_mm: 1500, altura_mm: 1200,
-    variaveis: [], considerado: null, perfilEAcessorio: 'Branco / padrão', vidro: '4 mm', ambientes: null, obs: null, ...o,
+    variaveis: [], considerado: null, perfilEAcessorio: 'Branco / padrão', vidro: '4 mm', ambientes: null, obs: null, figura: null, semFigura: null, ...o,
 })
 const dados = (o: Partial<DadosDaFolha> = {}): DadosDaFolha => ({ ...FOLHA_DE_EXEMPLO, ...o })
 /** O texto do PDF (jsPDF sem compressão escreve o texto em Latin-1 nos fluxos de conteúdo). */
@@ -609,6 +609,30 @@ describe('(IV) o que a folha escreve', () => {
         const b = gerarFolhaDoLevantamento(FOLHA_DE_EXEMPLO)
         if ('recusas' in a || 'recusas' in b) throw new Error('recusou')
         expect(Buffer.from(a.pdf).equals(Buffer.from(b.pdf))).toBe(true)
+    })
+
+    // ══ O DESENHO IMPORTADO (dono do produto, 11/11/2026; na folha em 16/11/2026) ══
+    it('a FIGURA do catálogo entra na célula Fig. como imagem; e sem nenhuma figura a folha não tem imagem', () => {
+        const PNG1x1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg=='
+        const comFigura = gerarFolhaDoLevantamento(dados({ itens: [{ ...ITENS_DE_EXEMPLO[0], figura: { dados: PNG1x1, formato: 'PNG' } }] }))
+        if ('recusas' in comFigura) throw new Error(comFigura.recusas.join(' | '))
+        expect(textoDoPdf(comFigura.pdf)).toMatch(/\/Subtype \/Image/)
+        // 0,35 mm (0.992… pt) é a espessura do CONTORNO do esquema de traços, e só dele: com figura, o esquema NÃO sai
+        expect(textoDoPdf(comFigura.pdf)).not.toMatch(/0\.9921259842519685 w/)
+        const sem = gerarFolhaDoLevantamento(dados({ itens: [ITENS_DE_EXEMPLO[0]] }))
+        if ('recusas' in sem) throw new Error(sem.recusas.join(' | '))
+        expect(textoDoPdf(sem.pdf)).not.toMatch(/\/Subtype \/Image/)
+        expect(textoDoPdf(sem.pdf)).toMatch(/0\.9921259842519685 w/)
+    })
+    it('o item que NÃO resolveu a figura sai com a linha SEM FIGURA, dizendo por quê — e a célula Fig. fica vazia', () => {
+        const falta = 'o desenho da tipologia DP-02 não está no catálogo de desenhos: o item sai sem figura'
+        const r = gerarFolhaDoLevantamento(dados({ itens: [{ ...ITENS_DE_EXEMPLO[0], semFigura: falta }] }))
+        if ('recusas' in r) throw new Error(r.recusas.join(' | '))
+        const escrito = [...textoDoPdf(r.pdf).matchAll(/\(((?:\\.|[^\\)])*)\) Tj/g)].map((m) => m[1])
+        expect(escrito).toContain('SEM FIGURA')
+        expect(escrito.join(' ')).toContain('não está no catálogo de desenhos')
+        expect(textoDoPdf(r.pdf)).not.toMatch(/\/Subtype \/Image/)
+        expect(textoDoPdf(r.pdf)).not.toMatch(/0\.9921259842519685 w/)
     })
 
     it('o exemplo em docs/levantamento/ é o que o gerador produz hoje (regravar: ATUALIZAR_EXEMPLO_DA_FOLHA=1)', () => {

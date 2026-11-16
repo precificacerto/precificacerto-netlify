@@ -26,6 +26,8 @@ import { arremateDaColeta, rotuloSemCodigo } from '@/lib/atendimentos-ia/apanhad
 import { opcoesDaVariavel } from '@/lib/atendimentos-ia/avaliador-de-formulas'
 import { variaveisSemPadrao } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { gerarFolhaDoLevantamento, type DadosDaFolha, type FolhaGerada, type FolhaRecusada, type ItemDaFolha, type VariavelDita } from '@/lib/atendimentos-ia/folha-do-levantamento'
+import { valoresDoDesenho } from '@/lib/atendimentos-ia/desenho-do-catalogo'
+import { comAsFiguras, type ItemComDesenho } from '@/lib/atendimentos-ia/desenho-do-catalogo-servidor'
 import type { DefinicaoDaTipologia, ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import { nomeCasa, type CondicoesDoLevantamento, type ModoDaComissao, type PerfilDoVendedor } from '@/lib/atendimentos-ia/dados-do-levantamento'
 import { resolverPercentual } from '@/lib/atendimentos-ia/travessia-do-levantamento-plano'
@@ -201,7 +203,7 @@ export function montarDadosDaFolha(a: {
     const ordenados = [...a.itens].sort((x, y) => x.ordem - y.ordem)
     const arremates = ordenados.map((i) => arremateDaColeta(a.definicao(i), i.escolhas))
     const arremateComum = unico(arremates)
-    const itens: ItemDaFolha[] = ordenados.map((i, k) => {
+    const itens: ItemDaFolha[] = ordenados.map((i, k): ItemDaFolha => {
         const d = i.tipologia ? a.detalhe(i.tipologia, i.familia) : null
         // a cor como está gravada (a da lista da base, 05/11/2026): o arquivo não a reescreve
         const cor = i.cor_perfil
@@ -220,6 +222,9 @@ export function montarDadosDaFolha(a: {
             vidro: i.vidro,
             ambientes: i.ambientes && i.ambientes.length ? i.ambientes : null,
             obs: i.obs ?? null,
+            // a figura do catálogo entra depois, em `gerarArquivoDoLevantamento` (lê banco e Storage): esta montagem é pura,
+            // e é ela que o RESUMO da conversa lê — a figura não entra no resumo, para não mexer no "sim" já dado
+            figura: null, semFigura: null,
         }
     })
     // as pré-definições consideradas, no RODAPÉ: o que é igual em todos os itens e foi informado; a vedação sai como "padrão"
@@ -279,6 +284,18 @@ export function resumoDoArquivoParaOPrompt(d: DadosDaFolha): string {
 /** A folha do levantamento GRAVADO: lê o levantamento, a empresa e os itens, e gera. A recusa nomeada volta como está. */
 /** O levantamento que não se lê na empresa: a mesma frase para a conversa e para a rota do arquivo (que a responde com 404). */
 export const FRASE_DO_LEVANTAMENTO_NAO_ACHADO = 'O levantamento não foi achado.'
+/**
+ * O que a escolha do DESENHO DO CATÁLOGO precisa de cada item, na MESMA ordem da folha (16/11/2026): a tipologia, a
+ * descrição do motor e os valores que a condição lê (as escolhas gravadas e o padrão numérico da aba Variáveis).
+ * Puro: quem lê o catálogo e o Storage é `desenho-do-catalogo-servidor.ts`.
+ */
+export function desenhosParaAFolha(a: { itens: readonly ItemDoLevantamento[]; definicao: DefinicaoDaTipologia; detalhe: DetalheDaTipologia }): ItemComDesenho[] {
+    return [...a.itens].sort((x, y) => x.ordem - y.ordem).map((i) => {
+        const d = i.tipologia ? a.detalhe(i.tipologia, i.familia) : null
+        return { tipologia: i.tipologia ?? '', descricao: d?.descricao ?? i.tipologia ?? null, familia: i.familia ?? null, valores: valoresDoDesenho(a.definicao(i), i.escolhas ?? {}) }
+    })
+}
+
 export async function gerarArquivoDoLevantamento(a: {
     tenantId: string; levantamentoId: string; itens: readonly ItemDoLevantamento[]; definicao: DefinicaoDaTipologia; detalhe: DetalheDaTipologia; geradoEm?: Date
     vidroPadrao?: (item: ItemDoLevantamento) => string | null
@@ -287,5 +304,13 @@ export async function gerarArquivoDoLevantamento(a: {
     if (!levantamento) return { dados: null, folha: { ok: false, recusas: [FRASE_DO_LEVANTAMENTO_NAO_ACHADO] } }
     const doVendedor = await lerPerfilDoVendedor(a.tenantId, levantamento.vendedor_employee_id)
     const dados = montarDadosDaFolha({ empresa: empresa ?? '', levantamento, itens: a.itens, definicao: a.definicao, detalhe: a.detalhe, geradoEm: a.geradoEm ?? new Date(), doVendedor, vidroPadrao: a.vidroPadrao })
-    return { dados, folha: gerarFolhaDoLevantamento(dados) }
+    // A FIGURA IMPORTADA só na FOLHA, nunca em `dados` (16/11/2026): `dados` é o que vira o RESUMO que o vendedor confere,
+    // e pôr a imagem nele mudaria o resumo — e, com ele, o "sim" já dado.
+    const paraODesenho = desenhosParaAFolha({ itens: a.itens, definicao: a.definicao, detalhe: a.detalhe })
+    const itens = await comAsFiguras(
+        dados.itens,
+        paraODesenho.map((x) => (x.tipologia === '' ? null : x)),
+        (i, d): ItemDaFolha => ('imagem' in d ? { ...i, figura: d.imagem, semFigura: null } : { ...i, figura: null, semFigura: d.frase }),
+    )
+    return { dados, folha: gerarFolhaDoLevantamento({ ...dados, itens }) }
 }

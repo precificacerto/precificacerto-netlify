@@ -84,6 +84,14 @@ export type ItemDoArquivo = {
     variaveis: string[]
     obs: string | null
     desenho: DesenhoDaTipologia | null
+    /**
+     * A FIGURA DO CATÁLOGO (dono do produto, 11/11/2026; ligada em 16/11/2026): o desenho importado da tipologia,
+     * escolhido por `desenho-do-catalogo.ts`. Quando ela existe, é ELA que sai — o esquema de traços era a "figura
+     * mais parecida" que a regra proíbe. Nula com a falta nomeada em `semFigura`, e aí o lugar fica em branco.
+     */
+    figura: { dados: string; formato: 'PNG' | 'JPEG' } | null
+    /** Por que não há figura, quando não há: a frase nomeada da escolha. Nula quando a figura saiu. */
+    semFigura: string | null
     /** As definições de instalação e arremate da esquadria, por extenso, com "(padrão)" na que o vendedor não disse (4.2). Vazia = nenhuma. */
     definicoes: string[]
 }
@@ -257,7 +265,11 @@ function medidaDoItem(doc: Doc, i: ItemDoArquivo) {
     fonte(doc, 'bold', 8)
     const descricao = quebrar(doc, texto(i.descricao).toLocaleUpperCase('pt-BR'), LARGURA_DO_TEXTO).slice(0, 3)
     fonte(doc, 'normal', 7.5)
-    const obs = texto(i.obs) === '' ? [] : quebrar(doc, texto(i.obs), LARGURA - 4)
+    // A FALTA DA FIGURA É DITA (11/11/2026): "quando a condição não puder ser resolvida [...] não se desenha nada, e a
+    // folha diz por quê, nomeado". Ela entra na faixa de observações do item, junto da observação que houver.
+    const daFigura = texto(i.semFigura) === '' ? [] : [texto(i.semFigura)]
+    const linhasDaObs = [...(texto(i.obs) === '' ? [] : [texto(i.obs)]), ...daFigura]
+    const obs = linhasDaObs.length === 0 ? [] : linhasDaObs.flatMap((l) => quebrar(doc, l, LARGURA - 4))
     fonte(doc, 'normal', 7)
     const definicoes = i.definicoes.length ? quebrar(doc, `DEFINIÇÕES: ${i.definicoes.join(' · ')}`, LARGURA_DO_TEXTO) : []
     const corpoTexto = descricao.length * 3.6 + 3 * 4.6 + 2 * 5.2 + 1 + definicoes.length * 3.2
@@ -281,7 +293,13 @@ function blocoDoItem(doc: Doc, i: ItemDoArquivo, r: ItemRateado, y: number, data
     const y0 = y + 6
     // o desenho à esquerda, na proporção real; sem medida, o bloco fecha sem ele
     doc.setDrawColor(CINZA); doc.setLineWidth(0.2); doc.rect(A4.margem, y0, LARGURA_DO_DESENHO, m.corpo)
-    if (i.desenho && i.desenho.largura_mm > 0 && i.desenho.altura_mm > 0) {
+    // A FIGURA DO CATÁLOGO vence o esquema de traços (16/11/2026): o desenho que a empresa escolheu, não um retângulo
+    // dividido pela descrição. Sem figura, o lugar fica em branco e a falta aparece abaixo do bloco, nomeada.
+    if (i.figura) {
+        try {
+            doc.addImage(i.figura.dados, i.figura.formato, A4.margem + 2, y0 + 2, LARGURA_DO_DESENHO - 4, m.corpo - 4, undefined, 'FAST')
+        } catch { /* imagem ilegível: o lugar fica em branco, nunca outro desenho */ }
+    } else if (i.desenho && i.desenho.largura_mm > 0 && i.desenho.altura_mm > 0 && i.semFigura === null) {
         const t = tracosDoDesenho(i.desenho, { x: A4.margem + 2, y: y0 + 2, w: LARGURA_DO_DESENHO - 4, h: m.corpo - 4 })
         doc.setDrawColor(0); doc.setLineWidth(0.35); doc.rect(t.contorno.x, t.contorno.y, t.contorno.w, t.contorno.h)
         doc.setLineWidth(0.2); for (const [x1, y1, x2, y2] of t.divisoes) doc.line(x1, y1, x2, y2)

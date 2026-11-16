@@ -81,6 +81,13 @@ export type ItemDaFolha = {
     /** Nulo = não informados: a linha AMBIENTES sai em branco (nunca um ambiente padrão). */
     ambientes: readonly AmbienteDaFolha[] | null
     obs: string | null
+    /**
+     * A FIGURA do catálogo de desenhos (16/11/2026), escolhida por `desenho-do-catalogo.ts`: a imagem que o vendedor
+     * escolheu na importação, não um esquema gerado por código. Nula = não resolveu, e então `semFigura` diz por quê.
+     */
+    figura: { dados: string; formato: 'PNG' | 'JPEG' } | null
+    /** Por que o item sai SEM FIGURA, nomeado (a regra de 11/11/2026: "a folha diz por quê"). Nulo = tem figura, ou não há tipologia a nomear. */
+    semFigura: string | null
 }
 
 export type ModoDaComissao = 'PROPORCIONAL' | 'CONGELADA'
@@ -451,6 +458,8 @@ function linhasDoItem(i: ItemDaFolha): Array<{ tipo: 'uma'; rotulo: string; text
         { tipo: 'duas' as const, esquerda: [ROTULO_DO_PERFIL, i.perfilEAcessorio ?? ''], direita: [ROTULO_DO_VIDRO, i.vidro ?? ''] },
         { tipo: 'uma' as const, rotulo: 'AMBIENTES', texto: linhaDosAmbientes(i) },
         { tipo: 'uma' as const, rotulo: 'OBS', texto: i.obs ?? '' },
+        // a falta da figura é DITA (11/11/2026): "não se desenha nada, e a folha diz por quê, nomeado"
+        ...(i.semFigura ? [{ tipo: 'uma' as const, rotulo: 'SEM FIGURA', texto: i.semFigura }] : []),
     ]
 }
 
@@ -674,11 +683,18 @@ function blocoDoItem(doc: Doc, i: ItemDaFolha, y: number): number {
     tracoInterno(doc)
     // a coluna Fig. é UMA célula, da altura do item inteiro; o desenho cresce até caber nela, centrado, na proporção real
     doc.rect(x, y, COLUNAS.fig, altura)
-    const tracos = tracosDoDesenho(desenhoDaTipologia(i), caixaDaFigura(x, y, altura))
-    doc.setDrawColor(PRETO); doc.setLineWidth(0.35)
-    doc.rect(tracos.contorno.x, tracos.contorno.y, tracos.contorno.w, tracos.contorno.h)
-    doc.setLineWidth(0.2)
-    for (const [x1, y1, x2, y2] of tracos.divisoes) doc.line(x1, y1, x2, y2)
+    // A FIGURA DO CATÁLOGO vence o esquema de traços (16/11/2026): é o desenho que o vendedor escolheu na importação.
+    // Não resolvendo (`semFigura`), NÃO SE DESENHA NADA — a célula fica vazia e a linha SEM FIGURA diz por quê.
+    const caixa = caixaDaFigura(x, y, altura)
+    if (i.figura) {
+        try { doc.addImage(i.figura.dados, i.figura.formato, caixa.x, caixa.y, caixa.w, caixa.h, undefined, 'FAST') } catch { /* imagem que o jsPDF não lê: a célula fica vazia */ }
+    } else if (i.semFigura === null) {
+        const tracos = tracosDoDesenho(desenhoDaTipologia(i), caixa)
+        doc.setDrawColor(PRETO); doc.setLineWidth(0.35)
+        doc.rect(tracos.contorno.x, tracos.contorno.y, tracos.contorno.w, tracos.contorno.h)
+        doc.setLineWidth(0.2)
+        for (const [x1, y1, x2, y2] of tracos.divisoes) doc.line(x1, y1, x2, y2)
+    }
     tracoInterno(doc)
     // a faixa: Item e tipologia | Qtde | Larg. | Alt., todas na MESMA altura
     let cx = x + COLUNAS.fig

@@ -16,7 +16,7 @@ const PERFIL = 'Branco / padrão'
 
 /** O tipo de cada tipologia do exemplo, como a Detalhe do motor o traz: é dele, e da descrição, que sai a linha CONSIDERADO (11/11/2026). */
 const TIPO: Record<string, string> = { 'DP-02': 'Correr', 'DP-04': 'Correr', 'DP-39': 'Correr', 'DP-129': 'Maxim-ar', 'DP-05': 'Correr', 'DP-141': 'Maxim-ar', 'DP-165': 'Oscilo-batente' }
-const ITENS: Array<Omit<ItemDaFolha, 'considerado'>> = [
+const ITENS: Array<Omit<ItemDaFolha, 'considerado' | 'figura' | 'semFigura'>> = [
     {
         ordem: 1, tipologia: 'DP-02', descricao: 'JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42', linha: 'PVC WOLFF EUROPA 42',
         quantidade: 3, largura_mm: 1500, altura_mm: 1200, variaveis: [], perfilEAcessorio: PERFIL, vidro: 'incolor 4 mm comum',
@@ -56,8 +56,10 @@ const ITENS: Array<Omit<ItemDaFolha, 'considerado'>> = [
     },
 ]
 /** O que cada esquadria É, escrito ao lado dela — como `montarDadosDaFolha` o monta: os módulos horizontais pelo "N" dito (o padrão é 1). */
-export const ITENS_DE_EXEMPLO: ItemDaFolha[] = ITENS.map((i) => ({
+export const ITENS_DE_EXEMPLO: ItemDaFolha[] = ITENS.map((i): ItemDaFolha => ({
     ...i,
+    // o exemplo não leva figura do catálogo: o PDF conferido byte a byte é o do esquema de traços
+    figura: null, semFigura: null,
     considerado: oQueAEsquadriaE({ descricao: i.descricao, tipo: TIPO[i.tipologia] ?? null, linha: i.linha }, i.variaveis.find((v) => v.variavel === 'N')?.valor ?? 1),
 }))
 
