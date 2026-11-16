@@ -756,21 +756,21 @@ describe('(1) O TESTE QUE VALE: pedidos seguidos do MESMO telefone, todos respon
         const pdf = textoDoOrcamentoEnviado()
         expect(pdf).toContain('ARREMATE 65MM (padrão)')
         expect(pdf).toContain('ARREMATE 20MM (padrão)')
-        expect(pdf).toContain('Barras por código:')
+        // o bloco PARA O VENDEDOR saiu do arquivo em 16/11/2026: as barras não vão mais nele
+        expect(pdf).not.toContain('Barras por código:')
         expect(pdf).not.toContain('PARCIAL')
         expect(levantamentos()[0]).toEqual(expect.objectContaining({ nome: 'Casa do Pedro', estado: 'COMPLETO' }))
     })
 
-    it('1b. o MESMO pedido com o arremate dito em palavras: com o "sim" e o PDF entregue, SÓ O ARQUIVO (12/11/2026, 4.3) — as barras, o aproveitamento e a mão de obra vão nele', async () => {
+    it('1b. o MESMO pedido com o arremate dito em palavras: com o "sim" e o PDF entregue, SÓ O ARQUIVO — e sem o bloco do vendedor (16/11/2026)', async () => {
         expect(await fecharDp02('Casa do João')).toBe('')
         // nenhum texto depois do "sim": o apanhado é a única mensagem; o PDF do orçamento foi ao mesmo telefone
         expect(enviados()).toHaveLength(1)
         expect(estado.documentosDoOrcamento.map((d) => d.corpo.Phone)).toEqual([TELEFONE_DO_WEBHOOK])
         const pdf = textoDoOrcamentoEnviado()
-        expect(pdf).toContain('PARA O VENDEDOR')
-        expect(pdf).toMatch(/• 9681 \([^)]*\): 2 barra\(s\) de 6,00 m/)
-        expect(pdf).toContain('Aproveitamento: 60,7%')
-        expect(pdf).toContain('Mão de obra: item 1: 300 min.')
+        // o bloco PARA O VENDEDOR saiu (16/11/2026): nem barras, nem aproveitamento, nem minutos
+        for (const t of ['PARA O VENDEDOR', 'Barras por código', 'Aproveitamento', 'Mão de obra']) expect([t, pdf.includes(t)]).toEqual([t, false])
+        expect(pdf).toContain('ITEM 1')
         expect(pdf).not.toContain('PARCIAL')
         expect(erros.join('\n')).toContain('so_arquivo=sim')
         // e o formal, que não foi por texto, é o mesmo de sempre quando o PDF não chega (o caso 1 e o grupo 20)
@@ -1960,8 +1960,11 @@ describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/202
         expect(arquivo).toContain('Cor do perfil: BRANCO · Arremate e guarnição: arremate interno: 65 mm; arremate externo: 20 mm; medida do arremate externo: medida do vão · Vedação: padrão')
         expect(await confirmar()).toBe(texto)
         const doOrcamento = textoDoOrcamentoEnviado()
-        // o controle: o que o arquivo do levantamento não tem, o do orçamento tem
-        for (const rotulo of ['Barras por código:', 'Aproveitamento:', 'Mão de obra:', 'O que este preço cobre:']) { expect(doOrcamento).toContain(rotulo); expect(arquivo).not.toContain(rotulo) }
+        // o controle, depois de 16/11/2026: o bloco do vendedor saiu do ARQUIVO DO ORÇAMENTO e continua fora do arquivo do levantamento
+        for (const rotulo of ['Barras por código:', 'Aproveitamento:', 'Mão de obra:', 'O que este preço cobre:']) {
+            expect([rotulo, doOrcamento.includes(rotulo)]).toEqual([rotulo, false])
+            expect([rotulo, arquivo.includes(rotulo)]).toEqual([rotulo, false])
+        }
         expect(doOrcamento).toContain('R$')
         expect(arquivo).not.toContain('R$')
         expect(CODIGOS.some((c) => doOrcamento.includes(c))).toBe(true)
@@ -6134,7 +6137,8 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
         // COMPLETO e o PDF entregue a quem disse "sim" (12/11/2026, 4.3): nenhum texto, só o arquivo — sem carimbo de parcial
         expect(await confirmarApanhado()).toBe('')
         expect(estado.documentosDoOrcamento).toHaveLength(1)
-        expect(textoDoOrcamentoEnviado()).toMatch(/• 1023 \([^)]*\): 1 barra\(s\)/)
+        expect(textoDoOrcamentoEnviado()).toContain('ITEM 1')
+        expect(textoDoOrcamentoEnviado()).not.toContain('Barras por código')
         expect(textoDoOrcamentoEnviado()).not.toContain('PARCIAL')
         expect(linhaIa().pop()).toMatch(/ desfecho=levantou .* so_arquivo=sim$/)
     })
@@ -6192,7 +6196,7 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
         estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
         estado.db.orcamentista_motor_regra = estado.db.orcamentista_motor_regra.filter((r) => r.codigo_wvetro !== 'SP66/WOLFF')
         expect(await arquivoEDepoisOSim()).toBe('')
-        expect(textoDoOrcamentoEnviado()).toMatch(/• 9731 \([^)]*\): 2 barra\(s\)/)
+        expect(textoDoOrcamentoEnviado()).toContain('ITEM 1')
         expect(textoDoOrcamentoEnviado()).not.toContain('PARCIAL')
     })
 
@@ -6343,9 +6347,10 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             estado.db.orcamentista_motor_tipologia_tempo = tempos
             llmResponde({})
             await chamar('tenta de novo')
-            // só o arquivo (4.3): nenhum texto, o PDF do orçamento com o 1023
+            // só o arquivo (4.3): nenhum texto, e o PDF do orçamento com o item (o bloco de barras saiu em 16/11/2026)
             expect(enviados()).toHaveLength(textos)
-            expect(textoDoOrcamentoEnviado()).toMatch(/• 1023 \([^)]*\): 1 barra\(s\)/)
+            expect(textoDoOrcamentoEnviado()).toContain('ITEM 1')
+            expect(textoDoOrcamentoEnviado()).not.toContain('Barras por código')
             expect(documentosEnviados()).toBe(antes)
             expect(linhaIa().pop()).toMatch(/ desfecho=levantou(\s|$)/)
             expect(erros.filter((l) => l.startsWith('[ETAPA 3 montar]')).pop()).toMatch(/ sim_anterior=vale(\s|$)/)

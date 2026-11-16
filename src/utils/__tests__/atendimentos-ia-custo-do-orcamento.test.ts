@@ -16,7 +16,7 @@ const MINUTO = valorDoMinuto(CUSTO_MENSAL, MINUTOS_DA_EMPRESA) as number
 
 const COMPLETO: Percentuais = { cred_icms_pct: 12, cred_pis_cofins_pct: 9.25, cred_ipi_pct: 0, nc_ipi_pct: null, cred_ibs_pct: 0, cred_cbs_pct: 0 }
 const material = (codigo: string, valor: number | null, bloco: Percentuais = COMPLETO, medida: number | null = 6): MaterialDaTabela =>
-    ({ caminho: 'perfil', codigo, codigo_na_tabela: codigo, resolucao: 'exato', custo: null, descricao: `PERFIL ${codigo}`, unidade: 'BR', medida_barra_m: medida, valor_barra_interno: valor, bloco })
+    ({ caminho: 'perfil', codigo, codigo_na_tabela: codigo, resolucao: 'exato', custo: null, descricao: `PERFIL ${codigo}`, unidade: 'BR', vendido_por: 'barra', medida_barra_m: medida, valor_barra_interno: valor, bloco })
 
 // dois itens: o A é usado pelos dois (3.000 mm no 1, 1.000 mm no 2); o B só pelo 2
 const base = (): EntradaDoCusto => ({
@@ -44,40 +44,55 @@ describe('o valor do minuto é o da tela', () => {
     })
 })
 
-describe('o rateio é POR CÓDIGO, na proporção do consumo daquele código', () => {
-    it('o A divide 75/25 entre os itens, e o B é inteiro do item 2', () => {
+/**
+ * O ORÇAMENTO COBRA O CONSUMO (dono do produto, 16/11/2026, registrado como foi dito): "quando a gente faz a criação, a concepção do
+ * orçamento, ele deve considerar SOMENTE O CONSUMO, porque ele não sabe ainda se ocorrerá o aproveitamento. [...] Posteriormente a isso, a
+ * gente faz o relatório de barras de cada pedido [...] a barra de 6 metros pode ser dividida em 2 ou 3 tipologias."
+ *
+ * REVOGA a barra inteira rateada de 09/11/2026. A `base()`: o A custa R$ 600 a barra de 6 m (R$ 100/m); o item 1 consome 3.000 mm dele e o
+ * item 2, 1.000 mm. O B custa R$ 100 a barra de 6 m (R$ 16,67/m) e só o item 2 o usa, 800 mm.
+ */
+describe('o custo é o CONSUMO do item, não a barra inteira rateada', () => {
+    it('cada item paga os METROS que consome × o preço do metro', () => {
         const [i1, i2] = ok(base()).itens
-        expect(linha(i1, 'A').custo_bruto_material).toBeCloseTo(450, 10)
-        expect(linha(i2, 'A').custo_bruto_material).toBeCloseTo(150, 10)
-        expect(linha(i2, 'B').custo_bruto_material).toBeCloseTo(100, 10)
+        expect(linha(i1, 'A').custo_bruto_material).toBeCloseTo(3 * (600 / 6), 10)
+        expect(linha(i2, 'A').custo_bruto_material).toBeCloseTo(1 * (600 / 6), 10)
+        expect(linha(i2, 'B').custo_bruto_material).toBeCloseTo(0.8 * (100 / 6), 10)
         expect(i1.materiais.map((m) => m.codigo)).toEqual(['A'])
     })
-    it('o rateio fecha: a soma dos itens é barras × valor, por código', () => {
-        const e = { ...base(), barras_por_codigo: { A: 3, B: 2 } }
-        const its = ok(e).itens
-        const doCodigo = (c: string) => its.reduce((t, i) => t + (i.materiais.find((m) => m.codigo === c)?.custo_bruto_material ?? 0), 0)
-        expect(doCodigo('A')).toBeCloseTo(3 * 600, 9)
-        expect(doCodigo('B')).toBeCloseTo(2 * 100, 9)
+    it('O ITEM FECHA EM SI MESMO: o custo dele não muda com o que os OUTROS itens consomem', () => {
+        const so1 = ok({ ...base(), itens: [base().itens[0]] }).itens[0]
+        const comOOutro = ok(base()).itens[0]
+        expect(so1.custo_bruto_materiais).toBeCloseTo(comOOutro.custo_bruto_materiais, 12)
+        // e nem com o número de barras que o levantamento comprou: a barra inteira não entra mais no preço
+        const comMaisBarras = ok({ ...base(), barras_por_codigo: { A: 9, B: 7 } }).itens[0]
+        expect(comMaisBarras.custo_bruto_materiais).toBeCloseTo(comOOutro.custo_bruto_materiais, 12)
     })
-    it('não é por metro global: o item 2 não paga a média do A com o B', () => {
-        // por metro global (4.800 mm no total), o item 2 (1.800 mm) pagaria 37,5% dos R$ 700 = R$ 262,50; por código, paga R$ 250
-        const [, i2] = ok(base()).itens
-        expect(i2.custo_bruto_materiais).toBeCloseTo(250, 10)
+    it('CONTRASTE com a regra revogada: a barra inteira rateada daria R$ 450 no item 1, e o consumo dá R$ 300', () => {
+        const i1 = ok(base()).itens[0]
+        // 3 barras × R$ 600 × 75% (a parte do item no consumo do código) = R$ 1.350 × ... = R$ 450 — o que se cobrava até 15/11/2026
+        expect(linha(i1, 'A').custo_bruto_material).not.toBeCloseTo(450, 2)
+        expect(linha(i1, 'A').custo_bruto_material).toBeCloseTo(300, 10)
     })
     it('o consumo do item vai em metros, e a fração é o líquido ÷ a medida', () => {
         const [i1] = ok(base()).itens
         const a = linha(i1, 'A')
         expect(a.consumo_item).toBe(3)
         expect(a.custo_liquido_fracao).toBeCloseTo(a.custo_liquido_unidade / 6, 12)
-        const semMedida = ok({ ...base(), materiais: { ...base().materiais, 'perfil:A': material('A', 600, COMPLETO, null) } }).itens[0]
-        expect(linha(semMedida, 'A').custo_liquido_fracao).toBeNull()
+        expect(a.custo_liquido_material).toBeCloseTo(3 * (a.custo_liquido_unidade / 6), 12)
     })
-    it('o modo é o fallback: SEM aproveitamento, origem fallback_barra_inteira, com motivo', () => {
+    it('o perfil SEM a medida da barra não vira chute: fica pela unidade de compra, e a fração é nula', () => {
+        const semMedida = ok({ ...base(), materiais: { ...base().materiais, 'perfil:A': material('A', 600, COMPLETO, null) } }).itens[0]
+        const a = linha(semMedida, 'A')
+        expect([a.custo_liquido_fracao, a.medida_unidade]).toEqual([null, null])
+        expect(a.custo_bruto_material).toBeCloseTo(3 * 600, 10)
+    })
+    it('o modo é SEM aproveitamento, a origem é consumo_do_item, com motivo', () => {
         const r = ok(base())
         expect(r.modo).toBe(MODO_DO_FALLBACK)
         expect(MODO_DO_FALLBACK).toBe('SEM')
         expect(r.origem).toBe(ORIGEM_DO_FALLBACK)
-        expect(ORIGEM_DO_FALLBACK).toBe('fallback_barra_inteira')
+        expect(ORIGEM_DO_FALLBACK).toBe('consumo_do_item')
         expect(r.motivo).toMatch(/^\S(.*\S)?$/)
     })
 })
@@ -89,7 +104,7 @@ describe('a cascata por material, na unidade de compra', () => {
         expect(a.custo_liquido_unidade).toBeCloseTo(479.16, 10)
         expect(1 - a.custo_liquido_unidade / a.custo_bruto_unidade).toBeCloseTo(0.2014, 10)
         expect(a.credito_nao_apurado).toBeNull()
-        expect(a.custo_liquido_material).toBeCloseTo(479.16 * 0.75, 10)
+        expect(a.custo_liquido_material).toBeCloseTo(3 * (479.16 / 6), 10)
     })
     it('o IPI sem crédito compõe o custo: o líquido passa do bruto', () => {
         const comIpi: Percentuais = { ...COMPLETO, cred_ipi_pct: null, nc_ipi_pct: 5 }
@@ -198,7 +213,7 @@ describe('FALTA DE PREÇO NÃO IMPEDE A EVOLUÇÃO (12/11/2026): o código sem p
         expect(r.faltas.map((f) => [f.item, f.caminho, f.codigo, f.motivo])).toEqual([[1, 'perfil', 'B', motivo]])
         expect(r.faltas[0].frase).toContain('fica fora do custo')
         expect(r.itens[1].materiais.map((m) => m.codigo)).toEqual(['A'])
-        expect(r.itens[1].custo_bruto_materiais).toBeCloseTo(150, 10)
+        expect(r.itens[1].custo_bruto_materiais).toBeCloseTo(1 * (600 / 6), 10)
     })
     it.each([
         ['o código sem as barras', (e: EntradaDoCusto) => { e.barras_por_codigo = { A: 1 } }, 'as barras do código B no cálculo do levantamento'],
@@ -222,11 +237,14 @@ describe('FALTA DE PREÇO NÃO IMPEDE A EVOLUÇÃO (12/11/2026): o código sem p
     })
 })
 
-describe('OS TRÊS CAMINHOS (12/11/2026): perfil pela barra rateada, insumo pela unidade, vidro pelo m²', () => {
+describe('OS TRÊS CAMINHOS: perfil pelo consumo (16/11/2026), insumo pela unidade ou pelo rolo, vidro pelo m²', () => {
     const insumo = (codigo: string, custo: number | null, bloco: Percentuais = COMPLETO): MaterialDaTabela =>
-        ({ caminho: 'insumo', codigo, codigo_na_tabela: codigo, resolucao: 'exato', descricao: `INSUMO ${codigo}`, unidade: 'PC', medida_barra_m: null, valor_barra_interno: null, custo, bloco })
+        ({ caminho: 'insumo', codigo, codigo_na_tabela: codigo, resolucao: 'exato', descricao: `INSUMO ${codigo}`, unidade: 'PC', vendido_por: 'unidade', medida_barra_m: null, valor_barra_interno: null, custo, bloco })
+    /** O insumo comprado em ROLO: o `custo` é o do rolo inteiro de `medida` metros, e o motor o pede em milímetros. */
+    const insumoEmRolo = (codigo: string, custoDoRolo: number, medida: number, bloco: Percentuais = COMPLETO): MaterialDaTabela =>
+        ({ caminho: 'insumo', codigo, codigo_na_tabela: codigo, resolucao: 'exato', descricao: `ROLO ${codigo}`, unidade: 'MT', vendido_por: 'barra', medida_barra_m: medida, valor_barra_interno: null, custo: custoDoRolo, bloco })
     const vidro = (codigo: string, custo: number | null): MaterialDaTabela =>
-        ({ caminho: 'vidro', codigo, codigo_na_tabela: codigo, resolucao: 'vidro_traduzido', descricao: `VIDRO ${codigo}`, unidade: 'PC', medida_barra_m: null, valor_barra_interno: null, custo, bloco: COMPLETO })
+        ({ caminho: 'vidro', codigo, codigo_na_tabela: codigo, resolucao: 'vidro_traduzido', descricao: `VIDRO ${codigo}`, unidade: 'PC', vendido_por: 'unidade', medida_barra_m: null, valor_barra_interno: null, custo, bloco: COMPLETO })
     const tres = (): EntradaDoCusto => ({
         ...base(),
         itens: [{ ...base().itens[0], insumos: [{ codigo: '10457', quantidade: 4 }], vidros: [{ codigo: 'VIN04', m2: 1.5 }] }, base().itens[1]],
@@ -239,6 +257,47 @@ describe('OS TRÊS CAMINHOS (12/11/2026): perfil pela barra rateada, insumo pela
         // a cascata: 2,5 − 12% − 9,25% do saldo
         expect(l.custo_liquido_material).toBeCloseTo(4 * (2.5 * 0.88 * (1 - 0.0925)), 12)
     })
+    /**
+     * O INSUMO COMPRADO EM ROLO (dono do produto, 16/11/2026) — o caso REAL do ORC-6, medido em produção: a escova `946/WOLFF` é um rolo de
+     * 300 m a R$ 613,872, e o motor a pede por fórmula de perímetro, em MILÍMETROS. Antes, `milímetros × preço do rolo` dava R$ 15,9 milhões
+     * numa linha; o certo é (mm ÷ 1000) × (preço do rolo ÷ 300).
+     */
+    const comRolo = (mm: number) => {
+        const t = tres()
+        return { ...t, itens: [{ ...t.itens[0], insumos: [{ codigo: '946/WOLFF', quantidade: mm }] }, t.itens[1]],
+            materiais: { ...t.materiais, 'insumo:946/WOLFF': insumoEmRolo('946/WOLFF', 613.872, 300) } }
+    }
+    it('o INSUMO EM ROLO: os milímetros viram metros e o preço do rolo vira preço do metro', () => {
+        const l = ok(comRolo(25976)).itens[0].materiais.find((m) => m.caminho === 'insumo')!
+        expect(l).toMatchObject({ codigo: '946/WOLFF', consumo_item: 25.976, medida_unidade: 300, unidade_compra: 'MT' })
+        // o metro: R$ 613,872 ÷ 300 = R$ 2,04624; 25,976 m dão R$ 53,15 — não os R$ 15.945.939 de antes
+        expect(l.custo_bruto_material).toBeCloseTo(25.976 * (613.872 / 300), 10)
+        expect(l.custo_bruto_material).toBeLessThan(60)
+        expect(l.custo_liquido_fracao).toBeCloseTo((613.872 * 0.88 * (1 - 0.0925)) / 300, 12)
+        expect(l.custo_liquido_material).toBeCloseTo(25.976 * ((613.872 * 0.88 * (1 - 0.0925)) / 300), 10)
+    })
+    it('o rolo entra com o custo da UNIDADE DE COMPRA na linha: a cascata roda no rolo, a divisão vem depois', () => {
+        const l = ok(comRolo(25976)).itens[0].materiais.find((m) => m.caminho === 'insumo')!
+        expect(l.custo_bruto_unidade).toBe(613.872)
+        expect(l.custo_liquido_unidade).toBeCloseTo(613.872 * 0.88 * (1 - 0.0925), 10)
+    })
+    it('o insumo por PEÇA não é tocado pela regra do rolo, mesmo com medida_barra_m preenchida', () => {
+        const t = tres()
+        const porPeca: MaterialDaTabela = { ...insumo('3571/WOLFF', 0.4872), medida_barra_m: 1 }
+        const e: EntradaDoCusto = { ...t, itens: [{ ...t.itens[0], insumos: [{ codigo: '3571/WOLFF', quantidade: 115 }] }, t.itens[1]],
+            materiais: { ...t.materiais, 'insumo:3571/WOLFF': porPeca } }
+        const l = ok(e).itens[0].materiais.find((m) => m.caminho === 'insumo')!
+        expect(l).toMatchObject({ consumo_item: 115, medida_unidade: null, custo_liquido_fracao: null })
+        expect(l.custo_bruto_material).toBeCloseTo(115 * 0.4872, 10)
+    })
+    it('o rolo sem medida gravada não divide por nada: fica pela unidade, e a falta aparece no número, nunca num chute', () => {
+        const t = tres()
+        const semMedida: MaterialDaTabela = { ...insumoEmRolo('946/WOLFF', 613.872, 300), medida_barra_m: null }
+        const e: EntradaDoCusto = { ...t, itens: [{ ...t.itens[0], insumos: [{ codigo: '946/WOLFF', quantidade: 3 }] }, t.itens[1]],
+            materiais: { ...t.materiais, 'insumo:946/WOLFF': semMedida } }
+        const l = ok(e).itens[0].materiais.find((m) => m.caminho === 'insumo')!
+        expect(l).toMatchObject({ consumo_item: 3, medida_unidade: null, custo_liquido_fracao: null })
+    })
     it('o VIDRO: m² × preço por m² × a cascata; a unidade da linha é M2', () => {
         const l = ok(tres()).itens[0].materiais.find((m) => m.caminho === 'vidro')!
         expect(l).toMatchObject({ codigo: 'VIN04', consumo_item: 1.5, unidade_compra: 'M2', resolucao: 'vidro_traduzido' })
@@ -248,8 +307,8 @@ describe('OS TRÊS CAMINHOS (12/11/2026): perfil pela barra rateada, insumo pela
     it('o PERFIL continua igual com os outros dois caminhos ao lado, e as linhas saem perfil, insumo, vidro', () => {
         const [i1] = ok(tres()).itens
         expect(i1.materiais.map((m) => [m.ordem, m.caminho, m.codigo])).toEqual([[1, 'perfil', 'A'], [2, 'insumo', '10457'], [3, 'vidro', 'VIN04']])
-        expect(linha(i1, 'A').custo_bruto_material).toBeCloseTo(450, 10)
-        expect(i1.custo_bruto_materiais).toBeCloseTo(450 + 10 + 1.5 * 74.96, 10)
+        expect(linha(i1, 'A').custo_bruto_material).toBeCloseTo(300, 10)
+        expect(i1.custo_bruto_materiais).toBeCloseTo(300 + 10 + 1.5 * 74.96, 10)
     })
     it('o mesmo código por dois caminhos são dois materiais: a chave inclui o caminho', () => {
         const t = tres()

@@ -190,7 +190,7 @@ describe('(1) o plano', () => {
         expect(p.orcamento).toEqual({
             tenant_id: T, origem: 'agente', levantamento_id: LEV, nome: 'Geraldo Huck', obs: null, criado_por: null,
             comissao_percentual: 5, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: 1, reserva_tecnica_responsavel: null, lucro_projetado_percentual: 10,
-            aproveitamento_modo: 'SEM', aproveitamento_origem: 'fallback_barra_inteira', aproveitamento_motivo: MOTIVO_DO_FALLBACK, aproveitamento_por: null,
+            aproveitamento_modo: 'SEM', aproveitamento_origem: 'consumo_do_item', aproveitamento_motivo: MOTIVO_DO_FALLBACK, aproveitamento_por: null,
             // o preset da comercialização (dono do produto, 11/11/2026), gravado na criação
             sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null, ncm_code: null,
         })
@@ -237,7 +237,7 @@ describe('(1) o plano', () => {
     })
     it('o aproveitamento: o que a base der vale, com origem base_de_conhecimento e sem motivo nem autor; sem resposta, o fallback SEM', () => {
         expect(aproveitamentoDaTravessia('COM')).toEqual({ aproveitamento_modo: 'COM', aproveitamento_origem: 'base_de_conhecimento', aproveitamento_motivo: null, aproveitamento_por: null })
-        expect(aproveitamentoDaTravessia(null)).toEqual({ aproveitamento_modo: 'SEM', aproveitamento_origem: 'fallback_barra_inteira', aproveitamento_motivo: MOTIVO_DO_FALLBACK, aproveitamento_por: null })
+        expect(aproveitamentoDaTravessia(null)).toEqual({ aproveitamento_modo: 'SEM', aproveitamento_origem: 'consumo_do_item', aproveitamento_motivo: MOTIVO_DO_FALLBACK, aproveitamento_por: null })
     })
 })
 

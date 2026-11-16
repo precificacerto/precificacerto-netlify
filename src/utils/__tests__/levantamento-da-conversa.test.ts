@@ -1466,24 +1466,36 @@ describe('(ORC) o custo do orçamento I.A. pelo CAMINHO COMPLETO, e a reconcilia
         })
     }
 
-    it('uma esquadria: o bruto do item é o "perfis por barra inteira" da conversa, e a fabricação é a mão de obra dela', async () => {
+    /**
+     * O ORÇAMENTO COBRA O CONSUMO (dono do produto, 16/11/2026): o bruto do item deixa de ser o "perfis por barra inteira" da conversa e
+     * passa a ser o que o item CONSOME. A conversa continua informando a barra inteira — ela fala de compra; o orçamento fala de custo.
+     */
+    it('uma esquadria: o bruto do item é o CONSUMO dele, abaixo do "perfis por barra inteira" da conversa', async () => {
         const l = lev({ escolhas: ESCOLHAS })
         const r = await custoOk(l)
         expect(r.itens).toHaveLength(1)
-        expect(r.itens[0].custo_bruto_materiais).toBeCloseTo(1342.09, 2)
+        expect(r.itens[0].custo_bruto_materiais).toBeCloseTo(829.79, 2)
+        // o contraste com a regra revogada: a barra inteira dava R$ 1.342,09 — a sobra, que o orçamento não sabe se será aproveitada
+        const m1 = await M().mensagemDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), l)
+        expect(reais(m1.texto, 'Perfis por barra inteira')).toBeCloseTo(1342.09, 2)
+        expect(r.itens[0].custo_bruto_materiais).toBeLessThan(reais(m1.texto, 'Perfis por barra inteira'))
         expect(r.itens[0].custo_fabricacao).toBeCloseTo(150 * (40813.03 / 158400), 10)
         expect(Math.abs(r.itens[0].custo_fabricacao - 38.65)).toBeLessThanOrEqual(0.005)
         expect(r.maoDeObra).toEqual({ custoMensal: 40813.03, minutosDaEmpresa: 158400, valorDoMinuto: 40813.03 / 158400 })
     })
 
-    it('duas esquadrias: a soma dos brutos é o "perfis por barra inteira" que a CONVERSA dá ao mesmo levantamento — o mesmo cálculo', async () => {
+    it('duas esquadrias: a soma dos brutos fica ABAIXO da barra inteira da conversa, e cada item fecha em si', async () => {
         const l = duas()
         const r = await custoOk(l)
         const m = await M().mensagemDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), l)
         expect(m.desfecho).toBe('levantou')
         const soma = r.itens.reduce((t, i) => t + i.custo_bruto_materiais, 0)
-        expect(soma).toBeCloseTo(reais(m.texto, 'Perfis por barra inteira'), 2)
-        // a quantidade do item 2 (2 unidades) está no tempo dele, e o rateio dá mais ao item que consome mais
+        // a conversa continua dizendo a COMPRA (barra inteira); o orçamento diz o CUSTO (consumo), e é menor
+        expect(soma).toBeLessThan(reais(m.texto, 'Perfis por barra inteira'))
+        // e o item 1 custa o MESMO sozinho e acompanhado: nada de rateio entre itens (16/11/2026)
+        const so1 = await custoOk(lev({ escolhas: ESCOLHAS }))
+        expect(r.itens[0].custo_bruto_materiais).toBeCloseTo(so1.itens[0].custo_bruto_materiais, 6)
+        // a quantidade do item 2 (2 unidades) está no tempo dele
         expect(r.itens[1].tempo_fabricacao_min).toBe(300)
         expect(r.itens.every((i) => i.custo_bruto_materiais > 0)).toBe(true)
     })

@@ -6,7 +6,7 @@
  * em vermelho; as recusas nomeadas; e os mesmos bytes para a mesma entrada.
  */
 import {
-    COLUNAS_DO_ITEM, GUARDA_DO_ENVIO_AO_CLIENTE_LIGADA, O_QUE_O_ORCAMENTO_COBRE, carimboDoParcial, conferirArquivoDoOrcamento, dataDeEntrega, fraseDaVendaDiferente,
+    COLUNAS_DO_ITEM, GUARDA_DO_ENVIO_AO_CLIENTE_LIGADA, carimboDoParcial, conferirArquivoDoOrcamento, dataDeEntrega, fraseDaVendaDiferente,
     gerarArquivoDoOrcamento, linhaDoItem, nomeDoArquivo, recusaDoEnvioAoCliente, type DadosDoArquivoDoOrcamento, type ItemDoArquivo,
 } from '@/lib/atendimentos-ia/arquivo-do-orcamento'
 import { ratearOperacaoInterna, reais } from '@/lib/atendimentos-ia/rateio-do-orcamento'
@@ -42,7 +42,7 @@ const dados = (extra: Partial<DadosDoArquivoDoOrcamento> = {}): DadosDoArquivoDo
         cnpj: '12.345.678/0001-90', ie: '0960000000', site: null, email: null, logo: null },
     numero: 1, vendedor: 'Cristiano Fernandes', contato: null, emailDoVendedor: 'cristiano@exemplo.com',
     cliente: { nome: 'Geraldo Huck', telFixo: null, celular: '(51) 99999-0000', email: null, tel2: null, endereco: 'Porto Alegre', ieRg: null, cep: null, cnpjCpf: null },
-    dataEntrega: null, itens: ITENS, observacoesGerais: null, operacaoInterna: INTERNA, valorVenda: INTERNA, rateio: rateio(), faltas: [], paraOVendedor: null,
+    dataEntrega: null, itens: ITENS, observacoesGerais: null, operacaoInterna: INTERNA, valorVenda: INTERNA, rateio: rateio(), faltas: [],
     geradoEm: new Date('2026-11-11T15:30:00Z'), ...extra,
 })
 const gerar = (d = dados()) => { const g = gerarArquivoDoOrcamento(d); if ('recusas' in g) throw new Error(g.recusas.join(' | ')); return g }
@@ -87,7 +87,7 @@ describe('o dinheiro: o rateio exato, e nada que não é do cliente', () => {
     it('o tipo dos dados nem carrega custo, margem ou imposto (a fixture tem só o que o cliente vê)', () => {
         const campos = Object.keys(dados()).sort()
         expect(campos).toEqual(['cliente', 'contato', 'dataEntrega', 'emailDoVendedor', 'empresa', 'faltas', 'geradoEm', 'itens', 'numero', 'observacoesGerais',
-            'operacaoInterna', 'paraOVendedor', 'rateio', 'valorVenda', 'vendedor'])
+            'operacaoInterna', 'rateio', 'valorVenda', 'vendedor'])
     })
 })
 
@@ -152,10 +152,6 @@ describe('determinismo e paginação', () => {
 
 describe('O ARQUIVO VAI AO VENDEDOR (12/11/2026, o comando único)', () => {
     const FALTAS = [{ codigo: 'SF92/WOLFF', frase: 'SF92/WOLFF não está na tabela de preço', itens: [1, 3] }, { codigo: 'VIDRO', frase: 'o vidro “mini boreal” bate com 5 itens', itens: [2] }]
-    const PARA = {
-        barras: [{ codigo: '9691', descricao: 'SF92 - FOLHA DE PORTA', n_barras: 3, comprimento_m: 6 }],
-        aproveitamento: { pct: 81.25, metros_uteis: 14.625, metros_comprados: 18 }, minutos: [{ ordem: 1, minutos: 600 }, { ordem: 2, minutos: null }, { ordem: 3, minutos: 300 }],
-    }
     it('1.5 — PARCIAL: o carimbo com o número de faltas, e a lista das faltas com os itens', () => {
         const t = textoDoPdf(gerar(dados({ faltas: FALTAS })).pdf).join('\n')
         // o carimbo é uma linha SÓ DELE (o título da lista das faltas também cita o parcial, e não conta)
@@ -170,17 +166,28 @@ describe('O ARQUIVO VAI AO VENDEDOR (12/11/2026, o comando único)', () => {
         expect(t).not.toContain(carimboDoParcial(0).split(' — ')[0])
         expect(t).not.toContain('FALTAS DE PREÇO')
     })
-    it('4.3 — o que a conversa deixou de mandar: barras, aproveitamento, mão de obra EM MINUTOS e o que o preço cobre — sem reais', () => {
-        const linhas = textoDoPdf(gerar(dados({ paraOVendedor: PARA })).pdf)
-        const t = linhas.join('\n')
-        expect(t).toContain('PARA O VENDEDOR')
-        expect(t).toContain('• 9691 (SF92 - FOLHA DE PORTA): 3 barra(s) de 6,00 m')
-        expect(t).toContain('Aproveitamento: 81,3% (14,63 m úteis de 18,00 m comprados).')
-        expect(t).toContain('Mão de obra: item 1: 600 min · item 2: sem tempo · item 3: 300 min.')
-        expect(t.replace(/\s+/g, ' ')).toContain(O_QUE_O_ORCAMENTO_COBRE.slice(0, 60))
-        // a mão de obra não sai em reais: o bloco do vendedor não tem "R$"
-        const doBloco = linhas.slice(linhas.indexOf('PARA O VENDEDOR'), linhas.indexOf('OBSERVAÇÕES'))
-        expect(doBloco.some((l) => l.includes('R$'))).toBe(false)
+    // 4.3 — O BLOCO "PARA O VENDEDOR" SAIU (dono do produto, 16/11/2026): o arquivo não traz mais barras por código, aproveitamento,
+    // mão de obra em minutos nem "o que este preço cobre". O portão prende a ausência das quatro coisas.
+    /**
+     * O NÚMERO LARGO NÃO SOME (dono do produto, 16/11/2026): o ORC-6 saiu com os itens 1, 3 e 5 mostrando só "R$", sem valor — a célula
+     * imprimia a primeira linha da quebra, e "R$ 28.384.389,74" quebra depois do "R$". O valor agora encolhe até caber.
+     */
+    it('um valor largo demais para a coluna sai INTEIRO, encolhido — nunca só "R$"', () => {
+        // o rateio guarda CENTAVOS: R$ 28.384.389,74 são 2.838.438.974
+        const largo = rateio().map((r) => ({ ...r, unitario: 2838438974, total: 2838438974 * r.quantidade }))
+        const soma = largo.reduce((x, r) => x + r.total, 0)
+        const t = textoDoPdf(gerar(dados({ rateio: largo, valorVenda: soma / 100, operacaoInterna: soma / 100 })).pdf).join(' ')
+        expect(t).toContain('R$ 28.384.389,74')
+        // e o controle: a célula não ficou com o "R$" solto, sem número atrás
+        expect(t.replace(/\s+/g, ' ')).not.toMatch(/R\$ (?![\d])/)
+    })
+    it('o bloco PARA O VENDEDOR não existe mais no arquivo', () => {
+        const t = textoDoPdf(gerar(dados({ faltas: FALTAS })).pdf).join('\n')
+        for (const trecho of ['PARA O VENDEDOR', 'Barras por código', 'barra(s) de', 'Aproveitamento', 'Mão de obra', 'O que este preço cobre']) {
+            expect([trecho, t.includes(trecho)]).toEqual([trecho, false])
+        }
+        // e o que FICA não foi levado junto: as faltas continuam carimbadas e listadas
+        expect(t).toContain('FALTAS DE PREÇO')
     })
     it('4.2 — as definições de instalação e arremate de cada esquadria, com "(padrão)" na que o vendedor não disse', () => {
         const itens = [item(1, { definicoes: ['ARREMATE INTERNO: 65 mm', 'ARREMATE EXTERNO: sem (padrão)'] }), ITENS[1], ITENS[2]]

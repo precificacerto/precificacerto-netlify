@@ -176,7 +176,7 @@ describe('(1) a ordem da escrita e o que cada passo grava', () => {
         await K().calcularOrcamento(T, O1, new Date('2026-11-09T15:00:00Z'), () => 'calc-novo')
         const carga = escritas().filter((o) => o.tabela === 'orcamentista_orcamento').pop()!.carga as Linha
         expect(carga).toMatchObject({
-            aproveitamento_modo: 'SEM', aproveitamento_origem: 'fallback_barra_inteira', aproveitamento_motivo: C().MOTIVO_DO_FALLBACK, aproveitamento_por: null,
+            aproveitamento_modo: 'SEM', aproveitamento_origem: 'consumo_do_item', aproveitamento_motivo: C().MOTIVO_DO_FALLBACK, aproveitamento_por: null,
             valor_total_bruto: 450 + 60 + 250 + 30, valor_total_liquido: 510 + 280,
         })
         // regravá-los do levantamento devolvia o nulo que a regra do zero resolveu e apagava a alteração feita no orçamento
