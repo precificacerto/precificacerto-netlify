@@ -6,10 +6,10 @@
  *   1. o cabeçalho da empresa em caixa, o logo à esquerda (razão social, endereço, cidade/UF, CEP, telefone, telefone 2, CNPJ, I.E., site, e-mail);
  *      à direita, caixa própria com o título ORÇAMENTO e Número, Emissão, Vendedor, Contato, Email;
  *   2. o cliente em caixa: CLIENTE, TEL. FIXO, CELULAR, EMAIL, TEL2/Fax, ENDEREÇO, IE/RG, CEP, CNPJ/CPF;
- *   3. um bloco por item, na ordem: a faixa "*LOCAL/AMBIENTE:" e "TIPO:"; o desenho à esquerda; a descrição em caixa alta; "*COR PERFIL:" e
- *      "*COR ACESSÓRIO:"; "LINHA: <fornecedor> | <linha>" e "DATA ENTREGA:"; a tabela ITEM, QTDE., LARGURA, ALTURA, COR E ESPESSURA, VLR. UNIT.,
+ *   3. um bloco por item, na ordem: a faixa "ITEM N", "*LOCAL/AMBIENTE:" e "TIPO:"; o desenho à esquerda; a descrição em caixa alta;
+ *      "*COR PERFIL:" e "*COR ACESSÓRIO:"; "LINHA: <fornecedor> | <linha>"; a tabela QTDE., LARGURA, ALTURA, COR E ESPESSURA, VLR. UNIT.,
  *      VLR. TOTAL; e, com observação, a faixa "OBSERVAÇÕES DESTE ITEM" com o texto em vermelho;
- *   4. OBSERVAÇÕES gerais em texto corrido;
+ *   4. OBSERVAÇÕES: as DEFINIÇÕES (uma vez para todos) e a DATA DE ENTREGA (`linhasDoRodape`), depois o texto da empresa;
  *   5. o fecho: TOTAL; "Atenciosamente," e o vendedor; Dt.Venda; Impresso em; a linha de Aceite do Cliente; a razão social.
  *
  * AS REGRAS:
@@ -275,18 +275,16 @@ function medidaDoItem(doc: Doc, i: ItemDoArquivo) {
     const daFigura = texto(i.semFigura) === '' ? [] : [texto(i.semFigura)]
     const linhasDaObs = [...(texto(i.obs) === '' ? [] : [texto(i.obs)]), ...daFigura]
     const obs = linhasDaObs.length === 0 ? [] : linhasDaObs.flatMap((l) => quebrar(doc, l, LARGURA - 4))
-    fonte(doc, 'normal', 7)
-    const definicoes = i.definicoes.length ? quebrar(doc, `DEFINIÇÕES: ${i.definicoes.join(' · ')}`, LARGURA_DO_TEXTO) : []
-    const corpoTexto = descricao.length * 3.6 + 3 * 4.6 + 2 * 5.2 + 1 + definicoes.length * 3.2
+    const corpoTexto = descricao.length * 3.6 + 3 * 4.6 + 2 * 5.2 + 1
     const corpo = Math.max(30, corpoTexto)
     const alturaDaObs = obs.length ? 5 + obs.length * 3.4 + 1.5 : 0
-    return { descricao, obs, definicoes, corpo, total: 6 + corpo + alturaDaObs }
+    return { descricao, obs, corpo, total: 6 + corpo + alturaDaObs }
 }
 
 /** O rótulo do item na faixa, antes do ambiente: "ITEM 2". */
 export const rotuloDoItemNaFaixa = (ordem: number) => `ITEM ${ordem}`
 
-function blocoDoItem(doc: Doc, i: ItemDoArquivo, r: ItemRateado, y: number, dataEntrega: string): number {
+function blocoDoItem(doc: Doc, i: ItemDoArquivo, r: ItemRateado, y: number): number {
     const m = medidaDoItem(doc, i)
     doc.setDrawColor(0); doc.setLineWidth(0.3)
     doc.rect(A4.margem, y, LARGURA, m.total)
@@ -319,9 +317,8 @@ function blocoDoItem(doc: Doc, i: ItemDoArquivo, r: ItemRateado, y: number, data
     fonte(doc, 'bold', 8); for (const l of m.descricao) { doc.text(l, X_DO_TEXTO, ty); ty += 3.6 }
     ty += 1
     campo(doc, '*COR PERFIL:', texto(i.corPerfil), X_DO_TEXTO, ty); campo(doc, '*COR ACESSÓRIO:', texto(i.corAcessorio), X_DO_TEXTO + 70, ty); ty += 4.6
-    campo(doc, 'LINHA:', linhaDoItem(i), X_DO_TEXTO, ty); campo(doc, 'DATA ENTREGA:', dataEntrega, X_DO_TEXTO + 110, ty); ty += 3
-    // as definições de instalação e arremate (4.2), com "(padrão)" na que o vendedor não disse
-    if (m.definicoes.length) { fonte(doc, 'normal', 7); for (const l of m.definicoes) { ty += 3.2; doc.text(l, X_DO_TEXTO, ty) } ty += 1 }
+    // a DATA DE ENTREGA e as DEFINIÇÕES saíram do item (dono do produto, 16/11/2026): vão UMA VEZ ao bloco OBSERVAÇÕES
+    campo(doc, 'LINHA:', linhaDoItem(i), X_DO_TEXTO, ty); ty += 3
     // a tabela de sete colunas: o cabeçalho e a linha do item
     let cx = X_DO_TEXTO
     doc.setDrawColor(CINZA)
@@ -345,9 +342,36 @@ function blocoDoItem(doc: Doc, i: ItemDoArquivo, r: ItemRateado, y: number, data
     return y + m.total + 3
 }
 
-function blocoDasObservacoes(doc: Doc, d: DadosDoArquivoDoOrcamento, y: number): number {
+/**
+ * O QUE VAI UMA VEZ SÓ NAS OBSERVAÇÕES (dono do produto, 16/11/2026): "Nós vamos remover do container de cada item as
+ * definições, colocando somente lá nas observações, que vai servir para todos" e "a data de entrega vai ter uma vez só no
+ * final do orçamento". As definições iguais em todos os itens que as têm saem numa linha só; quando diferem, uma linha por
+ * conjunto, nomeando os itens — nunca se escolhe a de um item para valer pelos outros. A data de entrega sai só quando
+ * existe (`ausente-vs-falso`): o " / / " em branco saiu.
+ */
+export function linhasDoRodape(itens: readonly Pick<ItemDoArquivo, 'ordem' | 'definicoes'>[], dataEntrega: string | null): string[] {
+    const porConjunto = new Map<string, number[]>()
+    for (const i of [...itens].sort((a, b) => a.ordem - b.ordem)) {
+        if (!i.definicoes.length) continue
+        const chave = i.definicoes.join(' · ')
+        porConjunto.set(chave, [...(porConjunto.get(chave) ?? []), i.ordem])
+    }
+    const linhas = porConjunto.size === 1
+        ? [`DEFINIÇÕES: ${[...porConjunto.keys()][0]}`]
+        : [...porConjunto].map(([chave, ordens]) => `DEFINIÇÕES (${ordens.length > 1 ? 'ITENS' : 'ITEM'} ${ordens.join(', ')}): ${chave}`)
+    const entrega = dataDeEntrega(dataEntrega)
+    if (entrega.trim() !== '/ /') linhas.push(`DATA DE ENTREGA: ${entrega}`)
+    return linhas
+}
+/** As linhas do bloco OBSERVAÇÕES, já quebradas: as do rodapé primeiro, depois o texto da empresa. */
+const linhasDasObservacoes = (doc: Doc, d: DadosDoArquivoDoOrcamento) => {
     fonte(doc, 'normal', 7.5)
-    const linhas = texto(d.observacoesGerais) === '' ? [] : quebrar(doc, texto(d.observacoesGerais), LARGURA - 4)
+    const doRodape = linhasDoRodape(d.itens, d.dataEntrega).flatMap((l) => quebrar(doc, l, LARGURA - 4))
+    return [...doRodape, ...(texto(d.observacoesGerais) === '' ? [] : quebrar(doc, texto(d.observacoesGerais), LARGURA - 4))]
+}
+
+function blocoDasObservacoes(doc: Doc, d: DadosDoArquivoDoOrcamento, y: number): number {
+    const linhas = linhasDasObservacoes(doc, d)
     const h = 6 + Math.max(1, linhas.length) * 3.4 + 2
     doc.setDrawColor(0); doc.rect(A4.margem, y, LARGURA, h)
     fonte(doc, 'bold', 8); doc.text('OBSERVAÇÕES', A4.margem + 2, y + 4.2)
@@ -355,8 +379,7 @@ function blocoDasObservacoes(doc: Doc, d: DadosDoArquivoDoOrcamento, y: number):
     return y + h + 3
 }
 const alturaDasObservacoes = (doc: Doc, d: DadosDoArquivoDoOrcamento) => {
-    fonte(doc, 'normal', 7.5)
-    const n = texto(d.observacoesGerais) === '' ? 0 : quebrar(doc, texto(d.observacoesGerais), LARGURA - 4).length
+    const n = linhasDasObservacoes(doc, d).length
     return 6 + Math.max(1, n) * 3.4 + 2 + 3
 }
 const ALTURA_DO_FECHO = 40
@@ -377,7 +400,7 @@ const ALTURA_DO_FECHO = 40
  * catálogo e o bloco OBSERVAÇÕES com texto livre); `observacoes-por-variaveis-2026-11-16` é esta — o bloco passou a
  * ser MONTADO das variáveis da base de conhecimento (prazos, validade, exclusões, parcelas do pagamento).
  */
-export const VERSAO_DO_ARQUIVO = 'item-na-faixa-e-figura-proporcional-2026-11-16'
+export const VERSAO_DO_ARQUIVO = 'definicoes-e-entrega-nas-observacoes-2026-11-16'
 
 /** As linhas das faltas (1.5): uma por código, com os itens. */
 export function linhasDasFaltasDoArquivo(faltas: readonly FaltaDoArquivo[]): string[] {
@@ -425,13 +448,12 @@ export function gerarArquivoDoOrcamento(d: DadosDoArquivoDoOrcamento): ArquivoGe
     const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
     const itens = [...d.itens].sort((a, b) => a.ordem - b.ordem)
     const doRateio = new Map(d.rateio.map((r) => [r.ordem, r]))
-    const entrega = dataDeEntrega(d.dataEntrega)
     let y = cabecalho(doc, d)
     y = blocoDoCliente(doc, d, y)
     for (const i of itens) {
         const h = medidaDoItem(doc, i).total
         if (y + h > FIM) { doc.addPage('a4', 'portrait'); y = A4.margem }
-        y = blocoDoItem(doc, i, doRateio.get(i.ordem) as ItemRateado, y, entrega)
+        y = blocoDoItem(doc, i, doRateio.get(i.ordem) as ItemRateado, y)
     }
     // as faltas, depois dos itens, na página em que cabem (o bloco PARA O VENDEDOR saiu em 16/11/2026, por decisão do dono do produto)
     const blocos: Array<[string, string[], [number, number, number] | null]> = []
