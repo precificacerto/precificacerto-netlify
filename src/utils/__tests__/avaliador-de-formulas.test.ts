@@ -545,3 +545,44 @@ describe('(11) ROUND, and e or — as funções que os dados do motor usam (tare
 })
 
 export {}
+
+/**
+ * O `<>` É "DIFERENTE" (16/11/2026) — entrou porque as condições dos DESENHOS das tipologias o usam (107 das 771
+ * condições por variável, medido em produção), e sem ele toda essa fatia recusava com NAO_PARSEIA: a esquadria saía
+ * sem figura sem ninguém saber por quê.
+ *
+ * MEDIDO NO MESMO DIA, e é o que torna a mudança segura: `<>` não aparece em NENHUMA das 231.700 condições e
+ * fórmulas do motor (regras, insumos, vidros e variáveis). Nada que hoje calcula muda — o operador só deixa de recusar.
+ */
+describe('(<>) o diferente', () => {
+    const v = (texto: string, valores: Record<string, number> = {}) => A().avaliarTexto(texto, valores)
+    const valor = (texto: string, valores: Record<string, number> = {}) => { const r = v(texto, valores); return 'recusa' in r ? r.recusa.motivo : r.valor }
+
+    it('a condição real da DP-39 em produção: "(HI<>1)" é verdadeira com HI=2 e falsa com HI=1', () => {
+        expect(valor('(HI<>1)', { HI: 2 })).toBe(true)
+        expect(valor('(HI<>1)', { HI: 1 })).toBe(false)
+    })
+    it('vale com espaço, fora de parênteses, e combinado com and/or', () => {
+        expect(valor('HI <> 1', { HI: 3 })).toBe(true)
+        expect(valor('(HI<>1) and (UT=2)', { HI: 2, UT: 2 })).toBe(true)
+        expect(valor('(HI<>1) and (UT=2)', { HI: 1, UT: 2 })).toBe(false)
+        expect(valor('(HI<>1) or (UT=2)', { HI: 1, UT: 2 })).toBe(true)
+    })
+    it('é o oposto exato do "=", inclusive com conta dos dois lados', () => {
+        // o unário "-3" não parseia neste avaliador, de antes e de propósito: aqui se compara só o que ele lê
+        for (const [a, b] of [[1, 1], [1, 2], [0, 0], [7, 3]]) {
+            expect(valor(`${a}<>${b}`)).toBe(!(valor(`${a}=${b}`) as boolean))
+        }
+        expect(valor('(2*3)<>(5+1)')).toBe(false)
+        expect(valor('(2*3)<>(5+2)')).toBe(true)
+    })
+    it('a variável sem valor continua sendo recusa nomeada, não "diferente"', () => {
+        expect(valor('(HI<>1)')).toBe('VARIAVEL_SEM_VALOR')
+    })
+    it('o `<` e o `<=` continuam como eram: o lexer lê o `<>` inteiro, sem comer os vizinhos', () => {
+        expect(valor('1<2')).toBe(true)
+        expect(valor('2<=2')).toBe(true)
+        expect(valor('2<=1')).toBe(false)
+        expect(valor('1<>2')).toBe(true)
+    })
+})

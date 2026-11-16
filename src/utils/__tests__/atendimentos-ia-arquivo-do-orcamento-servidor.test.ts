@@ -27,6 +27,7 @@ jest.mock('@/supabase/admin', () => ({
             let carga: unknown
             let ordem: [string, boolean] | null = null
             let limite: number | null = null
+            let faixa: [number, number] | null = null
             const q: Record<string, unknown> = {}
             const rodar = () => {
                 estado.ops.push({ tabela, op, filtros, carga })
@@ -34,11 +35,14 @@ jest.mock('@/supabase/admin', () => ({
                 let r = (estado.db[tabela] ?? []).filter((l) => filtros.every(([c, v]) => (v === NULO ? (l[c] ?? null) === null : Array.isArray(v) ? (v as unknown[]).includes(l[c]) : l[c] === v)))
                 if (ordem) { const [c, asc] = ordem; r = [...r].sort((a, b) => (String(a[c]) < String(b[c]) ? -1 : String(a[c]) > String(b[c]) ? 1 : 0) * (asc ? 1 : -1)) }
                 if (limite !== null) r = r.slice(0, limite)
+                // o `.range(de, até)` do PostgREST, que a leitura do catálogo de desenhos usa (de mil em mil)
+                if (faixa !== null) r = r.slice(faixa[0], faixa[1] + 1)
                 return Promise.resolve({ data: r.map((l) => ({ ...l })), error: null })
             }
             q.select = () => q
             q.order = (c: string, o?: { ascending?: boolean }) => { ordem = [c, o?.ascending !== false]; return q }
             q.limit = (n: number) => { limite = n; return q }
+            q.range = (de: number, ate: number) => { faixa = [de, ate]; return q }
             q.eq = (c: string, v: unknown) => { filtros.push([c, v]); return q }
             // o `.is(coluna, null)` do PostgREST: a coluna nula (ou ausente na linha de teste, como a `removido_em` de antes da 20261113000002)
             q.is = (c: string, v: null) => { filtros.push([c, v === null ? NULO : v]); return q }
@@ -73,6 +77,8 @@ jest.mock('@/lib/atendimentos-ia/conversa-da-ia', () => ({
 /* eslint-disable @typescript-eslint/no-require-imports */
 const S = require('@/lib/atendimentos-ia/arquivo-do-orcamento-servidor') as typeof import('@/lib/atendimentos-ia/arquivo-do-orcamento-servidor')
 const { ratearOperacaoInterna } = require('@/lib/atendimentos-ia/rateio-do-orcamento') as typeof import('@/lib/atendimentos-ia/rateio-do-orcamento')
+const { fraseSemCandidata, fraseSemArquivo } = require('@/lib/atendimentos-ia/desenho-do-catalogo') as typeof import('@/lib/atendimentos-ia/desenho-do-catalogo')
+const { fraseDoArquivoQueNaoBaixou } = require('@/lib/atendimentos-ia/desenho-do-catalogo-servidor') as typeof import('@/lib/atendimentos-ia/desenho-do-catalogo-servidor')
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 beforeEach(() => {
@@ -189,6 +195,91 @@ describe('gerar e gravar: o objeto primeiro, a linha depois, e nada quando não 
         estado.erroDoUpload = 'bucket indisponível'
         await expect(S.gerarEGravarArquivo(T, ORC, 'usuario-1', lido.dados, lido.calculoId)).rejects.toThrow('bucket indisponível')
         expect(estado.db.orcamentista_orcamento_arquivo).toBeUndefined()
+    })
+})
+
+// ══ O DESENHO IMPORTADO (dono do produto, 11/11/2026; ligado em 16/11/2026) ══
+describe('a figura do catálogo nos itens do arquivo', () => {
+    const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex')
+    /** O objeto no bucket, como se a importação o tivesse subido. */
+    const noStorage = (caminho: string) => estado.uploads.push({ bucket: 'atendimentos-ia', caminho, bytes: PNG, opcoes: null })
+
+    it('a do ÍNDICE PRINCIPAL com a mesma descrição vira FIGURA; a tipologia sem candidata sai SEM FIGURA, com a frase que a nomeia', async () => {
+        estado.db.orcamentista_tipologia_desenho = [
+            { fonte: 'principal', grupo: 'pvc', codigo: 'DP-39', descricao: 'DP-39 DA PVC | EUROPA 60', condicao: null, caminho_no_storage: 'tipologias/pvc/porta.png' },
+        ]
+        noStorage('tipologias/pvc/porta.png')
+        const r = await S.itensDoArquivo(T, ORC)
+        if ('recusa' in r) throw new Error(r.recusa)
+        const itens = await S.comOsDesenhos(r.itens, r.paraODesenho)
+        expect(itens[0].figura).toEqual({ dados: `data:image/png;base64,${PNG.toString('base64')}`, formato: 'PNG' })
+        expect(itens[0].semFigura).toBeNull()
+        expect(itens[1].figura).toBeNull()
+        expect(itens[1].semFigura).toBe(fraseSemCandidata('DP-02'))
+    })
+
+    it('a linha do índice SEM ARQUIVO no Storage não desenha nada: a falta é nomeada (nunca a figura mais parecida)', async () => {
+        estado.db.orcamentista_tipologia_desenho = [
+            { fonte: 'principal', grupo: 'pvc', codigo: 'DP-39', descricao: 'DP-39 DA PVC | EUROPA 60', condicao: null, caminho_no_storage: null },
+        ]
+        const r = await S.itensDoArquivo(T, ORC)
+        if ('recusa' in r) throw new Error(r.recusa)
+        const itens = await S.comOsDesenhos(r.itens, r.paraODesenho)
+        expect(itens[0].figura).toBeNull()
+        expect(itens[0].semFigura).toBe(fraseSemArquivo('DP-39'))
+    })
+
+    it('o arquivo que o índice aponta e o Storage não entrega: a falta diz isso, e o item não leva figura', async () => {
+        estado.db.orcamentista_tipologia_desenho = [
+            { fonte: 'principal', grupo: 'pvc', codigo: 'DP-39', descricao: 'DP-39 DA PVC | EUROPA 60', condicao: null, caminho_no_storage: 'tipologias/pvc/sumiu.png' },
+        ]
+        const r = await S.itensDoArquivo(T, ORC)
+        if ('recusa' in r) throw new Error(r.recusa)
+        const itens = await S.comOsDesenhos(r.itens, r.paraODesenho)
+        expect(itens[0].figura).toBeNull()
+        expect(itens[0].semFigura).toBe(fraseDoArquivoQueNaoBaixou('DP-39'))
+    })
+
+    it('o item SEM TIPOLOGIA (o manual) não ganha figura NEM frase: não há tipologia a nomear', async () => {
+        estado.db.orcamentista_tipologia_desenho = []
+        ;(estado.db.orcamentista_orcamento_item as Linha[]).push({ id: 'oi-3', tenant_id: T, orcamento_id: ORC, ordem: 3, levantamento_item_id: null, tipologia: null,
+            largura_mm: 800, altura_mm: 800, quantidade: 1, cor_perfil: null, vidro: null, obs: null, ambientes: null, escolhas: null, calculo_id: 'calc-1', custo_liquido_total: 10 })
+        const r = await S.itensDoArquivo(T, ORC)
+        if ('recusa' in r) throw new Error(r.recusa)
+        const itens = await S.comOsDesenhos(r.itens, r.paraODesenho)
+        const manual = itens.find((i) => i.ordem === 3)
+        expect(manual?.figura).toBeNull()
+        expect(manual?.semFigura).toBeNull()
+        // e os que TÊM tipologia continuam ganhando a frase da falta
+        expect(itens[0].semFigura).toBe(fraseSemCandidata('DP-39'))
+    })
+
+    it('o catálogo é lido INTEIRO, de mil em mil: a linha que importa está DEPOIS da milésima e mesmo assim acha a figura', async () => {
+        // o PostgREST corta em mil; parar na primeira página deixaria tipologia sem figura sem razão nenhuma
+        const enchimento = Array.from({ length: 1200 }, (_, k): Linha => ({
+            fonte: 'principal', grupo: 'pvc', codigo: `AAA-${String(k).padStart(4, '0')}`, descricao: `OUTRA FORMA ${k} | EUROPA 60`, condicao: null,
+            caminho_no_storage: `tipologias/pvc/outra-${k}.png`,
+        }))
+        // a ordem da leitura é por `codigo`: com o código começando por Z, esta linha cai na SEGUNDA página
+        estado.db.orcamentista_tipologia_desenho = [...enchimento, { fonte: 'principal', grupo: 'pvc', codigo: 'ZZZ-39', descricao: 'DP-39 DA PVC | EUROPA 60', condicao: null, caminho_no_storage: 'tipologias/pvc/porta.png' }]
+        noStorage('tipologias/pvc/porta.png')
+        const r = await S.itensDoArquivo(T, ORC)
+        if ('recusa' in r) throw new Error(r.recusa)
+        const itens = await S.comOsDesenhos(r.itens, r.paraODesenho)
+        expect(itens[0].figura?.formato).toBe('PNG')
+    })
+
+    it('a figura entra nos DADOS do arquivo (o PDF a recebe), pelo mesmo caminho', async () => {
+        estado.db.orcamentista_tipologia_desenho = [
+            { fonte: 'principal', grupo: 'pvc', codigo: 'DP-39', descricao: 'DP-39 DA PVC | EUROPA 60', condicao: null, caminho_no_storage: 'tipologias/pvc/porta.png' },
+        ]
+        noStorage('tipologias/pvc/porta.png')
+        const rt = ratearOperacaoInterna(7000, [{ ordem: 1, quantidade: 1, peso: 2594.15 }, { ordem: 2, quantidade: 2, peso: 2225.04 }])
+        if ('recusa' in rt) throw new Error(rt.recusa)
+        const lido = await S.lerDadosDoArquivo(T, ORC, { operacaoInterna: 7000, valorVenda: 7000, rateio: rt.itens, geradoEm: new Date('2026-11-16T15:00:00Z') })
+        if ('recusa' in lido) throw new Error(lido.recusa)
+        expect(lido.dados.itens[0].figura?.formato).toBe('PNG')
+        expect(lido.dados.itens[1].semFigura).toBe(fraseSemCandidata('DP-02'))
     })
 })
 

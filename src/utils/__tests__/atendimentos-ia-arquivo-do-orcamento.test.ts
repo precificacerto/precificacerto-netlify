@@ -26,7 +26,8 @@ const alturaDe = (pdf: Uint8Array, texto: string) => {
 const item = (ordem: number, extra: Partial<ItemDoArquivo> = {}): ItemDoArquivo => ({
     ordem, quantidade: 1, largura_mm: 2500, altura_mm: 2200, tipologia: 'DP-39', descricao: 'Porta de correr 2 folhas | Europa 60', tipo: 'Porta',
     fornecedor: 'Wolf', linha: 'EUROPA 60', ambientes: 'Sala (1)', corPerfil: 'Branco', corAcessorio: 'Branco', vidro: 'comum 6 mm incolor',
-    variaveis: [], definicoes: [], obs: null, desenho: { largura_mm: 2500, altura_mm: 2200, colunas: 2, linhas: null, bandeira_mm: null, peitoril_mm: null }, ...extra,
+    variaveis: [], definicoes: [], obs: null, figura: null, semFigura: null,
+    desenho: { largura_mm: 2500, altura_mm: 2200, colunas: 2, linhas: null, bandeira_mm: null, peitoril_mm: null }, ...extra,
 })
 // o Geraldo Huck: 3 itens, quantidades 1, 1 e 2, e os custos líquidos totais gravados em produção como pesos
 const ITENS = [item(1), item(2, { tipologia: 'DP-01', descricao: 'Maxim-ar', largura_mm: 600, altura_mm: 600, vidro: 'mini boreal', ambientes: null }),
@@ -115,6 +116,44 @@ describe('vazio é vazio, a observação em vermelho, a data de entrega', () => 
     })
     it('sem medida o item fecha sem desenho, sem quebrar', () => {
         expect(gerarArquivoDoOrcamento(dados({ itens: ITENS.map((i): ItemDoArquivo => ({ ...i, desenho: null })) })).ok).toBe(true)
+    })
+})
+
+// ══ O DESENHO IMPORTADO (dono do produto, 11/11/2026; no PDF em 16/11/2026) ══
+describe('a figura do catálogo no lugar do esquema de traços', () => {
+    // um PNG 1x1 de verdade: o jsPDF o lê e o põe como XObject de imagem
+    const PNG1x1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg=='
+    /** Os mesmos itens do exemplo, com um campo trocado no de uma ordem (o rateio é o do exemplo: trocar quantidade recusaria). */
+    const com = (ordem: number, extra: Partial<ItemDoArquivo>) => dados({ itens: ITENS.map((i) => (i.ordem === ordem ? { ...i, ...extra } : i)) })
+    const comFigura = () => com(1, { figura: { dados: PNG1x1, formato: 'PNG' as const } })
+
+    // 0.35 mm é a espessura do CONTORNO do esquema de traços, e só dele (nos dois arquivos): é por ela que se vê se o
+    // esquema foi desenhado. (O jsPDF a escreve em pontos: 0,35 mm × 2,834645 = 0.9921259842519685.) Sem este sinal, a
+    // figura poderia entrar POR CIMA dos traços e o portão não veria.
+    /** Quantos esquemas de traços o PDF desenha (os três itens do exemplo desenham três). */
+    const esquemas = (pdf: Uint8Array) => [...cru(pdf).matchAll(/0\.9921259842519685 w/g)].length
+    it('o item COM figura leva a imagem no PDF e NÃO desenha o esquema de traços dele; sem figura nenhuma, o inverso', () => {
+        expect(esquemas(gerar().pdf)).toBe(3)
+        expect(cru(gerar().pdf)).not.toMatch(/\/Subtype \/Image/)
+        const com = gerar(comFigura()).pdf
+        expect(cru(com)).toMatch(/\/Subtype \/Image/)
+        expect(esquemas(com)).toBe(2)
+    })
+    it('o item SEM figura resolvida sai com a FRASE DA FALTA nas observações, e NÃO desenha nada (nunca a mais parecida)', () => {
+        const falta = 'o desenho da tipologia DP-01 não está no catálogo de desenhos: o item sai sem figura'
+        const r = gerar(com(1, { semFigura: falta }))
+        expect(textoDoPdf(r.pdf)).toContain(falta)
+        // a faixa das observações do item é a que carrega a frase
+        expect(textoDoPdf(r.pdf)).toContain('OBSERVAÇÕES DESTE ITEM')
+        // e NADA é desenhado no lugar: nem figura, nem o esquema de traços daquele item (os outros dois seguem com o seu)
+        expect(cru(r.pdf)).not.toMatch(/\/Subtype \/Image/)
+        expect(esquemas(r.pdf)).toBe(2)
+    })
+    it('a observação DO VENDEDOR e a falta da figura CABEM JUNTAS: nenhuma das duas apaga a outra', () => {
+        const falta = 'o desenho da tipologia DP-02 não está no catálogo de desenhos: o item sai sem figura'
+        const t = textoDoPdf(gerar(com(3, { semFigura: falta })).pdf)
+        expect(t).toContain('instalar com cuidado no vão de gesso')
+        expect(t).toContain(falta)
     })
 })
 
