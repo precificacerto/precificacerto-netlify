@@ -367,8 +367,12 @@ const ALTURA_DO_FECHO = 40
  *
  * TROQUE ESTE VALOR sempre que o que o PDF MOSTRA mudar (um bloco novo, uma figura, uma coluna). Não o troque por
  * mudança que não aparece no papel: cada troca regera todo arquivo guardado no próximo pedido.
+ *
+ * O HISTÓRICO, para quem for trocar: `desenho-do-catalogo-e-observacoes-2026-11-16` foi a primeira (as figuras do
+ * catálogo e o bloco OBSERVAÇÕES com texto livre); `observacoes-por-variaveis-2026-11-16` é esta — o bloco passou a
+ * ser MONTADO das variáveis da base de conhecimento (prazos, validade, exclusões, parcelas do pagamento).
  */
-export const VERSAO_DO_ARQUIVO = 'desenho-do-catalogo-e-observacoes-2026-11-16'
+export const VERSAO_DO_ARQUIVO = 'observacoes-por-variaveis-2026-11-16'
 
 /** As linhas das faltas (1.5): uma por código, com os itens. */
 export function linhasDasFaltasDoArquivo(faltas: readonly FaltaDoArquivo[]): string[] {

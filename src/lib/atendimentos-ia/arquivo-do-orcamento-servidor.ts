@@ -27,6 +27,7 @@ import { corDoAcessorio, variaveisDitas } from './arquivo-do-levantamento'
 import { desenhoDaTipologia, linhaDosAmbientes, variavelNaFolha } from './folha-do-levantamento'
 import { escolhasDescritas, lerEscolhasDoItem } from './escolhas-da-tipologia'
 import { valoresDoDesenho } from './desenho-do-catalogo'
+import { lerCamposDasObservacoes, linhasDasObservacoes, SEM_CAMPOS, type CamposDasObservacoes } from './campos-das-observacoes'
 import { comAsFiguras, type CatalogoDeDesenhos, type ItemComDesenho } from './desenho-do-catalogo-servidor'
 import {
     gerarArquivoDoOrcamento, VERSAO_DO_ARQUIVO,
@@ -156,10 +157,10 @@ export async function lerLogo(url: string | null): Promise<EmpresaDoArquivo['log
  * texto fixo da base de conhecimento — prazos, validade, exclusões. Sem a migração 20261116000004 (coluna ausente,
  * 42703/PGRST204), as observações saem NULAS e o bloco sai vazio, como saía antes.
  */
-async function lerEmpresa(tenantId: string): Promise<{ empresa: EmpresaDoArquivo; observacoes: string | null }> {
+async function lerEmpresa(tenantId: string): Promise<{ empresa: EmpresaDoArquivo; observacoes: string | null; campos: CamposDasObservacoes }> {
     const t = ((await ler('tenants', db().from('tenants').select('name, cnpj_cpf, email, phone, cep, street, number, complement, neighborhood, city, state_code, logo_url')
         .eq('id', tenantId).maybeSingle())) ?? {}) as Linha
-    const comObservacoes = await db().from('tenant_settings').select('inscricao_estadual, logo_url, orcamento_observacoes').eq('tenant_id', tenantId).maybeSingle()
+    const comObservacoes = await db().from('tenant_settings').select('inscricao_estadual, logo_url, orcamento_observacoes, orcamento_observacoes_campos').eq('tenant_id', tenantId).maybeSingle()
     const semColuna = comObservacoes.error && semMigracao(comObservacoes.error)
     const lido = semColuna
         ? await db().from('tenant_settings').select('inscricao_estadual, logo_url').eq('tenant_id', tenantId).maybeSingle()
@@ -175,6 +176,9 @@ async function lerEmpresa(tenantId: string): Promise<{ empresa: EmpresaDoArquivo
             cnpj: texto(t.cnpj_cpf), ie: texto(s.inscricao_estadual), site: null, email: texto(t.email), logo: await lerLogo(texto(s.logo_url) ?? texto(t.logo_url)),
         },
         observacoes: texto(s.orcamento_observacoes),
+        // AS VARIÁVEIS do bloco (16/11/2026): o que não passa na leitura NÃO entra — um campo com lixo no banco não
+        // imprime linha torta no orçamento do cliente; ele some, e o resto sai
+        campos: s.orcamento_observacoes_campos ? lerCamposDasObservacoes(s.orcamento_observacoes_campos).campos : SEM_CAMPOS,
     }
 }
 
@@ -221,7 +225,10 @@ export async function lerDadosDoArquivo(tenantId: string, orcamentoId: string, a
         calculoId: calculos.length === 1 ? calculos[0] : null,
         dados: {
             empresa: daEmpresa.empresa, numero: Number(orc.numero), vendedor: cv.vendedor, contato: null, emailDoVendedor: cv.emailDoVendedor, cliente: cv.cliente, dataEntrega: cv.dataEntrega,
-            itens: await comOsDesenhos(itens.itens, itens.paraODesenho), observacoesGerais: daEmpresa.observacoes, operacaoInterna: a.operacaoInterna, valorVenda: a.valorVenda, rateio: a.rateio, geradoEm: a.geradoEm,
+            itens: await comOsDesenhos(itens.itens, itens.paraODesenho),
+            // O BLOCO É MONTADO das variáveis, e o texto livre vai por último (16/11/2026, o modelo 1154). As parcelas
+            // do pagamento saem do VALOR DE VENDA deste orçamento, nunca de um valor gravado
+            observacoesGerais: linhasDasObservacoes(daEmpresa.campos, { total: a.valorVenda, textoLivre: daEmpresa.observacoes }).join('\n') || null, operacaoInterna: a.operacaoInterna, valorVenda: a.valorVenda, rateio: a.rateio, geradoEm: a.geradoEm,
             faltas,
         },
     }
