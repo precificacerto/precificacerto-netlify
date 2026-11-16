@@ -1,8 +1,9 @@
 /**
  * /api/atendimentos-ia/orcamentos/[id]/precificacao — a PRECIFICAÇÃO FINAL do orçamento I.A. (o 1b, dono do produto, 09/11/2026).
  *   GET: o orçamento com os valores do cálculo e o bloco fiscal, para a tela de precificação (o modo "orçamento" da tela de Produtos).
- *   PATCH: grava o valor de venda, o bloco fiscal e os percentuais NO ORÇAMENTO — nunca em `products`. Recusa nomeando (400) o que falta, e
- *   (409) quando o cálculo gravado não está completo.
+ *   PATCH: grava o valor de venda, o bloco fiscal e os percentuais NO ORÇAMENTO. Recusa nomeando (400) o que falta, e (409) quando o cálculo
+ *   gravado não está completo. Devolve também a TABELA DO VENDEDOR da conversa (16/11/2026): é a TELA que grava o orçamento nela como produto,
+ *   pelo mesmo salvar do produto comum (`gravarComoProduto`).
  * Ver ver: GET; quem edita: PATCH. O tenant entra em toda leitura e escrita.
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
@@ -14,6 +15,7 @@ import {
 } from '@/lib/atendimentos-ia/orcamento-precificado'
 import { itensDoArquivo, lerClienteDoOrcamento } from '@/lib/atendimentos-ia/arquivo-do-orcamento-servidor'
 import { fiscalDivergente } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
+import { tabelaDoVendedorDoOrcamento, type DestinoDoOrcamento } from '@/lib/atendimentos-ia/tabela-do-vendedor'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -34,7 +36,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
         const corpo = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>
         const r = await gravarPrecificacao(caller.tenant_id, id, corpo, caller.user_id)
-        return res.status(200).json({ orcamento: r.orcamento, arquivo: r.arquivo, recusas_do_arquivo: r.recusasDoArquivo, fiscal_sobrescrito: r.fiscalSobrescrito })
+        // a tabela do vendedor da conversa, onde a tela grava o orçamento como produto (16/11/2026). A precificação JÁ está salva: a falha
+        // de ler a tabela não a desfaz, vira aviso nomeado.
+        let destino: DestinoDoOrcamento
+        try {
+            destino = await tabelaDoVendedorDoOrcamento(caller.tenant_id, id)
+        } catch (e) {
+            destino = { tabela: null, aviso: `A precificação foi salva, mas a tabela do vendedor não foi lida: ${e instanceof Error ? e.message : String(e)}` }
+        }
+        return res.status(200).json({ orcamento: r.orcamento, arquivo: r.arquivo, recusas_do_arquivo: r.recusasDoArquivo, fiscal_sobrescrito: r.fiscalSobrescrito, tabela_do_vendedor: destino.tabela, aviso_da_tabela: destino.aviso })
     } catch (e) {
         if (e instanceof ErroDoEstado) return res.status(409).json({ error: e.message })
         if (e instanceof ErroSemMigracaoDaPrecificacao) return res.status(503).json({ error: FRASE_SEM_MIGRACAO_DA_PRECIFICACAO, sem_migracao: true })

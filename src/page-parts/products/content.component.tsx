@@ -38,14 +38,15 @@ import { ContentService } from './content-service'
 import { ProductPrice, type PrecoEmitido } from './product-price.component'
 import { ItensPrecificados } from '@/page-parts/atendimentos-ia/itens-precificados.component'
 import type { ItemDoArquivo } from '@/lib/atendimentos-ia/arquivo-do-orcamento'
+import { codigoDoProdutoDoOrcamento, nomeDoProdutoDoOrcamento } from '@/lib/atendimentos-ia/nome-do-produto-do-orcamento'
 import { LoggedUser } from '@/types/logged-user.type'
 import { supabase } from '@/supabase/client'
 import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
 import { useDevice } from '@/contexts/device.context'
 import { ProductItemsMobileList } from './product-items-mobile-list.component'
 import {
-  CABECALHO_FIXO, entradaDoMotor, estadoDoCalculo, faltasDaPrecificacao, FRASE_DO_ESTADO, internaParaGravar, PRESET_DA_COMERCIALIZACAO, MODO_PRODUTO, reconciliacaoNaTela, rotuloDoItem,
-  type GravacaoDaPrecificacao, type ModoDaPrecificacao, type OrcamentoNaPrecificacao,
+  CABECALHO_FIXO, entradaDoMotor, estadoDoCalculo, fabricacaoDoOrcamento, faltasDaPrecificacao, FRASE_DO_ESTADO, internaParaGravar, PRESET_DA_COMERCIALIZACAO, MODO_PRODUTO, reconciliacaoNaTela, rotuloDoItem,
+  type DestinoDoProdutoDoOrcamento, type GravacaoDaPrecificacao, type ModoDaPrecificacao, type OrcamentoNaPrecificacao,
 } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
 
 type ContentProps = {
@@ -75,7 +76,10 @@ type ContentProps = {
   itensDoArquivo?: ItemDoArquivo[] | null
   recusaDosItensDoArquivo?: string | null
   /** Grava a precificação no orçamento; devolve as recusas nomeadas, ou `null` quando gravou. */
-  onSalvarOrcamento?: (g: GravacaoDaPrecificacao) => Promise<string[] | null>
+  /** Grava a precificação no orçamento: as recusas nomeadas, ou nulo/o destino do produto (a tabela do vendedor) quando gravou. */
+  onSalvarOrcamento?: (g: GravacaoDaPrecificacao) => Promise<string[] | DestinoDoProdutoDoOrcamento | null>
+  /** Chamado depois de salvar o orçamento E de gravá-lo como produto na tabela (ou de dizer por que não): a página relê. */
+  onOrcamentoSalvo?: () => void
   /** Recalcula o orçamento (o cálculo do 1b) e relê; usado no aviso de cálculo incompleto. */
   onRecalcularOrcamento?: () => Promise<void>
   /** Só no modo orçamento: o que vem ABAIXO dos itens precificados, no fim da tela (o link do último PDF, 11/11/2026). Produtos não passa. */
@@ -161,6 +165,7 @@ export const Content: FC<ContentProps> = ({
   itensDoArquivo = null,
   recusaDosItensDoArquivo = null,
   onSalvarOrcamento,
+  onOrcamentoSalvo,
   onRecalcularOrcamento,
   rodapeDoOrcamento,
 }: ContentProps) => {
@@ -1073,7 +1078,7 @@ export const Content: FC<ContentProps> = ({
     if (faltas.length) { setRecusasDoOrcamento(faltas); return }
     setSalvandoOrcamento(true)
     try {
-      const recusas = await onSalvarOrcamento({
+      const resposta = await onSalvarOrcamento({
         ...fiscalDaTela(),
         valor_venda: valorDeVenda,
         valor_operacao_interna: interna && 'interna' in interna ? interna.interna : 0,
@@ -1081,60 +1086,98 @@ export const Content: FC<ContentProps> = ({
         reserva_tecnica_percentual: Number(productPriceInfo.rtReservePercent) || 0,
         lucro_projetado_percentual: Number(productPriceInfo.productProfitPercent) || 0,
       })
+      const recusas = Array.isArray(resposta) ? resposta : null
       setRecusasDoOrcamento(recusas ?? [])
-      if (!recusas) messageApi.success('Precificação do orçamento salva.')
+      if (!recusas) {
+        messageApi.success('Precificação do orçamento salva.')
+        // O ORÇAMENTO VIRA PRODUTO NA TABELA DO VENDEDOR (16/11/2026), pelo mesmo salvar do produto comum
+        const destino = resposta && !Array.isArray(resposta) ? resposta : null
+        if (destino?.tabela) {
+          const falha = await gravarComoProduto({
+            codigo: codigoDoProdutoDoOrcamento(orcamento.numero), nome: nomeDoProdutoDoOrcamento(orcamento.numero, orcamento.nome), tabelaId: destino.tabela.id,
+          })
+          if (falha) messageApi.warning(`A precificação foi salva, mas o orçamento não entrou na tabela "${destino.tabela.nome}": ${falha}`, 10)
+          else messageApi.success(`Orçamento na tabela "${destino.tabela.nome}" como produto ${codigoDoProdutoDoOrcamento(orcamento.numero)}.`)
+        } else if (destino?.aviso) {
+          messageApi.warning(destino.aviso, 10)
+        }
+        onOrcamentoSalvo?.()
+      }
     } finally {
       setSalvandoOrcamento(false)
     }
   }
 
   const handleSaveProduct = async () => {
-    // O modo orçamento NUNCA chega ao caminho de `products` abaixo.
+    // O botão do modo orçamento salva o ORÇAMENTO (`salvarOrcamento`); o produto do orçamento na tabela do vendedor vem depois, por
+    // `gravarComoProduto(alvo)` — o MESMO caminho do produto comum, para a decomposição do orçamento comercial ler o que ela já lê.
     if (orcamento) return salvarOrcamento()
+    return gravarComoProduto()
+  }
+
+  /**
+   * O SALVAR DO PRODUTO. Sem `alvo`, o produto da tela (o caminho de sempre). Com `alvo`, O ORÇAMENTO I.A. VIRA UM PRODUTO NA TABELA DO
+   * VENDEDOR (dono do produto, 16/11/2026: "o orçamento gerado pelo agente I.A. entra na tabela como se fosse um produto, apresentando o seu
+   * total [...] seguir a mesma regra que já existe lá para que, quando chegar lá, fazer a decomposição, tudo funcione"). A linha do produto,
+   * os tributos, o motor fiscal e o destino das categorias são os do produto comum; o que o alvo muda é só o que um orçamento não tem: não
+   * valida o formulário de produto, não grava insumos (os itens do orçamento não são `items`), não cria estoque e não navega. Devolve a
+   * falha nomeada, ou nulo quando gravou.
+   */
+  const gravarComoProduto = async (alvo?: { codigo: string; nome: string; tabelaId: string }): Promise<string | null> => {
     // Guard anti double-submit (BUG-PRODUCT-ITEMS-DUP): saves concorrentes duplicavam os
     // product_items (dobrando o CMV). Reforçado por upsert + UNIQUE(product_id,item_id).
-    if (savingProduct) return
+    if (savingProduct) return 'outro salvar em andamento'
 
     // O custo da mão de obra produtiva deste produto vem do custo POR MINUTO da equipe.
     // Sem carga horária configurada esse divisor não existe, e salvar gravaria um preço
     // formado sobre MO produtiva zerada. Bloqueia na origem — orçamento, pedido e venda
     // só consomem preço já gravado. Produto de revenda (ou sem tempo de MO) não é
     // afetado: `isWorkloadBlocking` já é false nesses casos.
-    if (isWorkloadBlocking) {
+    if (!alvo && isWorkloadBlocking) {
       messageApi.error('Configure a carga horária da equipe produtiva em Configurações → Equipe antes de salvar o produto.')
-      return
+      return null
     }
     // ICMS ou PIS/COFINS não informados no Lucro Real ou no Presumido: o preço não se formou, e salvar gravaria o preço de antes.
-    if (faltasDosTributos.length) {
+    if (!alvo && faltasDosTributos.length) {
       messageApi.error(`O preço não se forma, e o produto não é salvo. Falta ${faltasDosTributos.join('; e ')}.`)
-      return
+      return null
     }
 
     doProductCalc()
     setSavingProduct(true)
 
     try {
-      const validateProductItemsError = validateProductItems()
+      if (!alvo) {
+        const validateProductItemsError = validateProductItems()
 
-      if (validateProductItemsError) {
-        return messageApi.open({
-          type: 'error',
-          content: validateProductItemsError,
-        })
+        if (validateProductItemsError) {
+          messageApi.open({
+            type: 'error',
+            content: validateProductItemsError,
+          })
+          return null
+        }
+
+        await productForm.validateFields()
       }
-
-      await productForm.validateFields()
 
       // Par CST × cClassTrib incompatível é rejeitado pela SEFAZ. Salvar gravaria
       // um documento que a nota recusa, e o usuário só descobriria na emissão.
       if (bloqueioDaClassificacao) {
-        return messageApi.open({ type: 'error', content: bloqueioDaClassificacao })
+        if (alvo) return bloqueioDaClassificacao
+        messageApi.open({ type: 'error', content: bloqueioDaClassificacao })
+        return null
       }
 
-      const values = productForm.getFieldsValue()
+      // o orçamento I.A. como produto: o código e o nome são do orçamento, a tabela é a do vendedor, e a quantidade é 1 (o total do orçamento)
+      const values = alvo
+        ? { ...productForm.getFieldsValue(), id: undefined, code: alvo.codigo, name: alvo.nome, commission_table_id: alvo.tabelaId, quantity: 1, unitType: 'UN' }
+        : productForm.getFieldsValue()
       const tenantId = await getTenantId()
       if (!tenantId) {
-        return messageApi.error('Não foi possível identificar o tenant.')
+        if (alvo) return 'não foi possível identificar a empresa'
+        messageApi.error('Não foi possível identificar o tenant.')
+        return null
       }
 
       const yieldQty = Number(values.quantity) || 1
@@ -1221,8 +1264,17 @@ export const Content: FC<ContentProps> = ({
       if (isRevendaFromDb) {
         productData.status = 'ACTIVE'
       }
+      // o orçamento I.A. como produto: a FABRICAÇÃO das esquadrias é a mão de obra produtiva, na coluna que o orçamento comercial lê primeiro
+      if (alvo && orcamento) productData.productive_labor_total = fabricacaoDoOrcamento(orcamento.itens)
 
       let productId = values.id
+      // o produto do orçamento é UM por orçamento: precificar de novo atualiza o mesmo (achado pelo código, na empresa)
+      if (alvo) {
+        const { data: existente, error: errExistente } = await supabase.from('products').select('id').eq('tenant_id', tenantId).eq('code', alvo.codigo).limit(2)
+        if (errExistente) throw errExistente
+        if ((existente ?? []).length > 1) return `há mais de um produto com o código ${alvo.codigo} na empresa: nenhum foi alterado`
+        productId = existente?.[0]?.id
+      }
 
       if (productId) {
         const { error } = await supabase
@@ -1397,142 +1449,148 @@ export const Content: FC<ContentProps> = ({
         if (extraErr) console.warn('Could not save recurrence/custom_tax_percent fields:', extraErr.message)
       }
 
-      // BUG-PRODUCT-ITEMS-DUP (31/07/2026, tenant Fernandes): ao editar um produto os itens
-      // duplicavam (dobrando o CMV e o preço). Causa: o delete não era verificado e não havia
-      // trava de unicidade — em double-submit (ou delete falho) os itens eram re-inseridos.
-      // Correção em camadas: (1) checar o erro do delete; (2) deduplicar por item_id antes do
-      // insert; (3) UNIQUE(product_id, item_id) no banco (migration 20260731000001).
-      const { error: delItemsErr } = await supabase.from('product_items').delete().eq('product_id', productId)
-      if (delItemsErr) throw delItemsErr
+      // o orçamento I.A. como produto NÃO grava insumos (os itens dele não são `items`) nem estoque (não é produto acabado)
+      if (!alvo) {
+        // BUG-PRODUCT-ITEMS-DUP (31/07/2026, tenant Fernandes): ao editar um produto os itens
+        // duplicavam (dobrando o CMV e o preço). Causa: o delete não era verificado e não havia
+        // trava de unicidade — em double-submit (ou delete falho) os itens eram re-inseridos.
+        // Correção em camadas: (1) checar o erro do delete; (2) deduplicar por item_id antes do
+        // insert; (3) UNIQUE(product_id, item_id) no banco (migration 20260731000001).
+        const { error: delItemsErr } = await supabase.from('product_items').delete().eq('product_id', productId)
+        if (delItemsErr) throw delItemsErr
 
-      if (productItemsData.length > 0) {
-        // Dedup defensivo por item_id: garante no máximo 1 linha por item (evita CMV dobrado
-        // mesmo se o estado do formulário vier com itens repetidos).
-        const seenItemIds = new Set<string>()
-        const uniqueItemsData = productItemsData.filter((i) => {
-          if (!i.id || seenItemIds.has(i.id)) return false
-          seenItemIds.add(i.id)
-          return true
-        })
+        if (productItemsData.length > 0) {
+          // Dedup defensivo por item_id: garante no máximo 1 linha por item (evita CMV dobrado
+          // mesmo se o estado do formulário vier com itens repetidos).
+          const seenItemIds = new Set<string>()
+          const uniqueItemsData = productItemsData.filter((i) => {
+            if (!i.id || seenItemIds.has(i.id)) return false
+            seenItemIds.add(i.id)
+            return true
+          })
 
-        const itemIdsForCost = uniqueItemsData.map(i => i.id)
-        const { data: itemsCostData } = await supabase
-          .from('items')
-          .select('id, cost_per_base_unit')
-          .in('id', itemIdsForCost)
-        const costByItemId: Record<string, number> = {}
-        for (const ic of (itemsCostData || [])) {
-          costByItemId[ic.id] = Number(ic.cost_per_base_unit) || 0
+          const itemIdsForCost = uniqueItemsData.map(i => i.id)
+          const { data: itemsCostData } = await supabase
+            .from('items')
+            .select('id, cost_per_base_unit')
+            .in('id', itemIdsForCost)
+          const costByItemId: Record<string, number> = {}
+          for (const ic of (itemsCostData || [])) {
+            costByItemId[ic.id] = Number(ic.cost_per_base_unit) || 0
+          }
+
+          const productItems = uniqueItemsData.map((item) => ({
+            product_id: productId,
+            item_id: item.id,
+            quantity_needed: item.quantity,
+            item_cost_gross: item.referencePrice || 0,
+            item_cost_net: item.price || 0,
+            cost_per_base_unit: costByItemId[item.id] || 0,
+          }))
+
+          // upsert com onConflict: se o delete não removeu (RLS/concorrência), atualiza a linha
+          // existente em vez de duplicar — a UNIQUE(product_id,item_id) do banco garante a trava.
+          const { error: piError } = await supabase
+            .from('product_items')
+            .upsert(productItems, { onConflict: 'product_id,item_id' })
+          if (piError) throw piError
         }
 
-        const productItems = uniqueItemsData.map((item) => ({
-          product_id: productId,
-          item_id: item.id,
-          quantity_needed: item.quantity,
-          item_cost_gross: item.referencePrice || 0,
-          item_cost_net: item.price || 0,
-          cost_per_base_unit: costByItemId[item.id] || 0,
-        }))
+        // Produto PRODUZIDO: garantir registro em estoque (Produtos acabados); quantidade inicial = quantidade de produção
+        if (productType === 'PRODUZIDO') {
+          const yieldQty = Number(values.quantity) || 0
+          const productName = values.name || 'Produto'
+          const { data: existingProductStock } = await supabase
+            .from('stock')
+            .select('id, quantity_current')
+            .eq('product_id', productId)
+            .eq('stock_type', 'PRODUCT')
+            .maybeSingle()
+          if (!existingProductStock) {
+            const { error: errMudo18 } = await supabase.from('stock').insert({
+              tenant_id: tenantId,
+              product_id: productId,
+              stock_type: 'PRODUCT',
+              quantity_current: yieldQty,
+              min_limit: values.minLimit ?? 0,
+              unit: values.unitType || 'UN',
+            })
+            if (errMudo18) throw errMudo18
+            const { error: errMudo17 } = await supabase.from('products').update({ quantity: yieldQty, updated_at: new Date().toISOString() }).eq('id', productId)
+            if (errMudo17) throw errMudo17
 
-        // upsert com onConflict: se o delete não removeu (RLS/concorrência), atualiza a linha
-        // existente em vez de duplicar — a UNIQUE(product_id,item_id) do banco garante a trava.
-        const { error: piError } = await supabase
-          .from('product_items')
-          .upsert(productItems, { onConflict: 'product_id,item_id' })
-        if (piError) throw piError
-      }
-
-      // Produto PRODUZIDO: garantir registro em estoque (Produtos acabados); quantidade inicial = quantidade de produção
-      if (productType === 'PRODUZIDO') {
-        const yieldQty = Number(values.quantity) || 0
-        const productName = values.name || 'Produto'
-        const { data: existingProductStock } = await supabase
-          .from('stock')
-          .select('id, quantity_current')
-          .eq('product_id', productId)
-          .eq('stock_type', 'PRODUCT')
-          .maybeSingle()
-        if (!existingProductStock) {
-          const { error: errMudo18 } = await supabase.from('stock').insert({
-            tenant_id: tenantId,
-            product_id: productId,
-            stock_type: 'PRODUCT',
-            quantity_current: yieldQty,
-            min_limit: values.minLimit ?? 0,
-            unit: values.unitType || 'UN',
-          })
-          if (errMudo18) throw errMudo18
-          const { error: errMudo17 } = await supabase.from('products').update({ quantity: yieldQty, updated_at: new Date().toISOString() }).eq('id', productId)
-          if (errMudo17) throw errMudo17
-
-          // Baixar insumos: dar baixa nos itens e no estoque de itens/insumos
-          if (productItemsData.length > 0 && yieldQty > 0) {
-            const createdBy = await getCurrentUserId()
-            for (const pi of productItemsData) {
-              const quantityUsed = (Number(pi.quantity) || 0) * yieldQty
-              if (quantityUsed <= 0) continue
-              const itemId = pi.id
-              const { data: st } = await supabase
-                .from('stock')
-                .select('id, quantity_current')
-                .eq('item_id', itemId)
-                .eq('stock_type', 'ITEM')
-                .maybeSingle()
-              if (st) {
-                const newQty = Math.max(0, (Number(st.quantity_current) || 0) - quantityUsed)
-                const { error: errMudo16 } = await supabase.from('stock').update({ quantity_current: newQty, updated_at: new Date().toISOString() }).eq('id', st.id)
-                if (errMudo16) throw errMudo16
-                if (createdBy) {
-                  const { error: errMudo15 } = await supabase.from('stock_movements').insert({
-                    stock_id: st.id,
-                    delta_quantity: -quantityUsed,
-                    reason: `Produção — ${productName}`,
-                    created_by: createdBy,
-                  })
-                  if (errMudo15) throw errMudo15
+            // Baixar insumos: dar baixa nos itens e no estoque de itens/insumos
+            if (productItemsData.length > 0 && yieldQty > 0) {
+              const createdBy = await getCurrentUserId()
+              for (const pi of productItemsData) {
+                const quantityUsed = (Number(pi.quantity) || 0) * yieldQty
+                if (quantityUsed <= 0) continue
+                const itemId = pi.id
+                const { data: st } = await supabase
+                  .from('stock')
+                  .select('id, quantity_current')
+                  .eq('item_id', itemId)
+                  .eq('stock_type', 'ITEM')
+                  .maybeSingle()
+                if (st) {
+                  const newQty = Math.max(0, (Number(st.quantity_current) || 0) - quantityUsed)
+                  const { error: errMudo16 } = await supabase.from('stock').update({ quantity_current: newQty, updated_at: new Date().toISOString() }).eq('id', st.id)
+                  if (errMudo16) throw errMudo16
+                  if (createdBy) {
+                    const { error: errMudo15 } = await supabase.from('stock_movements').insert({
+                      stock_id: st.id,
+                      delta_quantity: -quantityUsed,
+                      reason: `Produção — ${productName}`,
+                      created_by: createdBy,
+                    })
+                    if (errMudo15) throw errMudo15
+                  }
+                }
+                const { data: itemRow } = await supabase.from('items').select('quantity, cost_per_base_unit').eq('id', itemId).single()
+                if (itemRow) {
+                  const newItemQty = Math.max(0, (Number(itemRow.quantity) || 0) - quantityUsed)
+                  const unitCost = Number(itemRow.cost_per_base_unit) || 0
+                  const newCostTotal = newItemQty * unitCost
+                  const { error: errMudo14 } = await supabase.from('items').update({ quantity: newItemQty, cost_price: newCostTotal, updated_at: new Date().toISOString() }).eq('id', itemId)
+                  if (errMudo14) throw errMudo14
                 }
               }
-              const { data: itemRow } = await supabase.from('items').select('quantity, cost_per_base_unit').eq('id', itemId).single()
-              if (itemRow) {
-                const newItemQty = Math.max(0, (Number(itemRow.quantity) || 0) - quantityUsed)
-                const unitCost = Number(itemRow.cost_per_base_unit) || 0
-                const newCostTotal = newItemQty * unitCost
-                const { error: errMudo14 } = await supabase.from('items').update({ quantity: newItemQty, cost_price: newCostTotal, updated_at: new Date().toISOString() }).eq('id', itemId)
-                if (errMudo14) throw errMudo14
-              }
             }
+          } else {
+            const { error: errMudo13 } = await supabase.from('stock').update({
+              min_limit: values.minLimit ?? 0,
+              updated_at: new Date().toISOString(),
+            }).eq('id', existingProductStock.id)
+            if (errMudo13) throw errMudo13
+            const { error: errMudo12 } = await supabase.from('products').update({ quantity: Number(existingProductStock.quantity_current) || 0, updated_at: new Date().toISOString() }).eq('id', productId)
+            if (errMudo12) throw errMudo12
           }
-        } else {
-          const { error: errMudo13 } = await supabase.from('stock').update({
-            min_limit: values.minLimit ?? 0,
-            updated_at: new Date().toISOString(),
-          }).eq('id', existingProductStock.id)
-          if (errMudo13) throw errMudo13
-          const { error: errMudo12 } = await supabase.from('products').update({ quantity: Number(existingProductStock.quantity_current) || 0, updated_at: new Date().toISOString() }).eq('id', productId)
-          if (errMudo12) throw errMudo12
         }
-      }
 
-      // Produto REVENDA: atualizar min_limit do estoque do produto
-      if (productType === 'REVENDA') {
-        const { data: revendaStock } = await supabase
-          .from('stock')
-          .select('id')
-          .eq('product_id', productId)
-          .eq('stock_type', 'PRODUCT')
-          .maybeSingle()
-        if (revendaStock) {
-          const { error: errMudo11 } = await supabase.from('stock').update({
-            min_limit: values.minLimit ?? 0,
-            updated_at: new Date().toISOString(),
-          }).eq('id', revendaStock.id)
-          if (errMudo11) throw errMudo11
+        // Produto REVENDA: atualizar min_limit do estoque do produto
+        if (productType === 'REVENDA') {
+          const { data: revendaStock } = await supabase
+            .from('stock')
+            .select('id')
+            .eq('product_id', productId)
+            .eq('stock_type', 'PRODUCT')
+            .maybeSingle()
+          if (revendaStock) {
+            const { error: errMudo11 } = await supabase.from('stock').update({
+              min_limit: values.minLimit ?? 0,
+              updated_at: new Date().toISOString(),
+            }).eq('id', revendaStock.id)
+            if (errMudo11) throw errMudo11
+          }
         }
       }
 
       const normalizedWorkloadMinutes = productPriceInfo.productWorkloadInMinutes || 0
 
-      const { data: calcResult, error: calcError } = await supabase.functions.invoke('calc-tax-engine', {
+      // O MOTOR FISCAL NÃO RODA para o orçamento como produto (16/11/2026): ele forma o custo só pelos INSUMOS (`product_items`), que o
+      // orçamento não tem, e gravaria em `pricing_calculations` um custo sem os materiais — que o orçamento comercial lê ANTES do
+      // `cost_total` (`resolveProductCostTotal`, nível 2). Sem ele, o custo é o `cost_total` e a mão de obra o `productive_labor_total`.
+      const invocacao = alvo ? null : await supabase.functions.invoke('calc-tax-engine', {
         body: {
           tenant_id: tenantId,
           product_id: productId,
@@ -1545,6 +1603,8 @@ export const Content: FC<ContentProps> = ({
           product_workload_minutes: normalizedWorkloadMinutes,
         },
       })
+      const calcResult = invocacao?.data
+      const calcError = invocacao?.error
 
       // Garantir que sale_price = "Preço de Venda por Unidade" após edge function (que pode sobrescrever)
       if (finalSalePriceForSave > 0) {
@@ -1567,6 +1627,8 @@ export const Content: FC<ContentProps> = ({
       }).eq('id', productId)
       if (errMudo9) throw errMudo9
 
+      // o orçamento como produto termina aqui: gravado, com o destino das categorias, e sem o motor fiscal (ver acima)
+      if (alvo) return null
       const calcFailed = !!calcError || !calcResult?.success
       if (calcFailed) {
         const is401 =
@@ -1592,12 +1654,15 @@ export const Content: FC<ContentProps> = ({
       }
 
       router.push(ROUTES.PRODUCTS)
+      return null
     } catch (ex: any) {
       console.error('Erro ao salvar produto:', ex)
+      if (alvo) return ex?.message || 'não foi possível gravar o produto do orçamento'
       messageApi.open({
         type: 'error',
         content: ex?.message || 'Preencha todos os campos corretamente para salvar o produto.',
       })
+      return null
     } finally {
       setSavingProduct(false)
     }
