@@ -162,6 +162,14 @@ describe('(1) a ordem da escrita e o que cada passo grava', () => {
         ])
         // 0. antes de qualquer número novo, os totais e o valor de venda do cálculo de antes deixam de valer
         expect(w[0].carga).toMatchObject({ valor_total_bruto: null, valor_total_liquido: null, valor_venda: null })
+        /**
+         * A OPERAÇÃO INTERNA SAI JUNTO COM A VENDA (dono do produto, 16/11/2026): a CHECK
+         * `orcamentista_orcamento_operacao_interna_com_a_venda` exige que os dois sejam nulos juntos. Anular só a venda estourava 23514
+         * em TODO orçamento já precificado, e o vendedor recebia "o cálculo do orçamento N falhou" — medido no orçamento 6 da De Paula,
+         * 16/11/2026, às 13:24:13 e 13:25:25 UTC.
+         */
+        expect(w[0].carga).toMatchObject({ valor_operacao_interna: null })
+        expect([...new Set(['valor_venda', 'valor_operacao_interna'].map((c) => (w[0].carga as Linha)[c]))]).toEqual([null])
         expect(w[0].filtros).toEqual([['eq', 'tenant_id', T], ['eq', 'id', O1]])
         w.shift()
         const material = w[0].carga as Linha[]
