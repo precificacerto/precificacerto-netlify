@@ -29,7 +29,7 @@
  *     o contorno na proporção real e as divisões que a descrição do motor e as variáveis dizem). Sem medida, o bloco fecha sem desenho.
  */
 import { jsPDF } from 'jspdf'
-import { tracosDoDesenho, type DesenhoDaTipologia } from '@/lib/atendimentos-ia/folha-do-levantamento'
+import { desenharFiguraProporcional, tracosDoDesenho, type DesenhoDaTipologia } from '@/lib/atendimentos-ia/folha-do-levantamento'
 import { reais, type ItemRateado } from '@/lib/atendimentos-ia/rateio-do-orcamento'
 
 export type EmpresaDoArquivo = {
@@ -186,8 +186,8 @@ const CINZA = 110
 const VERMELHO: [number, number, number] = [200, 30, 30]
 /** As sete colunas da tabela do item, na largura à direita do desenho (somam 151 mm: 2 mm de folga até a borda da caixa). */
 export const COLUNAS_DO_ITEM = [
-    { titulo: 'ITEM', w: 12, alinha: 'center' }, { titulo: 'QTDE.', w: 13, alinha: 'center' }, { titulo: 'LARGURA', w: 18, alinha: 'center' },
-    { titulo: 'ALTURA', w: 18, alinha: 'center' }, { titulo: 'COR E ESPESSURA', w: 44, alinha: 'left' }, { titulo: 'VLR. UNIT.', w: 23, alinha: 'right' },
+    { titulo: 'QTDE.', w: 13, alinha: 'center' }, { titulo: 'LARGURA', w: 18, alinha: 'center' },
+    { titulo: 'ALTURA', w: 18, alinha: 'center' }, { titulo: 'COR E ESPESSURA', w: 56, alinha: 'left' }, { titulo: 'VLR. UNIT.', w: 23, alinha: 'right' },
     { titulo: 'VLR. TOTAL', w: 23, alinha: 'right' },
 ] as const
 const LARGURA_DO_DESENHO = 35
@@ -283,13 +283,19 @@ function medidaDoItem(doc: Doc, i: ItemDoArquivo) {
     return { descricao, obs, definicoes, corpo, total: 6 + corpo + alturaDaObs }
 }
 
+/** O rótulo do item na faixa, antes do ambiente: "ITEM 2". */
+export const rotuloDoItemNaFaixa = (ordem: number) => `ITEM ${ordem}`
+
 function blocoDoItem(doc: Doc, i: ItemDoArquivo, r: ItemRateado, y: number, dataEntrega: string): number {
     const m = medidaDoItem(doc, i)
     doc.setDrawColor(0); doc.setLineWidth(0.3)
     doc.rect(A4.margem, y, LARGURA, m.total)
-    // a faixa: o ambiente à esquerda, o tipo à direita
+    // a faixa: "ITEM N" e o ambiente na MESMA linha, o item antes (dono do produto, 16/11/2026: "é item 2, ou item 3,
+    // aí vem a frase do ambiente"); a coluna ITEM saiu da tabela. O tipo fica à direita.
     doc.setFillColor(232, 232, 232); doc.rect(A4.margem, y, LARGURA, 6, 'FD')
-    campo(doc, '*LOCAL/AMBIENTE:', texto(i.ambientes), A4.margem + 2, y + 4.2, 8)
+    const rotuloDoItem = rotuloDoItemNaFaixa(i.ordem)
+    fonte(doc, 'bold', 8); doc.text(rotuloDoItem, A4.margem + 2, y + 4.2)
+    campo(doc, '*LOCAL/AMBIENTE:', texto(i.ambientes), A4.margem + 2 + doc.getTextWidth(rotuloDoItem) + 3, y + 4.2, 8)
     // o tipo encostado à direita: a largura do rótulo (negrito) e a do valor (normal) decidem onde ele começa
     const valorTipo = texto(i.tipo)
     fonte(doc, 'bold', 8); const wRotulo = doc.getTextWidth('TIPO:')
@@ -301,9 +307,8 @@ function blocoDoItem(doc: Doc, i: ItemDoArquivo, r: ItemRateado, y: number, data
     // A FIGURA DO CATÁLOGO vence o esquema de traços (16/11/2026): o desenho que a empresa escolheu, não um retângulo
     // dividido pela descrição. Sem figura, o lugar fica em branco e a falta aparece abaixo do bloco, nomeada.
     if (i.figura) {
-        try {
-            doc.addImage(i.figura.dados, i.figura.formato, A4.margem + 2, y0 + 2, LARGURA_DO_DESENHO - 4, m.corpo - 4, undefined, 'FAST')
-        } catch { /* imagem ilegível: o lugar fica em branco, nunca outro desenho */ }
+        // na proporção da IMAGEM, centrada e reduzida (dono do produto, 16/11/2026: "sempre tem que ser proporcional")
+        desenharFiguraProporcional(doc, i.figura, { x: A4.margem + 2, y: y0 + 2, w: LARGURA_DO_DESENHO - 4, h: m.corpo - 4 })
     } else if (i.desenho && i.desenho.largura_mm > 0 && i.desenho.altura_mm > 0 && i.semFigura === null) {
         const t = tracosDoDesenho(i.desenho, { x: A4.margem + 2, y: y0 + 2, w: LARGURA_DO_DESENHO - 4, h: m.corpo - 4 })
         doc.setDrawColor(0); doc.setLineWidth(0.35); doc.rect(t.contorno.x, t.contorno.y, t.contorno.w, t.contorno.h)
@@ -320,7 +325,7 @@ function blocoDoItem(doc: Doc, i: ItemDoArquivo, r: ItemRateado, y: number, data
     // a tabela de sete colunas: o cabeçalho e a linha do item
     let cx = X_DO_TEXTO
     doc.setDrawColor(CINZA)
-    const valores = [String(i.ordem), String(i.quantidade), milimetros(i.largura_mm), milimetros(i.altura_mm), texto(i.vidro), reais(r.unitario), reais(r.total)]
+    const valores = [String(i.quantidade), milimetros(i.largura_mm), milimetros(i.altura_mm), texto(i.vidro), reais(r.unitario), reais(r.total)]
     COLUNAS_DO_ITEM.forEach((c, k) => {
         doc.setFillColor(245, 245, 245); doc.rect(cx, ty, c.w, 5.2, 'FD'); doc.rect(cx, ty + 5.2, c.w, 5.2)
         const xt = c.alinha === 'center' ? cx + c.w / 2 : c.alinha === 'right' ? cx + c.w - 1.2 : cx + 1.2
@@ -372,7 +377,7 @@ const ALTURA_DO_FECHO = 40
  * catálogo e o bloco OBSERVAÇÕES com texto livre); `observacoes-por-variaveis-2026-11-16` é esta — o bloco passou a
  * ser MONTADO das variáveis da base de conhecimento (prazos, validade, exclusões, parcelas do pagamento).
  */
-export const VERSAO_DO_ARQUIVO = 'observacoes-por-variaveis-2026-11-16'
+export const VERSAO_DO_ARQUIVO = 'item-na-faixa-e-figura-proporcional-2026-11-16'
 
 /** As linhas das faltas (1.5): uma por código, com os itens. */
 export function linhasDasFaltasDoArquivo(faltas: readonly FaltaDoArquivo[]): string[] {
