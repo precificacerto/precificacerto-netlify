@@ -400,7 +400,7 @@ const ALTURA_DO_FECHO = 40
  * catálogo e o bloco OBSERVAÇÕES com texto livre); `observacoes-por-variaveis-2026-11-16` é esta — o bloco passou a
  * ser MONTADO das variáveis da base de conhecimento (prazos, validade, exclusões, parcelas do pagamento).
  */
-export const VERSAO_DO_ARQUIVO = 'definicoes-entrega-e-rodape-2026-11-16'
+export const VERSAO_DO_ARQUIVO = 'figura-sem-a-tarja-wvetro-2026-11-17'
 
 /** As linhas das faltas (1.5): uma por código, com os itens. */
 export function linhasDasFaltasDoArquivo(faltas: readonly FaltaDoArquivo[]): string[] {

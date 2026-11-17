@@ -10,6 +10,8 @@
  * SEM A MIGRAÇÃO, ou com o Storage fora do ar, NÃO SE DESENHA NADA e a falta é nomeada — nunca a figura mais
  * parecida, nunca uma caixa vazia sem explicação.
  */
+import sharp from 'sharp'
+import { alturaDaTarja } from './tarja-do-desenho'
 import { supabaseAdmin } from '@/supabase/admin'
 import { BUCKET_DO_CATALOGO } from '@/utils/atendimentos-ia-catalogo'
 import { escolherDesenho, type DesenhoDoCatalogo, type EscolhaDoDesenho } from './desenho-do-catalogo'
@@ -47,6 +49,28 @@ export type ImagemDoDesenho = { dados: string; formato: 'PNG' | 'JPEG' }
 export const formatoDoArquivo = (caminho: string): 'PNG' | 'JPEG' | null =>
     (/\.png$/i.test(caminho) ? 'PNG' : /\.jpe?g$/i.test(caminho) ? 'JPEG' : null)
 
+/**
+ * A figura SEM a tarja da marca W.VETRO (dono do produto, 16/11/2026): mede a faixa pela assinatura (`alturaDaTarja`) e corta essas linhas do
+ * topo, no mesmo formato. Sem tarja, os bytes voltam INTACTOS. Se a imagem não se lê, também voltam intactos: a falta de leitura não pode tirar
+ * a figura do item (e a figura sem tarja é a maioria — no orçamento 8, 3 de 4).
+ */
+export async function semATarja(bruto: Buffer, formato: 'PNG' | 'JPEG'): Promise<Buffer> {
+    try {
+        const { data, info } = await sharp(bruto).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+        const c = info.channels
+        const corte = alturaDaTarja(info.width, info.height, (x, y) => {
+            const i = (y * info.width + x) * c
+            return [data[i], data[i + 1], data[i + 2], data[i + 3]]
+        })
+        if (corte === 0) return bruto
+        const recortada = sharp(bruto).extract({ left: 0, top: corte, width: info.width, height: info.height - corte })
+        return formato === 'PNG' ? await recortada.png().toBuffer() : await recortada.jpeg({ quality: 92 }).toBuffer()
+    } catch (e) {
+        console.warn('[DESENHO] a tarja nao foi medida:', e instanceof Error ? e.message : e)
+        return bruto
+    }
+}
+
 /** Baixa UM desenho do bucket. Nulo quando não baixa — e quem chama nomeia a falta, nunca desenha outra coisa. */
 export async function baixarDesenho(caminho: string): Promise<ImagemDoDesenho | null> {
     const formato = formatoDoArquivo(caminho)
@@ -54,8 +78,10 @@ export async function baixarDesenho(caminho: string): Promise<ImagemDoDesenho | 
     try {
         const { data, error } = await db().storage.from(BUCKET_DO_CATALOGO).download(caminho)
         if (error || !data) return null
-        const b64 = Buffer.from(await data.arrayBuffer()).toString('base64')
-        if (b64 === '') return null
+        const bruto = Buffer.from(await data.arrayBuffer())
+        if (bruto.length === 0) return null
+        // a TARJA da marca W.VETRO sai antes de a figura ir a qualquer PDF (16/11/2026, `tarja-do-desenho.ts`)
+        const b64 = (await semATarja(bruto, formato)).toString('base64')
         return { dados: `data:image/${formato === 'PNG' ? 'png' : 'jpeg'};base64,${b64}`, formato }
     } catch {
         return null
