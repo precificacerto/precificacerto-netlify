@@ -298,10 +298,10 @@ describe('(4) o código do item: um valor por código', () => {
         expect(L().codigoDaPeca('BZ0006/WOLFF', 'branco', REGRAS)).toEqual({ ok: true, codigo: '10501', origem: 'COR' })
     })
 
-    it('VÁRIAS VARIANTES e nenhuma na cor pedida: BZ1770/WOLFF (ARI = 2) em BRANCO — a ponte não tem BRANCO; o nome técnico recusa as sete que nomeiam cor (pela PALAVRA: "LAMINADO NOGUEIRA", "LAMINADO GOLDEN OAK") e fica o 90531, que não nomeia cor', () => {
+    it('VÁRIAS VARIANTES e nenhuma na cor pedida: BZ1770/WOLFF (ARI = 2) em BRANCO — a ponte não tem BRANCO; desde 17/11/2026 o degrau da COR acha o 90531 antes do nome técnico: a família dos códigos da ponte (905320, 905321…) dá a base 9053, e 9053 + BRANCO (1) = 90531', () => {
         const r = ok([esquadria({ escolhas: { MAE: 2, ARI: 2 } })])
         expect(r.faltas).toEqual([])
-        expect(r.resolucoes['90531']).toMatchObject({ como: 'nome_tecnico' })
+        expect(r.resolucoes['90531']).toMatchObject({ como: 'cor' })
         for (const c of ['905320', '905321', '905330', '905331', '905336', '905337', '905340']) expect(r.resolucoes[c]).toBeUndefined()
         // em PRETO TEXTURADO, o 905320 — o único que a nomeia — e não o sem cor
         const preto = ok([esquadria({ escolhas: { MAE: 2, ARI: 2 } })], { cor: 'PRETO TEXTURADO', regras: REGRAS.filter((g) => g.codigo_wvetro !== 'BZ1770/WOLFF') })
