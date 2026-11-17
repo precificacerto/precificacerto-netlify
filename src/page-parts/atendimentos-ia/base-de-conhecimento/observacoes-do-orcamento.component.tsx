@@ -14,7 +14,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Card, Input, InputNumber, Space, Table, Typography, message } from 'antd'
 import { LIMITE_DAS_OBSERVACOES, fraseDasObservacoesGrandes } from '@/lib/atendimentos-ia/base-de-conhecimento'
 import {
-    LIMITE_DE_EXCLUSOES, LIMITE_DE_PARCELAS, LIMITE_DE_PRAZOS, SEM_CAMPOS, lerCamposDasObservacoes, linhasDasObservacoes,
+    LIMITE_DE_EXCLUSOES, LIMITE_DE_PARCELAS, LIMITE_DE_PRAZOS, SEM_CAMPOS, lerCamposDasObservacoes, linhasDasCondicoesComerciais, linhasDasObservacoes,
     type CamposDasObservacoes,
 } from '@/lib/atendimentos-ia/campos-das-observacoes'
 import { chamarRota } from '@/page-parts/atendimentos-ia/api'
@@ -86,7 +86,9 @@ export function ObservacoesDoOrcamento({ tenantId }: { tenantId: string }) {
     const tamanho = texto.trim().length
     const mudou = (gravado ?? '') !== texto.trim() || camposGravados !== JSON.stringify(campos)
     const trocar = (p: Partial<CamposDasObservacoes>) => setCampos((c) => ({ ...c, ...p }))
-    const previa = linhasDasObservacoes(campos, { total: TOTAL_DA_PREVIA, textoLivre: texto })
+    // a prévia mostra os DOIS blocos do pé do arquivo (17/11/2026): as OBSERVAÇÕES GERAIS e, abaixo, as CONDIÇÕES COMERCIAIS
+    const condicoes = linhasDasCondicoesComerciais(campos, TOTAL_DA_PREVIA)
+    const previa = [...linhasDasObservacoes(campos, { textoLivre: texto }), ...(condicoes.length ? ['', 'CONDIÇÕES COMERCIAIS', ...condicoes] : [])]
 
     return (
         <Card key="observacoes" data-bloco="observacoes" title="Observações do orçamento" style={{ marginBottom: 16 }}>

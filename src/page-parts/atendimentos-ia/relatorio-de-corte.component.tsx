@@ -7,7 +7,7 @@
  * precisa ser recalculado — nunca um relatório que pareça completo sem estar.
  */
 import React, { useEffect, useState } from 'react'
-import { Alert, Card, Empty, Spin, Table, Typography } from 'antd'
+import { Alert, Button, Card, Empty, Spin, Table, Typography } from 'antd'
 import type { CodigoDoCorte, LinhaDeCorte } from '@/lib/atendimentos-ia/relatorio-de-corte'
 import type { RelatorioDeCorteDoOrcamento } from '@/lib/atendimentos-ia/relatorio-de-corte-servidor'
 
@@ -54,7 +54,7 @@ function BlocoDoCodigo({ c }: { c: CodigoDoCorte }) {
     )
 }
 
-export function RelatorioDeCorte({ orcamentoId }: { orcamentoId: string }) {
+export function RelatorioDeCorte({ orcamentoId, numero, cliente }: { orcamentoId: string; numero: number; cliente: string }) {
     const [estado, setEstado] = useState<Estado>({ tipo: 'carregando' })
     useEffect(() => {
         let vivo = true
@@ -79,6 +79,9 @@ export function RelatorioDeCorte({ orcamentoId }: { orcamentoId: string }) {
     const vazio = categorias.length === 0 && semCategoria.length === 0 && ambiguos.length === 0
     return (
         <div data-relatorio-de-corte="">
+            <div style={{ textAlign: 'right', marginBottom: 12 }}>
+                <Button data-baixar-pdf="corte" onClick={async () => { const r = estado.relatorio; const m = await import('@/lib/atendimentos-ia/relatorios-em-pdf'); m.baixarPdf(m.pdfDoRelatorioDeCorte(r, { numero, cliente, geradoEm: new Date() }), m.nomeDoRelatorio('corte', numero, cliente)) }}>Baixar PDF</Button>
+            </div>
             {itensSemCalculo.length > 0 && <Alert type="warning" showIcon style={{ marginBottom: 12 }} message={fraseDosItensSemCalculoNoCorte(itensSemCalculo)} data-itens-sem-calculo="" />}
             {itensSemPecas.length > 0 && <Alert type="info" showIcon style={{ marginBottom: 12 }} message={fraseDosItensSemPecas(itensSemPecas)} data-itens-sem-pecas="" />}
             {vazio && <Empty description={TEXTO_SEM_PECA} />}

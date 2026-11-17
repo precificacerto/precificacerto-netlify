@@ -6,7 +6,7 @@
  * cálculo é dito: os materiais dele não estão no relatório (nunca um relatório que pareça completo sem estar).
  */
 import React, { useEffect, useState } from 'react'
-import { Alert, Empty, Spin, Table, Typography } from 'antd'
+import { Alert, Button, Empty, Spin, Table, Typography } from 'antd'
 import { quantidadeNoRelatorio, type MaterialDoRelatorio } from '@/lib/atendimentos-ia/relatorio-de-materiais'
 import type { RelatorioDeMateriaisDoOrcamento } from '@/lib/atendimentos-ia/relatorio-de-materiais-servidor'
 
@@ -26,7 +26,7 @@ function TabelaDeMateriais({ materiais }: { materiais: readonly MaterialDoRelato
     return <Table size="small" pagination={false} rowKey={(m) => `${m.codigo}-${m.unidade}`} columns={colunas} dataSource={[...materiais]} scroll={{ x: true }} />
 }
 
-export function RelatorioDeMateriais({ orcamentoId }: { orcamentoId: string }) {
+export function RelatorioDeMateriais({ orcamentoId, numero, cliente }: { orcamentoId: string; numero: number; cliente: string }) {
     const [estado, setEstado] = useState<Estado>({ tipo: 'carregando' })
     useEffect(() => {
         let vivo = true
@@ -51,6 +51,9 @@ export function RelatorioDeMateriais({ orcamentoId }: { orcamentoId: string }) {
     const vazio = categorias.length === 0 && semCategoria.length === 0 && ambiguos.length === 0
     return (
         <div data-relatorio-de-materiais="">
+            <div style={{ textAlign: 'right', marginBottom: 12 }}>
+                <Button data-baixar-pdf="materiais" onClick={async () => { const r = estado.relatorio; const m = await import('@/lib/atendimentos-ia/relatorios-em-pdf'); m.baixarPdf(m.pdfDoRelatorioDeMateriais(r, { numero, cliente, geradoEm: new Date() }), m.nomeDoRelatorio('materiais', numero, cliente)) }}>Baixar PDF</Button>
+            </div>
             {itensSemCalculo.length > 0 && <Alert type="warning" showIcon style={{ marginBottom: 12 }} message={fraseDosItensSemCalculo(itensSemCalculo)} data-itens-sem-calculo="" />}
             {vazio && <Empty description={TEXTO_SEM_MATERIAL} />}
             {categorias.map((c) => (

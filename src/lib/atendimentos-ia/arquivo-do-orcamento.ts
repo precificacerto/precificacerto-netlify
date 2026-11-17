@@ -113,6 +113,8 @@ export type DadosDoArquivoDoOrcamento = {
      * bloco. Nulo = não informado, e o bloco sai com o rótulo e o corpo vazio.
      */
     observacoesGerais: string | null
+    /** O bloco CONDIÇÕES COMERCIAIS (17/11/2026): a forma de pagamento, já montada (`linhasDasCondicoesComerciais`). Nulo = sem parcela cadastrada, e o bloco não sai. */
+    condicoesComerciais: string | null
     /** A operação interna gravada e o valor de venda gravado, em reais. */
     operacaoInterna: number
     valorVenda: number
@@ -374,13 +376,35 @@ function blocoDasObservacoes(doc: Doc, d: DadosDoArquivoDoOrcamento, y: number):
     const linhas = linhasDasObservacoes(doc, d)
     const h = 6 + Math.max(1, linhas.length) * 3.4 + 2
     doc.setDrawColor(0); doc.rect(A4.margem, y, LARGURA, h)
-    fonte(doc, 'bold', 8); doc.text('OBSERVAÇÕES', A4.margem + 2, y + 4.2)
+    // OBSERVAÇÕES GERAIS (dono do produto, 17/11/2026): o bloco vale para o orçamento inteiro; a do item é "OBSERVAÇÕES DESTE ITEM"
+    fonte(doc, 'bold', 8); doc.text(TITULO_DAS_OBSERVACOES, A4.margem + 2, y + 4.2)
     fonte(doc, 'normal', 7.5); linhas.forEach((l, k) => doc.text(l, A4.margem + 2, y + 8 + k * 3.4))
     return y + h + 3
 }
 const alturaDasObservacoes = (doc: Doc, d: DadosDoArquivoDoOrcamento) => {
     const n = linhasDasObservacoes(doc, d).length
     return 6 + Math.max(1, n) * 3.4 + 2 + 3
+}
+export const TITULO_DAS_OBSERVACOES = 'OBSERVAÇÕES GERAIS'
+export const TITULO_DAS_CONDICOES = 'CONDIÇÕES COMERCIAIS'
+/** As linhas do bloco CONDIÇÕES COMERCIAIS, já quebradas; vazio = o bloco não sai. */
+const linhasDasCondicoes = (doc: Doc, d: DadosDoArquivoDoOrcamento) => {
+    fonte(doc, 'normal', 7.5)
+    return texto(d.condicoesComerciais) === '' ? [] : quebrar(doc, texto(d.condicoesComerciais), LARGURA - 4)
+}
+/** O bloco CONDIÇÕES COMERCIAIS, logo abaixo das OBSERVAÇÕES GERAIS (17/11/2026): só a forma de pagamento. */
+function blocoDasCondicoes(doc: Doc, d: DadosDoArquivoDoOrcamento, y: number): number {
+    const linhas = linhasDasCondicoes(doc, d)
+    if (linhas.length === 0) return y
+    const h = 6 + linhas.length * 3.4 + 2
+    doc.setDrawColor(0); doc.rect(A4.margem, y, LARGURA, h)
+    fonte(doc, 'bold', 8); doc.text(TITULO_DAS_CONDICOES, A4.margem + 2, y + 4.2)
+    fonte(doc, 'normal', 7.5); linhas.forEach((l, k) => doc.text(l, A4.margem + 2, y + 8 + k * 3.4))
+    return y + h + 3
+}
+const alturaDasCondicoes = (doc: Doc, d: DadosDoArquivoDoOrcamento) => {
+    const n = linhasDasCondicoes(doc, d).length
+    return n === 0 ? 0 : 6 + n * 3.4 + 2 + 3
 }
 const ALTURA_DO_FECHO = 40
 
@@ -400,7 +424,7 @@ const ALTURA_DO_FECHO = 40
  * catálogo e o bloco OBSERVAÇÕES com texto livre); `observacoes-por-variaveis-2026-11-16` é esta — o bloco passou a
  * ser MONTADO das variáveis da base de conhecimento (prazos, validade, exclusões, parcelas do pagamento).
  */
-export const VERSAO_DO_ARQUIVO = 'figura-sem-a-tarja-wvetro-2026-11-17'
+export const VERSAO_DO_ARQUIVO = 'observacoes-gerais-e-condicoes-comerciais-2026-11-17'
 
 /** As linhas das faltas (1.5): uma por código, com os itens. */
 export function linhasDasFaltasDoArquivo(faltas: readonly FaltaDoArquivo[]): string[] {
@@ -466,11 +490,12 @@ export function gerarArquivoDoOrcamento(d: DadosDoArquivoDoOrcamento): ArquivoGe
         y += blocoDeTexto(doc, titulo, linhas, y, true, cor)
     }
     // O RODAPÉ NO PÉ DA PÁGINA, SEMPRE (4.1): as observações e o fecho encostados no fim da última página; sem lugar, uma página nova
-    const rodape = alturaDasObservacoes(doc, d) + ALTURA_DO_FECHO
+    const rodape = alturaDasObservacoes(doc, d) + alturaDasCondicoes(doc, d) + ALTURA_DO_FECHO
     if (y + rodape > FIM) doc.addPage('a4', 'portrait')
     // nunca acima da margem: uma observação longa empurra o fecho para baixo em vez de subir para fora da página
     y = Math.max(A4.margem, FIM - rodape)
     y = blocoDasObservacoes(doc, d, y)
+    y = blocoDasCondicoes(doc, d, y)
     fecho(doc, d, y)
     if (d.faltas.length) carimbo(doc, d.faltas.length)
     const paginas = doc.getNumberOfPages()

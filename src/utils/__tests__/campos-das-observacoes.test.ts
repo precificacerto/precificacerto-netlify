@@ -7,7 +7,7 @@
  * parcelas (14.962,63 e 14.962,62 sobre 29.925,25).
  */
 import {
-    fraseDaValidade, fraseDoPagamentoQueNaoFecha, lerCamposDasObservacoes, linhasDasObservacoes, valoresDasParcelas,
+    fraseDaValidade, fraseDoPagamentoQueNaoFecha, lerCamposDasObservacoes, linhasDasCondicoesComerciais, linhasDasObservacoes, valoresDasParcelas,
     LIMITE_DA_LINHA, LIMITE_DE_PRAZOS, SEM_CAMPOS, type CamposDasObservacoes,
 } from '@/lib/atendimentos-ia/campos-das-observacoes'
 
@@ -33,7 +33,7 @@ const TOTAL = 29925.25
 
 describe('o bloco do 1154, montado dos campos', () => {
     it('sai LINHA POR LINHA como está no orçamento de referência', () => {
-        expect(linhasDasObservacoes(DO_1154, { total: TOTAL, textoLivre: null })).toEqual([
+        expect(linhasDasObservacoes(DO_1154, { textoLivre: null })).toEqual([
             'Prazos de entrega após a medição final (salvo alterações em período de férias coletivas).',
             'PVC:',
             '• BRANCO: 45 DIAS',
@@ -45,6 +45,9 @@ describe('o bloco do 1154, montado dos campos', () => {
             'PROPOSTA VÁLIDA POR 7 DIAS A PARTIR DA EMISSÃO DA PRESENTE DATA.',
             'NÃO CONTEMPLA REMOÇÃO E DESCARTE DE ESQUADRIA EXISTENTE.',
             'NÃO INCLUSO NO ORÇAMENTO LOCAÇÃO DE PLATAFORMAS E GUINDASTES PARA INSTALAÇÃO DE VIDROS ESPECIAIS E PAINÉIS.',
+        ])
+        // a FORMA DE PAGAMENTO saiu das observações e é o bloco CONDIÇÕES COMERCIAIS (dono do produto, 17/11/2026), com as mesmas linhas do 1154
+        expect(linhasDasCondicoesComerciais(DO_1154, TOTAL)).toEqual([
             'Forma de Pagamento:',
             '50% de Entrada - R$ 14.962,63',
             '50% na Entrega - R$ 14.962,62',
@@ -52,17 +55,17 @@ describe('o bloco do 1154, montado dos campos', () => {
         ])
     })
     it('o CABEÇALHO do grupo sai uma vez por grupo, na ordem dos prazos — nunca repetido a cada linha', () => {
-        const linhas = linhasDasObservacoes(DO_1154, { total: TOTAL, textoLivre: null })
+        const linhas = linhasDasObservacoes(DO_1154, { textoLivre: null })
         expect(linhas.filter((l) => l === 'PVC:')).toHaveLength(1)
         expect(linhas.filter((l) => l === 'ALUMÍNIO:')).toHaveLength(1)
     })
     it('o texto livre da empresa vai POR ÚLTIMO, uma linha por linha', () => {
-        const linhas = linhasDasObservacoes(DO_1154, { total: TOTAL, textoLivre: 'Obra com acesso por elevador.\nFalar com o zelador.' })
+        const linhas = linhasDasObservacoes(DO_1154, { textoLivre: 'Obra com acesso por elevador.\nFalar com o zelador.' })
         expect(linhas.slice(-2)).toEqual(['Obra com acesso por elevador.', 'Falar com o zelador.'])
     })
     it('sem campo nenhum e sem texto, NENHUMA linha: o bloco sai vazio, como antes de existirem', () => {
-        expect(linhasDasObservacoes(SEM_CAMPOS, { total: TOTAL, textoLivre: null })).toEqual([])
-        expect(linhasDasObservacoes(SEM_CAMPOS, { total: TOTAL, textoLivre: '   ' })).toEqual([])
+        expect(linhasDasObservacoes(SEM_CAMPOS, { textoLivre: null })).toEqual([])
+        expect(linhasDasObservacoes(SEM_CAMPOS, { textoLivre: '   ' })).toEqual([])
     })
 })
 
@@ -77,13 +80,14 @@ describe('os valores das parcelas fecham no total, ao centavo', () => {
         expect(v.reduce((s, x) => s + x, 0)).toBe(100003)
     })
     it('o total do bloco é o do orçamento, não a soma arredondada das parcelas', () => {
-        const linhas = linhasDasObservacoes(DO_1154, { total: 1000.01, textoLivre: null })
+        const linhas = linhasDasCondicoesComerciais(DO_1154, 1000.01)
         expect(linhas[linhas.length - 1]).toBe('Total: R$ 1.000,01')
         expect(linhas).toContain('50% de Entrada - R$ 500,01')
         expect(linhas).toContain('50% na Entrega - R$ 500,00')
     })
     it('sem parcelas, não sai nem o rótulo nem o total — o bloco não inventa forma de pagamento', () => {
-        const linhas = linhasDasObservacoes({ ...DO_1154, pagamento: [] }, { total: TOTAL, textoLivre: null })
+        expect(linhasDasCondicoesComerciais({ ...DO_1154, pagamento: [] }, TOTAL)).toEqual([])
+        const linhas = linhasDasObservacoes({ ...DO_1154, pagamento: [] }, { textoLivre: null })
         expect(linhas.some((l) => l.includes('Pagamento'))).toBe(false)
         expect(linhas.some((l) => l.startsWith('Total:'))).toBe(false)
     })
@@ -95,10 +99,10 @@ describe('a frase da validade é montada do NÚMERO', () => {
         expect(fraseDaValidade(1)).toBe('PROPOSTA VÁLIDA POR 1 DIA A PARTIR DA EMISSÃO DA PRESENTE DATA.')
     })
     it('sem validade, a linha não existe', () => {
-        expect(linhasDasObservacoes({ ...SEM_CAMPOS, validadeDias: null }, { total: 1, textoLivre: null })).toEqual([])
+        expect(linhasDasObservacoes({ ...SEM_CAMPOS, validadeDias: null }, { textoLivre: null })).toEqual([])
     })
     it('o prazo de UM dia também vai no singular', () => {
-        expect(linhasDasObservacoes({ ...SEM_CAMPOS, prazos: [{ grupo: '', acabamento: 'URGENTE', dias: 1 }] }, { total: 1, textoLivre: null }))
+        expect(linhasDasObservacoes({ ...SEM_CAMPOS, prazos: [{ grupo: '', acabamento: 'URGENTE', dias: 1 }] }, { textoLivre: null }))
             .toEqual(['• URGENTE: 1 DIA'])
     })
 })
