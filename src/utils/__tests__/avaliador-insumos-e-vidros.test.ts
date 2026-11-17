@@ -59,6 +59,19 @@ describe('os vidros', () => {
         expect(r.faltas[0].mensagem).toContain('não é um inteiro positivo')
         expect(r.faltas[1].mensagem).toContain('não há vidro de medida zero ou negativa')
     })
+    it('o pano sai em mm INTEIROS, com o decimal CORTADO como no WVetro (dono do produto, 17/11/2026; orçamento 1163, item 1: 1532,8 → 1532)', () => {
+        const r = ok(tipologia({
+            formulas: [{ variavel: 'LVID', formula: '(L+400-67.2)' }, { variavel: 'HVID', formula: '(H+0.99)' }] as never,
+            vidros: [{ vidro: 'VIDRO', largura: 'LVID', altura: 'HVID', qtd: '1', fixacao: null, condicao: 'sempre' }],
+        }))
+        // 1200 + 400 − 67,2 = 1532,8 → 1532 (nunca 1533); 1000 + 0,99 = 1000,99 → 1000
+        expect(r.vidros).toEqual([{ vidro: 'VIDRO', largura_mm: 1532, altura_mm: 1000, quantidade: 1, fixacao: null }])
+    })
+    it('o pano positivo de menos de 1 mm, que o corte do decimal zeraria, é falta nomeada — nunca vidro de medida zero', () => {
+        const r = ok(tipologia({ vidros: [{ vidro: 'V3', largura: 'L-1199.5', altura: 'HVID', qtd: '1', fixacao: null, condicao: 'sempre' }] }))
+        expect(r.vidros).toEqual([])
+        expect(r.faltas[0].mensagem).toContain('com o decimal cortado, menos de 1 mm')
+    })
     it('sem as abas, nenhum insumo e nenhum vidro — e nenhuma falta', () => {
         const r = ok(tipologia())
         expect([r.insumos, r.vidros, r.faltas]).toEqual([[], [], []])

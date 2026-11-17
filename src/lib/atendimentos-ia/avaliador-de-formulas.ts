@@ -241,6 +241,11 @@ function aoMicrometro(a: Q): number {
     if (resto !== Z && (resto < Z ? -resto : resto) * DOIS >= a.d) r = resto > Z ? r + UM : r
     return Number(r) / 1000
 }
+/**
+ * Em mm INTEIROS, com o decimal CORTADO (dono do produto, 17/11/2026: "Respeita o formato do WVetro, cortando o decimal do vidro"). O pano
+ * de 1532,8 mm sai 1532, como no WVetro (orçamento 1163). Só para o pano de vidro positivo: a divisão de bigint trunca para o zero.
+ */
+const aoMilimetroCortado = (a: Q): number => Number(a.n / a.d)
 
 // ── O erro de avaliação ───────────────────────────────────────────────────────────────────
 class ErroDeAvaliacao extends Error {
@@ -763,7 +768,9 @@ export function avaliarTipologia(entrada: EntradaDoAvaliador): ResultadoDaAvalia
             const largura = numeroDe(avaliar(x.largura, amb, []), 'A largura')
             const altura = numeroDe(avaliar(x.altura, amb, []), 'A altura')
             if (largura.n <= Z || altura.n <= Z) { onde(`o pano dá ${aoMicrometro(largura)} × ${aoMicrometro(altura)} mm — não há vidro de medida zero ou negativa.`); return }
-            vidros.push({ vidro: x.vidro, largura_mm: aoMicrometro(largura), altura_mm: aoMicrometro(altura), quantidade: Number(q.n), fixacao: x.fixacao })
+            const l = aoMilimetroCortado(largura), h = aoMilimetroCortado(altura)
+            if (l === 0 || h === 0) { onde(`o pano dá ${aoMicrometro(largura)} × ${aoMicrometro(altura)} mm — com o decimal cortado, menos de 1 mm.`); return }
+            vidros.push({ vidro: x.vidro, largura_mm: l, altura_mm: h, quantidade: Number(q.n), fixacao: x.fixacao })
         } catch (e) { onde(recusaDe(e, {}).mensagem) }
     })
     return { ok: true, pecas, linhas, avisos, insumos, vidros, faltas }
