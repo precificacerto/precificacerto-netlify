@@ -27,7 +27,7 @@ import { corDoAcessorio, variaveisDitas } from './arquivo-do-levantamento'
 import { desenhoDaTipologia, linhaDosAmbientes, variavelNaFolha } from './folha-do-levantamento'
 import { escolhasDescritas, lerEscolhasDoItem } from './escolhas-da-tipologia'
 import { valoresDoDesenho } from './desenho-do-catalogo'
-import { lerCamposDasObservacoes, linhasDasObservacoes, SEM_CAMPOS, type CamposDasObservacoes } from './campos-das-observacoes'
+import { lerCamposDasObservacoes, linhasDasCondicoesComerciais, linhasDasObservacoes, SEM_CAMPOS, type CamposDasObservacoes } from './campos-das-observacoes'
 import { comAsFiguras, type CatalogoDeDesenhos, type ItemComDesenho } from './desenho-do-catalogo-servidor'
 import {
     gerarArquivoDoOrcamento, VERSAO_DO_ARQUIVO,
@@ -228,7 +228,8 @@ export async function lerDadosDoArquivo(tenantId: string, orcamentoId: string, a
             itens: await comOsDesenhos(itens.itens, itens.paraODesenho),
             // O BLOCO É MONTADO das variáveis, e o texto livre vai por último (16/11/2026, o modelo 1154). As parcelas
             // do pagamento saem do VALOR DE VENDA deste orçamento, nunca de um valor gravado
-            observacoesGerais: linhasDasObservacoes(daEmpresa.campos, { total: a.valorVenda, textoLivre: daEmpresa.observacoes }).join('\n') || null, operacaoInterna: a.operacaoInterna, valorVenda: a.valorVenda, rateio: a.rateio, geradoEm: a.geradoEm,
+            observacoesGerais: linhasDasObservacoes(daEmpresa.campos, { textoLivre: daEmpresa.observacoes }).join('\n') || null,
+            condicoesComerciais: linhasDasCondicoesComerciais(daEmpresa.campos, a.valorVenda).join('\n') || null, operacaoInterna: a.operacaoInterna, valorVenda: a.valorVenda, rateio: a.rateio, geradoEm: a.geradoEm,
             faltas,
         },
     }

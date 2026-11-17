@@ -83,7 +83,7 @@ export function valoresDasParcelas(totalEmCentavos: number, parcelas: readonly P
  * Os prazos saem TODOS, agrupados, como no modelo: a folha não escolhe por cor — quem lê é o cliente, e o modelo
  * mostra a tabela inteira.
  */
-export function linhasDasObservacoes(c: CamposDasObservacoes, a: { total: number; textoLivre: string | null }): string[] {
+export function linhasDasObservacoes(c: CamposDasObservacoes, a: { textoLivre: string | null }): string[] {
     const linhas: string[] = []
 
     const abertura = (c.prazosAbertura ?? '').trim()
@@ -98,18 +98,27 @@ export function linhasDasObservacoes(c: CamposDasObservacoes, a: { total: number
     if (c.validadeDias !== null) linhas.push(fraseDaValidade(c.validadeDias))
     for (const e of c.exclusoes) { const t = e.trim(); if (t !== '') linhas.push(t) }
 
-    if (c.pagamento.length > 0) {
-        linhas.push(ROTULO_DO_PAGAMENTO)
-        // o total em centavos: é dele que as parcelas saem, e é a ele que elas voltam a somar
-        const emCentavos = Math.round(total100(a.total))
-        const valores = valoresDasParcelas(emCentavos, c.pagamento)
-        c.pagamento.forEach((p, k) => linhas.push(`${p.percentual}% ${p.rotulo.trim()} - ${emReais(valores[k] / 100)}`))
-        linhas.push(`${ROTULO_DO_TOTAL} ${emReais(emCentavos / 100)}`)
-    }
-
+    // a FORMA DE PAGAMENTO saiu daqui (dono do produto, 17/11/2026): vai ao bloco CONDIÇÕES COMERCIAIS (`linhasDasCondicoesComerciais`)
     const livre = (a.textoLivre ?? '').trim()
     if (livre !== '') linhas.push(...livre.split('\n').map((l) => l.trimEnd()))
     return linhas
+}
+
+/**
+ * AS CONDIÇÕES COMERCIAIS (dono do produto, 17/11/2026): "abaixo de observações nós vamos fazer mais um container que representa as condições
+ * comerciais, as condições de pagamento, onde ele vai trabalhar somente isso." São as parcelas do pagamento, com os reais saídos do total do
+ * orçamento e fechando ao centavo (a última leva o resto), e o total. Sem parcela cadastrada, nenhuma linha.
+ */
+export function linhasDasCondicoesComerciais(c: CamposDasObservacoes, total: number): string[] {
+    if (c.pagamento.length === 0) return []
+    // o total em centavos: é dele que as parcelas saem, e é a ele que elas voltam a somar
+    const emCentavos = Math.round(total100(total))
+    const valores = valoresDasParcelas(emCentavos, c.pagamento)
+    return [
+        ROTULO_DO_PAGAMENTO,
+        ...c.pagamento.map((p, k) => `${p.percentual}% ${p.rotulo.trim()} - ${emReais(valores[k] / 100)}`),
+        `${ROTULO_DO_TOTAL} ${emReais(emCentavos / 100)}`,
+    ]
 }
 
 /** Os reais do orçamento em centavos, sem o erro de ponto flutuante do `* 100`. */

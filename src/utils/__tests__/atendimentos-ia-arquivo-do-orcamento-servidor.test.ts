@@ -328,19 +328,26 @@ describe('as observações da empresa chegam ao arquivo', () => {
             exclusoes: ['NÃO CONTEMPLA REMOÇÃO E DESCARTE DO QUE JÁ ESTÁ INSTALADO.'],
             pagamento: [{ percentual: 50, rotulo: 'de Entrada' }, { percentual: 50, rotulo: 'na Entrega' }],
         }
-        const linhas = ((await lerDados()).observacoesGerais ?? '').split('\n')
-        expect(linhas).toEqual([
+        const d = await lerDados()
+        expect((d.observacoesGerais ?? '').split('\n')).toEqual([
             'Prazos de entrega após a medição final.',
             'PVC:',
             '• BRANCO: 45 DIAS',
             'PROPOSTA VÁLIDA POR 7 DIAS A PARTIR DA EMISSÃO DA PRESENTE DATA.',
             'NÃO CONTEMPLA REMOÇÃO E DESCARTE DO QUE JÁ ESTÁ INSTALADO.',
+            'Obra com acesso por elevador.',
+        ])
+        // a forma de pagamento é o bloco CONDIÇÕES COMERCIAIS (17/11/2026), com os reais saídos do valor de venda
+        expect((d.condicoesComerciais ?? '').split('\n')).toEqual([
             'Forma de Pagamento:',
             '50% de Entrada - R$ 3.500,00',
             '50% na Entrega - R$ 3.500,00',
             'Total: R$ 7.000,00',
-            'Obra com acesso por elevador.',
         ])
+    })
+    it('sem parcela cadastrada, as condições comerciais são NULAS (o bloco não sai)', async () => {
+        ;(estado.db.tenant_settings as Linha[])[0].orcamento_observacoes_campos = { prazosAbertura: null, prazos: [], validadeDias: 7, exclusoes: [], pagamento: [] }
+        expect((await lerDados()).condicoesComerciais).toBeNull()
     })
     it('o campo com LIXO no banco não imprime linha torta: ele some, e o resto do bloco sai', async () => {
         (estado.db.tenant_settings as Linha[])[0].orcamento_observacoes_campos = {

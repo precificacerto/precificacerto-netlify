@@ -43,7 +43,7 @@ const dados = (extra: Partial<DadosDoArquivoDoOrcamento> = {}): DadosDoArquivoDo
         cnpj: '12.345.678/0001-90', ie: '0960000000', site: null, email: null, logo: null },
     numero: 1, vendedor: 'Cristiano Fernandes', contato: null, emailDoVendedor: 'cristiano@exemplo.com',
     cliente: { nome: 'Geraldo Huck', telFixo: null, celular: '(51) 99999-0000', email: null, tel2: null, endereco: 'Porto Alegre', ieRg: null, cep: null, cnpjCpf: null },
-    dataEntrega: null, itens: ITENS, observacoesGerais: null, operacaoInterna: INTERNA, valorVenda: INTERNA, rateio: rateio(), faltas: [],
+    dataEntrega: null, itens: ITENS, observacoesGerais: null, condicoesComerciais: null, operacaoInterna: INTERNA, valorVenda: INTERNA, rateio: rateio(), faltas: [],
     geradoEm: new Date('2026-11-11T15:30:00Z'), ...extra,
 })
 const gerar = (d = dados()) => { const g = gerarArquivoDoOrcamento(d); if ('recusas' in g) throw new Error(g.recusas.join(' | ')); return g }
@@ -53,7 +53,7 @@ describe('a estrutura, de cima para baixo', () => {
         const t = textoDoPdf(gerar().pdf)
         const ordem = ['ESQUADRIAS DE PAULA LTDA', 'ORÇAMENTO', 'Número:', 'Emissão:', 'Vendedor:', 'Contato:', 'CLIENTE:', 'TEL. FIXO:', 'CELULAR:',
             'TEL2/Fax:', 'ENDEREÇO:', 'IE/RG:', 'CNPJ/CPF:', 'ITEM 1', '*LOCAL/AMBIENTE:', 'TIPO:', 'PORTA DE CORRER 2 FOLHAS | EUROPA 60', '*COR PERFIL:', '*COR ACESSÓRIO:',
-            'LINHA:', ...COLUNAS_DO_ITEM.map((c) => c.titulo), 'OBSERVAÇÕES DESTE ITEM', 'OBSERVAÇÕES', 'Atenciosamente,', 'Dt.Venda:', 'Impresso em:', 'Aceite do Cliente']
+            'LINHA:', ...COLUNAS_DO_ITEM.map((c) => c.titulo), 'OBSERVAÇÕES DESTE ITEM', 'OBSERVAÇÕES GERAIS', 'Atenciosamente,', 'Dt.Venda:', 'Impresso em:', 'Aceite do Cliente']
         let k = -1
         for (const rotulo of ordem) {
             const achado = t.findIndex((x, j) => j > k && x === rotulo)
@@ -103,8 +103,30 @@ describe('o dinheiro: o rateio exato, e nada que não é do cliente', () => {
     })
     it('o tipo dos dados nem carrega custo, margem ou imposto (a fixture tem só o que o cliente vê)', () => {
         const campos = Object.keys(dados()).sort()
-        expect(campos).toEqual(['cliente', 'contato', 'dataEntrega', 'emailDoVendedor', 'empresa', 'faltas', 'geradoEm', 'itens', 'numero', 'observacoesGerais',
+        expect(campos).toEqual(['cliente', 'condicoesComerciais', 'contato', 'dataEntrega', 'emailDoVendedor', 'empresa', 'faltas', 'geradoEm', 'itens', 'numero', 'observacoesGerais',
             'operacaoInterna', 'rateio', 'valorVenda', 'vendedor'])
+    })
+})
+
+describe('OBSERVAÇÕES GERAIS e, abaixo, CONDIÇÕES COMERCIAIS (dono do produto, 17/11/2026)', () => {
+    const CONDICOES = 'Forma de Pagamento:\n50% de Entrada - R$ 7.000,00\n50% na Entrega - R$ 7.000,00\nTotal: R$ 14.000,00'
+    it('o bloco do pé se chama OBSERVAÇÕES GERAIS (não é o do item), e as condições comerciais vêm num bloco próprio, ABAIXO dele e acima do fecho', () => {
+        const t = textoDoPdf(gerar(dados({ observacoesGerais: 'Prazos de entrega após a medição final.', condicoesComerciais: CONDICOES })).pdf)
+        expect(t).toContain('OBSERVAÇÕES GERAIS')
+        expect(t).not.toContain('OBSERVAÇÕES')
+        const [obs, cond, pag, fecho] = ['OBSERVAÇÕES GERAIS', 'CONDIÇÕES COMERCIAIS', 'Forma de Pagamento:', 'Atenciosamente,'].map((x) => t.indexOf(x))
+        expect(obs).toBeGreaterThan(-1)
+        expect(cond).toBeGreaterThan(obs)
+        expect(pag).toBeGreaterThan(cond)
+        expect(fecho).toBeGreaterThan(pag)
+        // a forma de pagamento está SÓ nas condições: nenhuma linha dela entre o título das observações e o das condições
+        expect(t.slice(obs, cond).some((x) => x.includes('Pagamento'))).toBe(false)
+        expect(t).toContain('Total: R$ 14.000,00')
+    })
+    it('sem condições comerciais (nenhuma parcela cadastrada), o bloco não sai', () => {
+        const t = textoDoPdf(gerar(dados({ condicoesComerciais: null })).pdf)
+        expect(t).not.toContain('CONDIÇÕES COMERCIAIS')
+        expect(t).toContain('OBSERVAÇÕES GERAIS')
     })
 })
 
@@ -125,7 +147,7 @@ describe('vazio é vazio, a observação em vermelho, a data de entrega', () => 
         expect(dataDeEntrega('dezembro')).toBe(' / / ')
         const t = textoDoPdf(gerar(dados({ dataEntrega: '2026-12-01' })).pdf)
         expect(t.filter((x) => x.includes('01/12/2026'))).toEqual(['DATA DE ENTREGA: 01/12/2026'])
-        expect(t.indexOf('DATA DE ENTREGA: 01/12/2026')).toBeGreaterThan(t.indexOf('OBSERVAÇÕES'))
+        expect(t.indexOf('DATA DE ENTREGA: 01/12/2026')).toBeGreaterThan(t.indexOf('OBSERVAÇÕES GERAIS'))
         expect(t.indexOf('DATA DE ENTREGA: 01/12/2026')).toBeLessThan(t.indexOf('Atenciosamente,'))
         const sem = textoDoPdf(gerar(dados({ dataEntrega: null })).pdf).join(' ')
         expect(sem).not.toContain('DATA ENTREGA')
@@ -190,16 +212,16 @@ describe('o bloco OBSERVAÇÕES, no pé', () => {
 
     it('o texto da empresa sai no bloco, UMA LINHA DO TEXTO POR LINHA DO BLOCO (a quebra é respeitada)', () => {
         const t = textoDoPdf(gerar(dados({ observacoesGerais: OBS })).pdf)
-        expect(t).toContain('OBSERVAÇÕES')
+        expect(t).toContain('OBSERVAÇÕES GERAIS')
         for (const l of OBS.split('\n')) expect(t).toContain(l)
         // a ordem é a do texto, e a do rótulo antes delas
         const posicao = (x: string) => t.indexOf(x)
-        expect(posicao('OBSERVAÇÕES')).toBeLessThan(posicao(OBS.split('\n')[0]))
+        expect(posicao('OBSERVAÇÕES GERAIS')).toBeLessThan(posicao(OBS.split('\n')[0]))
         expect(posicao(OBS.split('\n')[0])).toBeLessThan(posicao(OBS.split('\n')[3]))
     })
     it('sem texto, o bloco sai com o rótulo e o corpo vazio — como saía antes de haver de onde ler', () => {
         const t = textoDoPdf(gerar(dados({ observacoesGerais: null })).pdf)
-        expect(t).toContain('OBSERVAÇÕES')
+        expect(t).toContain('OBSERVAÇÕES GERAIS')
         expect(t).toContain('Atenciosamente,')
     })
     it('o texto LONGO empurra o fecho para baixo e NUNCA sobe acima do topo (o bloco não sai da página)', () => {
@@ -298,7 +320,7 @@ describe('O ARQUIVO VAI AO VENDEDOR (12/11/2026, o comando único)', () => {
         const linha = 'DEFINIÇÕES: ARREMATE INTERNO: 65 mm · ARREMATE EXTERNO: sem (padrão)'
         expect(t.filter((x) => x.startsWith('DEFINIÇÕES'))).toEqual([linha])
         expect(t.indexOf(linha)).toBeGreaterThan(t.lastIndexOf('*LOCAL/AMBIENTE:'))
-        expect(t.indexOf(linha)).toBeGreaterThan(t.indexOf('OBSERVAÇÕES'))
+        expect(t.indexOf(linha)).toBeGreaterThan(t.indexOf('OBSERVAÇÕES GERAIS'))
     })
     it('linhasDoRodape: definições iguais numa linha; diferentes, uma por conjunto com os itens; item sem definição não entra', () => {
         const a = ['ARREMATE INTERNO: 65 mm'], b = ['ARREMATE INTERNO: sem']
@@ -311,7 +333,7 @@ describe('O ARQUIVO VAI AO VENDEDOR (12/11/2026, o comando único)', () => {
     it('4.1 — o RODAPÉ no PÉ da página, sempre: as observações e o fecho encostados no fim, com poucos itens também', () => {
         const pdf = gerar().pdf
         const aceite = alturaDe(pdf, 'Aceite do Cliente')!
-        const obs = alturaDe(pdf, 'OBSERVAÇÕES')!
+        const obs = alturaDe(pdf, 'OBSERVAÇÕES GERAIS')!
         // A4 = 841,89 pt; o fecho acaba a ~22 mm do pé (62 pt) — com 3 itens ele ficava no meio da página
         expect(aceite).toBeLessThan(80)
         expect(obs).toBeLessThan(200)
