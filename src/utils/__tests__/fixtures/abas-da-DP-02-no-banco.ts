@@ -32,7 +32,7 @@ export function abasDaDP02NoBanco(donoId: string, dono: 'tabela' | 'motor' = 'ta
     for (const aba of ABAS_DO_MOTOR) {
         const fonte = ABAS[aba.nome]
         if (!aba.porTipologia || !fonte) continue
-        const faltando = aba.colunas.filter((c) => !(fonte.cabecalho ?? []).includes(c.cabecalho)).map((c) => c.cabecalho)
+        const faltando = aba.colunas.filter((c) => !c.opcional && !(fonte.cabecalho ?? []).includes(c.cabecalho)).map((c) => c.cabecalho)
         if (faltando.length) throw new Error(`o fixture da DP-02, aba "${aba.nome}", não tem no cabeçalho: ${faltando.join(', ')}`)
         saida[aba.tabela] = fonte.linhas.map((valores, i) => {
             const r = linhaDoBanco(aba, valores, i + 2)

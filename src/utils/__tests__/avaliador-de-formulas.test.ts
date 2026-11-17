@@ -240,6 +240,8 @@ describe('(3) as VARIÁVEIS, as CONSTANTES do Leia-me e o &X', () => {
 describe('(4) A DP-02, L = 1200, H = 1000, MAE = 2, vidro 6 mm — peça a peça, conferida à mão', () => {
     const ENTRADA: Entrada = { L_mm: 1200, H_mm: 1000, escolhas: { MAE: 2 }, espessura_vidro_mm: 6 }
 
+    // R5 (dono do produto, 17/11/2026): o corte sai como o WVetro o imprime, com o DECIMAL CORTADO (953,6 → 953). A conta do cabeçalho
+    // continua exata (LTRI = 1095,8); a peça é 1095.
     it('as 17 peças, na ordem da aba, com o comprimento de cada uma conferido contra a conta do cabeçalho', () => {
         expect(ok(ENTRADA).pecas).toEqual([
             p('BZ0006/WOLFF', 'GUARNIÇÃO', 1266, 2, '45/45', 'Largura'),                                              // linha 1: LARI
@@ -249,16 +251,16 @@ describe('(4) A DP-02, L = 1200, H = 1000, MAE = 2, vidro 6 mm — peça a peça
             p('BZ0010/WOLFF', 'APLIQUE - ARREMATE', 1050, 2, '90/90', 'Altura'),                                      // linha 13: HARE
             p('HF88/WOLFF', 'MARCO DE CORRER - 2 TRILHOS', 1206, 2, '45S/45S', 'Largura'),                            // linha 19: LMC+6
             p('HF88/WOLFF', 'MARCO DE CORRER - 2 TRILHOS', 1006, 2, '45S/45S', 'Altura'),                             // linha 20: HMC+6
-            p('1023/WOLFF', 'CLICK GUIA DE ALUMÍNIO PARA TRILHO DE PVC', 1095.8, 2, '90/90', 'Largura'),              // linha 21: LTRI, Qtd NP
+            p('1023/WOLFF', 'CLICK GUIA DE ALUMÍNIO PARA TRILHO DE PVC', 1095, 2, '90/90', 'Largura'),              // linha 21: LTRI, Qtd NP — R5: decimal cortado
             p('8432/WOLFF', 'REFORÇO EM AÇO GALVANIZADO  PARA HF112 OU HF 88S (17 X 29 X 17)', 1036, 2, '90/90', 'Largura'), // linha 22: LREFM
             p('8432/WOLFF', 'REFORÇO EM AÇO GALVANIZADO  PARA HF112 OU HF 88S (17 X 29 X 17)', 836, 2, '90/90', 'Altura'),   // linha 23: HREFM
-            p('SF66/WOLFF', 'FOLHA PARA JANELA', 595.8, 4, '45S/45S', 'Largura'),                                     // linha 24: LFOL+6, Qtd NF*2
-            p('SF66/WOLFF', 'FOLHA PARA JANELA', 917.6, 4, '45S/45S', 'Altura'),                                      // linha 25: HFOL+6
-            p('8433/WOLFF', 'REFORÇO EM AÇO GALVANIZADO PARA SF66  (42 X 66)', 429.8, 4, '90/90', 'Largura'),         // linha 26: LREFF
-            p('8433/WOLFF', 'REFORÇO EM AÇO GALVANIZADO PARA SF66  (42 X 66)', 751.6, 4, '90/90', 'Altura'),          // linha 27: HREFF
-            p('IL36/WOLFF', 'INTERLOCK / MÃO DE AMIGO', 911.6, 2, '90/90', 'Altura'),                                 // linha 28: HFOL, Qtd QMA*2
-            p('GB25/WOLFF', 'BAGUETE DE 25MM', 489.8, 4, '45/45', 'Largura'),                                         // linha 31: LBAG
-            p('GB25/WOLFF', 'BAGUETE DE 25MM', 811.6, 4, '45/45', 'Altura'),                                          // linha 32: HBAG
+            p('SF66/WOLFF', 'FOLHA PARA JANELA', 595, 4, '45S/45S', 'Largura'),                                     // linha 24: LFOL+6, Qtd NF*2 — R5: decimal cortado
+            p('SF66/WOLFF', 'FOLHA PARA JANELA', 917, 4, '45S/45S', 'Altura'),                                      // linha 25: HFOL+6 — R5: decimal cortado
+            p('8433/WOLFF', 'REFORÇO EM AÇO GALVANIZADO PARA SF66  (42 X 66)', 429, 4, '90/90', 'Largura'),         // linha 26: LREFF — R5: decimal cortado
+            p('8433/WOLFF', 'REFORÇO EM AÇO GALVANIZADO PARA SF66  (42 X 66)', 751, 4, '90/90', 'Altura'),          // linha 27: HREFF — R5: decimal cortado
+            p('IL36/WOLFF', 'INTERLOCK / MÃO DE AMIGO', 911, 2, '90/90', 'Altura'),                                 // linha 28: HFOL, Qtd QMA*2 — R5: decimal cortado
+            p('GB25/WOLFF', 'BAGUETE DE 25MM', 489, 4, '45/45', 'Largura'),                                         // linha 31: LBAG — R5: decimal cortado
+            p('GB25/WOLFF', 'BAGUETE DE 25MM', 811, 4, '45/45', 'Altura'),                                          // linha 32: HBAG — R5: decimal cortado
         ])
     })
 

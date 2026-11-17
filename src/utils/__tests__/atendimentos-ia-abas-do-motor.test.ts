@@ -25,6 +25,14 @@ const SQL = readFileSync(join(__dirname, '..', '..', '..', 'supabase', 'migratio
 /** O corpo da função, entre os `$function$`. */
 const FUNCAO = SQL.slice(SQL.indexOf('AS $function$'), SQL.indexOf('$function$;'))
 const TIPO_SQL = { texto: 'text', inteiro: 'integer' } as const
+/**
+ * As colunas OPCIONAIS (17/11/2026, as regras do WVetro: 'Condição das opções', 'Esp. vidro' em Insumos e Vidros) nasceram depois, na
+ * `20261117000002`: entram por ALTER TABLE, e quem as grava é `superadmin_criar_motor` (o motor do catálogo, por motor_id). O caminho de
+ * antes, `importar_conteudo_da_tabela` (motor colado na tabela de preço), não as conhece — desde o PR D o motor não sobe mais por ali.
+ */
+const SQL_DAS_REGRAS = readFileSync(join(__dirname, '..', '..', '..', 'supabase', 'migrations', '20261117000002_regras_do_wvetro_no_motor.sql'), 'utf-8')
+const CRIAR_MOTOR = SQL_DAS_REGRAS.slice(SQL_DAS_REGRAS.indexOf('AS $fn$'), SQL_DAS_REGRAS.indexOf('$fn$;'))
+const fixas = (aba: (typeof ABAS_DO_MOTOR)[number]) => aba.colunas.filter((c) => !c.opcional)
 
 /** As colunas do CREATE TABLE da tabela, sem as linhas de CONSTRAINT. */
 function colunasDoCreate(tabela: string): string[] {
@@ -58,7 +66,7 @@ describe('(1) o mapa e a migração são o mesmo contrato', () => {
 
     it.each(ABAS_DO_MOTOR.map((a) => [a.nome, a] as const))('"%s": as colunas da tabela são as do mapa, mais as que o banco gera', (_n, aba) => {
         const geradas = aba.tabela === 'orcamentista_motor_tipologia_detalhe' ? ['tabela_id', 'atualizado_em'] : ['id', 'tabela_id', 'ordem']
-        const doMapa = aba.colunas.map((c) => c.coluna)
+        const doMapa = fixas(aba).map((c) => c.coluna)
         // a `ordem` do Detalhe entra por ALTER TABLE, porque a tabela já existe em produção
         const doSql = [...colunasDoCreate(aba.tabela), ...(aba.tabela === 'orcamentista_motor_tipologia_detalhe' ? ['ordem'] : [])]
         expect([...doSql].sort()).toEqual([...geradas, ...doMapa, ...(geradas.includes('ordem') ? [] : ['ordem'])].sort())
@@ -69,11 +77,23 @@ describe('(1) o mapa e a migração são o mesmo contrato', () => {
         const ins = new RegExp(`INSERT INTO public\\.${aba.tabela} \\(([^)]*)\\)[\\s\\S]*?FROM jsonb_to_recordset\\(p_payload->'${aba.payload}'\\) AS x\\(([^;]*)\\);`).exec(FUNCAO)
         expect(ins).not.toBeNull()
         const [, alvo, tipos] = ins as RegExpExecArray
-        expect(alvo.split(',').map((s) => s.trim())).toEqual(['tabela_id', 'ordem', ...aba.colunas.map((c) => c.coluna)])
-        expect(tipos.replace(/\)$/, '').split(',').map((s) => s.trim())).toEqual(['ordem integer', ...aba.colunas.map((c) => `${c.coluna} ${TIPO_SQL[c.tipo]}`)])
+        expect(alvo.split(',').map((s) => s.trim())).toEqual(['tabela_id', 'ordem', ...fixas(aba).map((c) => c.coluna)])
+        expect(tipos.replace(/\)$/, '').split(',').map((s) => s.trim())).toEqual(['ordem integer', ...fixas(aba).map((c) => `${c.coluna} ${TIPO_SQL[c.tipo]}`)])
         expect(FUNCAO).toContain(`jsonb_typeof(p_payload->'${aba.payload}') IS DISTINCT FROM 'array'`)
         expect(FUNCAO).toContain(`'${aba.payload}', v_${aba.payload}`)
     })
+
+    it.each(ABAS_DO_MOTOR.filter((a) => a.colunas.some((c) => c.opcional)).map((a) => [a.nome, a] as const))(
+        '"%s": a coluna OPCIONAL entra por ALTER TABLE na 20261117000002, text, e superadmin_criar_motor a INSERE com o tipo do mapa', (_n, aba) => {
+            for (const c of aba.colunas.filter((x) => x.opcional)) {
+                expect(SQL_DAS_REGRAS).toContain(`ALTER TABLE public.${aba.tabela} ADD COLUMN IF NOT EXISTS ${c.coluna} ${TIPO_SQL[c.tipo]};`)
+                const ins = new RegExp(`INSERT INTO public\\.${aba.tabela} \\(([^)]*)\\)[\\s\\S]*?FROM jsonb_to_recordset\\(p_payload->'${aba.payload}'\\) AS x\\(([^;]*)\\);`).exec(CRIAR_MOTOR)
+                expect(ins).not.toBeNull()
+                const [, alvo, tipos] = ins as RegExpExecArray
+                expect(alvo.split(',').map((s) => s.trim())).toEqual(['motor_id', 'ordem', ...aba.colunas.map((x) => x.coluna)])
+                expect(tipos.replace(/\)$/, '').split(',').map((s) => s.trim())).toEqual(['ordem integer', ...aba.colunas.map((x) => `${x.coluna} ${TIPO_SQL[x.tipo]}`)])
+            }
+        })
 
     it('a chave natural do mapa é a UNIQUE da migração, e a de ordem existe em todas', () => {
         for (const a of ABAS_DO_MOTOR) {
@@ -217,7 +237,9 @@ describe('(4) o DADO DE TESTE das abas só tem colunas que a tabela real tem —
 
     it.each(ABAS_DO_MOTOR.filter((a) => a.porTipologia && a.nome !== 'Insumos').map((a) => [a.tabela]))('%s: nenhuma coluna fora do CREATE TABLE', (tabela) => {
         // a Detalhe ganha `ordem` pelo ALTER da mesma migração; nenhuma outra coluna fora do CREATE
-        const reais = new Set([...colunasDoCreate(tabela), ...(tabela === 'orcamentista_motor_tipologia_detalhe' ? ['ordem'] : [])])
+        // e as opcionais da 20261117000002 entram pelo ALTER dela (o caso de (1) confere que o ALTER está lá)
+        const alteradas = [...SQL_DAS_REGRAS.matchAll(new RegExp(`ALTER TABLE public\\.${tabela} ADD COLUMN IF NOT EXISTS (\\w+)`, 'g'))].map((m) => m[1])
+        const reais = new Set([...colunasDoCreate(tabela), ...alteradas, ...(tabela === 'orcamentista_motor_tipologia_detalhe' ? ['ordem'] : [])])
         const linhas = abasDaDP02NoBanco('T')[tabela]
         const inventadas = [...new Set(linhas.flatMap((l) => Object.keys(l)))].filter((c) => !reais.has(c))
         expect(inventadas).toEqual([])

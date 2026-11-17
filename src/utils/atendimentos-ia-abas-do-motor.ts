@@ -29,7 +29,12 @@ import type ExcelJS from 'exceljs'
 import { valorDaCelula } from '@/utils/atendimentos-ia-importacao-celula'
 
 export type TipoDaColuna = 'texto' | 'inteiro'
-export type ColunaDaAba = { cabecalho: string; coluna: string; tipo: TipoDaColuna }
+/**
+ * `opcional` (17/11/2026, motor 6): a coluna que o arquivo pode não trazer — ausente no cabeçalho, ela vale nulo em toda linha, e o
+ * motor de antes sobe e calcula como antes. São as colunas das regras do WVetro: 'Condição das opções' (Variáveis) e 'Esp. vidro'
+ * (Insumos e Vidros). A gravação delas pressupõe a migração 20261117000002.
+ */
+export type ColunaDaAba = { cabecalho: string; coluna: string; tipo: TipoDaColuna; opcional?: boolean }
 
 export type AbaDeclarada = {
     /** O nome da aba no arquivo do fornecedor. */
@@ -47,6 +52,7 @@ export type AbaDeclarada = {
 
 const texto = (cabecalho: string, coluna: string): ColunaDaAba => ({ cabecalho, coluna, tipo: 'texto' })
 const inteiro = (cabecalho: string, coluna: string): ColunaDaAba => ({ cabecalho, coluna, tipo: 'inteiro' })
+const textoOpcional = (cabecalho: string, coluna: string): ColunaDaAba => ({ cabecalho, coluna, tipo: 'texto', opcional: true })
 const LINHA = texto('Linha', 'linha')
 const CODIGO = texto('Código', 'tipologia')
 
@@ -77,7 +83,7 @@ export const ABAS_DO_MOTOR: readonly AbaDeclarada[] = [
         nome: 'Vidros', tabela: 'orcamentista_motor_vidro', payload: 'vidros', porTipologia: true,
         colunas: [
             LINHA, CODIGO, texto('Vidro', 'vidro'), texto('Largura', 'largura'), texto('Altura', 'altura'), texto('Qtd', 'qtd'),
-            texto('Fixação', 'fixacao'), texto('Condição', 'condicao'),
+            texto('Fixação', 'fixacao'), texto('Condição', 'condicao'), textoOpcional('Esp. vidro', 'esp_vidro'),
         ],
     },
     {
@@ -91,7 +97,7 @@ export const ABAS_DO_MOTOR: readonly AbaDeclarada[] = [
         nome: 'Insumos', tabela: 'orcamentista_motor_insumo', payload: 'insumos', porTipologia: true,
         colunas: [
             LINHA, CODIGO, texto('Insumo', 'insumo'), texto('Descrição', 'descricao'), texto('Qtd (fórmula)', 'qtd'),
-            texto('Condição', 'condicao'), texto('Obs.', 'obs'),
+            texto('Condição', 'condicao'), texto('Obs.', 'obs'), textoOpcional('Esp. vidro', 'esp_vidro'),
         ],
     },
     {
@@ -99,6 +105,7 @@ export const ABAS_DO_MOTOR: readonly AbaDeclarada[] = [
         colunas: [
             LINHA, CODIGO, texto('Var.', 'variavel'), texto('Descrição', 'descricao'), texto('Padrão', 'padrao'),
             texto('Mín–Máx', 'min_max'), texto('Condição', 'condicao'), texto('Opções', 'opcoes'),
+            textoOpcional('Condição das opções', 'condicao_opcoes'),
         ],
     },
     {
@@ -184,7 +191,7 @@ export function lerAbasDoMotor(wb: ExcelJS.Workbook): AbasLidas {
             const v = valorDaCelula(cel.value).valor
             if (typeof v === 'string') cabecalho.set(v, col)
         })
-        const faltam = aba.colunas.filter((c) => !cabecalho.has(c.cabecalho)).map((c) => `"${c.cabecalho}"`)
+        const faltam = aba.colunas.filter((c) => !c.opcional && !cabecalho.has(c.cabecalho)).map((c) => `"${c.cabecalho}"`)
         if (faltam.length) { erros.push(`A aba "${aba.nome}" não tem no cabeçalho: ${faltam.join(', ')}.`); continue }
         const daAba: LinhaDoBanco[] = []
         for (let r = 2; r <= ws.rowCount; r++) {
@@ -192,7 +199,9 @@ export function lerAbasDoMotor(wb: ExcelJS.Workbook): AbasLidas {
             const valores: Record<string, unknown> = {}
             let vazia = true
             for (const c of aba.colunas) {
-                const { valor, erro } = valorDaCelula(row.getCell(cabecalho.get(c.cabecalho) as number).value)
+                const col = cabecalho.get(c.cabecalho)
+                if (col === undefined) { valores[c.cabecalho] = null; continue }   // a coluna opcional que o arquivo não traz
+                const { valor, erro } = valorDaCelula(row.getCell(col).value)
                 if (erro) erros.push(`Aba "${aba.nome}", linha ${r}, coluna "${c.cabecalho}": ${erro}.`)
                 valores[c.cabecalho] = valor
                 if (valor !== null) vazia = false

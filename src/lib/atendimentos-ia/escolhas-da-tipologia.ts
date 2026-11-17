@@ -33,7 +33,7 @@
  *
  * Portão: `src/utils/__tests__/escolhas-da-tipologia.test.ts`.
  */
-import { avaliarTexto, opcoesDaVariavel, type Tipologia } from '@/lib/atendimentos-ia/avaliador-de-formulas'
+import { avaliarTexto, condicoesDasOpcoesDe, opcoesDaVariavel, type Tipologia } from '@/lib/atendimentos-ia/avaliador-de-formulas'
 
 /** O que as escolhas leem da tipologia: só a aba 'Variáveis'. A conversa as carrega sem as outras abas. */
 export type VariaveisDaTipologia = Pick<Tipologia, 'variaveis'>
@@ -56,12 +56,29 @@ function condicaoPede(condicao: string | null, escolhas: Escolhas): boolean {
     return r.valor === true
 }
 
+/** R2: as opções da variável que valem com as escolhas feitas (sem a coluna, todas; condição impossível de avaliar, a opção fica). */
+function opcoesQueValem(v: VariaveisDaTipologia['variaveis'][number], escolhas: Escolhas): OpcaoDaEscolha[] | null {
+    const opcoes = opcoesDaVariavel(v.opcoes)
+    const texto = (v.condicao_opcoes ?? '').trim()
+    if (!opcoes || texto === '') return opcoes
+    const conds = condicoesDasOpcoesDe(texto)
+    if (!conds) return opcoes
+    return opcoes.filter((o) => {
+        const c = conds.get(o.valor)
+        if (c === undefined) return true
+        const r = avaliarTexto(c, escolhas)
+        return 'recusa' in r ? true : r.valor === true
+    })
+}
+
 /** As escolhas capturadas que faltam e se aplicam, na ordem da aba Variáveis. */
 export function escolhasPendentes(tipologia: VariaveisDaTipologia, escolhas: Escolhas): EscolhaPendente[] {
     const pendentes: EscolhaPendente[] = []
     for (const v of tipologia.variaveis) {
         if (!capturada(v.variavel) || escolhas[v.variavel] !== undefined) continue
-        const opcoes = opcoesDaVariavel(v.opcoes)
+        // R2 (17/11/2026): só as opções cuja condição ('Condição das opções') vale com as escolhas já feitas; a que não dá para avaliar
+        // ainda fica (a mesma regra da Condição da variável: não saber não esconde opção). O avaliador recusa a escolha que não vale.
+        const opcoes = opcoesQueValem(v, escolhas)
         // sem opções legíveis não há o que perguntar: o avaliador recusa a variável pelo nome
         if (!opcoes || opcoes.length === 0) continue
         if (!condicaoPede(v.condicao, escolhas)) continue

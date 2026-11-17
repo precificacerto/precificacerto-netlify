@@ -55,10 +55,24 @@
  * Até 25/10/2026 toda opção sem colchete era recusa (`faltou-dado-recusa-nomeada.md`, aparição 5), e
  * os padrões da DP-02 não fechavam; a decisão está registrada lá, datada.
  *
+ * AS REGRAS DO WVETRO NA CONCEPÇÃO DA TIPOLOGIA (dono do produto, 17/11/2026: "a regra é a definição do WVetro, e o motor do
+ * Precifica Certo deve ter isso na concepção da tipologia, como regra inviolável [...] cada tipologia tem suas variáveis"):
+ *   - R1, A VARIÁVEL INATIVA VALE 0: a coluna Condição da aba 'Variáveis' falsa torna a variável inativa — o padrão e a escolha
+ *     não valem, ela vale 0 e o &VAR dela vale 0. Medido no Orçamento 1182 (DP-17, H = 1.400): CMFI tem a condição
+ *     (H-Y) entre 398,4 e 788,4, falsa; o WVetro não lança a cremona 1737, e o avaliador de antes lançava duas. A condição é
+ *     avaliada na ordem de dependência (a de ARI cita TI, que cita ARR), pela mesma resolução de nomes. A condição que cita um
+ *     nome que NÃO EXISTE em aba nenhuma (o `ARR` do fixture da DP-02, que não o declara) deixa a variável ATIVA, como antes
+ *     desta regra — o motor (6) declara ARR e ARRP em todas as tipologias que os citam;
+ *   - R2, A OPÇÃO TEM CONDIÇÃO: a coluna 'Condição das opções' ("1: (TI=1); 3: (TI=2)") diz quando cada opção vale; a que não
+ *     aparece vale sempre. A escolha numa opção que não vale é recusa (ESCOLHA_FORA_DAS_OPCOES) nomeando as que valem; o PADRÃO
+ *     numa opção que não vale não é usado — a variável fica sem valor e a recusa pede a escolha (nunca a opção inválida);
+ *   - R3 e R4, A ESPESSURA NO INSUMO E NO VIDRO: a coluna 'Esp. vidro' das abas Insumos e Vidros, como a de Perfis: a linha só
+ *     entra se a espessura informada estiver na lista; sem espessura, a linha vira FALTA nomeada (3349 = 5,6,8,24; 919 =
+ *     18,20,21 — sem o filtro, as duas borrachas entravam juntas);
+ *   - R5, O CORTE DO PERFIL SEM DECIMAL: o WVetro imprime a medida de corte cortando o decimal (953,6 → 953), como o pano de
+ *     vidro desde 17/11/2026. A peça sai em mm inteiros, cortados; a que fica abaixo de 1 mm é COMPRIMENTO_NAO_POSITIVO.
+ *
  * O QUE ESTE MÓDULO NÃO FAZ, e por quê:
- *   - NÃO avalia a coluna Condição da aba 'Variáveis'. Ela diz QUANDO perguntar a variável ao
- *     vendedor, não quais peças entram; e ela cita `ARR`, que não está definido em aba nenhuma do
- *     fixture da DP-02 (medido). Avaliá-la travaria toda janela por um nome que ninguém define;
  *   - NÃO lê 'Fórmulas da família' (a aba das fórmulas da LINHA). Ela é a fórmula mais comum entre as
  *     tipologias da linha ("% padrão"), com as variáveis da linha (NF = 4), e a DP-02 tem fórmula própria em
  *     'Fórmulas'. Medido: das 16 variáveis comparadas, 9 divergem;
@@ -99,16 +113,28 @@ export const CONSTANTES_DO_LEIA_ME: Readonly<Record<string, number>> = { WOLFIL:
  * Uma linha da aba Variáveis. `descricao` e `condicao` não são lidas pelo avaliador: são o que a
  * conversa usa para perguntar a escolha ao vendedor, e QUANDO perguntar (`escolhas-da-tipologia.ts`).
  */
-export type VariavelDaTipologia = { variavel: string; descricao: string | null; padrao: string | null; condicao: string | null; opcoes: string | null }
+export type VariavelDaTipologia = {
+    variavel: string; descricao: string | null; padrao: string | null; condicao: string | null; opcoes: string | null
+    /** R2 (17/11/2026): "n: (condição); n: (condição)". Ausente ou nula = toda opção vale sempre. `lerTipologia` sempre a preenche. */
+    condicao_opcoes?: string | null
+}
 export type FormulaDaTipologia = { variavel: string; formula: string }
 export type PerfilDaTipologia = {
     perfil: string; descricao: string; corte: string; qtd: string; medida: string; posicao: string; esp_vidro: string | null; condicao: string
 }
 export type ValidacaoDaTipologia = { condicao: string; mensagem: string }
 /** Uma linha da aba Insumos: o código, a descrição, a fórmula da quantidade e a condição. */
-export type InsumoDaTipologia = { insumo: string; descricao: string | null; qtd: string; condicao: string }
+export type InsumoDaTipologia = {
+    insumo: string; descricao: string | null; qtd: string; condicao: string
+    /** R3 (17/11/2026): as espessuras de vidro em que a linha entra ("5,6,8,24"). Ausente ou nula = qualquer. `lerTipologia` sempre a preenche. */
+    esp_vidro?: string | null
+}
 /** Uma linha da aba Vidros: as fórmulas da largura e da altura do pano, a quantidade, a fixação e a condição. */
-export type VidroDaTipologia = { vidro: string; largura: string; altura: string; qtd: string; fixacao: string | null; condicao: string }
+export type VidroDaTipologia = {
+    vidro: string; largura: string; altura: string; qtd: string; fixacao: string | null; condicao: string
+    /** R4 (17/11/2026): as espessuras em que a linha entra, como no insumo. */
+    esp_vidro?: string | null
+}
 export type Tipologia = {
     codigo: string
     detalhe: { larg_min_mm: number | null; larg_max_mm: number | null; alt_min_mm: number | null; alt_max_mm: number | null }
@@ -483,6 +509,23 @@ function opcoesDe(texto: string): Opcao[] | null {
     return saida
 }
 
+/** R2: "1: (TI=1); 2: (TI=1); 3: (TI=2)" → valor → condição, ou null se um pedaço não casar. O ";" só separa antes de "<número>:". */
+export function condicoesDasOpcoesDe(texto: string): Map<number, string> | null {
+    const saida = new Map<number, string>()
+    for (const pedaco of texto.split(/;\s*(?=\d+\s*:)/)) {
+        const m = /^\s*(\d+)\s*:\s*(.+?)\s*;?\s*$/.exec(pedaco)
+        if (!m || saida.has(Number(m[1]))) return null
+        saida.set(Number(m[1]), m[2])
+    }
+    return saida
+}
+
+/** R3/R4: as espessuras de uma linha ("5,6,8,24"), ou null se não se leem; a lista vazia não existe (é coluna vazia). */
+function espessurasDe(texto: string): number[] | null {
+    const lista = texto.split(',').map((x) => x.trim())
+    return lista.every((x) => /^\d+$/.test(x)) ? lista.map(Number) : null
+}
+
 // ── O ambiente da tipologia ───────────────────────────────────────────────────────────────
 type Contexto = {
     entrada: EntradaDoAvaliador
@@ -491,10 +534,61 @@ type Contexto = {
     formulas: Map<string, string>
     variaveis: Map<string, VariavelDaTipologia>
     opcoes: Map<string, Opcao[]>
+    /** R2: a condição de cada opção, por variável (a opção que não está no mapa vale sempre). */
+    condicoesDasOpcoes: Map<string, Map<number, string>>
     memoria: Map<string, Q>
+    /** R1: o valor de cada variável já resolvida (0 quando inativa), pela mesma memória das fórmulas, numa chave à parte. */
+    memoriaDasVariaveis: Map<string, Q>
 }
 
 function ambienteDa(ctx: Contexto): Ambiente {
+    /** R1: a Condição da variável. Falsa = inativa. O nome que não existe em aba nenhuma deixa a variável ativa (o ARR do fixture). */
+    const ativa = (v: VariavelDaTipologia, pilha: string[]): boolean => {
+        const c = (v.condicao ?? '').trim()
+        if (c === '' || c === 'sempre') return true
+        try {
+            return condicaoDe(avaliar(c, amb, pilha), `A condição da variável ${v.variavel}`)
+        } catch (e) {
+            if (e instanceof ErroDeAvaliacao && e.motivo === 'VARIAVEL_SEM_VALOR' && e.variavel !== undefined && !ctx.variaveis.has(e.variavel)
+                && !ctx.formulas.has(e.variavel) && CONSTANTES_DO_LEIA_ME[e.variavel] === undefined) return true
+            throw e
+        }
+    }
+    /** R2: as opções da variável que valem agora (as sem condição sempre valem). */
+    const opcoesQueValem = (v: VariavelDaTipologia, pilha: string[]): number[] | null => {
+        const lidas = ctx.opcoes.get(v.variavel)
+        if (!lidas) return null
+        const conds = ctx.condicoesDasOpcoes.get(v.variavel)
+        if (!conds || conds.size === 0) return lidas.map((o) => o.valor)
+        return lidas.filter((o) => {
+            const c = conds.get(o.valor)
+            return c === undefined ? true : condicaoDe(avaliar(c, amb, pilha), `A condição da opção ${o.valor} de ${v.variavel}`)
+        }).map((o) => o.valor)
+    }
+    const valorDaVariavelAtiva = (variavel: VariavelDaTipologia, pilha: string[]): Q => {
+        const nome = variavel.variavel
+        if (!ativa(variavel, pilha)) return racional(Z)
+        const escolha = ctx.entrada.escolhas?.[nome]
+        const validas = ctx.condicoesDasOpcoes.has(nome) ? opcoesQueValem(variavel, pilha) : null
+        if (escolha !== undefined) {
+            if (validas && !validas.includes(escolha)) {
+                throw new ErroDeAvaliacao('ESCOLHA_FORA_DAS_OPCOES',
+                    `A escolha ${nome} = ${escolha} não vale neste item: ${validas.length ? `as opções que valem são ${validas.join(', ')}` : 'nenhuma opção vale'}.`, { variavel: nome })
+            }
+            return deNumero(escolha) as Q
+        }
+        const padrao = variavel.padrao?.trim() ?? ''
+        if (padrao === '') {
+            throw new ErroDeAvaliacao('VARIAVEL_SEM_VALOR', `A variável ${nome} não foi escolhida e não tem padrão.`, { variavel: nome })
+        }
+        const numero = deDecimal(padrao, '.')
+        const valor = numero ?? numeroDe(avaliar(padrao, amb, pilha), `O padrão de ${nome}`)
+        if (validas && !validas.some((x) => compara(deNumero(x) as Q, valor) === 0)) {
+            throw new ErroDeAvaliacao('VARIAVEL_SEM_VALOR',
+                `A variável ${nome} não foi escolhida, e o padrão ${paraNumero(valor)} não vale neste item: ${validas.length ? `escolha entre ${validas.join(', ')}` : 'nenhuma opção vale'}.`, { variavel: nome })
+        }
+        return valor
+    }
     const amb: Ambiente = {
         nome(nome, pilha) {
             if (nome === 'L') return ctx.L
@@ -513,15 +607,11 @@ function ambienteDa(ctx: Contexto): Ambiente {
             }
             const variavel = ctx.variaveis.get(nome)
             if (variavel) {
-                const escolha = ctx.entrada.escolhas?.[nome]
-                if (escolha !== undefined) return deNumero(escolha) as Q
-                const padrao = variavel.padrao?.trim() ?? ''
-                if (padrao === '') {
-                    throw new ErroDeAvaliacao('VARIAVEL_SEM_VALOR', `A variável ${nome} não foi escolhida e não tem padrão.`, { variavel: nome })
-                }
-                const numero = deDecimal(padrao, '.')
-                if (numero) return numero
-                return numeroDe(avaliar(padrao, amb, [...pilha, nome]), `O padrão de ${nome}`)
+                const guardado = ctx.memoriaDasVariaveis.get(nome)
+                if (guardado) return guardado
+                const v = valorDaVariavelAtiva(variavel, [...pilha, nome])
+                ctx.memoriaDasVariaveis.set(nome, v)
+                return v
             }
             const constante = CONSTANTES_DO_LEIA_ME[nome]
             if (constante !== undefined) return deNumero(constante) as Q
@@ -532,6 +622,9 @@ function ambienteDa(ctx: Contexto): Ambiente {
             if (!opcoes) {
                 throw new ErroDeAvaliacao('VARIAVEL_SEM_OPCOES', `&${nome}: ${nome} não é uma variável com opções nesta tipologia.`, { variavel: nome })
             }
+            const variavel = ctx.variaveis.get(nome)
+            // R1: a variável inativa vale 0, e o &VAR dela também
+            if (variavel && !ativa(variavel, [nome])) return racional(Z)
             const escolhido = paraNumero(amb.nome(nome, []))
             const opcao = opcoes.find((o) => o.valor === escolhido)
             if (!opcao) {
@@ -590,6 +683,14 @@ function montar(entrada: EntradaDoAvaliador): { ctx: Contexto } | { recusas: Rec
         if (!lidas) recusas.push({ motivo: 'OPCOES_NAO_PARSEIAM', variavel: v.variavel, mensagem: `As opções de ${v.variavel} não se leem como "<valor> = <rótulo> [<medida>]": "${v.opcoes}".` })
         else opcoes.set(v.variavel, lidas)
     }
+    const condicoesDasOpcoes = new Map<string, Map<number, string>>()
+    for (const v of t.variaveis) {
+        const texto = (v.condicao_opcoes ?? '').trim()
+        if (texto === '') continue
+        const lidas = condicoesDasOpcoesDe(texto)
+        if (!lidas) recusas.push({ motivo: 'OPCOES_NAO_PARSEIAM', variavel: v.variavel, mensagem: `A condição das opções de ${v.variavel} não se lê como "<valor>: <condição>; …": "${texto}".` })
+        else condicoesDasOpcoes.set(v.variavel, lidas)
+    }
     for (const [nome, valor] of Object.entries(entrada.escolhas ?? {})) {
         if (!variaveis.has(nome)) {
             recusas.push({ motivo: 'ESCOLHA_DESCONHECIDA', campo: 'Escolha', variavel: nome, mensagem: `A escolha ${nome} = ${valor} não é de uma variável desta tipologia.` })
@@ -604,7 +705,7 @@ function montar(entrada: EntradaDoAvaliador): { ctx: Contexto } | { recusas: Rec
         }
     }
     if (recusas.length) return { recusas }
-    return { ctx: { entrada, L: L as Q, H: H as Q, formulas, variaveis, opcoes, memoria: new Map() } }
+    return { ctx: { entrada, L: L as Q, H: H as Q, formulas, variaveis, opcoes, condicoesDasOpcoes, memoria: new Map(), memoriaDasVariaveis: new Map() } }
 }
 
 // ── A API ─────────────────────────────────────────────────────────────────────────────────
@@ -696,13 +797,14 @@ export function avaliarTipologia(entrada: EntradaDoAvaliador): ResultadoDaAvalia
         try {
             medida = numeroDe(avaliar(p.medida, amb, []), 'A medida')
         } catch (e) { recusas.push(recusaDe(e, onde('Medida'))); return }
-        if (medida.n <= Z) {
+        // R5 (17/11/2026): o corte sai em mm inteiros, com o decimal CORTADO, como no WVetro (953,6 → 953)
+        if (medida.n <= Z || aoMilimetroCortado(medida) === 0) {
             recusas.push({ motivo: 'COMPRIMENTO_NAO_POSITIVO', ...onde('Medida'), formula: p.medida, comprimento_mm: aoMicrometro(medida),
-                mensagem: `Linha ${linha} da aba Perfis (${p.perfil}): a medida "${p.medida}" dá ${aoMicrometro(medida)} mm — não há peça de comprimento zero ou negativo.` })
+                mensagem: `Linha ${linha} da aba Perfis (${p.perfil}): a medida "${p.medida}" dá ${aoMicrometro(medida)} mm — não há peça de comprimento zero ou negativo${medida.n > Z ? ' (com o decimal cortado, menos de 1 mm)' : ''}.` })
             return
         }
 
-        pecas.push({ codigo: p.perfil, descricao: p.descricao, comprimento_mm: aoMicrometro(medida), quantidade: Number(quantidade.n), corte: p.corte, posicao: p.posicao })
+        pecas.push({ codigo: p.perfil, descricao: p.descricao, comprimento_mm: aoMilimetroCortado(medida), quantidade: Number(quantidade.n), corte: p.corte, posicao: p.posicao })
         linhas.push({ linha, perfil: p.perfil, entrou: true, motivo: null })
     })
 
@@ -742,6 +844,14 @@ export function avaliarTipologia(entrada: EntradaDoAvaliador): ResultadoDaAvalia
 
     // ── os insumos e os vidros (12/11/2026): a linha que não se avalia é FALTA nomeada, nunca recusa nem zero ──
     const faltas: FaltaDoAvaliador[] = []
+    /** R3/R4: a linha com 'Esp. vidro' só entra se a espessura informada estiver na lista; sem espessura, é FALTA nomeada. */
+    const espessuraAtende = (lista: string | null | undefined, falta: (msg: string) => void): boolean => {
+        if (lista === null || lista === undefined || lista.trim() === '') return true
+        const ns = espessurasDe(lista)
+        if (!ns) { falta(`as espessuras "${lista}" não se leem.`); return false }
+        if (esp === null) { falta(`a linha depende da espessura do vidro (${lista} mm), e ela não foi informada.`); return false }
+        return ns.includes(esp)
+    }
     const insumos: InsumoAvaliado[] = []
     ;(entrada.tipologia.insumos ?? []).forEach((x, i) => {
         const linha = i + 1
@@ -749,6 +859,7 @@ export function avaliarTipologia(entrada: EntradaDoAvaliador): ResultadoDaAvalia
         try {
             const condicao = x.condicao.trim() === 'sempre' ? true : condicaoDe(avaliar(x.condicao, amb, []), 'A condição')
             if (!condicao) return
+            if (!espessuraAtende(x.esp_vidro, onde)) return
             const q = numeroDe(avaliar(x.qtd, amb, []), 'A quantidade')
             if (q.n < Z) { onde(`a quantidade "${x.qtd}" dá ${paraNumero(q)}.`); return }
             if (q.n === Z) return
@@ -762,6 +873,7 @@ export function avaliarTipologia(entrada: EntradaDoAvaliador): ResultadoDaAvalia
         try {
             const condicao = x.condicao.trim() === 'sempre' ? true : condicaoDe(avaliar(x.condicao, amb, []), 'A condição')
             if (!condicao) return
+            if (!espessuraAtende(x.esp_vidro, onde)) return
             const q = numeroDe(avaliar(x.qtd, amb, []), 'A quantidade')
             if (!ehInteiro(q) || q.n < Z) { onde(`a quantidade "${x.qtd}" dá ${paraNumero(q)}, que não é um inteiro positivo.`); return }
             if (q.n === Z) return
@@ -796,6 +908,15 @@ export const COLUNAS_OPCIONAIS: Readonly<Record<string, readonly string[]>> = {
     'Insumos': ['Código', 'Insumo', 'Descrição', 'Qtd (fórmula)', 'Condição'],
     'Vidros': ['Código', 'Vidro', 'Largura', 'Altura', 'Qtd', 'Fixação', 'Condição'],
 }
+/**
+ * As COLUNAS opcionais (17/11/2026, motor 6): lidas quando estão no cabeçalho; ausentes, valem nulo — o motor de antes, sem elas,
+ * calcula como antes. 'Condição das opções' (R2) na Variáveis, 'Esp. vidro' (R3/R4) na Insumos e na Vidros.
+ */
+export const COLUNAS_OPCIONAIS_DAS_ABAS: Readonly<Record<string, readonly string[]>> = {
+    'Variáveis': ['Condição das opções'],
+    'Insumos': ['Esp. vidro'],
+    'Vidros': ['Esp. vidro'],
+}
 
 /**
  * As linhas da aba 'Variáveis' de UMA tipologia, pelo nome da coluna. Ponto único: o avaliador e a
@@ -805,7 +926,7 @@ export function variaveisDaAba(aba: AbaDoMotor, codigo: string): VariavelDaTipol
     const texto = (v: unknown) => (v === null || v === undefined ? null : String(v))
     return aba.linhas.filter((l) => l['Código'] === codigo).map((l) => ({
         variavel: texto(l['Var.']) ?? '', descricao: texto(l['Descrição']), padrao: texto(l['Padrão']),
-        condicao: texto(l['Condição']), opcoes: texto(l['Opções']),
+        condicao: texto(l['Condição']), opcoes: texto(l['Opções']), condicao_opcoes: texto(l['Condição das opções']),
     }))
 }
 
@@ -851,10 +972,11 @@ export function lerTipologia(abas: AbasDoMotor, codigo: string): { ok: true; tip
         // as abas OPCIONAIS (12/11/2026): ausentes no arquivo, a tipologia não tem insumo nem vidro — nunca recusa
         insumos: abas['Insumos'] ? daTipologia('Insumos').map((l) => ({
             insumo: textoObrigatorio(l['Insumo']), descricao: texto(l['Descrição']), qtd: textoObrigatorio(l['Qtd (fórmula)']), condicao: textoObrigatorio(l['Condição']) || 'sempre',
+            esp_vidro: texto(l['Esp. vidro']),
         })) : [],
         vidros: abas['Vidros'] ? daTipologia('Vidros').map((l) => ({
             vidro: textoObrigatorio(l['Vidro']), largura: textoObrigatorio(l['Largura']), altura: textoObrigatorio(l['Altura']), qtd: textoObrigatorio(l['Qtd']),
-            fixacao: texto(l['Fixação']), condicao: textoObrigatorio(l['Condição']) || 'sempre',
+            fixacao: texto(l['Fixação']), condicao: textoObrigatorio(l['Condição']) || 'sempre', esp_vidro: texto(l['Esp. vidro']),
         })) : [],
     }
     if (recusas.length) return { ok: false, recusas }
