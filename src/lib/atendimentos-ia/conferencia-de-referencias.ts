@@ -131,7 +131,9 @@ export function conferirReferencias(referencias: readonly ReferenciaDoMotor[], i
     }
     for (const ref of referencias) {
         const r = resolverReferencia(
-            { codigoDoMotor: ref.codigo_wvetro ?? ref.codigo, codigoDaPonte: ref.codigo, descricaoDoMotor: ref.descricao, corPedida: ref.cor },
+            { codigoDoMotor: ref.codigo_wvetro ?? ref.codigo, codigoDaPonte: ref.codigo,
+              ponteDoCodigo: ref.codigo_wvetro === null ? [] : referencias.filter((x) => x.codigo_wvetro === ref.codigo_wvetro).map((x) => ({ codigo: x.codigo, cor: x.cor })),
+              descricaoDoMotor: ref.descricao, corPedida: ref.cor },
             noEscopo, { cores, grupoDeCor: GRUPO_DE_COR.perfil })
         if ('item' in r) {
             const conferida: ReferenciaConferida = { ...ref, como: r.como, itens: [achado(r.item, ref.descricao)], falta: null }

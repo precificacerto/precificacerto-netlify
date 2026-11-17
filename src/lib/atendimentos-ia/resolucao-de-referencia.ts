@@ -49,6 +49,13 @@ export interface ReferenciaProcurada {
     codigoDoMotor: string
     /** O código que a ponte do motor (aba "Motor por barra") deu para a cor pedida; null quando não há ponte. */
     codigoDaPonte: string | null
+    /**
+     * TODAS as linhas da ponte (aba "Motor por barra") deste código do motor, de qualquer cor; vazia quando não há ponte (o insumo). É delas que
+     * sai o CÓDIGO-BASE do fornecedor para o degrau da cor (dono do produto, 17/11/2026: "o perfil determinado é o 1317; o último número, ou os
+     * dois últimos, representam a cor") — o GB8/WOLFF é o 983 da Wolff, e o 983 + PRETO TEXTURADO (20) é o 98320. Obrigatório, sem default
+     * (`construtor-empobrecido.md`): quem não tem ponte diz `[]`.
+     */
+    ponteDoCodigo: ReadonlyArray<{ codigo: string; cor: string | null }>
     /** A descrição que o motor dá à peça — é com ela que o guarda confere a do item. */
     descricaoDoMotor: string | null
     /** A cor da conversa (`cor_perfil`); null quando não foi dita. */
@@ -211,6 +218,26 @@ export function corAfirmadaEhAPedida(a: CorAfirmada, pedida: string, cores: read
 }
 const descreverCor = (a: CorAfirmada) => (a.por === 'sufixo' ? `o código diz ${a.cor}` : a.por === 'descricao' ? `a descrição diz ${a.palavras.join(' ')}` : 'nem o código nem a descrição dizem a cor')
 
+/**
+ * O CÓDIGO-BASE do fornecedor que a ponte afirma (dono do produto, 17/11/2026): o código da peça sem os dígitos da cor. Duas fontes, nesta ordem:
+ *   a. a FAMÍLIA dos códigos da ponte (`baseDaFamilia`: dois ou mais terminam num código da tabela de cores) — 9831, 98320, 98321 → 983;
+ *   b. a linha da ponte cuja COR (a coluna, não a descrição) é uma cor da tabela e cujo código termina no dígito dela — 10511 em BRANCO (1) → 1051.
+ *      Quando as linhas dão bases diferentes, nenhuma vale.
+ * Nada disso é palpite: a cor vem escrita na ponte e o dígito vem da tabela de cores do fornecedor. Sem uma das duas, vazio.
+ */
+export function baseDaPonte(ponte: ReadonlyArray<{ codigo: string; cor: string | null }>, cores: readonly CorDoFornecedor[]): string {
+    const daFamilia = baseDaFamilia(ponte.map((l) => l.codigo), cores)
+    if (daFamilia !== '') return daFamilia
+    const bases = new Set<string>()
+    for (const l of ponte) {
+        if (l.cor === null) continue
+        const cor = cores.find((c) => descricaoNormalizada(c.nome) === descricaoNormalizada(l.cor))
+        const c = semFaceMenor(l.codigo)
+        if (cor && c.length > cor.codigo.length && c.endsWith(cor.codigo)) bases.add(c.slice(0, -cor.codigo.length))
+    }
+    return bases.size === 1 ? [...bases][0] : ''
+}
+
 /** O código + o dígito da cor; o ".1" final (face menor) fica no fim: 1317.1 + 1 = 13171.1. */
 export function codigoComCor(base: string, digito: string): string {
     return base.endsWith('.1') ? `${base.slice(0, -2)}${digito}.1` : `${base}${digito}`
@@ -238,7 +265,10 @@ export function candidatasDoDegrau<I extends ItemResolvivel>(como: ComoAchou, re
         const pedida = descricaoNormalizada(ref.corPedida)
         const cor = doGrupo(ctx).find((c) => descricaoNormalizada(c.nome) === pedida)
         if (!cor) return { como, candidatas: [], pulado: 'COR_FORA_DA_TABELA' }
-        return { como, candidatas: peloCodigo(codigoComCor(base, cor.codigo), sufixo, itens) }
+        // o código do motor + a cor (1317 + 1 = 13171) e, quando a ponte afirma outro código-base, ele + a cor (GB8 é o 983: 983 + 20 = 98320)
+        const daPonte = baseDaPonte(ref.ponteDoCodigo, doGrupo(ctx))
+        const procurados = [...new Set([codigoComCor(base, cor.codigo), ...(daPonte !== '' && daPonte !== base ? [codigoComCor(daPonte, cor.codigo)] : [])])]
+        return { como, candidatas: [...new Set(procurados.flatMap((c) => peloCodigo(c, sufixo, itens)))] }
     }
     // o nome técnico: só nome com letra (código só de números é código), delimitado na descrição; e só com a tabela de cores, que o guarda da cor lê
     if (!/[A-Za-z]/.test(base)) return { como, candidatas: [] }

@@ -41,7 +41,7 @@ const item = (codigo: string, descricao: string, custo: number, fornecedor_id: s
     ({ codigo, descricao, custo, medida_barra_m: N, valor_barra_interno: N, valor_metro_interno: N, tabela_id: `t-${fornecedor_id}-${categoria}`, fornecedor_id, categoria })
 // a tabela de cores do fornecedor do motor (a Wolf tem 19 linhas em produção): sem ela, o resolvedor responde SEM_TABELA_DE_CORES, não NAO_ACHADA
 const CTX = { cores: [{ grupo: 'ACESSORIOS', codigo: '1', nome: 'BRANCO' }], grupoDeCor: 'ACESSORIOS' }
-const ref = (codigoDoMotor: string, descricaoDoMotor: string | null) => ({ codigoDoMotor, codigoDaPonte: null as string | null, descricaoDoMotor, corPedida: 'Branco' })
+const ref = (codigoDoMotor: string, descricaoDoMotor: string | null) => ({ codigoDoMotor, codigoDaPonte: null as string | null, ponteDoCodigo: [] as Array<{ codigo: string; cor: string | null }>, descricaoDoMotor, corPedida: 'Branco' })
 
 // os itens reais (código, descrição e custo como estão no banco em 14/11/2026), mais o 9691 de PERFIL e o VIN04 de VIDRO, que nunca entram
 const TODOS = [

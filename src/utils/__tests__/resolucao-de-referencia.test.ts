@@ -5,7 +5,7 @@
  * produção (Wolf, lidos em 12/11/2026); as cores, as da aba CORES que a migração 20261112000006 grava.
  */
 import {
-    COMO_ACHOU, GRUPO_DE_COR, baseDaFamilia, candidatasDoDegrau, corAfirmada, corAfirmadaEhAPedida, codigoComCor, coresNaDescricao, nomeTecnicoNaDescricao, nomeiaOutraCor, palavrasSignificativas, resolverReferencia,
+    COMO_ACHOU, GRUPO_DE_COR, baseDaFamilia, baseDaPonte, candidatasDoDegrau, corAfirmada, corAfirmadaEhAPedida, codigoComCor, coresNaDescricao, nomeTecnicoNaDescricao, nomeiaOutraCor, palavrasSignificativas, resolverReferencia,
     semOSufixo, sufixoDoFornecedor, tabelaNoEscopo, type CorDoFornecedor, type ReferenciaProcurada,
 } from '@/lib/atendimentos-ia/resolucao-de-referencia'
 
@@ -17,7 +17,7 @@ const CORES: CorDoFornecedor[] = [
     .concat([{ grupo: GRUPO_DE_COR.insumo, codigo: '9', nome: 'PRETO' }, { grupo: GRUPO_DE_COR.insumo, codigo: '1', nome: 'BRANCO' }])
 const PERFIL = { cores: CORES, grupoDeCor: GRUPO_DE_COR.perfil }
 const ref = (codigoDoMotor: string, descricaoDoMotor: string | null, corPedida: string | null = 'BRANCO', codigoDaPonte: string | null = null): ReferenciaProcurada =>
-    ({ codigoDoMotor, codigoDaPonte, descricaoDoMotor, corPedida })
+    ({ codigoDoMotor, codigoDaPonte, ponteDoCodigo: [], descricaoDoMotor, corPedida })
 const como = (r: ReturnType<typeof resolverReferencia<Item>>) => ('item' in r ? `${r.como}:${r.item.codigo}` : r.motivo)
 
 describe('as formas', () => {
@@ -192,5 +192,40 @@ describe('a falta é nomeada, nunca palpite', () => {
     })
     it('a ordem da escada é a do comando', () => {
         expect(COMO_ACHOU).toEqual(['ponte', 'exato', 'cor', 'nome_tecnico'])
+    })
+})
+
+describe('o código-base que a ponte afirma, no degrau da cor (dono do produto, 17/11/2026: "o perfil é o 1317; o último número, ou os dois últimos, são a cor")', () => {
+    // produção, 17/11/2026: a ponte do GB8/WOLFF dá 9831 em BRANCO e as laminadas com "LAMINADO …" na cor, que não é o nome da tabela de cores
+    const GB8 = [{ codigo: '9831', cor: 'BRANCO' }, { codigo: '98320', cor: 'LAMINADO PRETO TEXTURADO' }, { codigo: '98330', cor: 'LAMINADO BRONZE' }]
+    const BAGUETES = [item('9831', 'BAGUETE  DE 8MM - BRANCO'), item('98320', 'BAGUETE  DE 8MM - LAMINADO PRETO TEXTURADO'), item('98330', 'BAGUETE  DE 8MM - LAMINADO BRONZE')]
+    const comPonte = (codigoDoMotor: string, descricao: string, cor: string, ponteDoCodigo: Array<{ codigo: string; cor: string | null }>): ReferenciaProcurada =>
+        ({ codigoDoMotor, codigoDaPonte: null, ponteDoCodigo, descricaoDoMotor: descricao, corPedida: cor })
+
+    it('a família dos códigos da ponte dá a base (983)', () => {
+        expect(baseDaPonte(GB8, CORES.filter((c) => c.grupo === GRUPO_DE_COR.perfil))).toBe('983')
+    })
+    it('uma linha só: a cor ESCRITA na ponte e o dígito dela na tabela de cores dão a base (10511 em BRANCO → 1051)', () => {
+        expect(baseDaPonte([{ codigo: '10511', cor: 'BRANCO' }], CORES.filter((c) => c.grupo === GRUPO_DE_COR.perfil))).toBe('1051')
+    })
+    it('sem cor na ponte, cor fora da tabela, código que não termina no dígito, ou bases que discordam: vazio', () => {
+        const perfil = CORES.filter((c) => c.grupo === GRUPO_DE_COR.perfil)
+        expect(baseDaPonte([{ codigo: '10511', cor: null }], perfil)).toBe('')
+        expect(baseDaPonte([{ codigo: '10511', cor: 'ROXO' }], perfil)).toBe('')
+        expect(baseDaPonte([{ codigo: '10512', cor: 'BRANCO' }], perfil)).toBe('')
+        expect(baseDaPonte([{ codigo: '10511', cor: 'BRANCO' }, { codigo: '20520', cor: 'PRETO TEXTURADO' }], perfil)).toBe('')
+        expect(baseDaPonte([], perfil)).toBe('')
+    })
+    it('GB8/WOLFF em PRETO TEXTURADO acha o 98320 pelo degrau da cor (983 + 20); sem a ponte, não acha', () => {
+        expect(como(resolverReferencia(comPonte('GB8/WOLFF', 'BAGUETE DE 8MM', 'PRETO TEXTURADO', GB8), BAGUETES, PERFIL))).toBe('cor:98320')
+        expect(como(resolverReferencia(comPonte('GB8/WOLFF', 'BAGUETE DE 8MM', 'PRETO TEXTURADO', []), BAGUETES, PERFIL))).not.toBe('cor:98320')
+    })
+    it('o guarda da descrição continua valendo: o código da base + cor que é outra peça é recusado', () => {
+        const outra = [item('98320', 'REFORÇO FOLHA AÇO GALVANIZADO')]
+        expect(como(resolverReferencia(comPonte('GB8/WOLFF', 'BAGUETE DE 8MM', 'PRETO TEXTURADO', GB8), outra, PERFIL))).toBe('DESCRICAO_NAO_CONCORDA')
+    })
+    it('a base do código do motor continua valendo (1317 + 1 = 13171), e as duas bases não duplicam o candidato', () => {
+        const r = resolverReferencia(comPonte('1317/WOLFF', 'PERSIANA PVC 57MM', 'BRANCO', [{ codigo: '13171', cor: 'BRANCO' }]), [item('13171', 'PERSIANA PVC 57MM - BRANCO')], PERFIL)
+        expect(como(r)).toBe('cor:13171')
     })
 })

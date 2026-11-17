@@ -295,7 +295,7 @@ function ponte(perfil: string, cor: string, regras: readonly RegraDoDePara[]): {
 function completarDoisCodigos(r: RecusaDaPonte, itens: readonly ItemDaTabela[]): RecusaDaPonte {
     const candidatos = (r.candidatos ?? []).map((c) => {
         // o candidato pelo degrau da PONTE da mesma resolução do cálculo (nunca uma segunda busca à parte); só para mostrar os valores
-        const achados = candidatasDoDegrau('ponte', { codigoDoMotor: r.perfil ?? c.codigo, codigoDaPonte: c.codigo, descricaoDoMotor: null, corPedida: null }, itens, { cores: [], grupoDeCor: GRUPO_DE_COR.perfil }).candidatas
+        const achados = candidatasDoDegrau('ponte', { codigoDoMotor: r.perfil ?? c.codigo, codigoDaPonte: c.codigo, ponteDoCodigo: [], descricaoDoMotor: null, corPedida: null }, itens, { cores: [], grupoDeCor: GRUPO_DE_COR.perfil }).candidatas
         const it = achados.length === 1 ? achados[0] : undefined
         return { codigo: c.codigo, descricao: it?.descricao ?? null, valor_barra_interno: it?.valor_barra_interno ?? null, valor_metro_interno: it?.valor_metro_interno ?? null }
     })
@@ -325,7 +325,7 @@ function completarDoisCodigos(r: RecusaDaPonte, itens: readonly ItemDaTabela[]):
  */
 function candidatosNaTabela(r: RecusaDaPonte, itens: readonly ItemDaTabela[]): string[] {
     return (r.candidatos ?? []).map((c) => c.codigo).filter((codigo) =>
-        candidatasDoDegrau('ponte', { codigoDoMotor: r.perfil ?? codigo, codigoDaPonte: codigo, descricaoDoMotor: null, corPedida: null },
+        candidatasDoDegrau('ponte', { codigoDoMotor: r.perfil ?? codigo, codigoDaPonte: codigo, ponteDoCodigo: [], descricaoDoMotor: null, corPedida: null },
             itens, { cores: [], grupoDeCor: GRUPO_DE_COR.perfil }).candidatas.length > 0)
 }
 /**
@@ -471,7 +471,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
             }
             // 'nenhum': segue sem ponte; a escada resolve ou nomeia a falta com a frase que corresponde ao que achou
         }
-        const r = resolverReferencia({ codigoDoMotor: perfil, codigoDaPonte, descricaoDoMotor: descricao, corPedida: cor }, entrada.itens, contexto)
+        const r = resolverReferencia({ codigoDoMotor: perfil, codigoDaPonte, ponteDoCodigo: entrada.regras.filter((x) => x.codigo_wvetro === perfil).map((x) => ({ codigo: x.codigo, cor: x.cor })), descricaoDoMotor: descricao, corPedida: cor }, entrada.itens, contexto)
         if (!('item' in r)) {
             faltar(r.motivo, `${maiuscula(r.frase)}.`, r.candidatas.map((c) => ({ codigo: c.item.codigo, descricao: c.item.descricao ?? null })))
             continue
