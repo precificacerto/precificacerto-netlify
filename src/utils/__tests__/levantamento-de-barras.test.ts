@@ -151,6 +151,15 @@ describe('(1) a DP-02 em BRANCO, de ponta a ponta', () => {
         const sf66 = e.pecas.filter((p) => p.perfil === 'SF66/WOLFF')
         expect(sf66.map((p) => [p.codigo, p.comprimento_mm, p.quantidade])).toEqual([['9681', 595.8, 4], ['9681', 917.6, 4]])
     })
+    it('O CORTE (16/11/2026): cada peça leva o corte e a posição da aba Perfis do motor, e o resultado leva a serra com que as barras se agruparam', () => {
+        const r = ok([esquadria()])
+        const daAba = dp02().perfis.filter((x) => x.perfil === 'SF66/WOLFF').map((x) => `${x.corte}|${x.posicao}`).sort()
+        const sf66 = r.esquadrias[0].pecas.filter((p) => p.perfil === 'SF66/WOLFF').map((p) => `${p.corte}|${p.posicao}`).sort()
+        expect(daAba.length).toBeGreaterThan(0)
+        expect(sf66).toEqual(daAba)
+        for (const p of r.esquadrias[0].pecas) expect([typeof p.corte, typeof p.posicao]).toEqual(['string', 'string'])
+        expect(r.serra_mm).toBe(SERRA)
+    })
 
     it('a COR É A DA ENTRADA, não uma fixa: em PRETO TEXTURADO, o HF88 só existe em BRANCO — é FALTA nomeada, e o branco não entra', () => {
         // com a cor fixa em BRANCO, o 9641 entraria: é a cor pedida que decide o código

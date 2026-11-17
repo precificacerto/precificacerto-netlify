@@ -10,6 +10,7 @@
  * Código sem categoria, ou em tabelas de mais de uma categoria, NÃO é posto numa delas: vai a uma lista própria, nomeado (`a-coluna-que-
  * parece-enumeracao`, `faltou-dado-recusa-nomeada`).
  */
+import { agruparPorCategoria } from './categoria-do-relatorio'
 
 export type MaterialGravado = {
     /** O código como a tabela de preço o tem (o que o cálculo fotografou). */
@@ -36,7 +37,7 @@ export type RelatorioDeMateriais = {
  * Só as linhas do CÁLCULO VIGENTE de cada item (o `calculo_id` que o item guarda): a linha de um cálculo anterior do mesmo item não entra, e
  * item sem cálculo não tem linha nenhuma.
  */
-export function materiaisDoCalculoVigente<T extends { orcamento_item_id: string; calculo_id: string | null }>(
+export function linhasDoCalculoVigente<T extends { orcamento_item_id: string; calculo_id: string | null }>(
     itens: ReadonlyArray<{ id: string; calculo_id: string | null }>,
     linhas: readonly T[],
 ): T[] {
@@ -74,24 +75,12 @@ export function montarRelatorioDeMateriais(
         else somados.set(chave, { codigo: m.codigo_na_tabela, descricao: m.descricao, unidade, quantidade: m.consumo_item })
     }
     const porCodigo = (a: MaterialDoRelatorio, b: MaterialDoRelatorio) => (a.codigo < b.codigo ? -1 : a.codigo > b.codigo ? 1 : 0)
-    const porCategoria = new Map<string, MaterialDoRelatorio[]>()
-    const semCategoria: MaterialDoRelatorio[] = []
-    const ambiguos: RelatorioDeMateriais['ambiguos'] = []
-    for (const m of somados.values()) {
-        const cats = [...new Set(categoriasDoCodigo.get(m.codigo) ?? [])].sort()
-        if (cats.length === 0) semCategoria.push(m)
-        else if (cats.length > 1) ambiguos.push({ ...m, categorias: cats })
-        else porCategoria.set(cats[0], [...(porCategoria.get(cats[0]) ?? []), m])
+    const g = agruparPorCategoria([...somados.values()].sort(porCodigo), (m) => m.codigo, categoriasDoCodigo, ordem, rotulos)
+    return {
+        categorias: g.categorias.map((c) => ({ chave: c.chave, rotulo: c.rotulo, materiais: c.itens })),
+        semCategoria: g.semCategoria,
+        ambiguos: g.ambiguos.map((a) => ({ ...a.item, categorias: a.categorias })),
     }
-    const posicao = (c: string) => {
-        const k = ordem.indexOf(c)
-        if (k >= 0) return k
-        const r = [...rotulos.keys()].indexOf(c)
-        return ordem.length + (r >= 0 ? r : rotulos.size)
-    }
-    const categorias = [...porCategoria.keys()].sort((a, b) => posicao(a) - posicao(b) || (a < b ? -1 : 1))
-        .map((chave) => ({ chave, rotulo: rotulos.get(chave) ?? chave, materiais: porCategoria.get(chave)!.sort(porCodigo) }))
-    return { categorias, semCategoria: semCategoria.sort(porCodigo), ambiguos: ambiguos.sort(porCodigo) }
 }
 
 /** A quantidade como o relatório a mostra: metros e m² com duas casas, unidades sem casa quando inteiras. */

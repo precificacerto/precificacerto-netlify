@@ -28,6 +28,7 @@ const { TEXTO_DA_LISTA_VAZIA, urlDoArquivo } = require('@/pages/atendimentos-ia/
 const Relatorios = require('@/pages/atendimentos-ia/relatorios-ia/index').default as React.ComponentType
 const { ABAS_DOS_RELATORIOS, TEXTO_DA_ABA_SEM_CONTEUDO, TEXTO_SEM_ORCAMENTO } = require('@/pages/atendimentos-ia/relatorios-ia/index')
 const { RelatorioDeMateriais, TEXTO_SEM_MATERIAL, fraseDosItensSemCalculo } = require('@/page-parts/atendimentos-ia/relatorio-de-materiais.component')
+const { RelatorioDeCorte, TEXTO_SEM_PECA, fraseDosItensSemPecas } = require('@/page-parts/atendimentos-ia/relatorio-de-corte.component')
 const { PAGE_TITLES } = require('@/constants/page-titles')
 /* eslint-enable @typescript-eslint/no-require-imports */
 
@@ -127,5 +128,46 @@ describe('o RELATÓRIO DE MATERIAIS (dono do produto, 16/11/2026)', () => {
         servidor.status = 404; servidor.corpo = { error: 'Orçamento não encontrado.' }
         const host = await montar(<RelatorioDeMateriais orcamentoId="o-1" />)
         expect(host.textContent).toContain('Orçamento não encontrado.')
+    })
+})
+
+describe('o RELATÓRIO DE CORTE (dono do produto, 16/11/2026)', () => {
+    const codigo = (extra: Record<string, unknown> = {}) => ({
+        codigo: '9681', perfil: 'SF66/WOLFF', descricao: 'SF66 - FOLHA',
+        linhas: [{ comprimento_mm: 2000, corte: '45S/45S', posicao: 'Largura', quantidade: 4 }],
+        plano: { barra_mm: 6000, serra_mm: 5, n_barras: 2, aproveitamento_pct: 66.7, barras: [
+            { pecas_mm: [2000, 2000], cortes: 2, usado_mm: 4010, sobra_mm: 1990 }, { pecas_mm: [2000, 2000], cortes: 2, usado_mm: 4010, sobra_mm: 1990 }] },
+        ...extra,
+    })
+    it('lê a rota e mostra, por categoria, cada código com a medida, o corte, a posição, a quantidade e o plano de barras', async () => {
+        servidor.corpo = { relatorio: { categorias: [{ chave: 'PERFIL', rotulo: 'Perfil', codigos: [codigo()] }], semCategoria: [], ambiguos: [], itensSemCalculo: [], itensSemPecas: [] } }
+        const host = await montar(<RelatorioDeCorte orcamentoId="o-1" />)
+        expect(servidor.chamadas).toEqual(['/api/atendimentos-ia/orcamentos/o-1/relatorio-de-corte'])
+        const bloco = host.querySelector('[data-codigo-do-corte="9681"]')!
+        expect(bloco.textContent).toContain('2.000 mm')
+        expect(bloco.textContent).toContain('45S/45S')
+        expect(bloco.textContent).toContain('Largura')
+        expect(bloco.querySelector('[data-plano]')?.textContent).toContain('Barra de 6.000 mm, serra de 5 mm: 2 barras, aproveitamento de 66,7%')
+        expect(bloco.querySelectorAll('[data-plano] li')).toHaveLength(2)
+        expect(bloco.querySelector('[data-plano] li')?.textContent).toBe('2.000 mm + 2.000 mm · sobra 1.990 mm')
+    })
+    it('o código sem plano diz por quê; os itens sem peças gravadas são nomeados com o "recalcule"', async () => {
+        servidor.corpo = { relatorio: {
+            categorias: [{ chave: 'PERFIL', rotulo: 'Perfil', codigos: [codigo({ plano: { semPlano: 'o código 9681 não teve barra no cálculo' } })] }],
+            semCategoria: [], ambiguos: [], itensSemCalculo: [], itensSemPecas: [1, 2],
+        } }
+        const host = await montar(<RelatorioDeCorte orcamentoId="o-1" />)
+        expect(host.querySelector('[data-sem-plano]')?.textContent).toContain('Sem plano de barras: o código 9681 não teve barra no cálculo.')
+        expect(host.querySelector('[data-plano]')).toBeNull()
+        expect(host.querySelector('[data-itens-sem-pecas]')?.textContent).toBe(fraseDosItensSemPecas([1, 2]))
+        expect(fraseDosItensSemPecas([1, 2])).toBe('Os itens 1, 2 foram calculados antes do relatório de corte existir: recalcule o orçamento para ver as peças deles.')
+    })
+    it('sem peça nenhuma, o vazio é dito; a migração pendente (503) aparece com a frase da rota', async () => {
+        servidor.corpo = { relatorio: { categorias: [], semCategoria: [], ambiguos: [], itensSemCalculo: [], itensSemPecas: [] } }
+        const host = await montar(<RelatorioDeCorte orcamentoId="o-1" />)
+        expect(host.textContent).toContain(TEXTO_SEM_PECA)
+        servidor.status = 503; servidor.corpo = { error: 'O relatório de corte ainda não está disponível: a estrutura do banco (migração 20261117000001) não foi aplicada.' }
+        const outro = await montar(<RelatorioDeCorte orcamentoId="o-2" />)
+        expect(outro.textContent).toContain('migração 20261117000001')
     })
 })

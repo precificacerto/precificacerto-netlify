@@ -13,6 +13,7 @@
  * A ORDEM DA ESCRITA É A QUE NÃO DEIXA NÚMERO ERRADO (dono do produto, 09/11/2026):
  *   0. ANULA, no orçamento, os totais e o valor de venda — o cálculo de antes deixa de valer ANTES de qualquer número novo;
  *   1. o material, com o `calculo_id` novo (o item só aponta um cálculo que já existe);
+ *   1a. as PEÇAS do corte (`orcamentista_orcamento_item_peca`, 20261117000001), com o mesmo `calculo_id` — sem a tabela, o cálculo segue;
  *   2. os itens, apontando o cálculo;
  *   3. o orçamento: os totais e os percentuais.
  * As escritas não são uma transação. A falha no meio deixa os totais NULOS — ausentes e visíveis ("cálculo incompleto — recalcule", na
@@ -40,6 +41,8 @@ import { avisosDeDivergencia, type LinhaDaTabelaCongelada } from './divergencia-
 
 export const TABELA_DO_MATERIAL = 'orcamentista_orcamento_item_material'
 export const TABELA_DA_FALTA = 'orcamentista_orcamento_falta'
+/** As PEÇAS do cálculo (migração 20261117000001): o relatório de corte. */
+export const TABELA_DA_PECA = 'orcamentista_orcamento_item_peca'
 /** As colunas da fotografia da resolução e do caminho do custo (migração 20261112000006). */
 export const COLUNAS_DA_RESOLUCAO = ['codigo_na_tabela', 'resolucao', 'caminho'] as const
 export const FRASE_SEM_MIGRACAO_DOS_CAMINHOS =
@@ -84,6 +87,11 @@ export type ResultadoDoCalculo = {
     faltas: Array<FaltaDoOrcamento & { orcamento_item_id: string; ordem: number }>
     /** Algum item ficou com falta: o orçamento é PARCIAL. */
     parcial: boolean
+    /**
+     * AS PEÇAS DO CORTE (16/11/2026, migração 20261117000001): `gravadas` quando o cálculo guardou as peças de perfil de cada esquadria;
+     * `sem_migracao` quando a tabela ainda não existe — o cálculo vale do mesmo jeito, e o relatório de corte deste cálculo fica sem peças.
+     */
+    pecas_do_corte: 'gravadas' | 'sem_migracao'
 }
 
 /** Os itens do levantamento de onde o orçamento do agente veio: as escolhas, a família e a tabela congelada de cada um. */
@@ -176,6 +184,21 @@ async function gravarOCalculo(tenantId: string, id: string, orc: Lido['orc'], do
             fotografia_da_resolucao = 'sem_migracao'
         } else if (error) falhou(TABELA_DO_MATERIAL, error)
     }
+    // 1a. AS PEÇAS DO CORTE, com o mesmo cálculo (16/11/2026): só INSERT, como o material. Sem a tabela (a 20261117000001 pendente), o cálculo
+    // segue — o preço não depende delas — e o resultado diz; qualquer outro erro é a recusa de sempre
+    const pecas = custo.pecasPorItem.flatMap((ps, k) => ps.map((p, j) => ({
+        tenant_id: tenantId, orcamento_item_id: orc.itens[k].id, calculo_id, ordem: j + 1,
+        perfil: cabe(p.perfil, 60), codigo: cabe(p.codigo, 60), descricao: p.descricao === null || p.descricao.trim() === '' ? null : cabe(p.descricao, 300),
+        comprimento_mm: p.comprimento_mm, quantidade_por_esquadria: p.quantidade_por_esquadria, quantidade: p.quantidade,
+        corte: p.corte === null || p.corte.trim() === '' ? null : cabe(p.corte, 30), posicao: p.posicao === null || p.posicao.trim() === '' ? null : cabe(p.posicao, 30),
+        comprimento_barra_mm: p.comprimento_barra_mm, serra_mm: p.serra_mm,
+    })))
+    let pecas_do_corte: 'gravadas' | 'sem_migracao' = 'gravadas'
+    if (pecas.length) {
+        const { error } = await db().from(TABELA_DA_PECA).insert(pecas)
+        if (error && tabelaAusente(error)) pecas_do_corte = 'sem_migracao'
+        else if (error) throw new Error(`${TABELA_DA_PECA}: ${error.message}`)
+    }
     // 1b. as faltas, com o mesmo cálculo: o que ficou fora do custo, nomeado
     if (faltas.length) {
         const { error } = await db().from(TABELA_DA_FALTA).insert(faltas.map((f) => ({
@@ -227,7 +250,7 @@ async function gravarOCalculo(tenantId: string, id: string, orc: Lido['orc'], do
     }
     if (error) falhou(TABELA_DO_ORCAMENTO, error)
     if (!data || data.length !== 1) throw new Error(`${TABELA_DO_ORCAMENTO}: o orçamento ${id} não foi atualizado (os itens já apontam o cálculo ${calculo_id})`)
-    return { calculo_id, calculado_em, itens, valor_total_bruto, valor_total_liquido, avisos, fotografia_da_resolucao, faltas, parcial: faltas.length > 0 }
+    return { calculo_id, calculado_em, itens, valor_total_bruto, valor_total_liquido, avisos, fotografia_da_resolucao, faltas, parcial: faltas.length > 0, pecas_do_corte }
 }
 
 /** O código do vidro ESCOLHIDO de cada item (20261112000006); sem a coluna, nenhum foi escolhido e o vidro vai pelo texto. */

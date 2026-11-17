@@ -149,9 +149,52 @@ function montar() {
     estado.chamadasDoCusto = []
     estado.naoAtinge = []
     estado.familias = []
-    estado.custo = { ok: true, itens: [itemDoCusto(450, 120), itemDoCusto(250, 60)], maoDeObra: { custoMensal: 1, minutosDaEmpresa: 2, valorDoMinuto: 0.5 }, faltas: [] }
+    estado.custo = { ok: true, itens: [itemDoCusto(450, 120), itemDoCusto(250, 60)], maoDeObra: { custoMensal: 1, minutosDaEmpresa: 2, valorDoMinuto: 0.5 }, faltas: [] , pecasPorItem: [[], []] }
 }
 beforeEach(montar)
+
+describe('(P) AS PEÇAS DO CORTE, com o mesmo cálculo (16/11/2026, migração 20261117000001)', () => {
+    const peca = (codigo: string, extra: Linha = {}) => ({
+        perfil: `${codigo}/WOLFF`, codigo, descricao: 'PERFIL', comprimento_mm: 1215.5, quantidade_por_esquadria: 2, quantidade: 4,
+        corte: '45S/45S', posicao: 'Largura', comprimento_barra_mm: 6000, serra_mm: 5, ...extra,
+    })
+    const comPecas = () => { estado.custo = { ...(estado.custo as Linha), pecasPorItem: [[peca('A'), peca('B', { corte: '  ', posicao: '', descricao: '' })], [peca('C')]] } }
+    it('grava as peças de cada item com o cálculo novo, a ordem de 1 a N POR ITEM, o tenant, e corte/posição/descrição vazios como NULO', async () => {
+        comPecas()
+        const r = await K().calcularOrcamento(T, O1, new Date('2026-11-09T15:00:00Z'), () => 'calc-novo')
+        const ins = escritas().filter((o) => o.tabela === 'orcamentista_orcamento_item_peca')
+        expect(ins.map((o) => o.op)).toEqual(['insert'])
+        const linhas = ins[0].carga as Linha[]
+        expect(linhas.map((l) => [l.tenant_id, l.orcamento_item_id, l.calculo_id, l.ordem, l.codigo])).toEqual([
+            [T, 'i1', 'calc-novo', 1, 'A'], [T, 'i1', 'calc-novo', 2, 'B'], [T, 'i2', 'calc-novo', 1, 'C'],
+        ])
+        expect(linhas[0]).toMatchObject({ perfil: 'A/WOLFF', corte: '45S/45S', posicao: 'Largura', comprimento_mm: 1215.5, quantidade: 4, comprimento_barra_mm: 6000, serra_mm: 5 })
+        expect([linhas[1].corte, linhas[1].posicao, linhas[1].descricao]).toEqual([null, null, null])
+        expect(r.pecas_do_corte).toBe('gravadas')
+        // as peças vêm DEPOIS do material e ANTES de o item apontar o cálculo
+        const ordem = escritas().map((o) => `${o.tabela}:${o.op}`)
+        expect(ordem.indexOf('orcamentista_orcamento_item_peca:insert')).toBe(ordem.indexOf('orcamentista_orcamento_item_material:insert') + 1)
+        expect(ordem.indexOf('orcamentista_orcamento_item_peca:insert')).toBeLessThan(ordem.indexOf('orcamentista_orcamento_item:update'))
+    })
+    it('SEM A TABELA (a migração pendente): o cálculo vale do mesmo jeito, e o resultado diz sem_migracao', async () => {
+        comPecas()
+        estado.erros['orcamentista_orcamento_item_peca:insert'] = [{ code: '42P01', message: 'relation "orcamentista_orcamento_item_peca" does not exist' }]
+        const r = await K().calcularOrcamento(T, O1, new Date(), () => 'calc-novo')
+        expect(r.pecas_do_corte).toBe('sem_migracao')
+        expect(escritas().filter((o) => o.tabela === 'orcamentista_orcamento_item').length).toBe(2)
+        expect(escritas().filter((o) => o.tabela === 'orcamentista_orcamento').length).toBe(2)
+    })
+    it('outro erro ao gravar as peças NÃO passa em silêncio: o cálculo falha antes de o item apontar o cálculo', async () => {
+        comPecas()
+        estado.erros['orcamentista_orcamento_item_peca:insert'] = [{ code: '23514', message: 'violates check constraint' }]
+        await expect(K().calcularOrcamento(T, O1, new Date(), () => 'calc-novo')).rejects.toThrow('orcamentista_orcamento_item_peca: violates check constraint')
+        expect(escritas().some((o) => o.tabela === 'orcamentista_orcamento_item' && o.op === 'update')).toBe(false)
+    })
+    it('sem peça nenhuma (só insumo e vidro), nada é gravado na tabela das peças', async () => {
+        await K().calcularOrcamento(T, O1, new Date(), () => 'calc-novo')
+        expect(escritas().some((o) => o.tabela === 'orcamentista_orcamento_item_peca')).toBe(false)
+    })
+})
 
 describe('(1) a ordem da escrita e o que cada passo grava', () => {
     it('o material com um cálculo novo, depois cada item apontando o cálculo, depois o orçamento — e o tenant em todas', async () => {
@@ -194,7 +237,7 @@ describe('(1) a ordem da escrita e o que cada passo grava', () => {
         expect('editado_manualmente_em' in carga).toBe(false)
     })
     it('o manual: sem levantamento, nenhum congelado é escrito (nem como nulo)', async () => {
-        estado.custo = { ok: true, itens: [itemDoCusto(300, 30)], maoDeObra: { custoMensal: 1, minutosDaEmpresa: 2, valorDoMinuto: 0.5 }, faltas: [] }
+        estado.custo = { ok: true, itens: [itemDoCusto(300, 30)], maoDeObra: { custoMensal: 1, minutosDaEmpresa: 2, valorDoMinuto: 0.5 }, faltas: [] , pecasPorItem: [[]] }
         await K().calcularOrcamento(T, O2, new Date(), () => 'c2')
         const carga = escritas().filter((o) => o.tabela === 'orcamentista_orcamento').pop()!.carga as Linha
         expect('comissao_percentual' in carga).toBe(false)

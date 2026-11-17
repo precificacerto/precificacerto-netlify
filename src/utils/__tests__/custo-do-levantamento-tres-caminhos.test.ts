@@ -43,7 +43,7 @@ function montar() {
                     vidros: [{ vidro: 'VIDRO', largura_mm: 1000, altura_mm: 500, quantidade: 2, fixacao: N }],
                     faltasDoAvaliador: [{ aba: 'Insumos', linha: 3, codigo: 'Q9', mensagem: 'Linha 3 da aba Insumos (Q9): a fórmula não fecha.' }],
                 }],
-                total: { barras_por_codigo: {} }, faltas: [], resolucoes: {},
+                total: { barras_por_codigo: {} }, faltas: [], resolucoes: {}, por_codigo: [], serra_mm: 5,
             },
             maos: [{ ok: true, custoMensal: 1000, minutosDaEmpresa: 1000, minutosPorUnidade: 10, quantidade: 3 }],
             daFamilia: { todos: ITENS, noEscopoDoMotor: [], fornecedorDoMotor: 'wolf' },
@@ -93,6 +93,22 @@ describe('o custo pelos três caminhos, no servidor', () => {
      * O `vendido_por` TEM DE CHEGAR do item da tabela até o material (16/11/2026): é ele que diz que o insumo é comprado em ROLO e que o
      * consumo do motor está em milímetros. Perdido no caminho, a escova voltaria a ser cobrada a preço de rolo por milímetro.
      */
+    it('O CORTE (16/11/2026): as peças de cada item saem com o corte, a posição, a barra do código no agrupador e a serra do cálculo', async () => {
+        const c = calculo.valor as { calculos: Array<{ r: Record<string, unknown> & { esquadrias: Array<Record<string, unknown>> } }> }
+        c.calculos[0].r.esquadrias[0].pecas = [
+            { perfil: 'SF66/WOLFF', codigo: '9681', descricao: 'SF66', comprimento_mm: 1215.5, quantidade_por_esquadria: 2, quantidade: 6, corte: '45S/45S', posicao: 'Largura' },
+            { perfil: 'IL36/WOLFF', codigo: '9711', descricao: 'IL36', comprimento_mm: 1100, quantidade_por_esquadria: 1, quantidade: 3, corte: '90/90', posicao: 'Altura' },
+        ]
+        c.calculos[0].r.por_codigo = [{ codigo: '9681', comprimento_barra_mm: 6000 }]
+        c.calculos[0].r.serra_mm = 4
+        const r = await ok()
+        expect(r.pecasPorItem).toHaveLength(1)
+        expect(r.pecasPorItem[0].map((p) => [p.codigo, p.corte, p.posicao, p.quantidade, p.comprimento_barra_mm, p.serra_mm])).toEqual([
+            ['9681', '45S/45S', 'Largura', 6, 6000, 4],
+            // o código que não passou pelo agrupador (sem preço) fica sem barra: nulo, nunca uma barra suposta
+            ['9711', '90/90', 'Altura', 3, null, 4],
+        ])
+    })
     it('o insumo em ROLO lido da TABELA: o vendido_por chega ao material e o custo sai por metro', async () => {
         const c = calculo.valor as { lev: { itens: Array<Record<string, unknown>> }; calculos: Array<{ daFamilia: { todos: unknown[] }; r: { esquadrias: Array<Record<string, unknown>> } }> }
         c.calculos[0].daFamilia.todos = [...ITENS, {

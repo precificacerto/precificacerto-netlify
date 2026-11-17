@@ -1,7 +1,7 @@
 /**
  * /atendimentos-ia/relatorios-ia — os RELATÓRIOS I.A. (dono do produto, 11/11/2026), a terceira seção de Agentes I.A.: por CLIENTE ORÇADO
- * (um orçamento I.A.), duas abas — o relatório de materiais e o relatório de corte. O de MATERIAIS existe desde 16/11/2026
- * (`RelatorioDeMateriais`); o de corte ainda não, e a tela diz isso (nunca uma tabela vazia que pareça "sem corte").
+ * (um orçamento I.A.), duas abas — o relatório de materiais (`RelatorioDeMateriais`) e o relatório de corte (`RelatorioDeCorte`), os dois
+ * desde 16/11/2026. `TEXTO_DA_ABA_SEM_CONTEUDO` fica para uma aba nova que nasça sem conteúdo.
  */
 import React, { useCallback, useEffect, useState } from 'react'
 import { Alert, Card, Empty, Select, Spin, Tabs, Typography } from 'antd'
@@ -9,6 +9,7 @@ import { Alert, Card, Empty, Select, Spin, Tabs, Typography } from 'antd'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { RelatorioDeMateriais } from '@/page-parts/atendimentos-ia/relatorio-de-materiais.component'
+import { RelatorioDeCorte } from '@/page-parts/atendimentos-ia/relatorio-de-corte.component'
 
 type OrcamentoParaRelatorio = { id: string; numero: number; nome: string }
 type Estado =
@@ -59,7 +60,7 @@ const RelatoriosIA: React.FC = () => {
                                 key: a.key, label: a.label,
                                 children: (
                                     <div data-aba-do-relatorio={a.key}>
-                                        {a.key === 'materiais' ? <RelatorioDeMateriais orcamentoId={escolhido} /> : <Empty description={TEXTO_DA_ABA_SEM_CONTEUDO} />}
+                                        {a.key === 'materiais' ? <RelatorioDeMateriais orcamentoId={escolhido} /> : a.key === 'corte' ? <RelatorioDeCorte orcamentoId={escolhido} /> : <Empty description={TEXTO_DA_ABA_SEM_CONTEUDO} />}
                                     </div>
                                 ),
                             }))} />
