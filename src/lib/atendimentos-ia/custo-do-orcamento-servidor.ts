@@ -24,6 +24,7 @@
  * O MODO é o fallback SEM aproveitamento: as barras de cada FAMÍLIA são rateadas entre as esquadrias dela (as barras de uma família não
  * entram na otimização da outra — a mesma regra da conversa).
  */
+import type { PecaDoCorte } from './relatorio-de-corte'
 import { calcularOLevantamento, mensagemDoCalculo, type EsquadriaGravada, type FamiliasDaEmpresa, type ItemDaFamilia } from './levantamento-da-conversa'
 import { custoDoOrcamento, valorDoMinuto, chaveDoMaterial, PERCENTUAIS, type CaminhoDoCusto, type CustoDoItem, type MaterialDaTabela, type Percentuais, type ResolucaoGravada } from './custo-do-orcamento'
 import type { ItemDaTabela } from './levantamento-de-barras'
@@ -51,7 +52,11 @@ export type FaltaDoOrcamento = {
     candidatas: Array<{ codigo: string; descricao: string | null }>
 }
 export type CustoDoLevantamento =
-    | { ok: true; itens: CustoDoItem[]; maoDeObra: MaoDeObraDaEmpresa; faltas: FaltaDoOrcamento[] }
+    | {
+        ok: true; itens: CustoDoItem[]; maoDeObra: MaoDeObraDaEmpresa; faltas: FaltaDoOrcamento[]
+        /** As peças de perfil de cada item, na ordem de `itens` (o relatório de corte, 16/11/2026): o que o cálculo levantou e com que barra e serra. */
+        pecasPorItem: PecaDoCorte[][]
+    }
     | { ok: false; recusas: string[] }
 
 export const fraseDaFamiliaSemCalculo = (rotulo: string) =>
@@ -136,6 +141,7 @@ export async function custoDoLevantamento(tenantId: string, fonte: FamiliasDaEmp
     const codigosDoPadrao = padroes.ok ? [...new Set([...padroes.porFamilia.values()].flat().map((l) => l.item_codigo))] : []
 
     const porItem: Array<CustoDoItem | undefined> = new Array(lev.itens.length)
+    const pecasPorItem: PecaDoCorte[][] = lev.itens.map((): PecaDoCorte[] => [])
     const recusas: string[] = []
     const faltas: FaltaDoOrcamento[] = []
     let maoDeObra: MaoDeObraDaEmpresa | null = null
@@ -218,6 +224,15 @@ export async function custoDoLevantamento(tenantId: string, fonte: FamiliasDaEmp
         })
         if ('recusas' in r) { recusas.push(...r.recusas); return }
         r.itens.forEach((it, j) => { porItem[g.indices[j]] = it })
+        // O CORTE (16/11/2026): as peças de cada esquadria como o motor as deu, com a barra do código e a serra com que o agrupador as juntou
+        const barraDoCodigo = new Map(calculo.r.por_codigo.map((c) => [c.codigo, c.comprimento_barra_mm]))
+        calculo.r.esquadrias.forEach((e, j) => {
+            pecasPorItem[g.indices[j]] = e.pecas.map((p) => ({
+                perfil: p.perfil, codigo: p.codigo, descricao: p.descricao, comprimento_mm: p.comprimento_mm,
+                quantidade_por_esquadria: p.quantidade_por_esquadria, quantidade: p.quantidade, corte: p.corte, posicao: p.posicao,
+                comprimento_barra_mm: barraDoCodigo.get(p.codigo) ?? null, serra_mm: calculo.r.serra_mm,
+            }))
+        })
         // o que o custo deixou de fora por valor ausente (o item existe, o número não)
         for (const f of r.faltas) {
             faltar(f.item + 1, { caminho: f.caminho, codigo_do_motor: f.codigo, descricao_do_motor: materiais[chaveDoMaterial(f.caminho, f.codigo)]?.descricao ?? null, motivo: f.motivo, frase: f.frase, candidatas: [] })
@@ -225,5 +240,5 @@ export async function custoDoLevantamento(tenantId: string, fonte: FamiliasDaEmp
     })
     if (recusas.length) return { ok: false, recusas }
     if (maoDeObra === null || porItem.some((i) => i === undefined)) return { ok: false, recusas: ['o custo de todos os itens: algum ficou sem cálculo'] }
-    return { ok: true, itens: porItem as CustoDoItem[], maoDeObra, faltas }
+    return { ok: true, itens: porItem as CustoDoItem[], maoDeObra, faltas, pecasPorItem }
 }

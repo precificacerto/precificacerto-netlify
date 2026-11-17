@@ -223,7 +223,7 @@ describe('(4) de ponta a ponta: o custo do orçamento leva o insumo do TERCEIRO 
                             { codigo: '21495', descricao: 'CREMONA DE CORRER | E15 | 1600MM | INOX 304', quantidade: 1 },
                             { codigo: '99999', descricao: 'PECA INEXISTENTE', quantidade: 1 },
                         ] }],
-                    total: { barras_por_codigo: {} }, faltas: [], resolucoes: {},
+                    total: { barras_por_codigo: {} }, faltas: [], resolucoes: {}, por_codigo: [], serra_mm: 5,
                 },
                 maos: [{ ok: true, custoMensal: 1000, minutosDaEmpresa: 1000, minutosPorUnidade: 10, quantidade: 2 }],
                 daFamilia: { todos: TODOS.map((i) => ({ ...i, ...BLOCO })), noEscopoDoMotor: [], fornecedorDoMotor: 'wolf' },

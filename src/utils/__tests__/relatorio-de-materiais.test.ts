@@ -2,7 +2,7 @@
  * O RELATÓRIO DE MATERIAIS (dono do produto, 16/11/2026): o que o pedido inteiro precisa, por categoria, na ordem da base de conhecimento.
  */
 import {
-    materiaisDoCalculoVigente, montarRelatorioDeMateriais, quantidadeNoRelatorio, unidadeDoConsumo, type MaterialGravado,
+    linhasDoCalculoVigente, montarRelatorioDeMateriais, quantidadeNoRelatorio, unidadeDoConsumo, type MaterialGravado,
 } from '@/lib/atendimentos-ia/relatorio-de-materiais'
 
 const m = (codigo: string, consumo: number, caminho = 'perfil', unidade: string | null = 'MT', descricao: string | null = `peça ${codigo}`): MaterialGravado =>
@@ -57,7 +57,7 @@ describe('a unidade e a quantidade', () => {
     })
 })
 
-describe('materiaisDoCalculoVigente', () => {
+describe('linhasDoCalculoVigente', () => {
     it('só as linhas do cálculo que o item guarda; item sem cálculo e cálculo anterior não entram', () => {
         const itens = [{ id: 'i1', calculo_id: 'c2' }, { id: 'i2', calculo_id: null }]
         const linhas = [
@@ -66,6 +66,6 @@ describe('materiaisDoCalculoVigente', () => {
             { orcamento_item_id: 'i2', calculo_id: 'c9', n: 'sem cálculo no item' },
             { orcamento_item_id: 'i3', calculo_id: 'c2', n: 'de outro item' },
         ]
-        expect(materiaisDoCalculoVigente(itens, linhas).map((l) => l.n)).toEqual(['vigente'])
+        expect(linhasDoCalculoVigente(itens, linhas).map((l) => l.n)).toEqual(['vigente'])
     })
 })

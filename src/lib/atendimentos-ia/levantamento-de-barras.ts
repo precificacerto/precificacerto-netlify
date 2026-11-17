@@ -132,6 +132,9 @@ export type PecaDaEsquadria = {
     quantidade_por_esquadria: number
     /** quantidade_por_esquadria × a quantidade da esquadria */
     quantidade: number
+    /** O CORTE e a POSIÇÃO da peça, como a aba Perfis do motor os escreve ("45S/45S", "90/90"; "Largura", "Altura"): o relatório de corte. */
+    corte: string
+    posicao: string
 }
 export type EsquadriaLevantada = {
     indice: number
@@ -212,6 +215,8 @@ export type ResultadoDoLevantamento =
     | {
         ok: true
         cor: string
+        /** A serra com que as barras foram agrupadas (a da base de conhecimento, no momento do cálculo): o plano de corte a grava. */
+        serra_mm: number
         esquadrias: EsquadriaLevantada[]
         por_codigo: CodigoLevantado[]
         /** Os dois totais, SÓ do que tem preço: o código sem preço é falta (`faltas`), e o total é parcial quando há falta (12/11/2026). */
@@ -389,7 +394,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
     const parciais: RecusaParcial[] = []
 
     // 1. cada esquadria pelo avaliador
-    type PecaBruta = { esquadria: number; perfil: string; descricao: string; comprimento_mm: number; quantidade_por_esquadria: number; quantidade: number }
+    type PecaBruta = { esquadria: number; perfil: string; descricao: string; comprimento_mm: number; quantidade_por_esquadria: number; quantidade: number; corte: string; posicao: string }
     const brutas: PecaBruta[] = []
     const levantadas: Array<Omit<EsquadriaLevantada, 'pecas'>> = []
     entrada.esquadrias.forEach((e, k) => {
@@ -431,7 +436,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
             insumos: r.insumos, vidros: r.vidros, faltasDoAvaliador: r.faltas })
         for (const p of r.pecas) {
             brutas.push({ esquadria: indice, perfil: p.codigo, descricao: p.descricao, comprimento_mm: p.comprimento_mm,
-                quantidade_por_esquadria: p.quantidade, quantidade: p.quantidade * e.quantidade })
+                quantidade_por_esquadria: p.quantidade, quantidade: p.quantidade * e.quantidade, corte: p.corte, posicao: p.posicao })
         }
     })
 
@@ -526,12 +531,13 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
         ...e,
         pecas: brutas.filter((b) => b.esquadria === e.indice && codigoDoPerfil[b.perfil] !== undefined).map((b) => ({
             perfil: b.perfil, codigo: codigoDoPerfil[b.perfil], descricao: b.descricao, comprimento_mm: b.comprimento_mm,
-            quantidade_por_esquadria: b.quantidade_por_esquadria, quantidade: b.quantidade,
+            quantidade_por_esquadria: b.quantidade_por_esquadria, quantidade: b.quantidade, corte: b.corte, posicao: b.posicao,
         })),
     }))
     return {
         ok: true,
         cor,
+        serra_mm: entrada.serra_mm,
         esquadrias,
         por_codigo: agrupado.por_codigo.map((c) => ({ ...c, perfil: perfilDoCodigo[c.codigo], descricao: itemDoCodigo[c.codigo].descricao ?? null })),
         total: agrupado.total,
