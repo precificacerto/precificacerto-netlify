@@ -1911,7 +1911,11 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             // texto o que está nele (barras, aproveitamento, mão de obra, o que o preço cobre) — o WhatsApp leva só os QUESTIONAMENTOS (as faltas)
             if (sim.enviadoPara && telefonesCasam(sim.enviadoPara, c.telefone)) {
                 // o AVISO da atualização (o orçamento já atualizado; a edição manual substituída) vai junto do arquivo, por texto — nunca em silêncio
-                const texto = [sim.aviso, sim.questionamentos].filter(Boolean).join('\n\n')
+                // SÓ O ORÇAMENTO NO WHATSAPP (dono do produto, 17/11/2026): o arquivo e UMA linha — o número, o total e, no parcial, quantos valores
+                // faltam (listados no arquivo). Barras, plano de corte e mão de obra ficam no sistema. A edição manual substituída continua dita
+                const texto = sim.linhaDoEnvio
+                    ? [sim.linhaDoEnvio, sim.edicaoManual ? sim.aviso : null].filter(Boolean).join('\n\n')
+                    : [sim.aviso, sim.questionamentos].filter(Boolean).join('\n\n')
                 if (texto) return await responder(texto, levantamento.desfecho, `${semApanhado ? `${semApanhado} ` : ''}so_arquivo=sim`, false)
                 // a SAÍDA é gravada mesmo sem texto: é ela que marca a entrada como respondida (o reenvio do WUZAPI não conduz de novo) e diz ao
                 // histórico o que o agente fez. O id é o do envio do arquivo

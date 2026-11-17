@@ -227,10 +227,12 @@ export async function custoDoLevantamento(tenantId: string, fonte: FamiliasDaEmp
         // O CORTE (16/11/2026): as peças de cada esquadria como o motor as deu, com a barra do código e a serra com que o agrupador as juntou
         const barraDoCodigo = new Map(calculo.r.por_codigo.map((c) => [c.codigo, c.comprimento_barra_mm]))
         calculo.r.esquadrias.forEach((e, j) => {
-            pecasPorItem[g.indices[j]] = e.pecas.map((p) => ({
+            // e as peças do perfil SEM PREÇO (17/11/2026): fora do custo, dentro do corte, com a barra da tabela ou a que o motor declara
+            pecasPorItem[g.indices[j]] = [...e.pecas.map((p) => ({ p, barra: barraDoCodigo.get(p.codigo) ?? null })),
+                ...e.pecas_sem_preco.map((p) => ({ p, barra: calculo.r.barras_sem_preco[p.codigo] ?? null }))].map(({ p, barra }) => ({
                 perfil: p.perfil, codigo: p.codigo, descricao: p.descricao, comprimento_mm: p.comprimento_mm,
                 quantidade_por_esquadria: p.quantidade_por_esquadria, quantidade: p.quantidade, corte: p.corte, posicao: p.posicao,
-                comprimento_barra_mm: barraDoCodigo.get(p.codigo) ?? null, serra_mm: calculo.r.serra_mm,
+                comprimento_barra_mm: barra, serra_mm: calculo.r.serra_mm,
             }))
         })
         // o que o custo deixou de fora por valor ausente (o item existe, o número não)

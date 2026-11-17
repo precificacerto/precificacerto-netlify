@@ -119,6 +119,12 @@ export type EntradaDoLevantamento = {
     regras: readonly RegraDoDePara[]
     itens: readonly ItemDaTabela[]
     serra_mm: number
+    /**
+     * A BARRA QUE O MOTOR DECLARA (aba "Otimização de barras": `barra_mm` e `excecoes`). Serve SÓ ao corte do perfil SEM PREÇO (dono do produto,
+     * 17/11/2026: "Todos os perfis têm uma medida"): o plano de corte sai mesmo sem o valor. O custo continua só com o que tem preço. Obrigatória:
+     * o motor sem a aba diz `{ padrao_mm: null, excecoes: {} }`, e o perfil sem preço sai sem plano, como antes.
+     */
+    barraDoMotor: BarraDoMotor
     /** A tabela de cores do fornecedor do motor (`orcamentista_fornecedor_cor`); vazia = o degrau "código + cor" não acha nada. */
     cores?: readonly CorDoFornecedor[]
 }
@@ -136,6 +142,39 @@ export type PecaDaEsquadria = {
     corte: string
     posicao: string
 }
+/** A barra declarada no motor: a padrão e as exceções por código do motor (`IL50/WOLFF` → 5500). */
+export type BarraDoMotor = { padrao_mm: number | null; excecoes: Readonly<Record<string, number>> }
+const numeroDaMedida = (t: string): number | null => {
+    const n = Number(t.trim().replace(/\./g, '').replace(',', '.'))
+    return Number.isFinite(n) && n > 0 ? n : null
+}
+/**
+ * A barra do motor a partir das linhas da aba "Otimização de barras" (`parametro`, `valor`): `barra_mm` = "6000"; `excecoes` =
+ * "IL50/WOLFF 5.500 mm; KT16 5.800 mm (conforme tabela Wolff)". O que não se lê como "<código> <número> mm" não vira exceção.
+ */
+export function barraDoMotorDasLinhas(linhas: ReadonlyArray<{ parametro: string | null; valor: string | null }>): BarraDoMotor {
+    const de = (p: string) => linhas.find((l) => (l.parametro ?? '').trim().toLowerCase() === p)?.valor ?? null
+    const padrao = de('barra_mm')
+    const excecoes: Record<string, number> = {}
+    for (const parte of (de('excecoes') ?? '').split(';')) {
+        const m = /^\s*(\S+)\s+([\d.,]+)\s*mm/i.exec(parte)
+        const mm = m ? numeroDaMedida(m[2]) : null
+        if (m && mm !== null) excecoes[m[1].toUpperCase()] = mm
+    }
+    return { padrao_mm: padrao === null ? null : numeroDaMedida(padrao), excecoes }
+}
+/**
+ * A barra do perfil SEM PREÇO, para o corte: a medida do item da tabela, quando o item existe (o 1352: está na tabela, sem valor); senão a
+ * exceção do motor para o código (com ou sem o sufixo do fornecedor); senão a barra padrão do motor. Nenhuma das três: nula (sem plano).
+ */
+export function barraDoPerfilSemPreco(perfil: string, item: { medida_barra_m?: number | null } | null, barra: BarraDoMotor): number | null {
+    const daTabela = item ? milimetrosDaBarra(item.medida_barra_m) : null
+    if (daTabela !== null) return daTabela
+    const p = perfil.toUpperCase()
+    const semSufixo = p.replace(/\s*\/\s*[A-Z]+\s*$/, '')
+    return barra.excecoes[p] ?? barra.excecoes[semSufixo] ?? barra.padrao_mm
+}
+
 export type EsquadriaLevantada = {
     indice: number
     tipologia: string
@@ -143,6 +182,11 @@ export type EsquadriaLevantada = {
     H_mm: number
     quantidade: number
     pecas: PecaDaEsquadria[]
+    /**
+     * AS PEÇAS DOS PERFIS SEM PREÇO (17/11/2026): fora do custo e das barras compradas, mas DENTRO do corte — o plano de corte delas usa a barra
+     * de `barras_sem_preco`. O código é o do item quando ele existe (sem valor), senão o do motor.
+     */
+    pecas_sem_preco: PecaDaEsquadria[]
     avisos: AvisoDoAvaliador[]
     /** Os insumos e os panos de vidro da esquadria, pela avaliação (12/11/2026), por UNIDADE da esquadria; a quantidade multiplica no custo. */
     insumos: InsumoAvaliado[]
@@ -229,6 +273,8 @@ export type ResultadoDoLevantamento =
          * (`resolucao-de-referencia.ts`). É o que a fotografia do material grava, para auditar como cada preço foi parar ali.
          */
         resolucoes: Record<string, { item: ItemDaTabela; como: ComoAchou }>
+        /** A barra de cada código SEM PREÇO (17/11/2026), para o corte; nula = nem a tabela nem o motor dizem a barra. */
+        barras_sem_preco: Record<string, number | null>
     }
     | { ok: false; recusas: RecusaDoLevantamento[] }
 
@@ -396,7 +442,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
     // 1. cada esquadria pelo avaliador
     type PecaBruta = { esquadria: number; perfil: string; descricao: string; comprimento_mm: number; quantidade_por_esquadria: number; quantidade: number; corte: string; posicao: string }
     const brutas: PecaBruta[] = []
-    const levantadas: Array<Omit<EsquadriaLevantada, 'pecas'>> = []
+    const levantadas: Array<Omit<EsquadriaLevantada, 'pecas' | 'pecas_sem_preco'>> = []
     entrada.esquadrias.forEach((e, k) => {
         const indice = k + 1
         if (!Number.isInteger(e.quantidade) || e.quantidade <= 0) {
@@ -447,13 +493,17 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
     const itemDoCodigo: Record<string, ItemDaTabela> = {}
     const resolucoes: Record<string, { item: ItemDaTabela; como: ComoAchou }> = {}
     const faltas: FaltaDePreco[] = []
+    const codigoSemPreco: Record<string, string> = {}
+    const barrasSemPreco: Record<string, number | null> = {}
     const tipologiaDa = new Map(levantadas.map((l) => [l.indice, l.tipologia]))
     const contexto = { cores: entrada.cores ?? [], grupoDeCor: GRUPO_DE_COR.perfil }
     for (const perfil of perfis) {
         const daPeca = brutas.filter((b) => b.perfil === perfil)
         const esquadrias = [...new Set(daPeca.map((b) => b.esquadria))]
         const descricao = daPeca[0]?.descricao?.trim() || null
-        const faltar = (motivo: string, frase: string, candidatas: Array<{ codigo: string; descricao: string | null }> = []) => {
+        const faltar = (motivo: string, frase: string, candidatas: Array<{ codigo: string; descricao: string | null }> = [], semPreco?: { codigo: string; item: ItemDaTabela | null }) => {
+            // o perfil sem preço ainda é CORTADO (17/11/2026): o código e a barra vão para o corte; a ponte ambígua não tem código, e não vai
+            if (semPreco) { codigoSemPreco[perfil] = semPreco.codigo; barrasSemPreco[semPreco.codigo] = barraDoPerfilSemPreco(perfil, semPreco.item, entrada.barraDoMotor) }
             for (const esquadria of esquadrias) faltas.push({ caminho: 'perfil', codigo_do_motor: perfil, descricao_do_motor: descricao, cor, tipologia: tipologiaDa.get(esquadria) ?? '', esquadria, motivo, frase, candidatas })
         }
         const p = ponte(perfil, cor, entrada.regras)
@@ -473,14 +523,14 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
         }
         const r = resolverReferencia({ codigoDoMotor: perfil, codigoDaPonte, ponteDoCodigo: entrada.regras.filter((x) => x.codigo_wvetro === perfil).map((x) => ({ codigo: x.codigo, cor: x.cor })), descricaoDoMotor: descricao, corPedida: cor }, entrada.itens, contexto)
         if (!('item' in r)) {
-            faltar(r.motivo, `${maiuscula(r.frase)}.`, r.candidatas.map((c) => ({ codigo: c.item.codigo, descricao: c.item.descricao ?? null })))
+            faltar(r.motivo, `${maiuscula(r.frase)}.`, r.candidatas.map((c) => ({ codigo: c.item.codigo, descricao: c.item.descricao ?? null })), { codigo: perfil, item: null })
             continue
         }
         const it = r.item
         // zero é valor; ausente é falta (`ausente-vs-falso.md`)
         const semValor = ([['valor_barra_interno', 'da barra'], ['valor_metro_interno', 'do metro']] as const).filter(([campo]) => !Number.isFinite(it[campo] as number))
         if (semValor.length) {
-            faltar('SEM_VALOR', `o item ${it.codigo} da tabela de preço (achado para ${perfil}${descricao ? `, ${descricao}` : ''}, pela ${r.como.replace('_', ' ')}) está sem o valor ${semValor.map(([, n]) => n).join(' e sem o valor ')}.`)
+            faltar('SEM_VALOR', `o item ${it.codigo} da tabela de preço (achado para ${perfil}${descricao ? `, ${descricao}` : ''}, pela ${r.como.replace('_', ' ')}) está sem o valor ${semValor.map(([, n]) => n).join(' e sem o valor ')}.`, [], { codigo: it.codigo, item: it })
             continue
         }
         const codigo = codigoDaPonte !== null && r.como === 'ponte' ? codigoDaPonte : it.codigo
@@ -533,6 +583,10 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
             perfil: b.perfil, codigo: codigoDoPerfil[b.perfil], descricao: b.descricao, comprimento_mm: b.comprimento_mm,
             quantidade_por_esquadria: b.quantidade_por_esquadria, quantidade: b.quantidade, corte: b.corte, posicao: b.posicao,
         })),
+        pecas_sem_preco: brutas.filter((b) => b.esquadria === e.indice && codigoDoPerfil[b.perfil] === undefined && codigoSemPreco[b.perfil] !== undefined).map((b) => ({
+            perfil: b.perfil, codigo: codigoSemPreco[b.perfil], descricao: b.descricao, comprimento_mm: b.comprimento_mm,
+            quantidade_por_esquadria: b.quantidade_por_esquadria, quantidade: b.quantidade, corte: b.corte, posicao: b.posicao,
+        })),
     }))
     return {
         ok: true,
@@ -543,6 +597,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
         total: agrupado.total,
         avisos: levantadas.flatMap((e) => e.avisos.map((a) => ({ ...a, esquadria: e.indice }))),
         faltas,
+        barras_sem_preco: barrasSemPreco,
         resolucoes,
     }
 }

@@ -97,7 +97,7 @@ function esquadria(e: Partial<Esquadria> = {}): Esquadria {
 const CORES = [['1', 'BRANCO'], ['18', 'EXTERNO PRETO TEXTURADO'], ['19', 'EXTERNO GOLDEN OAK'], ['20', 'PRETO TEXTURADO'], ['21', 'AMADEIRADO GOLDEN OAK'], ['30', 'BRONZE'],
     ['31', 'GRAFITE'], ['32', 'EXTERNO BRONZE'], ['33', 'EXTERNO GRAFITE'], ['36', 'PRETO LISO'], ['37', 'AMADEIRADO NOGUEIRA'], ['38', 'EXTERNO PRETO LISO'],
     ['39', 'EXTERNO NOGUEIRA'], ['40', 'PIRITA'], ['41', 'EXTERNO PIRITA']].map(([codigo, nome]) => ({ grupo: 'PERFIS DE PVC', codigo, nome }))
-function levantar(esquadrias: Esquadria[], o: { regras?: Regra[]; itens?: Item[]; tipologias?: Record<string, unknown>; cor?: string } = {}) {
+function levantar(esquadrias: Esquadria[], o: { regras?: Regra[]; itens?: Item[]; tipologias?: Record<string, unknown>; cor?: string; barraDoMotor?: { padrao_mm: number | null; excecoes: Record<string, number> } } = {}) {
     return L().levantarBarras({
         esquadrias,
         cor: o.cor ?? 'BRANCO',
@@ -105,6 +105,7 @@ function levantar(esquadrias: Esquadria[], o: { regras?: Regra[]; itens?: Item[]
         regras: o.regras ?? REGRAS,
         itens: o.itens ?? ITENS,
         serra_mm: SERRA,
+        barraDoMotor: o.barraDoMotor ?? { padrao_mm: null, excecoes: {} },
         cores: CORES,
     })
 }
@@ -503,3 +504,49 @@ describe('(7) os avisos e a pureza', () => {
 })
 
 export {}
+
+describe('o PERFIL SEM PREÇO continua CORTADO (dono do produto, 17/11/2026: "Todos os perfis têm uma medida")', () => {
+    const BARRA = { padrao_mm: 6000, excecoes: { 'IL50/WOLFF': 5500, KT16: 5800 } }
+
+    it('a barra do motor lida da aba "Otimização de barras", com as exceções escritas como em produção', () => {
+        expect(L().barraDoMotorDasLinhas([
+            { parametro: 'barra_mm', valor: '6000' },
+            { parametro: 'excecoes', valor: 'IL50/WOLFF 5.500 mm; KT16 5.800 mm (conforme tabela Wolff)' },
+            { parametro: 'serra_mm', valor: '5' },
+        ])).toEqual(BARRA)
+        expect(L().barraDoMotorDasLinhas([])).toEqual({ padrao_mm: null, excecoes: {} })
+        expect(L().barraDoMotorDasLinhas([{ parametro: 'barra_mm', valor: 'seis metros' }]).padrao_mm).toBeNull()
+    })
+    it('a barra do perfil sem preço: a medida do item quando ele existe; senão a exceção (com ou sem o sufixo); senão a padrão; senão nula', () => {
+        expect(L().barraDoPerfilSemPreco('1352/WOLFF', { medida_barra_m: 5.8 }, BARRA)).toBe(5800)
+        expect(L().barraDoPerfilSemPreco('IL50/WOLFF', null, BARRA)).toBe(5500)
+        expect(L().barraDoPerfilSemPreco('KT16/WOLFF', null, BARRA)).toBe(5800)
+        expect(L().barraDoPerfilSemPreco('ZS30/WOLFF', null, BARRA)).toBe(6000)
+        expect(L().barraDoPerfilSemPreco('ZS30/WOLFF', null, { padrao_mm: null, excecoes: {} })).toBeNull()
+    })
+    it('SEM VALOR: o item sem valor fica fora do custo e das barras compradas, e as peças dele vão ao corte com o código do item e a barra da tabela', () => {
+        const itens = ITENS.map((i) => (i.codigo === '9641' ? { ...i, valor_barra_interno: null } : i))
+        const r = ok([esquadria()], { itens, barraDoMotor: BARRA })
+        expect(faltasDe(r)).toEqual([['SEM_VALOR', 'HF88/WOLFF', 1]])
+        expect(r.total.barras_por_codigo['9641']).toBeUndefined()
+        expect(r.esquadrias[0].pecas.some((p) => p.perfil === 'HF88/WOLFF')).toBe(false)
+        const semPreco = r.esquadrias[0].pecas_sem_preco
+        expect(semPreco.length).toBeGreaterThan(0)
+        expect(new Set(semPreco.map((p) => `${p.perfil}>${p.codigo}`))).toEqual(new Set(['HF88/WOLFF>9641']))
+        expect(r.barras_sem_preco['9641']).toBe(6000)
+    })
+    it('NÃO ACHADO: as peças vão ao corte com o código do motor e a barra do motor; sem a barra do motor, vão sem barra (nula)', () => {
+        const r = ok([esquadria()], { cor: 'PRETO TEXTURADO', barraDoMotor: BARRA })
+        expect(r.faltas.some((f) => f.codigo_do_motor === 'HF88/WOLFF' && f.motivo === 'NAO_ACHADA')).toBe(true)
+        expect(r.esquadrias[0].pecas_sem_preco.filter((p) => p.perfil === 'HF88/WOLFF').every((p) => p.codigo === 'HF88/WOLFF')).toBe(true)
+        expect(r.esquadrias[0].pecas_sem_preco.some((p) => p.perfil === 'HF88/WOLFF')).toBe(true)
+        expect(r.barras_sem_preco['HF88/WOLFF']).toBe(6000)
+        const sem = ok([esquadria()], { cor: 'PRETO TEXTURADO' })
+        expect(sem.barras_sem_preco['HF88/WOLFF']).toBeNull()
+    })
+    it('o perfil COM preço não vai às peças sem preço', () => {
+        const r = ok([esquadria()], { barraDoMotor: BARRA })
+        expect(r.esquadrias[0].pecas_sem_preco).toEqual([])
+        expect(r.barras_sem_preco).toEqual({})
+    })
+})

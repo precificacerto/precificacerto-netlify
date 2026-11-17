@@ -38,12 +38,12 @@ function montar() {
             d: { cor: 'BRANCO', esquadrias: [{ numero: 1, tipologia: 'DP-02' }] },
             r: {
                 esquadrias: [{
-                    tipologia: 'DP-02', quantidade: 3, pecas: [],
+                    tipologia: 'DP-02', quantidade: 3, pecas: [], pecas_sem_preco: [],
                     insumos: [{ codigo: '10457', descricao: 'ROLDANA', quantidade: 2 }],
                     vidros: [{ vidro: 'VIDRO', largura_mm: 1000, altura_mm: 500, quantidade: 2, fixacao: N }],
                     faltasDoAvaliador: [{ aba: 'Insumos', linha: 3, codigo: 'Q9', mensagem: 'Linha 3 da aba Insumos (Q9): a fórmula não fecha.' }],
                 }],
-                total: { barras_por_codigo: {} }, faltas: [], resolucoes: {}, por_codigo: [], serra_mm: 5,
+                total: { barras_por_codigo: {} }, faltas: [], resolucoes: {}, barras_sem_preco: {}, por_codigo: [], serra_mm: 5,
             },
             maos: [{ ok: true, custoMensal: 1000, minutosDaEmpresa: 1000, minutosPorUnidade: 10, quantidade: 3 }],
             daFamilia: { todos: ITENS, noEscopoDoMotor: [], fornecedorDoMotor: 'wolf' },
@@ -108,6 +108,22 @@ describe('o custo pelos três caminhos, no servidor', () => {
             // o código que não passou pelo agrupador (sem preço) fica sem barra: nulo, nunca uma barra suposta
             ['9711', '90/90', 'Altura', 3, null, 4],
         ])
+    })
+    it('O PERFIL SEM PREÇO no corte (17/11/2026): as peças dele entram DEPOIS das com preço, com a barra que o cálculo deu (a da tabela ou a do motor)', async () => {
+        const c = calculo.valor as { calculos: Array<{ r: Record<string, unknown> & { esquadrias: Array<Record<string, unknown>> } }> }
+        c.calculos[0].r.esquadrias[0].pecas = [
+            { perfil: 'SF66/WOLFF', codigo: '9681', descricao: 'SF66', comprimento_mm: 1215.5, quantidade_por_esquadria: 2, quantidade: 6, corte: '45S/45S', posicao: 'Largura' },
+        ]
+        c.calculos[0].r.esquadrias[0].pecas_sem_preco = [
+            { perfil: 'ZS30/WOLFF', codigo: 'ZS30/WOLFF', descricao: 'APLIQUE', comprimento_mm: 900, quantidade_por_esquadria: 2, quantidade: 6, corte: '90/90', posicao: 'Altura' },
+            { perfil: 'XX/WOLFF', codigo: 'XX/WOLFF', descricao: 'SEM BARRA', comprimento_mm: 500, quantidade_por_esquadria: 1, quantidade: 3, corte: '90/90', posicao: 'Largura' },
+        ]
+        c.calculos[0].r.por_codigo = [{ codigo: '9681', comprimento_barra_mm: 6000 }]
+        c.calculos[0].r.barras_sem_preco = { 'ZS30/WOLFF': 6000, 'XX/WOLFF': null }
+        const r = await ok()
+        expect(r.pecasPorItem[0].map((p) => [p.codigo, p.quantidade, p.comprimento_barra_mm])).toEqual([['9681', 6, 6000], ['ZS30/WOLFF', 6, 6000], ['XX/WOLFF', 3, null]])
+        // fora do custo: nenhum material de perfil sai das peças sem preço
+        expect(r.itens[0].materiais.filter((m) => m.caminho === 'perfil').map((m) => m.codigo)).not.toContain('ZS30/WOLFF')
     })
     it('o insumo em ROLO lido da TABELA: o vendido_por chega ao material e o custo sai por metro', async () => {
         const c = calculo.valor as { lev: { itens: Array<Record<string, unknown>> }; calculos: Array<{ daFamilia: { todos: unknown[] }; r: { esquadrias: Array<Record<string, unknown>> } }> }

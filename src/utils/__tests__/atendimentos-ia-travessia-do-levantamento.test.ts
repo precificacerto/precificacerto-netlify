@@ -118,7 +118,7 @@ import {
 import { ErroNaoEncontrado, LIMITE_DO_NOME as LIMITE_DO_NOME_DO_ORCAMENTO } from '@/lib/atendimentos-ia/orcamentos-ia'
 import {
     LIMITE_DO_NOME, atualizarOrcamento, diferencaDoOrcamento, edicaoManualMaisNova, fraseDaEdicaoManualSubstituida, fraseDoNome, fraseDoOrcamentoArquivado, fraseDoParcialQueContinua,
-    fraseDoOrcamentoJaAtualizado, mesmaFamilia, type ItemAtivoDoOrcamento, type ItemDoPlanoComparado,
+    fraseDoOrcamentoJaAtualizado, fraseDaLinhaDoEnvio, mesmaFamilia, type ItemAtivoDoOrcamento, type ItemDoPlanoComparado,
 } from '@/lib/atendimentos-ia/travessia-do-levantamento'
 import { fraseDoArquivoQueNaoChegou } from '@/lib/atendimentos-ia/arquivo-que-nao-chegou'
 import { MOTIVO_DO_FALLBACK } from '@/lib/atendimentos-ia/custo-do-orcamento'
@@ -505,6 +505,8 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
         comFamilia('PVC')
         expect(await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)).toEqual({
             rastro: 'orcamento=1 atualizacao=sem_mudanca reenvio=ok', paraOVendedor: 'reenviado', aviso: fraseDoOrcamentoJaAtualizado(1), enviadoPara: '5551999990000', idDoEnvio: 'id-reenvio',
+            // a linha do envio (17/11/2026): sem valor_venda gravado no mock, o total não sai — nunca zero
+            linhaDoEnvio: 'Segue o orçamento 1.',
         })
         expect(reenvio.chamadas).toEqual([{ id: String(estado.db.orcamentista_orcamento[0].id), numero: 1, nome: 'Geraldo Huck' }])
         semear({ estado: 'EM_MONTAGEM' })
@@ -675,6 +677,7 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
             aviso: 'O orçamento 1 continua PARCIAL: nada mudou no levantamento, e 1 valor continua sem preço. O arquivo dele vai de novo, sem recálculo.\n'
                 + 'Para completar, preciso de:\n• SF92/WOLFF não está na tabela de preço (item 1).',
             enviadoPara: '5551999990000', idDoEnvio: 'id-reenvio',
+            linhaDoEnvio: 'Segue o orçamento 1. Saiu PARCIAL: 1 valor sem preço, listado no arquivo.',
         })
         expect(r.aviso).not.toBe(fraseDoOrcamentoJaAtualizado(1))
         nenhumDelete()
@@ -779,5 +782,21 @@ describe('(8) o aviso da tabela congelada', () => {
         expect(c.bruto).toBe(220)
         const [a] = avisosDeDivergencia([{ ordem: 1, tabelaCongelada: 'tab-velha', tabelasVigentes: ['tab-nova'], materiais: [material('1001'), material('9999')] }], new Map([['tab-velha', congelada]]), nomes)
         expect(a.endsWith('; sem preço ou sem crédito apurável na congelada: 9999 (fora da conta, não somados como zero).')).toBe(true)
+    })
+})
+
+describe('(9) SÓ O ORÇAMENTO NO WHATSAPP (dono do produto, 17/11/2026): a linha do envio', () => {
+    it('o número, o total em reais e, no parcial, quantos valores faltam — listados no arquivo', () => {
+        expect(fraseDaLinhaDoEnvio(7, 12345.6, 0)).toBe('Segue o orçamento 7. Total: R$ 12.345,60.')
+        expect(fraseDaLinhaDoEnvio(7, 12345.6, 1)).toBe('Segue o orçamento 7. Total: R$ 12.345,60. Saiu PARCIAL: 1 valor sem preço, listado no arquivo.')
+        expect(fraseDaLinhaDoEnvio(7, 12345.6, 3)).toBe('Segue o orçamento 7. Total: R$ 12.345,60. Saiu PARCIAL: 3 valores sem preço, listados no arquivo.')
+    })
+    it('o total ausente não vira zero: a linha sai sem ele', () => {
+        expect(fraseDaLinhaDoEnvio(7, null, 0)).toBe('Segue o orçamento 7.')
+        expect(fraseDaLinhaDoEnvio(7, Number.NaN, 0)).toBe('Segue o orçamento 7.')
+    })
+    it('a linha não traz barra, aproveitamento nem mão de obra', () => {
+        const l = fraseDaLinhaDoEnvio(7, 100, 2)
+        for (const proibida of ['barra', 'aproveitamento', 'mão de obra', 'minuto']) expect(l.toLowerCase().includes(proibida)).toBe(false)
     })
 })

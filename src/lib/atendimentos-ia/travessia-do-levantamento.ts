@@ -31,6 +31,7 @@ import { calcularOrcamento, ErroDoCalculo, faltaDoParcial, type FaltaDoParcial }
 import { VERSAO_DO_CALCULO } from './custo-do-orcamento'
 import type { ResultadoDaEtapa } from './cadeia-do-sim'
 import { fraseDoArquivoQueNaoChegou } from './arquivo-que-nao-chegou'
+import { formatarReais } from './levantamento-de-barras'
 import {
     CABECALHO_SINCRONIZADO, diferencaDoOrcamento, ESTADO_COMPLETO, ErroDaTravessia, ErroJaAtravessado, ErroOrcamentoArquivado, faltasDoCongelado, origemNaTela, planoDaTravessia, PERCENTUAIS_COM_ZERO,
     type ClienteDoLevantamento, type ItemAtivoDoOrcamento, type ItemDaTravessia, type ItemDoLevantamentoNaTravessia, type LevantamentoNaTravessia, type ModoDaBase,
@@ -302,7 +303,16 @@ export type ReenvioNoSim = (orcamento: { id: string; numero: number; nome: strin
  * `enviadoPara`: o número que recebeu o arquivo (a etapa do preço o diz). `questionamentos`: as faltas nomeadas do cálculo (12/11/2026, 4.3) —
  * a ÚNICA coisa que a conversa manda por texto quando o arquivo chegou; o resto (barras, aproveitamento, mão de obra) está no PDF.
  */
-export type ResultadoDoSim = { rastro: string; paraOVendedor: string | null; enviadoPara?: string; idDoEnvio?: string | null; questionamentos?: string; aviso?: string }
+export type ResultadoDoSim = {
+    rastro: string; paraOVendedor: string | null; enviadoPara?: string; idDoEnvio?: string | null; questionamentos?: string; aviso?: string
+    /** A edição manual substituída: o único aviso que acompanha a linha do envio (13/11/2026: "nunca em silêncio"). */
+    edicaoManual?: true
+    /**
+     * A ÚNICA LINHA que vai por texto quando o arquivo chegou (dono do produto, 17/11/2026): "No WhatsApp, só deve ser enviado o orçamento.
+     * Relação de barras, plano de corte, isso tudo fica dentro do sistema." O número, o total e, no parcial, quantos valores faltam.
+     */
+    linhaDoEnvio?: string
+}
 /**
  * O QUE O VENDEDOR RECEBE quando a cadeia PARA antes do arquivo (dono do produto, 13/11/2026): o arquivo não chegou, e por quê — a falta
  * nomeada, e nada mais. Nunca o resultado por texto (`arquivo-que-nao-chegou.ts`).
@@ -352,6 +362,28 @@ export function fraseDoParcialQueContinua(numero: number, faltas: ReadonlyArray<
         ['Para completar, preciso de:', ...linhas].join('\n'),
     ].join('\n')
 }
+/**
+ * A LINHA DO ENVIO (dono do produto, 17/11/2026): o número, o total do arquivo e, no parcial, quantos códigos ficaram sem preço — os detalhes
+ * estão no arquivo. Total ausente não vira zero (`ausente-vs-falso.md`): a linha sai sem ele.
+ */
+export function fraseDaLinhaDoEnvio(numero: number, total: number | null, codigosSemPreco: number): string {
+    const doTotal = total === null || !Number.isFinite(total) ? '' : ` Total: ${formatarReais(total)}.`
+    const doParcial = codigosSemPreco === 0 ? '' : ` Saiu PARCIAL: ${codigosSemPreco === 1 ? '1 valor sem preço, listado' : `${codigosSemPreco} valores sem preço, listados`} no arquivo.`
+    return `Segue o orçamento ${numero}.${doTotal}${doParcial}`
+}
+const codigosDistintos = (faltas: ReadonlyArray<{ codigo_do_motor: string }>) => new Set(faltas.map((f) => f.codigo_do_motor)).size
+/** O total do arquivo: o `valor_venda` gravado (o fecho do PDF é a soma do rateio, que só sai quando ele é igual à operação interna). */
+async function totalDoOrcamento(tenantId: string, orcamentoId: string): Promise<number | null> {
+    try {
+        const { data, error } = await db().from(TABELA_DO_ORCAMENTO).select('valor_venda').eq('tenant_id', tenantId).eq('id', orcamentoId).maybeSingle()
+        if (error || !data || data.valor_venda === null || data.valor_venda === undefined) return null
+        const v = Number(data.valor_venda)
+        return Number.isFinite(v) ? v : null
+    } catch {
+        return null
+    }
+}
+
 export async function atravessarNoSim(tenantId: string, levantamentoId: string, etapaDoPreco: EtapaDoPrecoNoSim, reenviar?: ReenvioNoSim): Promise<ResultadoDoSim> {
     let r: ResultadoDaTravessia
     let atualizacao: ResultadoDaAtualizacao | null = null
@@ -378,7 +410,8 @@ export async function atravessarNoSim(tenantId: string, levantamentoId: string, 
                             rastro: `orcamento=${a.orcamento.numero} atualizacao=sem_mudanca${p ? ` parcial=continua faltas_de_preco=${p.continuam.length}/${p.nomeadas}` : ''} ${env.rastro}`,
                             paraOVendedor: env.paraOVendedor,
                             aviso: p ? fraseDoParcialQueContinua(a.orcamento.numero, p.continuam, p.recusas) : fraseDoOrcamentoJaAtualizado(a.orcamento.numero),
-                            ...(env.enviadoPara ? { enviadoPara: env.enviadoPara, idDoEnvio: env.idDoEnvio ?? null } : {}),
+                            ...(env.enviadoPara ? { enviadoPara: env.enviadoPara, idDoEnvio: env.idDoEnvio ?? null,
+                                linhaDoEnvio: fraseDaLinhaDoEnvio(a.orcamento.numero, await totalDoOrcamento(tenantId, a.orcamento.id), p ? codigosDistintos(p.continuam) : 0) } : {}),
                         }
                     }
                 }
@@ -398,13 +431,15 @@ export async function atravessarNoSim(tenantId: string, levantamentoId: string, 
         : ''
     const travessia = `orcamento=${r.orcamento.numero} itens=${r.itens} faltas=${r.faltas.length}${r.retomada ? ' retomada=sim' : ''}${doAtualizado} origens=${origens}`
     // a EDIÇÃO MANUAL substituída é dita, em todo desfecho daqui para frente (13/11/2026: "Nunca em silêncio")
-    const comAviso = <T extends ResultadoDoSim>(x: T): T => (atualizacao?.edicaoManualSubstituida ? { ...x, aviso: fraseDaEdicaoManualSubstituida(atualizacao.orcamento.numero) } : x)
+    const comAviso = <T extends ResultadoDoSim>(x: T): T => (atualizacao?.edicaoManualSubstituida ? { ...x, aviso: fraseDaEdicaoManualSubstituida(atualizacao.orcamento.numero), edicaoManual: true as const } : x)
     let doCalculo: string
     let questionamentos: string | null = null
+    let semPreco = 0
     try {
         const c = await calcularOrcamento(tenantId, r.orcamento.id)
         doCalculo = `${travessia} calculo=ok liquido=${c.valor_total_liquido.toFixed(2)}${c.parcial ? ` parcial=sim faltas_de_preco=${c.faltas.length}` : ''}`
         questionamentos = fraseDosQuestionamentos(r.orcamento.numero, c.faltas)
+        semPreco = codigosDistintos(c.faltas)
     } catch (e) {
         if (e instanceof ErroDoCalculo) return comAviso({ rastro: `${travessia} calculo=recusou recusas=${e.recusas.length} parou=calculo motivo="${e.recusas.join(' | ').slice(0, 120)}"`, paraOVendedor: naoChegou(null, `o cálculo do orçamento ${r.orcamento.numero} recusou. Falta: ${e.recusas.join('; ')}. Com isso cadastrado, abra o orçamento ${r.orcamento.numero} na seção Orçamentos I.A. e use Calcular`) })
         return comAviso({ rastro: `${travessia} calculo=falhou parou=calculo motivo="${motivoDoLog(e)}"`, paraOVendedor: naoChegou(null, `o cálculo do orçamento ${r.orcamento.numero} falhou. Para tentar de novo, abra o orçamento ${r.orcamento.numero} na seção Orçamentos I.A. e use Calcular`) })
@@ -413,7 +448,9 @@ export async function atravessarNoSim(tenantId: string, levantamentoId: string, 
         const etapa = await etapaDoPreco(r.orcamento.id)
         return comAviso({
             rastro: `${doCalculo} ${etapa.rastro}`, paraOVendedor: etapa.paraOVendedor,
-            ...(etapa.enviadoPara ? { enviadoPara: etapa.enviadoPara, idDoEnvio: etapa.idDoEnvio ?? null } : {}), ...(questionamentos ? { questionamentos } : {}),
+            ...(etapa.enviadoPara ? { enviadoPara: etapa.enviadoPara, idDoEnvio: etapa.idDoEnvio ?? null,
+                linhaDoEnvio: fraseDaLinhaDoEnvio(r.orcamento.numero, await totalDoOrcamento(tenantId, r.orcamento.id), semPreco) } : {}),
+            ...(questionamentos ? { questionamentos } : {}),
         })
     } catch (e) {
         return comAviso({ rastro: `${doCalculo} precificacao=falhou parou=precificacao motivo="${motivoDoLog(e)}"`, paraOVendedor: naoChegou(null, `a precificação do orçamento ${r.orcamento.numero} falhou. Para tentar de novo, abra o orçamento ${r.orcamento.numero} na seção Orçamentos I.A. e use Precificar`) })

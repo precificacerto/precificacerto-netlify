@@ -789,7 +789,7 @@ describe('(5) a mensagem do levantamento', () => {
         const r = LB().levantarBarras({
             cor: 'BRANCO',
             esquadrias: [{ tipologia: 'DP-02', L_mm: 1200, H_mm: 1000, quantidade: 1, escolhas: { MAE: 2, ARI: 4 }, espessura_vidro_mm: 5 }],
-            tipologias: { 'DP-02': lida.tipologia }, regras: DE_PARA.regras as never, itens: DE_PARA.itens as never, serra_mm: 5,
+            tipologias: { 'DP-02': lida.tipologia }, regras: DE_PARA.regras as never, itens: DE_PARA.itens as never, serra_mm: 5, barraDoMotor: { padrao_mm: null, excecoes: {} },
         })
         if ('recusas' in r) throw new Error('recusado: ' + r.recusas.map((x) => x.mensagem).join(' | '))
         return r
@@ -1077,7 +1077,7 @@ describe('(9) o levantamento com N esquadrias', () => {
         const r = LB().levantarBarras({
             cor: 'BRANCO',
             esquadrias: [{ tipologia: 'DP-02', L_mm: 1200, H_mm: 1000, quantidade: 1, escolhas: { MAE: 2, ARI: 4 }, espessura_vidro_mm: 5 }],
-            tipologias: { 'DP-02': lida.tipologia }, regras: DE_PARA.regras as never, itens: DE_PARA.itens as never, serra_mm: 5,
+            tipologias: { 'DP-02': lida.tipologia }, regras: DE_PARA.regras as never, itens: DE_PARA.itens as never, serra_mm: 5, barraDoMotor: { padrao_mm: null, excecoes: {} },
         })
         if ('recusas' in r) throw new Error('recusado')
         return r

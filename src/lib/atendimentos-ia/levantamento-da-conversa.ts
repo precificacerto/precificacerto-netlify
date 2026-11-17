@@ -107,7 +107,7 @@ import { supabaseAdmin } from '@/supabase/admin'
 import { COLUNAS_LIDAS, COLUNAS_OPCIONAIS, lerTipologia, variaveisDaAba, type AbasDoMotor, type AvisoDoAvaliador, type Tipologia } from '@/lib/atendimentos-ia/avaliador-de-formulas'
 import { descreverArremate, escolhasComPadrao, lerEscolhasGravadas, traduzirVocabulario, type VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import {
-    formatarReais, levantarBarras,
+    barraDoMotorDasLinhas, formatarReais, levantarBarras, type BarraDoMotor,
     type ItemDaTabela, type RegraDoDePara, type ResultadoDoLevantamento,
     type RecusaDoLevantamento, type FaltaDePreco,
 } from '@/lib/atendimentos-ia/levantamento-de-barras'
@@ -610,6 +610,19 @@ export async function lerPerfilDaEmpresa(tenantId: string): Promise<PerfilDaEmpr
 }
 
 /** A serra da base de conhecimento, categoria PERFIL. Um valor só — ou a frase do que falta. */
+/**
+ * A BARRA QUE O MOTOR DECLARA (aba "Otimização de barras", por `motor_id`), para o corte do perfil sem preço (17/11/2026). A leitura que falha
+ * ou não acha a aba devolve a barra vazia: o perfil sem preço sai sem plano de corte, como antes — nunca uma barra inventada.
+ */
+async function lerBarraDoMotor(motorId: string): Promise<BarraDoMotor> {
+    try {
+        const { data, error } = await supabaseAdmin.from('orcamentista_motor_otimizacao').select('parametro, valor').eq('motor_id', motorId)
+        if (error || !Array.isArray(data)) return { padrao_mm: null, excecoes: {} }
+        return barraDoMotorDasLinhas(data as Array<{ parametro: string | null; valor: string | null }>)
+    } catch {
+        return { padrao_mm: null, excecoes: {} }
+    }
+}
 async function lerSerra(tenantId: string): Promise<{ ok: true; serra_mm: number } | { ok: false; frase: string }> {
     const valores = [...new Set((await lerConfigsDoPerfil(tenantId))
         .map((c) => c.serra_mm).filter((v): v is number => typeof v === 'number' && Number.isFinite(v)))]
@@ -1038,7 +1051,8 @@ async function calcularFamilia(
         for (const g of await lerRegras(motorId, t)) porTrio.set(JSON.stringify([g.codigo, g.codigo_wvetro, g.cor]), g)
     }
     const regras = [...porTrio.values()]
-    const daFamilia = await lerItensNoEscopo(motorId, familia.tabelasDePreco)
+    // a barra do motor vai JUNTO da primeira página de itens: nenhuma ida a mais ao banco (17/11/2026)
+    const [barraDoMotor, daFamilia] = await Promise.all([lerBarraDoMotor(motorId), lerItensNoEscopo(motorId, familia.tabelasDePreco)])
     const itens = daFamilia.noEscopoDoMotor
     // a tabela de cores do fornecedor do motor (20261112000006): o degrau "código + cor" da resolução; sem a migração, vazia
     const coresDoFornecedor = daFamilia.fornecedorDoMotor === null ? [] : (await lerCoresDosFornecedores([daFamilia.fornecedorDoMotor])).porFornecedor.get(daFamilia.fornecedorDoMotor) ?? []
@@ -1054,6 +1068,7 @@ async function calcularFamilia(
         regras,
         itens,
         serra_mm: serra.serra_mm,
+        barraDoMotor,
         cores: coresDoFornecedor,
     })
     // a mão de obra é lida MESMO com as barras recusadas: a falta de TEMPO sai junto com a de preço, de uma vez (08/11/2026)

@@ -77,7 +77,7 @@ const CORES = [['1', 'BRANCO'], ['20', 'PRETO TEXTURADO'], ['36', 'PRETO LISO'],
 function entrada(cor: string, itens: Item[] = ITENS): Entrada {
     const t = { 'DP-39': tipologia('DP-39'), 'DP-01': tipologia('DP-01') }
     return {
-        cor, tipologias: t, regras: REGRAS, itens, serra_mm: CASO.perfil_config.serra_mm, cores: CORES,
+        cor, tipologias: t, regras: REGRAS, itens, serra_mm: CASO.perfil_config.serra_mm, barraDoMotor: { padrao_mm: null, excecoes: {} }, cores: CORES,
         esquadrias: [
             { tipologia: 'DP-39', L_mm: 2500, H_mm: 2200, quantidade: 1, escolhas: ES().escolhasComPadrao(t['DP-39'], {}), espessura_vidro_mm: VI().lerVidro('temperado incolor 8mm').espessura_mm },
             { tipologia: 'DP-01', L_mm: 600, H_mm: 600, quantidade: 1, escolhas: ES().escolhasComPadrao(t['DP-01'], {}), espessura_vidro_mm: VI().lerVidro('mini boreal').espessura_mm },
