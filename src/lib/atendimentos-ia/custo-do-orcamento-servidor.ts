@@ -170,7 +170,7 @@ export async function custoDoLevantamento(tenantId: string, fonte: FamiliasDaEmp
         calculo.r.esquadrias.forEach((e, j0) => {
             for (const i of e.insumos) {
                 if (!resolvidos.has(i.codigo)) {
-                    resolvidos.set(i.codigo, resolverDescendo({ codigoDoMotor: i.codigo, codigoDaPonte: null, descricaoDoMotor: i.descricao, corPedida: cor }, niveis, contexto))
+                    resolvidos.set(i.codigo, resolverDescendo({ codigoDoMotor: i.codigo, codigoDaPonte: null, ponteDoCodigo: [], descricaoDoMotor: i.descricao, corPedida: cor }, niveis, contexto))
                 }
                 const r = resolvidos.get(i.codigo)!
                 if ('item' in r) materiais[chaveDoMaterial('insumo', i.codigo)] = materialDoItem('insumo', i.codigo, r.item, r.como)
