@@ -2,16 +2,19 @@
  * /atendimentos-ia/relatorios-ia — os RELATÓRIOS I.A. (dono do produto, 11/11/2026), a terceira seção de Agentes I.A.: por CLIENTE ORÇADO
  * (um orçamento I.A.), duas abas — o relatório de materiais (`RelatorioDeMateriais`) e o relatório de corte (`RelatorioDeCorte`), os dois
  * desde 16/11/2026. `TEXTO_DA_ABA_SEM_CONTEUDO` fica para uma aba nova que nasça sem conteúdo.
+ *
+ * Desde 17/11/2026 (dono do produto): "todos os clientes abertos na própria página. E selecionando ele, a gente acessa o relatório individual
+ * de cada um." A lista é uma tabela (número, cliente, data, itens); a linha escolhida abre as duas abas, cada uma com o seu PDF.
  */
 import React, { useCallback, useEffect, useState } from 'react'
-import { Alert, Card, Empty, Select, Spin, Tabs, Typography } from 'antd'
+import { Alert, Button, Card, Empty, Spin, Table, Tabs, Typography } from 'antd'
 
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { RelatorioDeMateriais } from '@/page-parts/atendimentos-ia/relatorio-de-materiais.component'
 import { RelatorioDeCorte } from '@/page-parts/atendimentos-ia/relatorio-de-corte.component'
 
-type OrcamentoParaRelatorio = { id: string; numero: number; nome: string }
+type OrcamentoParaRelatorio = { id: string; numero: number; nome: string; criado_em: string; itens: number }
 type Estado =
     | { tipo: 'carregando' }
     | { tipo: 'desligada' }
@@ -24,7 +27,9 @@ export const ABAS_DOS_RELATORIOS = [
     { key: 'corte', label: 'Relatório de corte' },
 ] as const
 export const TEXTO_DA_ABA_SEM_CONTEUDO = 'Este relatório ainda não foi construído: a seção e a navegação já existem, o conteúdo entra numa próxima entrega.'
-export const TEXTO_SEM_ORCAMENTO = 'Escolha o cliente orçado para ver os relatórios.'
+export const TEXTO_SEM_ORCAMENTO = 'Escolha o cliente orçado na lista para ver os relatórios.'
+export const TEXTO_SEM_CLIENTE = 'Nenhum orçamento ainda.'
+const dataBR = (iso: string) => new Date(iso).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
 
 const RelatoriosIA: React.FC = () => {
     const [estado, setEstado] = useState<Estado>({ tipo: 'carregando' })
@@ -42,6 +47,7 @@ const RelatoriosIA: React.FC = () => {
         }
     }, [])
     useEffect(() => { void carregar() }, [carregar])
+    const aberto = estado.tipo === 'pronto' ? estado.orcamentos.find((o) => o.id === escolhido) ?? null : null
 
     return (
         <Layout title={PAGE_TITLES.RELATORIOS_IA} subtitle="Agentes I.A.">
@@ -52,18 +58,30 @@ const RelatoriosIA: React.FC = () => {
                 {estado.tipo === 'erro' && <Alert type="error" showIcon message={estado.mensagem} />}
                 {estado.tipo === 'pronto' && (
                     <Card size="small">
-                        <Select style={{ width: '100%', maxWidth: 420, marginBottom: 16 }} placeholder="Cliente orçado" aria-label="Cliente orçado" value={escolhido ?? undefined}
-                            onChange={(v: string) => setEscolhido(v)} options={estado.orcamentos.map((o) => ({ value: o.id, label: `Orçamento ${o.numero} — ${o.nome}` }))}
-                            notFoundContent="Nenhum orçamento ainda." />
-                        {escolhido === null ? <Typography.Paragraph type="secondary" data-sem-orcamento="">{TEXTO_SEM_ORCAMENTO}</Typography.Paragraph> : (
-                            <Tabs items={ABAS_DOS_RELATORIOS.map((a) => ({
+                        <Table<OrcamentoParaRelatorio> size="small" rowKey="id" data-lista-de-clientes="" style={{ marginBottom: 16 }}
+                            pagination={estado.orcamentos.length > 20 ? { pageSize: 20 } : false} locale={{ emptyText: TEXTO_SEM_CLIENTE }}
+                            dataSource={estado.orcamentos}
+                            rowClassName={(o) => (o.id === escolhido ? 'ant-table-row-selected' : '')}
+                            onRow={(o) => ({ onClick: () => setEscolhido(o.id), style: { cursor: 'pointer' }, 'data-cliente': o.id } as React.HTMLAttributes<HTMLElement>)}
+                            columns={[
+                                { title: 'Nº', dataIndex: 'numero', key: 'numero', width: 70 },
+                                { title: 'Cliente', dataIndex: 'nome', key: 'nome' },
+                                { title: 'Data', dataIndex: 'criado_em', key: 'criado_em', width: 110, render: (d: string) => dataBR(d) },
+                                { title: 'Itens', dataIndex: 'itens', key: 'itens', width: 70, align: 'right' as const },
+                                { title: '', key: 'abrir', width: 120, render: (_: unknown, o) => <Button size="small" type={o.id === escolhido ? 'primary' : 'default'}>{o.id === escolhido ? 'Aberto' : 'Ver relatórios'}</Button> },
+                            ]} />
+                        {aberto === null ? <Typography.Paragraph type="secondary" data-sem-orcamento="">{TEXTO_SEM_ORCAMENTO}</Typography.Paragraph> : (
+                            <>
+                            <Typography.Title level={5} data-cliente-aberto="">{`Orçamento ${aberto.numero} — ${aberto.nome}`}</Typography.Title>
+                            <Tabs key={aberto.id} items={ABAS_DOS_RELATORIOS.map((a) => ({
                                 key: a.key, label: a.label,
                                 children: (
                                     <div data-aba-do-relatorio={a.key}>
-                                        {a.key === 'materiais' ? <RelatorioDeMateriais orcamentoId={escolhido} /> : a.key === 'corte' ? <RelatorioDeCorte orcamentoId={escolhido} /> : <Empty description={TEXTO_DA_ABA_SEM_CONTEUDO} />}
+                                        {a.key === 'materiais' ? <RelatorioDeMateriais orcamentoId={aberto.id} numero={aberto.numero} cliente={aberto.nome} /> : a.key === 'corte' ? <RelatorioDeCorte orcamentoId={aberto.id} numero={aberto.numero} cliente={aberto.nome} /> : <Empty description={TEXTO_DA_ABA_SEM_CONTEUDO} />}
                                     </div>
                                 ),
                             }))} />
+                            </>
                         )}
                     </Card>
                 )}
