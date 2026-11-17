@@ -954,9 +954,9 @@ describe('(3) o estado mora no levantamento; a CONVERSA é gravada como históri
         const tocadas = new Set(escritasNoEstado().map((e) => e.tabela))
         // a pergunta em aberto (o apanhado que espera o "sim") é estado, não mensagem: decisão de 26/10/2026. E o "sim" ao levantamento que
         // levantou ATRAVESSA para o orçamento do agente (dono do produto, 10/11/2026) e ENCADEIA o cálculo, a precificação e o arquivo (11/11/2026):
-        // o orçamento, os itens dele, o material do cálculo e a linha do arquivo, nada mais
+        // o orçamento, os itens dele, o material e as PEÇAS do cálculo (o relatório de corte, 16/11/2026) e a linha do arquivo, nada mais
         expect([...tocadas].sort()).toEqual(['orcamentista_levantamento', 'orcamentista_levantamento_item', 'orcamentista_orcamento', 'orcamentista_orcamento_arquivo',
-            'orcamentista_orcamento_item', 'orcamentista_orcamento_item_material', 'orcamentista_pergunta_em_aberto'])
+            'orcamentista_orcamento_item', 'orcamentista_orcamento_item_material', 'orcamentista_orcamento_item_peca', 'orcamentista_pergunta_em_aberto'])
         // o rastro diz até onde o encadeamento foi: travessia, cálculo, preço, arquivo e envio
         const calcular = erros.filter((l) => l.startsWith('[ETAPA 4 calcular]')).join('\n')
         expect(calcular).toMatch(/travessia=orcamento=1 itens=1 faltas=\d+ origens=comissao:\w+,rt:\w+,lucro:\w+ calculo=ok liquido=[\d.]+ precificacao=ok venda=[\d.]+ interna=[\d.]+ ms_preco=\d+ arquivo=ok ms_leitura=\d+ envio=ok ms_envio=\d+/)
