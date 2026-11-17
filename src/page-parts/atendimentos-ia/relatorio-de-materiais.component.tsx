@@ -3,7 +3,7 @@
  * da base de conhecimento (Perfil, Persianas, Reforço…). Lê `/api/atendimentos-ia/orcamentos/[id]/relatorio-de-materiais`.
  *
  * O que não tem categoria, ou tem mais de uma, aparece numa lista própria, nomeado — nunca dentro de uma categoria escolhida. A esquadria sem
- * cálculo é dita: os materiais dela não estão no relatório (nunca um relatório que pareça completo sem estar).
+ * cálculo é dito: os materiais dele não estão no relatório (nunca um relatório que pareça completo sem estar).
  */
 import React, { useEffect, useState } from 'react'
 import { Alert, Empty, Spin, Table, Typography } from 'antd'
@@ -12,9 +12,9 @@ import type { RelatorioDeMateriaisDoOrcamento } from '@/lib/atendimentos-ia/rela
 
 type Estado = { tipo: 'carregando' } | { tipo: 'erro'; mensagem: string } | { tipo: 'pronto'; relatorio: RelatorioDeMateriaisDoOrcamento }
 
-export const TEXTO_SEM_MATERIAL = 'Nenhum material calculado neste orçamento: calcule as esquadrias para ver o relatório.'
+export const TEXTO_SEM_MATERIAL = 'Nenhum material calculado neste orçamento: calcule os itens para ver o relatório.'
 export const fraseDosItensSemCalculo = (ordens: readonly number[]) =>
-    `${ordens.length === 1 ? 'A esquadria' : 'As esquadrias'} ${ordens.join(', ')} ${ordens.length === 1 ? 'não tem' : 'não têm'} cálculo: os materiais ${ordens.length === 1 ? 'dela' : 'delas'} não estão neste relatório.`
+    `${ordens.length === 1 ? 'O item' : 'Os itens'} ${ordens.join(', ')} ${ordens.length === 1 ? 'não tem' : 'não têm'} cálculo: os materiais ${ordens.length === 1 ? 'dele' : 'deles'} não estão neste relatório.`
 
 const colunas = [
     { title: 'Código', dataIndex: 'codigo', key: 'codigo', width: 120 },

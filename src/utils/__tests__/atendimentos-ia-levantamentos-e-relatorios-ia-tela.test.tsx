@@ -113,7 +113,7 @@ describe('o RELATÓRIO DE MATERIAIS (dono do produto, 16/11/2026)', () => {
         } }
         const host = await montar(<RelatorioDeMateriais orcamentoId="o-1" />)
         expect(host.querySelector('[data-itens-sem-calculo]')?.textContent).toBe(fraseDosItensSemCalculo([2, 3]))
-        expect(fraseDosItensSemCalculo([2, 3])).toBe('As esquadrias 2, 3 não têm cálculo: os materiais delas não estão neste relatório.')
+        expect(fraseDosItensSemCalculo([2, 3])).toBe('Os itens 2, 3 não têm cálculo: os materiais deles não estão neste relatório.')
         expect(host.querySelector('[data-categoria="ambiguos"]')?.textContent).toContain('Y1 (FERRAGENS, PERFIL)')
         expect(host.querySelector('[data-categoria="sem-categoria"]')?.textContent).toContain('X1')
         expect(host.textContent).not.toContain(TEXTO_SEM_MATERIAL)
