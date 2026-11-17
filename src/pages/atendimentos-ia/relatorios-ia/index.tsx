@@ -1,13 +1,14 @@
 /**
  * /atendimentos-ia/relatorios-ia — os RELATÓRIOS I.A. (dono do produto, 11/11/2026), a terceira seção de Agentes I.A.: por CLIENTE ORÇADO
- * (um orçamento I.A.), duas abas — o relatório de materiais e o relatório de corte. Nesta entrega a seção nasce com a NAVEGAÇÃO e a ESTRUTURA:
- * a escolha do orçamento e as duas abas, ainda sem conteúdo, e a tela diz isso (nunca uma tabela vazia que pareça "sem material").
+ * (um orçamento I.A.), duas abas — o relatório de materiais e o relatório de corte. O de MATERIAIS existe desde 16/11/2026
+ * (`RelatorioDeMateriais`); o de corte ainda não, e a tela diz isso (nunca uma tabela vazia que pareça "sem corte").
  */
 import React, { useCallback, useEffect, useState } from 'react'
 import { Alert, Card, Empty, Select, Spin, Tabs, Typography } from 'antd'
 
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
+import { RelatorioDeMateriais } from '@/page-parts/atendimentos-ia/relatorio-de-materiais.component'
 
 type OrcamentoParaRelatorio = { id: string; numero: number; nome: string }
 type Estado =
@@ -56,7 +57,11 @@ const RelatoriosIA: React.FC = () => {
                         {escolhido === null ? <Typography.Paragraph type="secondary" data-sem-orcamento="">{TEXTO_SEM_ORCAMENTO}</Typography.Paragraph> : (
                             <Tabs items={ABAS_DOS_RELATORIOS.map((a) => ({
                                 key: a.key, label: a.label,
-                                children: <div data-aba-do-relatorio={a.key}><Empty description={TEXTO_DA_ABA_SEM_CONTEUDO} /></div>,
+                                children: (
+                                    <div data-aba-do-relatorio={a.key}>
+                                        {a.key === 'materiais' ? <RelatorioDeMateriais orcamentoId={escolhido} /> : <Empty description={TEXTO_DA_ABA_SEM_CONTEUDO} />}
+                                    </div>
+                                ),
                             }))} />
                         )}
                     </Card>

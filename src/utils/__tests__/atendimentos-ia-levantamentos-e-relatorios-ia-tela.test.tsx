@@ -1,6 +1,6 @@
 /**
  * PORTÃO — as TELAS novas de Agentes I.A. (dono do produto, 11/11/2026): os Levantamentos I.A. (a lista com o arquivo de cada um) e os
- * Relatórios I.A. (por cliente orçado, as duas abas — materiais e corte — com a estrutura e sem conteúdo, e a tela dizendo isso).
+ * Relatórios I.A. (por cliente orçado, as duas abas — materiais e corte; o de materiais com conteúdo desde 16/11/2026).
  */
 import React from 'react'
 import { act } from 'react'
@@ -27,6 +27,7 @@ const Levantamentos = require('@/pages/atendimentos-ia/levantamentos-ia/index').
 const { TEXTO_DA_LISTA_VAZIA, urlDoArquivo } = require('@/pages/atendimentos-ia/levantamentos-ia/index')
 const Relatorios = require('@/pages/atendimentos-ia/relatorios-ia/index').default as React.ComponentType
 const { ABAS_DOS_RELATORIOS, TEXTO_DA_ABA_SEM_CONTEUDO, TEXTO_SEM_ORCAMENTO } = require('@/pages/atendimentos-ia/relatorios-ia/index')
+const { RelatorioDeMateriais, TEXTO_SEM_MATERIAL, fraseDosItensSemCalculo } = require('@/page-parts/atendimentos-ia/relatorio-de-materiais.component')
 const { PAGE_TITLES } = require('@/constants/page-titles')
 /* eslint-enable @typescript-eslint/no-require-imports */
 
@@ -85,5 +86,46 @@ describe('os Relatórios I.A.', () => {
     it('as duas abas, nesta ordem, nascem com a estrutura e dizem que ainda não têm conteúdo', () => {
         expect(ABAS_DOS_RELATORIOS.map((a: { label: string }) => a.label)).toEqual(['Relatório de materiais', 'Relatório de corte'])
         expect(TEXTO_DA_ABA_SEM_CONTEUDO).toContain('ainda não foi construído')
+    })
+})
+
+describe('o RELATÓRIO DE MATERIAIS (dono do produto, 16/11/2026)', () => {
+    it('lê a rota do orçamento e mostra uma seção por categoria, na ordem que a rota mandou, com a quantidade e a unidade', async () => {
+        servidor.corpo = { relatorio: {
+            categorias: [
+                { chave: 'PERFIL', rotulo: 'Perfil', materiais: [{ codigo: '9681', descricao: 'SF66 - FOLHA', unidade: 'm', quantidade: 10.5 }] },
+                { chave: 'REFORCO', rotulo: 'Reforço', materiais: [{ codigo: '8427', descricao: 'REFORÇO SF92', unidade: 'm', quantidade: 11.764 }] },
+            ],
+            semCategoria: [], ambiguos: [], itensSemCalculo: [],
+        } }
+        const host = await montar(<RelatorioDeMateriais orcamentoId="o-1" />)
+        expect(servidor.chamadas).toEqual(['/api/atendimentos-ia/orcamentos/o-1/relatorio-de-materiais'])
+        expect(Array.from(host.querySelectorAll('[data-categoria]')).map((e) => e.getAttribute('data-categoria'))).toEqual(['PERFIL', 'REFORCO'])
+        expect(host.textContent).toContain('10,50 m')
+        expect(host.textContent).toContain('11,76 m')
+        expect(host.querySelector('[data-itens-sem-calculo]')).toBeNull()
+    })
+    it('diz quais esquadrias não têm cálculo, e lista à parte o que não tem categoria e o que tem mais de uma', async () => {
+        servidor.corpo = { relatorio: {
+            categorias: [], itensSemCalculo: [2, 3],
+            semCategoria: [{ codigo: 'X1', descricao: null, unidade: 'un', quantidade: 4 }],
+            ambiguos: [{ codigo: 'Y1', descricao: 'peça', unidade: 'm', quantidade: 1, categorias: ['FERRAGENS', 'PERFIL'] }],
+        } }
+        const host = await montar(<RelatorioDeMateriais orcamentoId="o-1" />)
+        expect(host.querySelector('[data-itens-sem-calculo]')?.textContent).toBe(fraseDosItensSemCalculo([2, 3]))
+        expect(fraseDosItensSemCalculo([2, 3])).toBe('As esquadrias 2, 3 não têm cálculo: os materiais delas não estão neste relatório.')
+        expect(host.querySelector('[data-categoria="ambiguos"]')?.textContent).toContain('Y1 (FERRAGENS, PERFIL)')
+        expect(host.querySelector('[data-categoria="sem-categoria"]')?.textContent).toContain('X1')
+        expect(host.textContent).not.toContain(TEXTO_SEM_MATERIAL)
+    })
+    it('sem material nenhum, o vazio é dito (nunca uma tabela vazia que pareça "sem material")', async () => {
+        servidor.corpo = { relatorio: { categorias: [], semCategoria: [], ambiguos: [], itensSemCalculo: [] } }
+        const host = await montar(<RelatorioDeMateriais orcamentoId="o-1" />)
+        expect(host.textContent).toContain(TEXTO_SEM_MATERIAL)
+    })
+    it('a recusa da rota aparece como erro, com a frase dela', async () => {
+        servidor.status = 404; servidor.corpo = { error: 'Orçamento não encontrado.' }
+        const host = await montar(<RelatorioDeMateriais orcamentoId="o-1" />)
+        expect(host.textContent).toContain('Orçamento não encontrado.')
     })
 })
