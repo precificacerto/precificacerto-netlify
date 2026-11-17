@@ -185,15 +185,15 @@ const TEXTO_QUE_FECHA = [
     '• 9711 (IL36/WOLFF): 1 barra(s) de 6 m',
     '• 9801 (GB25/WOLFF): 1 barra(s) de 6 m',
     '',
-    'Aproveitamento do levantamento: 60,7% (32,77 m úteis de 54,00 m comprados).',
+    'Aproveitamento do levantamento: 60,6% (32,75 m úteis de 54,00 m comprados).',
     '',
     'Perfis por barra inteira: R$ 1.342,09.',
-    'Perfis por consumo real: R$ 829,79.',
-    'Diferença entre os dois: R$ 512,30.',
+    'Perfis por consumo real: R$ 829,36.',
+    'Diferença entre os dois: R$ 512,73.',
     'Mão de obra: 150 min por unidade (IMPORTADO) × 1 unidade(s), a R$ 0,257658 o minuto (R$ 40.813,03 ÷ 158.400 min): R$ 38,65.',
     '',
     'Total por barra inteira (perfis + mão de obra): R$ 1.380,74.',
-    'Total por consumo real (perfis + mão de obra): R$ 868,44.',
+    'Total por consumo real (perfis + mão de obra): R$ 868,01.',
     '',
     'O que este preço cobre: os perfis (o baguete incluído), pela tabela do fornecedor, e a mão de obra. NÃO cobre o vidro nem os insumos e acessórios (ferragens, escovas, calços e outros): eles ainda não estão na base.',
 ].join('\n')
@@ -1121,9 +1121,9 @@ describe('(9) o levantamento com N esquadrias', () => {
         expect(duas.desfecho).toBe('levantou')
         expect(duas.texto).toContain('Mão de obra total: R$ 77,30.')
         const material = (x: string) => x.split('\n').find((l) => l.startsWith('Perfis por consumo real:'))
-        // o consumo real de duas é o dobro do de uma, ao centavo: 829,79 × 2
-        expect(material(uma.texto)).toBe('Perfis por consumo real: R$ 829,79.')
-        expect(material(duas.texto)).toBe('Perfis por consumo real: R$ 1.659,59.')
+        // o consumo real de duas é o dobro do de uma, ao centavo: 829,36 × 2 (R5, 17/11/2026: as peças com o decimal cortado)
+        expect(material(uma.texto)).toBe('Perfis por consumo real: R$ 829,36.')
+        expect(material(duas.texto)).toBe('Perfis por consumo real: R$ 1.658,72.')
     })
 })
 
@@ -1474,7 +1474,7 @@ describe('(ORC) o custo do orçamento I.A. pelo CAMINHO COMPLETO, e a reconcilia
         const l = lev({ escolhas: ESCOLHAS })
         const r = await custoOk(l)
         expect(r.itens).toHaveLength(1)
-        expect(r.itens[0].custo_bruto_materiais).toBeCloseTo(829.79, 2)
+        expect(r.itens[0].custo_bruto_materiais).toBeCloseTo(829.36, 2)   // R5: o consumo das peças cortadas (era 829,79)
         // o contraste com a regra revogada: a barra inteira dava R$ 1.342,09 — a sobra, que o orçamento não sabe se será aproveitada
         const m1 = await M().mensagemDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), l)
         expect(reais(m1.texto, 'Perfis por barra inteira')).toBeCloseTo(1342.09, 2)

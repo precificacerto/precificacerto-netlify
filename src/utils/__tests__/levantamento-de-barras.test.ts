@@ -42,6 +42,7 @@
  *                    + 6,0536 × 40,2453 + 4,7256 × 21,665 + 1,8232 × 9,9576 + 5,2056 × 10,3725
  *                    = 18,13113 + 293,682816 + 22,24474 + 77,57568 + 243,62894808 + 102,380124
  *                    + 18,15469632 + 53,995086 = R$ 829,7932204
+ *   R5 (17/11/2026): com as peças cortadas ao mm inteiro, como o WVetro, o consumo passa a R$ 829,3602476 (os testes abaixo usam este).
  *
  * Cada caso fica VERMELHO sem a sua regra: a bateria está em `scripts/harness/levantamento-de-barras/`.
  */
@@ -131,11 +132,12 @@ describe('(1) a DP-02 em BRANCO, de ponta a ponta', () => {
         expect(r.cor).toBe('BRANCO')
         expect(r.total.barras_por_codigo).toEqual({ '1023': 1, '10511': 1, '8432': 1, '8433': 1, '9641': 1, '9681': 2, '9711': 1, '9801': 1 })
         expect(r.total.n_barras).toBe(9)
-        expect(r.total.metros_uteis).toBeCloseTo(32.7676, 9)
+        // R5 (17/11/2026): as peças saem com o decimal cortado, como o WVetro imprime — 32,7676 m viraram 32,748 m (19,6 mm a menos)
+        expect(r.total.metros_uteis).toBeCloseTo(32.748, 9)
         expect(r.total.metros_comprados).toBe(54)
-        expect(r.total.aproveitamento_pct).toBeCloseTo((32.7676 / 54) * 100, 9)
+        expect(r.total.aproveitamento_pct).toBeCloseTo((32.748 / 54) * 100, 9)
         expect(r.total.total_por_barra_inteira).toBeCloseTo(1342.0875, 6)
-        expect(r.total.total_por_consumo_real).toBeCloseTo(829.7932204, 6)
+        expect(r.total.total_por_consumo_real).toBeCloseTo(829.3602476, 6)   // R5: o consumo das peças cortadas
         // o código do perfil fica ao lado do código do item, para quem confere
         expect(doCodigo(r, '10511').perfil).toBe('BZ0010/WOLFF')
         expect(doCodigo(r, '9681').perfil).toBe('SF66/WOLFF')
@@ -149,7 +151,7 @@ describe('(1) a DP-02 em BRANCO, de ponta a ponta', () => {
         const e = r.esquadrias[0]
         expect(e.indice).toBe(1)
         const sf66 = e.pecas.filter((p) => p.perfil === 'SF66/WOLFF')
-        expect(sf66.map((p) => [p.codigo, p.comprimento_mm, p.quantidade])).toEqual([['9681', 595.8, 4], ['9681', 917.6, 4]])
+        expect(sf66.map((p) => [p.codigo, p.comprimento_mm, p.quantidade])).toEqual([['9681', 595, 4], ['9681', 917, 4]])   // R5: o decimal cortado
     })
     it('O CORTE (16/11/2026): cada peça leva o corte e a posição da aba Perfis do motor, e o resultado leva a serra com que as barras se agruparam', () => {
         const r = ok([esquadria()])
