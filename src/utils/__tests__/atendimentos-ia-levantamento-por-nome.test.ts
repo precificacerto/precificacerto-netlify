@@ -4499,8 +4499,11 @@ describe('(37) Jorge Koss: o cliente no primeiro turno, as duas esquadrias até 
         // a "janela maxim ar" já sai com a maxim-ar PADRÃO (DP-01, dono do produto, 05/11/2026): só a porta fica sem tipologia
         expect(itens()[1]).toEqual(expect.objectContaining({ ordem: 2, tipologia: 'DP-01', largura_mm: 600, altura_mm: 600, quantidade: 1, vidro: 'mini boreal', cor_perfil: null }))
         expect(linhaIa()[0]).toMatch(/ tipologia_padrao=1(\s|$)/)
-        // a resposta pergunta a tipologia (a pergunta do modelo, que não traz código nem número), nunca a descrição completa de novo
-        expect(ultimoEnviado()).toContain('A porta de correr tem trilho embutido?')
+        // REVISTO em 18/11/2026 (dono do produto, decisão 2: "o agente sempre diz o que o impede"): este motor de teste não tem porta de correr de
+        // 2 folhas — a resposta diz que FALTA NO MOTOR, nomeando o que foi dito, em vez da pergunta do modelo pela mais próxima (a de 6 folhas)
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const TP = require('@/lib/atendimentos-ia/tipologia-padrao') as typeof import('@/lib/atendimentos-ia/tipologia-padrao')
+        expect(ultimoEnviado()).toContain(`Item 1: ${TP.fraseDaSemCandidata('porta de correr de 2 folhas')}`)
 
         // T2 — o vendedor reenvia a lista inteira (como fez em produção): nada se perde, nada duplica
         llmResponde({ itens: [{ ordem: 1, ...PORTA }, { ordem: 2, ...JANELA }] })
@@ -5069,7 +5072,11 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
         it('"janela maxim ar com bandeira 60 x 60" (a maxim-ar com bandeira só existe com modulação, que não tem natural): a pergunta fixa pede a descrição de novo — nunca "é janela ou porta? abre de correr?", nunca o que tem natural', async () => {
             llmResponde({ cliente: 'Ana', itens: [{ ...JANELA }] })
             await chamar('Cliente: Ana. 1 janela maxim ar com bandeira, mini boreal 60 x60')
-            expect(ultimoEnviado()).toBe(`${perguntasDaTipologia({ abertura: true, tipo: true })[0]} E me diga a cor do perfil.`)
+            // REVISTO em 18/11/2026 (decisão 2): este motor de teste não tem maxim-ar com bandeira — a resposta diz que falta no motor, com o extra
+            // dito, e o que mais falta (a cor) vai junto; nunca "é janela ou porta?", nunca o que tem natural
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const TP = require('@/lib/atendimentos-ia/tipologia-padrao') as typeof import('@/lib/atendimentos-ia/tipologia-padrao')
+            expect(ultimoEnviado()).toBe(`${TP.fraseDaSemCandidata('janela maxim-ar de 1 módulo', ['bandeira'])}\nQual a cor do perfil?`)
             expect(ultimoEnviado()).not.toContain('É janela ou porta?')
             expect(ultimoEnviado()).not.toContain('Abre de correr')
             // a resposta que não coube vai numa OUTRA forma do mesmo conjunto
@@ -6659,6 +6666,8 @@ describe('(31) O CASO DAIANE PILGER (18/11/2026): a maxim-ar de UM módulo tem u
         pergunta: { campo: 'tipologia', texto: 'Nas maxim-ar dos itens 2, 4, 5 e 7, qual destas é a que vai?' },
     }
     const doLevantamento = () => itensDe(levantamentos().find((l) => l.nome === 'Daiane Pilger')?.id)
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const TP = require('@/lib/atendimentos-ia/tipologia-padrao') as typeof import('@/lib/atendimentos-ia/tipologia-padrao')
 
     /** Toda pergunta de tipologia que a conversa sabe fazer, das funções — nunca transcrita (`assercao-negativa-que-nunca-falha.md`). */
     const PERGUNTAS_DE_TIPOLOGIA = [false, true].flatMap((abertura) => [false, true].flatMap((tipo) => [...perguntasDaTipologia({ abertura, tipo })]))
@@ -6697,5 +6706,24 @@ describe('(31) O CASO DAIANE PILGER (18/11/2026): a maxim-ar de UM módulo tem u
         await chamar(MENSAGEM)
         const tipologias = Object.fromEntries(doLevantamento().map((i) => [Number(i.ordem), i.tipologia]))
         expect([1, 2, 4, 5, 7].map((o) => [o, tipologias[o]])).toEqual([[1, null], [2, 'DP-132'], [4, 'DP-132'], [5, 'DP-132'], [7, 'DP-132']])
+        // O QUE IMPEDE (dono do produto, 18/11/2026, decisão 2): o item 1 diz a medida e o limite, e nada de "não achei" nem a pergunta do modelo
+        const DP132 = estado.db.orcamentista_motor_tipologia_detalhe.filter((c: Linha) => c.tipologia === 'DP-132')
+        expect(enviados()).toHaveLength(1)
+        expect(enviados()[0].split('\n')).toContain(`Item 1: ${TP.fraseDoForaDoLimite({ largura_mm: 700, altura_mm: 1200 }, DP132 as never)}`)
+        for (const p of [...PERGUNTAS_DE_TIPOLOGIA, DO_MODELO.pergunta.texto]) expect([p, enviados()[0].includes(p)]).toEqual([p, false])
+    })
+
+    it('O QUE IMPEDE, item a item: dois itens que não fecham por razões diferentes recebem CADA UM a sua frase, e o modelo não fala por eles', async () => {
+        const MSG = '1. Item 01 — Janela\n- Tipologia: janela maxim-ar de correr.\n- Quantidade: 01 unidade.\n- Largura: 1.200 mm.\n- Altura: 1.000 mm.\n- Vidro: Incolor, temperado, espessura de 6 mm.\n'
+            + '2. Item 02 — Janela\n- Tipologia: janela basculante.\n- Quantidade: 01 unidade.\n- Largura: 800 mm.\n- Altura: 600 mm.\n- Vidro: Mini-boreal comum, espessura de 4 mm.\n\nCliente: Daiane Pilger'
+        const PERGUNTA = 'Qual das tipologias do catálogo é cada uma?'
+        llmResponde({ nome: 'Daiane Pilger', itens: [item(1, 1200, 1000, T6), item(2, 800, 600, MB)], pergunta: { campo: 'tipologia', texto: PERGUNTA } })
+        await chamar(MSG)
+        const tipos = [...new Set(estado.db.orcamentista_motor_tipologia_detalhe.filter((c: Linha) => c.motor_id === MOTOR).map((c: Linha) => c.tipo as string))]
+        expect(doLevantamento().map((i) => i.tipologia)).toEqual([null, null])
+        expect(enviados()).toHaveLength(1)
+        const linhas = enviados()[0].split('\n')
+        expect(linhas.slice(0, 2)).toEqual([`Item 1: ${TP.fraseDosTiposDitos(['Maxim-ar', 'Correr'])}`, `Item 2: ${TP.fraseDoTipoForaDoMotor(tipos)}`])
+        for (const p of [...PERGUNTAS_DE_TIPOLOGIA, PERGUNTA]) expect([p, enviados()[0].includes(p)]).toEqual([p, false])
     })
 })

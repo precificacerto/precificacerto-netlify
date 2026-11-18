@@ -259,27 +259,62 @@ export function tipologiaPadrao(item: ItemDoLevantamento, abertura: Abertura | n
 
 /** A decisão do padrão e, quando ela dá uma tipologia, os atributos dela com a origem de cada um (a mesma decisão, nunca refeita à parte). */
 export function padraoDaEsquadria(item: ItemDoLevantamento, abertura: Abertura | null, trechos: readonly TrechoDoAcumulado[], candidatos: readonly CandidatoDeTipologia[],
-    variaveis?: VariaveisDaCandidata): { decisao: DecisaoDoPadrao; atributos: AtributoAssumido[] } {
+    variaveis?: VariaveisDaCandidata): { decisao: DecisaoDoPadrao; atributos: AtributoAssumido[]; impedimento: string | null } {
     let atributos: AtributoAssumido[] = []
-    const decisao = decisaoDoPadrao(item, abertura, trechos, candidatos, variaveis ?? (() => null), (a) => { atributos = a })
+    let impedimento: string | null = null
+    const decisao = decisaoDoPadrao(item, abertura, trechos, candidatos, variaveis ?? (() => null), (a) => { atributos = a }, (f) => { impedimento = f })
     // o registro só acontece quando a decisão é uma tipologia (`comRastro`): um motivo nunca leva atributos
-    return { decisao, atributos }
+    return { decisao, atributos, impedimento: 'motivo' in decisao ? impedimento ?? fraseDoPadraoQueFalta(decisao) : null }
 }
 
+/**
+ * O QUE IMPEDE O ITEM, DITO (dono do produto, 18/11/2026, decisão 2): "ele deve comunicar o que impede de fazer o levantamento. Seja falta de
+ * informação, seja liberação [...]". Nenhum motivo do padrão fica sem frase: o item que não fecha diz POR QUE não fechou e o que fazer. O caso
+ * que originou (Daiane Pilger): o motivo TIPOS_DITOS não tinha frase, a conversa caiu na pergunta genérica da tipologia, e três itens com
+ * candidatas no motor receberam "Não achei esse item no catálogo".
+ */
+const TIPOS_NA_FRASE_DA_PERGUNTA = (tipos: readonly string[]) => eListaOu(tipos.map((t) => { const c = tipoCurto(t); return c ? TIPO_NA_FRASE[c] ?? c : t }))
+const eListaOu = (xs: readonly string[]) => { const u = [...new Set(xs)]; return u.length <= 1 ? u.join('') : `${u.slice(0, -1).join(', ')} ou ${u[u.length - 1]}` }
+const eListaE = (xs: readonly string[]) => { const u = [...new Set(xs)]; return u.length <= 1 ? u.join('') : `${u.slice(0, -1).join(', ')} e ${u[u.length - 1]}` }
+const emMm = (n: number) => n.toLocaleString('pt-BR')
+/** O limite de uma tipologia, por extenso: "altura de 364 a 1164 mm"; o lado que o arquivo não traz não é dito (ausente não é zero). */
+export function limiteNaFrase(c: Pick<CandidatoDeTipologia, 'larg_min_mm' | 'larg_max_mm' | 'alt_min_mm' | 'alt_max_mm'>): string {
+    const lado = (nome: string, min: number | null, max: number | null) =>
+        min !== null && max !== null ? `${nome} de ${emMm(min)} a ${emMm(max)} mm` : min !== null ? `${nome} mínima de ${emMm(min)} mm` : max !== null ? `${nome} máxima de ${emMm(max)} mm` : null
+    return [lado('largura', c.larg_min_mm, c.larg_max_mm), lado('altura', c.alt_min_mm, c.alt_max_mm)].filter((x): x is string => x !== null).join(' e ')
+}
+export const FRASE_SEM_ABERTURA = 'Não sei se este item é janela ou porta: qual é?'
+export const FRASE_SEM_TRECHO = 'Não achei na mensagem a descrição deste item: me diga como ele é — janela ou porta, e como abre.'
+export const FRASE_DITO_SEM_REPRESENTACAO = 'O que foi dito deste item (motor, automação ou número de panos) não tem como entrar na tipologia: me diga como ele fica sem isso, ou qual é a tipologia.'
+export const fraseDosTiposDitos = (tipos: readonly string[]) => `Para este item foram ditas duas aberturas, ${TIPOS_NA_FRASE_DA_PERGUNTA(tipos)}: qual delas é?`
+export const fraseDoTipoForaDoMotor = (tiposDoMotor: readonly string[]) => `O tipo de abertura dito para este item não existe no motor da empresa, que tem ${TIPOS_NA_FRASE_DA_PERGUNTA(tiposDoMotor)}: como ele abre?`
+export const fraseDaJanelaSemTipo = (tiposDoMotor: readonly string[]) => `Esta janela abre como: ${TIPOS_NA_FRASE_DA_PERGUNTA(tiposDoMotor)}?`
+export const fraseDosModulosDitos = (modulos: number, opcoes: readonly string[]) => opcoes.length > 0
+    ? `Este item tem ${modulos} módulos, e a divisão entre eles muda a peça: ${opcoes.map((x) => `“${x}”`).join(' ou ')}. Qual é?`
+    : `Falta no motor — não há tipologia deste tipo com ${modulos} módulos. Me diga como ele é na obra; se for mesmo assim, a tipologia precisa ser cadastrada no motor.`
+export const fraseDaSemCandidata = (esquadria: string, extrasDitos: readonly string[] = []) =>
+    `Falta no motor — não há tipologia de ${esquadria}${extrasDitos.length ? ` com ${eListaE(extrasDitos)}` : ''}. Me diga como ele é na obra; se for mesmo assim, a tipologia precisa ser cadastrada no motor.`
+export const fraseDoForaDoLimite = (item: Pick<ItemDoLevantamento, 'largura_mm' | 'altura_mm'>, fora: ReadonlyArray<Pick<CandidatoDeTipologia, 'descricao' | 'larg_min_mm' | 'larg_max_mm' | 'alt_min_mm' | 'alt_max_mm'>>) =>
+    `A medida ${item.largura_mm !== null ? emMm(item.largura_mm) : '?'} x ${item.altura_mm !== null ? emMm(item.altura_mm) : '?'} mm passa do limite do motor para `
+    + `${fora.map((c) => `“${descricaoSemLinha(c)}” (${limiteNaFrase(c)})`).join(' e para ')}. Confirme a medida.`
+
 function decisaoDoPadrao(item: ItemDoLevantamento, abertura_: Abertura | null, trechos: readonly TrechoDoAcumulado[], candidatos: readonly CandidatoDeTipologia[],
-    variaveisDe: VariaveisDaCandidata, registrar: (a: AtributoAssumido[]) => void): DecisaoDoPadrao {
+    variaveisDe: VariaveisDaCandidata, registrar: (a: AtributoAssumido[]) => void, explicar: (frase: string) => void = () => undefined): DecisaoDoPadrao {
+    // o motivo e a frase que diz o que impede o item, juntos (18/11/2026): nenhum motivo sai sem ela
+    const falta = <D extends DecisaoDoPadrao>(d: D, frase: string): D => { explicar(frase); return d }
+    const tiposDaEmpresa = [...new Set(candidatos.map((c) => c.tipo).filter((t): t is string => typeof t === 'string' && t.trim() !== ''))]
     // A LINHA DA ESQUADRIA (13/11/2026): a linha cuja medida é a largura e a altura desta esquadria é dela, e só ela fala por ela — as outras
     // linhas da mensagem (a janela maxim-ar, a de correr) não lhe emprestam tipo. Sem linha ligada pela medida, o de antes: os trechos da abertura.
     const doItem = trechos.filter((t) => linhaDaEsquadria(t, item))
     // a abertura: a do item; sem ela, a que a linha da esquadria afirma (uma só) — "persiana" afirma janela pelo vocabulário da obra
     const daLinha = new Set(doItem.map((t) => t.abertura).filter((a): a is Abertura => a !== null))
     const abertura = abertura_ ?? (daLinha.size === 1 ? [...daLinha][0] : null)
-    if (abertura === null) return { motivo: 'SEM_ABERTURA' }
+    if (abertura === null) return falta({ motivo: 'SEM_ABERTURA' }, FRASE_SEM_ABERTURA)
     const dela = (doItem.length > 0 ? doItem : trechos).filter((t) => t.abertura === abertura)
-    if (dela.length === 0) return { motivo: 'SEM_TRECHO' }
+    if (dela.length === 0) return falta({ motivo: 'SEM_TRECHO' }, FRASE_SEM_TRECHO)
     const texto = dela.map((t) => t.texto).join(' ')
     const ditos = atributosDitos(texto)
-    if (ditos.tipoForaDoMotor) return { motivo: 'TIPO_FORA_DO_MOTOR' }
+    if (ditos.tipoForaDoMotor) return falta({ motivo: 'TIPO_FORA_DO_MOTOR' }, fraseDoTipoForaDoMotor(tiposDaEmpresa))
     const tiposDoMotor = new Set(dela.flatMap((t) => [...t.tipos]))
     // "bandeira FIXA", "peitoril FIXO" são atributo, não o tipo Fixo: o Fixo só conta se a palavra aparece fora dessas expressões
     if ([...tiposDoMotor].some((t) => tipoCurto(t) === 'fixo') && !/\bfix[oa]s?\b/.test(semAcento(texto).replace(FIXO_DE_ATRIBUTO, ' '))) {
@@ -288,16 +323,24 @@ function decisaoDoPadrao(item: ItemDoLevantamento, abertura_: Abertura | null, t
     // o tipo é SEMPRE dito; a porta sem tipo é de correr (o padrão da porta); a janela sem tipo não tem padrão
     let tipo: string | null
     let tipoDito = true
-    if (tiposDoMotor.size > 1) return { motivo: 'TIPOS_DITOS' }
+    if (tiposDoMotor.size > 1) return falta({ motivo: 'TIPOS_DITOS' }, fraseDosTiposDitos([...tiposDoMotor]))
     if (tiposDoMotor.size === 1) tipo = tipoCurto([...tiposDoMotor][0])
-    else if (PALAVRA_DE_TIPO.test(semAcento(texto).replace(FIXO_DE_ATRIBUTO, ' '))) return { motivo: 'TIPO_FORA_DO_MOTOR' }
+    else if (PALAVRA_DE_TIPO.test(semAcento(texto).replace(FIXO_DE_ATRIBUTO, ' '))) return falta({ motivo: 'TIPO_FORA_DO_MOTOR' }, fraseDoTipoForaDoMotor(tiposDaEmpresa))
     else if (abertura === 'porta') { tipo = 'correr'; tipoDito = false }
-    else return { motivo: 'JANELA_SEM_TIPO' }
-    if (ditos.semRepresentacao) return { motivo: 'DITO_SEM_REPRESENTACAO' }
-    if (tipo === null) return { motivo: 'JANELA_SEM_TIPO' }
+    else return falta({ motivo: 'JANELA_SEM_TIPO' }, fraseDaJanelaSemTipo(tiposDaEmpresa))
+    if (ditos.semRepresentacao) return falta({ motivo: 'DITO_SEM_REPRESENTACAO' }, FRASE_DITO_SEM_REPRESENTACAO)
+    if (tipo === null) return falta({ motivo: 'JANELA_SEM_TIPO' }, fraseDaJanelaSemTipo(tiposDaEmpresa))
     // fora do correr, o natural é UM; outro número de módulos dito não tem padrão (o modelo decide)
     const comModulos = tipo !== TIPO_DE_DUAS_FOLHAS
-    if (comModulos && ditos.modulos !== null && ditos.modulos !== naturalDaQuantidade(tipo)) return { motivo: 'MODULOS_DITOS' }
+    if (comModulos && ditos.modulos !== null && ditos.modulos !== naturalDaQuantidade(tipo)) {
+        // as que existem com módulos variáveis ou exatamente os ditos, com os extras ditos: a divisão é o que se pergunta (o modelo também pode)
+        const opcoes = daLinhaDita(candidatos, doItem).map((c) => ({ c, a: atributosDaDescricao(c) }))
+            .filter(({ a }) => a.tipo === tipo && (a.abertura === abertura || (a.abertura === null && abertura === 'janela'))
+                && (a.modulos === 'variavel' || a.modulos === ditos.modulos || a.modulos === null)
+                && mesmosExtras(semModulacao(a.extras), semModulacao(ditos.extras)))
+            .map(({ c }) => descricaoSemLinha(c))
+        return falta({ motivo: 'MODULOS_DITOS' }, fraseDosModulosDitos(ditos.modulos, opcoes))
+    }
 
     const folhasPedidas = ditos.folhas ?? naturalDaQuantidade(tipo)
     // A LINHA DE PRODUTO DITA (18/11/2026): "Linha: Wolff PVC – Europa 60" no bloco do item deixa só as candidatas dessa linha
@@ -343,13 +386,13 @@ function decisaoDoPadrao(item: ItemDoLevantamento, abertura_: Abertura | null, t
 
     // 1) EXATAMENTE os extras ditos — o natural de todos é não ter, e a modulação conta (a maxim-ar lisa é a DP-01, sem rótulo nenhum)
     const exatas = doTipo.filter(({ a }) => mesmosExtras(a.extras, ditos.extras))
-    if (exatas.length > 0) return comRastro(decidir(exatas, item))
+    if (exatas.length > 0) return comRastro(decidir(exatas, item, explicar))
 
     // 2) a MODULAÇÃO como rótulo: as que têm os extras ditos e só diferem pelo rótulo da divisão
     const modulacaoDita = [...ditos.extras].filter(ehModulacao)
     const porModulacao = doTipo.filter(({ a }) => mesmosExtras(semModulacao(a.extras), semModulacao(ditos.extras)) && modulacaoDita.every((e) => a.extras.has(e)))
     // a) uma só: ela é a escolha, qualquer que seja o rótulo (o fixo de 1 módulo: só a DP-143)
-    if (porModulacao.length === 1) return comRastro(decidir(porModulacao, item))
+    if (porModulacao.length === 1) return comRastro(decidir(porModulacao, item, explicar))
     if (porModulacao.length > 1) {
         const outrosExtras = [...semModulacao(ditos.extras)]
         const rotulos = porModulacao.map(({ a }) => [...a.extras].filter(ehModulacao).map((e) => ROTULO_DA_MODULACAO[e] ?? e).join(' e '))
@@ -363,7 +406,7 @@ function decisaoDoPadrao(item: ItemDoLevantamento, abertura_: Abertura | null, t
         //    cabendo é LIMITES. Com N>=2 (dito) a regra já parou antes, em MODULOS_DITOS, e o modelo pergunta: aí são produtos diferentes
         if (outrosExtras.length === 0 && (ditos.modulos === null || ditos.modulos === 1) && porModulacao.every(({ a }) => a.modulos === null || a.modulos === 1)) {
             const cabem = porModulacao.filter(({ c }) => cabeNosLimites(c, item))
-            if (cabem.length === 0) return { motivo: 'LIMITES' }
+            if (cabem.length === 0) return falta({ motivo: 'LIMITES' }, fraseDoForaDoLimite(item, porModulacao.map(({ c }) => c)))
             return comRastro({ tipologia: cabem[0].c.tipologia })
         }
         // d) sem extra dito (ou nada que as distinga): falta nomeada
@@ -376,7 +419,7 @@ function decisaoDoPadrao(item: ItemDoLevantamento, abertura_: Abertura | null, t
         const existentes = [...new Set(comMais.map(({ a }) => [...a.extras].filter((e) => !ditos.extras.has(e)).join(' e ')))]
         return { motivo: 'LACUNA', esquadria, extrasDitos: [...ditos.extras], existentes }
     }
-    return { motivo: 'SEM_CANDIDATA' }
+    return falta({ motivo: 'SEM_CANDIDATA' }, fraseDaSemCandidata(esquadria, [...ditos.extras]))
 }
 
 /**
@@ -410,7 +453,7 @@ const quantidadeNaFrase = (a: AtributosDaTipologia | null, folhas: number) =>
     a !== null && a.folhas === null ? `${folhas} ${folhas === 1 ? 'módulo' : 'módulos'}` : `${folhas} ${folhas === 1 ? 'folha' : 'folhas'}`
 
 /** Entre as que sobraram: uma só vale (se a medida couber); mais de uma é LINHA (falta nomeada) ou SEM_NATURAL — nunca "a primeira". */
-function decidir(restantes: ReadonlyArray<{ c: CandidatoDeTipologia; a: AtributosDaTipologia }>, item: ItemDoLevantamento): DecisaoDoPadrao {
+function decidir(restantes: ReadonlyArray<{ c: CandidatoDeTipologia; a: AtributosDaTipologia }>, item: ItemDoLevantamento, explicar: (frase: string) => void = () => undefined): DecisaoDoPadrao {
     if (restantes.length > 1) {
         // o que ainda as distingue: atributo sem natural, ou só a linha de produto
         const diferem: string[] = []
@@ -424,7 +467,7 @@ function decidir(restantes: ReadonlyArray<{ c: CandidatoDeTipologia; a: Atributo
         return { motivo: 'LINHA', candidatas: codigos, linhas: [...new Set(restantes.map(({ c }) => c.linha ?? '(sem linha)'))] }
     }
     const [unica] = restantes
-    if (!cabeNosLimites(unica.c, item)) return { motivo: 'LIMITES' }
+    if (!cabeNosLimites(unica.c, item)) { explicar(fraseDoForaDoLimite(item, [unica.c])); return { motivo: 'LIMITES' } }
     return { tipologia: unica.c.tipologia }
 }
 
@@ -459,6 +502,10 @@ export function oQueAEsquadriaE(c: Pick<CandidatoDeTipologia, 'descricao' | 'tip
  */
 export function fraseDoPadraoQueFalta(d: DecisaoDoPadrao): string | null {
     if (!('motivo' in d)) return null
+    // os motivos que não precisam de contexto para se dizer (os outros vêm com a frase de `padraoDaEsquadria`, montada onde o contexto existe)
+    if (d.motivo === 'SEM_ABERTURA') return FRASE_SEM_ABERTURA
+    if (d.motivo === 'SEM_TRECHO') return FRASE_SEM_TRECHO
+    if (d.motivo === 'DITO_SEM_REPRESENTACAO') return FRASE_DITO_SEM_REPRESENTACAO
     if (d.motivo === 'LINHA') return fraseDaLinhaSemPadrao(d.linhas)
     if (d.motivo === 'SEM_NATURAL') return `Este item pode ser ${d.descricoes.map((x) => `“${x}”`).join(' ou ')}, e nada do que foi dito separa uma da outra. Qual é?`
     if (d.motivo === 'MODULACAO') return `A ${d.esquadria} com ${d.extras.join(' e ')} existe com divisão por ${d.opcoes.join(' ou por ')}: qual é?`

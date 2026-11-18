@@ -203,7 +203,7 @@ import { vidroPodado } from '@/lib/atendimentos-ia/vidro'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { compararNome, formaComparavel, nomeDaMensagem, nomeDitoOuRetomado, nomeDoCliente, nomeSemPrefixo, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 import { fraseDaCorForaDaLista, perguntasDaTipologia, type JaDito } from '@/lib/atendimentos-ia/pre-definicao'
-import { atributosNoLog, fraseDoPadraoQueFalta, origemDaTipologiaProposta, padraoDaEsquadria, type AtributoAssumido } from '@/lib/atendimentos-ia/tipologia-padrao'
+import { atributosNoLog, origemDaTipologiaProposta, padraoDaEsquadria, type AtributoAssumido } from '@/lib/atendimentos-ia/tipologia-padrao'
 import { PROMPT_BASE } from '@/utils/atendimentos-ia-prompt-base'
 import { LIMITE_DA_FALA } from '@/utils/atendimentos-ia-contexto'
 import { blocoDasInstrucoes, lerInstrucoesDaEmpresa, type InstrucaoDaCategoria } from '@/lib/atendimentos-ia/instrucoes-da-categoria'
@@ -1180,6 +1180,9 @@ function opcaoDaLista<L>(opcao: unknown, lista: readonly L[]): L | null {
     return typeof opcao === 'number' && Number.isInteger(opcao) && opcao >= 1 && opcao <= lista.length ? lista[opcao - 1] : null
 }
 
+/** Os motivos do padrão que são só falta de informação: a pergunta da tipologia (ou a do modelo) já pergunta exatamente o que falta. */
+const SO_FALTA_INFORMACAO: ReadonlySet<string> = new Set(['SEM_ABERTURA', 'SEM_TRECHO', 'JANELA_SEM_TIPO'])
+
 // ── A CONVERSA ──────────────────────────────────────────────────────────────────────────────
 export type Interlocutor = {
     tenantId: string; remetenteId: string; telefone: string; texto: string; wuzapiToken: string
@@ -1652,14 +1655,17 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         for (const item of proposta_.itens) {
             if (!dizAlgo(item)) continue
             if (item.tipologia === null) {
-                const { decisao: padrao, atributos } = padraoDaEsquadria(item, proposta_.aberturas[item.ordem] ?? null, filtro.lidos, tabela.candidatos, variaveisDaCandidata)
+                const { decisao: padrao, atributos, impedimento } = padraoDaEsquadria(item, proposta_.aberturas[item.ordem] ?? null, filtro.lidos, tabela.candidatos, variaveisDaCandidata)
                 if ('tipologia' in padrao) {
                     item.tipologia = padrao.tipologia; rastro.tipologiasPadrao += 1; tipologiasDoPadrao.push(`e${item.ordem}:${padrao.tipologia}`)
                     assumir(item.ordem, atributos)
                 }
                 else {
-                    const frase = fraseDoPadraoQueFalta(padrao)
-                    if (frase !== null) faltasDoPadrao.push({ ordem: item.ordem, frase, motivo: padrao.motivo })
+                    // O QUE IMPEDE O ITEM, DITO (18/11/2026): o motivo que o CÓDIGO conhece melhor que o modelo (dois tipos ditos, os módulos, a falta
+                    // no motor, o limite, a linha, a modulação) vai com a frase dele, item por item — nunca a pergunta genérica no lugar dela. O que é só
+                    // FALTA DE INFORMAÇÃO (a abertura, o tipo, a descrição do item) segue para a pergunta da tipologia, que pergunta isso mesmo, e a
+                    // reformulação do modelo continua valendo nela (03/11/2026)
+                    if (impedimento !== null && !SO_FALTA_INFORMACAO.has(padrao.motivo)) faltasDoPadrao.push({ ordem: item.ordem, frase: impedimento, motivo: padrao.motivo })
                 }
             }
             // a predominante é da cor NÃO DITA (08/11/2026): a cor dita que a empresa não tem fica vazia, e a conversa pergunta nomeando-a
@@ -1849,8 +1855,11 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             // configuração (sem-linha); as outras nomeiam a falta ou as opções (padrao-nomeado)
             const semPadrao = faltasDoPadrao.filter((x) => aplicada.itens.some((i) => i.ordem === x.ordem && i.tipologia === null))
             if (semPadrao.length > 0) {
-                return await responder(semPadrao.map((x) => `${aplicada.itens.length > 1 ? `Item ${x.ordem}: ` : ''}${x.frase}`).join('\n'),
-                    semPadrao.every((x) => x.motivo === 'LINHA') ? 'sem-linha' : 'padrao-nomeado')
+                // e o que mais falta nos OUTROS itens (e nos campos destes, que não a tipologia) vai junto: nenhum item fica parado em silêncio
+                const n = aplicada.itens.length
+                const resto = pendencias.filter((p) => !(p.tipo === 'CAMPO' && p.campo === 'tipologia' && semPadrao.some((x) => x.ordem === p.ordem)))
+                const linhas = [...semPadrao.map((x) => `${n > 1 ? `Item ${x.ordem}: ` : ''}${x.frase}`), ...(resto.length ? [perguntaDasPendencias(resto, n, null, filtro.jaDito)] : [])]
+                return await responder(linhas.join('\n'), semPadrao.every((x) => x.motivo === 'LINHA') ? 'sem-linha' : 'padrao-nomeado')
             }
             // A COR DITA E FORA DA LISTA (dono do produto, 08/11/2026): a pergunta nomeia a cor e as cores da empresa — e o resto do que
             // falta vai junto, na mesma resposta. A esquadria continua sem cor: nada a troca pela predominante
