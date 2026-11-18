@@ -32,7 +32,7 @@ M = [
  ('A2 a autorização pelo formato', N, "    if (!chave) return { ok: false, formato, status: 401,", "    if (!chave || formato !== 'jwt') return { ok: false, formato, status: 401,", NUC),
  ('A3 o sb_secret lido como outro', N, "    if (chave.startsWith('sb_secret_')) return 'sb_secret'\n", "", NUC),
  ('K1 o motivo da função não é mapeado', CLI, "const motivo = MOTIVO_DA_FUNCAO[String(corpo.motivo)] ?? 'audio_nao_transcrito'", "const motivo: MotivoDaRecusa = 'audio_nao_transcrito'", NUC),
- ('K2 sem o Authorization', CLI, "Authorization: `Bearer ${deps.chave}`, apikey", "apikey", NUC),
+ ('K2 sem o Authorization', CLI, "Authorization: `Bearer ${chave.valor}`, apikey", "apikey", NUC),
  ('M1 o áudio longo declarado não recusa', MID, "        if (m.segundos !== null && m.segundos > LIMITE_DO_AUDIO_SEGUNDOS) return", "        if (false) return", MIDIA),
  ('M2 o áudio volta a ser recusado', MID, "        return { lida: true, como: 'audio' }\n", "        return recusa('audio')\n", MIDIA),
  ('M3 a duração por extenso arredonda para baixo', MID, "    const s = Math.ceil(segundos)", "    const s = Math.floor(segundos)", MIDIA),
