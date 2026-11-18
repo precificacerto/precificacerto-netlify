@@ -96,15 +96,40 @@ export async function saidaDaEntrada(tenantId: string, entradaId: string): Promi
     return { id: l.id, texto: l.texto ?? '', enviada: l.wuzapi_mensagem_id !== null }
 }
 
-/** Grava a saída — o texto como foi enviado, a entrada a que responde e o id do envio (nulo quando o envio falhou). */
-export async function gravarSaida(tenantId: string, conversaId: string, respondeA: string, texto: string, idDoEnvio: string | null): Promise<'gravada' | 'sem_migracao'> {
+/**
+ * Grava a saída — o texto como foi enviado, a entrada a que responde, o id do envio (nulo quando o envio falhou) e o LEVANTAMENTO que o turno
+ * tratou (o contexto do turno seguinte, 18/11/2026; nulo quando não tratou nenhum). Sem a coluna `levantamento_id` (a 20261118000005
+ * pendente), grava sem ela: `sem_contexto`. Sem `responde_a` também, `sem_migracao`.
+ */
+export async function gravarSaida(tenantId: string, conversaId: string, respondeA: string, texto: string, idDoEnvio: string | null, levantamentoId: string | null = null): Promise<'gravada' | 'sem_contexto' | 'sem_migracao'> {
     const linha = { tenant_id: tenantId, conversa_id: conversaId, direcao: 'saida', texto, wuzapi_mensagem_id: idDoEnvio }
+    const comContexto = await supabaseAdmin.from('orcamentista_mensagem').insert({ ...linha, responde_a: respondeA, levantamento_id: levantamentoId })
+    if (!comContexto.error) return 'gravada'
+    if (!colunaAusente(comContexto.error)) throw new Error(`orcamentista_mensagem: ${comContexto.error.message}`)
     const { error } = await supabaseAdmin.from('orcamentista_mensagem').insert({ ...linha, responde_a: respondeA })
-    if (!error) return 'gravada'
+    if (!error) return 'sem_contexto'
     if (!colunaAusente(error)) throw new Error(`orcamentista_mensagem: ${error.message}`)
     const { error: erroSem } = await supabaseAdmin.from('orcamentista_mensagem').insert(linha)
     if (erroSem) throw new Error(`orcamentista_mensagem: ${erroSem.message}`)
     return 'sem_migracao'
+}
+
+/**
+ * O CONTEXTO DO TURNO (dono do produto, 18/11/2026): o levantamento que a ÚLTIMA saída da conversa tratou, dentro da janela do histórico.
+ * `{ levantamentoId: null }` quando a última saída não tratou nenhum (ou não há saída); `sem_migracao` sem a coluna. O turno só alcança este
+ * levantamento sem o vendedor dizer o nome de outro.
+ */
+export async function contextoDaConversa(tenantId: string, conversaId: string, agora = new Date()): Promise<{ levantamentoId: string | null } | 'sem_migracao'> {
+    const desde = new Date(agora.getTime() - HORAS_DO_HISTORICO * 3_600_000).toISOString()
+    const { data, error } = await supabaseAdmin.from('orcamentista_mensagem').select('levantamento_id')
+        .eq('tenant_id', tenantId).eq('conversa_id', conversaId).eq('direcao', 'saida').gte('criado_em', desde)
+        .order('criado_em', { ascending: false }).limit(1).maybeSingle()
+    if (error) {
+        if (colunaAusente(error)) return 'sem_migracao'
+        throw new Error(`orcamentista_mensagem: ${error.message}`)
+    }
+    const id = (data as { levantamento_id?: unknown } | null)?.levantamento_id
+    return { levantamentoId: typeof id === 'string' && id ? id : null }
 }
 
 /** O reenvio de uma saída cujo primeiro envio falhou: a linha ganha o id do envio. R1: o update tem de atingir a linha. */
