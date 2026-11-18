@@ -23,9 +23,14 @@
 -- fundiu em outra (por id) -- a autorizacao da linha fundida sai com ela, e a que fica guarda a sua. A conversa grava
 -- as seis colunas por um UPDATE proprio, e o UPDATE do item (`camposDoItem`) nao as toca.
 --
+-- PENDENTE. NAO APLICADA. Quem aplica e o dono do produto, ANTES do merge do PR que a traz. Ao aplicar fora do CLI, o `name` da
+-- migracao e o nome completo deste arquivo, sem a extensao: 20261118000001_autorizacao_da_medida_fora_do_limite.
+--
 -- ORDEM: aplicar e conferir ANTES do merge (`migracao.md`, Parte I). Sem ela, o codigo nao quebra: a leitura e a
 -- gravacao das colunas devolvem 42703, e a conversa segue como antes -- a medida fora do limite pede a medida
 -- certa, sem oferecer a autorizacao, e a linha [IA] diz `limite=sem_migracao`.
+
+BEGIN;
 
 DO $guarda$
 DECLARE v_tipo text;
@@ -108,3 +113,15 @@ BEGIN
       OR limite_autorizado_por IS NOT NULL OR limite_autorizado_em IS NOT NULL;
   RAISE NOTICE 'orcamentista_levantamento_item: as 6 colunas do limite e as 3 constraints; % linha(s) com pedido ou autorizacao.', v_n;
 END $verifica$;
+
+NOTIFY pgrst, 'reload schema';
+
+COMMIT;
+
+-- ── VERIFICACAO DEPOIS DE APLICAR, por consulta ao banco (nao pelo retorno do comando) ──────
+-- select column_name, data_type, is_nullable, column_default from information_schema.columns
+--  where table_schema = 'public' and table_name = 'orcamentista_levantamento_item' and column_name like 'limite\_%' order by ordinal_position;
+-- -- esperado: as 6 colunas, nulas, sem default
+-- select conname, pg_get_constraintdef(oid) from pg_constraint
+--  where conrelid = 'public.orcamentista_levantamento_item'::regclass and conname like '%limite%' order by 1;
+-- -- esperado: _limite_autorizado, _limite_autorizado_fkey, _limite_pedido
