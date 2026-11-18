@@ -138,6 +138,9 @@ const estado = {
     chamadasDaLlm: [] as Array<{ headers: Record<string, string>; corpo: Record<string, unknown> }>,
     envioStatus: 200,
     envios: [] as Array<{ corpo: Record<string, unknown> }>,
+    /** O DOWNLOAD da mídia pelo WUZAPI (18/11/2026): cada pedido, e o que ele devolve — os bytes, um status de erro, ou a exceção. */
+    downloads: [] as Array<{ url: string; headers: Record<string, string>; corpo: Record<string, unknown> }>,
+    download: { bytes: new Uint8Array() } as { bytes: Uint8Array } | { status: number } | 'lanca',
     /** Os DOCUMENTOS enviados pelo WUZAPI (o arquivo do levantamento, 06/11/2026) e o status que o envio deles devolve. */
     documentos: [] as Array<{ corpo: Record<string, unknown> }>,
     documentoStatus: 200,
@@ -267,6 +270,8 @@ function montar() {
     estado.chamadasDaLlm = []
     estado.envioStatus = 200
     estado.envios = []
+    estado.downloads = []
+    estado.download = { bytes: new Uint8Array() }
     estado.documentos = []
     estado.documentoStatus = 200
     estado.storage = new Map()
@@ -710,6 +715,13 @@ beforeEach(() => {
             const proxima = estado.respostasDaLlm.shift() ?? { status: 200, corpo: respostaComFerramenta({}) }
             if (proxima === 'lanca') throw new Error('fetch failed')
             return respostaDaLlm(proxima.status, proxima.corpo, init)
+        }
+        if (url.endsWith('/chat/downloadimage') || url.endsWith('/chat/downloaddocument')) {
+            estado.downloads.push({ url, headers, corpo })
+            const d = estado.download
+            if (d === 'lanca') throw new Error('fetch failed')
+            if ('status' in d) return { ok: false, status: d.status, json: async () => ({ code: d.status, error: 'failed to download', success: false }) }
+            return { ok: true, status: 200, json: async () => ({ code: 200, success: true, data: { Mimetype: 'x', Data: `data:x;base64,${Buffer.from(d.bytes).toString('base64')}` } }) }
         }
         if (url.endsWith('/chat/send/document')) {
             // o ARQUIVO do levantamento (06/11/2026): o PDF em base64, com o nome do arquivo
@@ -6482,5 +6494,133 @@ describe('(42) O ORÇAMENTO ATUALIZADO COM O MESMO NÚMERO, na conversa (dono do
         expect(ativosDoOrcamento()[0].altura_mm).toBe(1000)
         expect(estado.documentosDoOrcamento).toHaveLength(documentos)
         expect(o.deleted_at).toBe('2026-11-13T12:00:00.000Z')
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('(30) a FOTO e o PDF do vendedor (dono do produto, 18/11/2026): baixados, lidos pelo modelo, gravados como MARCADOR — e o que não se lê responde', () => {
+    const META = { URL: 'https://mmg.whatsapp.net/o1/v/t62/abc', directPath: '/o1/v/t62/abc', mediaKey: 'Q2hhdmVEYU1pZGlh', fileEncSHA256: 'RW5jU2hh', fileSHA256: 'U2hh' }
+    /** Um JPEG mínimo de 1600 x 1200, com um miolo que só existe nele — se aparecer gravado ou no log, o arquivo vazou. */
+    const FOTO = new Uint8Array([0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x04, 0xb0, 0x06, 0x40, 0x03, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1, ...Buffer.from('MIOLO-UNICO-DA-FOTO-'.repeat(20)), 0xff, 0xd9])
+    const FOTO_B64 = Buffer.from(FOTO).toString('base64')
+    const PDF_COM_SENHA = new Uint8Array(Buffer.from('%PDF-1.7\n1 0 obj << >> endobj\ntrailer << /Encrypt 5 0 R >>\n%%EOF', 'latin1'))
+    async function chamarComMidia(message: Record<string, unknown>) {
+        const saida = { status: 0 }
+        const res = { status(n: number) { saida.status = n; return res }, json() { return res }, end() { return res }, setHeader() { return res } } as unknown as NextApiResponse
+        sequencia += 1
+        const req = {
+            method: 'POST', query: { c: SEGREDO }, headers: { 'content-type': 'application/json' },
+            body: { type: 'Message', event: { Info: { ID: `MSG_${sequencia}`, Sender: '1234:33@lid', SenderAlt: `${TELEFONE_DO_WEBHOOK}:33@s.whatsapp.net`, IsFromMe: false, IsGroup: false, Type: 'media' }, Message: message } },
+        } as unknown as NextApiRequest
+        await rota(req, res)
+        return saida
+    }
+    const foto = (sobre: Record<string, unknown> = {}) => ({ imageMessage: { ...META, mimetype: 'image/jpeg', caption: 'Levantamento Casa do Pedro', fileLength: FOTO.length, ...sobre } })
+    const pdf = (sobre: Record<string, unknown> = {}) => ({ documentWithCaptionMessage: { message: { documentMessage: { ...META, mimetype: 'application/pdf', fileName: 'Obra Pedro.pdf', caption: 'Levantamento Casa do Pedro', fileLength: 2048, ...sobre } } } })
+    const comFerramenta = () => estado.chamadasDaLlm.filter((c) => c.corpo.tools)
+    const entradasGravadas = () => (estado.db.orcamentista_mensagem ?? []).filter((m) => m.direcao === 'entrada').map((m) => m.texto)
+
+    it('a foto com legenda: baixada com o token da conexão, e o modelo recebe o bloco image ANTES do texto, com a instrução de não adivinhar número', async () => {
+        estado.download = { bytes: FOTO }
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
+        await chamarComMidia(foto())
+        expect(estado.downloads).toHaveLength(1)
+        expect(estado.downloads[0].url).toMatch(/\/chat\/downloadimage$/)
+        expect(estado.downloads[0].headers.token).toBe(TOKEN)
+        expect(estado.downloads[0].corpo).toEqual(expect.objectContaining({ Url: META.URL, MediaKey: META.mediaKey, Mimetype: 'image/jpeg' }))
+        const [pedido] = comFerramenta()
+        const mensagens = pedido.corpo.messages as Array<{ role: string; content: unknown }>
+        expect(mensagens[mensagens.length - 1]).toEqual({
+            role: 'user',
+            content: [
+                { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: FOTO_B64 } },
+                { type: 'text', text: expect.stringContaining('Nunca complete, arredonde nem adivinhe um número') },
+                { type: 'text', text: '[imagem] Levantamento Casa do Pedro' },
+            ],
+        })
+        expect(linhaIa().join('\n')).toContain('midia=imagem:lida')
+    })
+
+    it('a conversa grava o MARCADOR, nunca o arquivo: nenhum byte da foto no banco nem no log', async () => {
+        estado.download = { bytes: FOTO }
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
+        await chamarComMidia(foto())
+        expect(entradasGravadas()).toEqual(['[imagem] Levantamento Casa do Pedro'])
+        // procurado nos VALORES gravados, nunca numa serialização do banco
+        const valores = Object.values(estado.db).flat().flatMap((l) => Object.values(l)).filter((v): v is string => typeof v === 'string')
+        expect(valores.length).toBeGreaterThan(0)
+        expect(valores.filter((v) => v.includes(FOTO_B64.slice(0, 40)))).toEqual([])
+        const log = erros.join('\n')
+        expect(log.includes(FOTO_B64.slice(0, 40))).toBe(false)
+        expect(log.includes('Casa do Pedro')).toBe(false)
+        expect(log.includes(META.URL)).toBe(false)
+    })
+
+    it('o ÁUDIO responde dizendo o que chegou e o que fazer — sem baixar e sem chamar o modelo com a ferramenta', async () => {
+        await chamarComMidia({ audioMessage: { ...META, mimetype: 'audio/ogg; codecs=opus', fileLength: 9000 } })
+        expect(estado.downloads).toEqual([])
+        expect(comFerramenta()).toEqual([])
+        expect(enviados()).toEqual(['Recebi o seu áudio, mas ainda não consigo ouvir áudio: me escreva o que precisa, ou mande uma foto.'])
+        // passou por falar(): o rascunho foi à redação
+        expect(estado.redacoes.map((r) => r.rascunho)).toEqual(['Recebi o seu áudio, mas ainda não consigo ouvir áudio: me escreva o que precisa, ou mande uma foto.'])
+        expect(entradasGravadas()).toEqual(['[áudio]'])
+        expect(linhaIa().join('\n')).toEqual(expect.stringContaining('desfecho=midia-nao-lida'))
+        expect(linhaIa().join('\n')).toEqual(expect.stringContaining('midia=audio:audio'))
+    })
+
+    it('a PLANILHA e o VÍDEO também respondem, nomeando o arquivo', async () => {
+        await chamarComMidia({ documentMessage: { ...META, mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', fileName: 'Obra.xlsx' } })
+        await chamarComMidia({ videoMessage: { ...META, mimetype: 'video/mp4' } })
+        expect(enviados()).toEqual([
+            'Recebi a planilha “Obra.xlsx”, mas ainda não consigo ler planilha: me mande em PDF ou em foto, ou me escreva as medidas.',
+            'Recebi o seu vídeo, mas ainda não consigo assistir vídeo: me mande uma foto ou um PDF, ou me escreva as medidas.',
+        ])
+        expect(comFerramenta()).toEqual([])
+    })
+
+    it('a mídia que FALHOU AO BAIXAR responde — nunca fica em silêncio', async () => {
+        estado.download = { status: 500 }
+        await chamarComMidia(foto())
+        expect(estado.downloads).toHaveLength(1)
+        expect(comFerramenta()).toEqual([])
+        expect(enviados()).toEqual(['Recebi a sua foto, mas não consegui baixar o arquivo do WhatsApp: mande de novo, ou me escreva as medidas.'])
+        expect(linhaIa().join('\n')).toEqual(expect.stringContaining('midia=imagem:falhou_ao_baixar'))
+        expect(linhaIa().join('\n')).toEqual(expect.stringContaining('download=status=500'))
+    })
+
+    it('a foto declarada acima do limite da API recusa SEM baixar, dizendo os dois números', async () => {
+        await chamarComMidia(foto({ fileLength: 12_000_000 }))
+        expect(estado.downloads).toEqual([])
+        expect(comFerramenta()).toEqual([])
+        expect(enviados()).toEqual(['Recebi a sua foto, mas ela tem 12,0 MB e eu leio imagem de até 7,5 MB: mande uma foto menor, ou me escreva as medidas.'])
+    })
+
+    it('o PDF com senha recusa nomeado, depois de baixar e antes do modelo', async () => {
+        estado.download = { bytes: PDF_COM_SENHA }
+        await chamarComMidia(pdf())
+        expect(estado.downloads.map((d) => d.url.replace(/^.*\/chat\//, ''))).toEqual(['downloaddocument'])
+        expect(comFerramenta()).toEqual([])
+        expect(enviados()).toEqual(['Recebi o PDF “Obra Pedro.pdf”, mas ele está protegido por senha e eu não consigo abrir: mande o PDF sem senha, ou uma foto.'])
+        expect(entradasGravadas()).toEqual(['[documento: Obra Pedro.pdf] Levantamento Casa do Pedro'])
+    })
+
+    it('o PDF que a API recusa (400, as páginas) responde nomeando o limite — não "o serviço de IA não respondeu"', async () => {
+        estado.download = { bytes: new Uint8Array(Buffer.from('%PDF-1.7\n1 0 obj << >> endobj\n%%EOF', 'latin1')) }
+        estado.respostasDaLlm.push({ status: 400, corpo: { type: 'error', error: { type: 'invalid_request_error', message: 'A maximum of 600 PDF pages may be provided.' } } })
+        await chamarComMidia(pdf())
+        const [pedido] = comFerramenta()
+        const ultima = (pedido.corpo.messages as Array<{ content: Array<{ type: string }> }>).slice(-1)[0]
+        expect(ultima.content.map((b) => b.type)).toEqual(['document', 'text', 'text'])
+        expect(enviados()).toEqual(['Recebi o PDF “Obra Pedro.pdf”, mas o serviço de IA não conseguiu abrir o PDF (ele lê até 600 páginas, sem senha): mande só as páginas das esquadrias, ou uma foto.'])
+        expect(linhaIa().join('\n')).toEqual(expect.stringContaining('midia=pdf:recusada_pela_ia'))
+    })
+
+    it('a mensagem de TEXTO continua indo ao modelo como texto puro (o pedido de antes, byte a byte)', async () => {
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do Pedro')
+        const mensagens = comFerramenta()[0].corpo.messages as Array<{ content: unknown }>
+        expect(mensagens[mensagens.length - 1].content).toBe('Levantamento Casa do Pedro')
+        expect(estado.downloads).toEqual([])
+        expect(linhaIa().join('\n')).not.toContain('midia=')
     })
 })

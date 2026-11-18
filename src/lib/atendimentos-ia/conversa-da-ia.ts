@@ -169,6 +169,9 @@
  *
  * Portão: `src/utils/__tests__/atendimentos-ia-levantamento-por-nome.test.ts`.
  */
+import type { MidiaDaMensagem } from '@/lib/atendimentos-ia/payload-wuzapi'
+import { conferirMidiaBaixada, fraseDaMidiaRecusadaPelaIa, fraseDaRecusa, leituraDaMidia, marcaNoLog, type AnexoParaOModelo } from '@/lib/atendimentos-ia/midia-da-mensagem'
+import { baixarMidia } from '@/lib/atendimentos-ia/midia-do-wuzapi'
 import { atravessarNoSim } from './travessia-do-levantamento'
 import { dependenciasDoServidor, destinosDoWhatsApp, enviarAoPrimeiroQueAceitar, etapaDoPreco, reenviarOArquivo } from './cadeia-do-sim'
 import { telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
@@ -242,6 +245,8 @@ export type DesfechoDaIa =
     | 'perguntou' | 'sem-cores' | 'sem-linha' | 'padrao-nomeado' | 'levantou' | 'recusou' | 'envio-falhou' | 'erro' | 'nenhuma-cabe'
     /** O reenvio do WUZAPI de uma entrada já respondida (200 sem conduzir), e o reenvio da saída cujo primeiro envio falhou (03/11/2026). */
     | 'repetida' | 'reenviada'
+    /** A mídia do vendedor que não foi lida — o áudio, o vídeo, a planilha, o que passou do limite ou falhou ao baixar (18/11/2026): a resposta diz o quê. */
+    | 'midia-nao-lida'
 
 export type Rota = 'MONTAGEM' | 'NOVO' | 'ALTERACAO' | 'ALTERACAO_ADMIN' | 'SEM_NOME' | 'PARECIDO' | 'RESGATE' | 'NOME_EXISTE' | 'NAO_ENCONTRADO' | 'QUAL_VENDEDOR' | '-'
 /**
@@ -331,6 +336,8 @@ type Rastro = {
     coresPadrao: number
     /** Esquadrias que receberam a tipologia PADRÃO do código — de correr, 2 folhas, lisa (05/11/2026). */
     tipologiasPadrao: number
+    /** A mídia da mensagem (18/11/2026), `<tipo>:<desfecho>` — `imagem:lida`, `audio:audio`, `pdf:pdf_grande`…; '-' sem mídia. Nunca a legenda nem o nome. */
+    midia: string
 }
 const FALA_NO_LOG: Record<FalaLida['motivo'], string> = { usada: 'usada', ausente: 'ausente', numero: 'descartada_numero', longa: 'descartada_longa', sobre_valor: 'descartada_sobre_valor', esquadria: 'descartada_esquadria' }
 
@@ -352,6 +359,7 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
         + (r.itensSemCampos > 0 ? ` itens_sem_campos=${r.itensSemCampos}` : '')
         // a montagem e os padrões (05/11/2026)
         + (r.montagem === '-' ? '' : ` montagem=${r.montagem}`) + (r.coresPadrao > 0 ? ` cor_padrao=${r.coresPadrao}` : '') + (r.tipologiasPadrao > 0 ? ` tipologia_padrao=${r.tipologiasPadrao}` : '')
+        + (r.midia === '-' ? '' : ` midia=${r.midia}`)
     console.error(`${PREFIXO_DO_LOG_DA_IA} levantamento=${r.levantamento} rota=${r.rota} propostos=${r.propostos} descartados=${r.descartados} enviou=${r.enviou ? 'sim' : 'nao'} desfecho=${desfecho}${admin} nome=${r.nome} aberta=${r.aberta}${contexto}${ia}${detalhe ? ` ${detalhe}` : ''}`)
     // as linhas por etapa (06/11/2026), na ordem do turno; a última é a resposta, que todo turno tem
     for (const [n, nome] of ETAPAS_DO_LOG) console.error(`${PREFIXO_DO_LOG_DA_ETAPA} ${n} ${nome}] ${r.etapas[nome] ?? 'nao_chegou'}`)
@@ -680,7 +688,7 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
 // ── A LLM ───────────────────────────────────────────────────────────────────────────────────
 type ResultadoDaLlm =
     | { tipo: 'ok'; proposta: Record<string, unknown> }
-    | { tipo: 'sem-saldo' | 'erro-da-llm' | 'recusa' | 'sem-proposta' | 'prazo-esgotado'; detalhe: string }
+    | { tipo: 'sem-saldo' | 'erro-da-llm' | 'recusa' | 'sem-proposta' | 'prazo-esgotado' | 'midia-recusada'; detalhe: string }
 
 /** Sem saldo: 402 `billing_error`, ou o 400 com "credit balance" que a API também já devolveu. */
 function ehSemSaldo(status: number, erro: { type?: unknown; message?: unknown } | undefined): boolean {
@@ -704,7 +712,7 @@ const tokens = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && 
  */
 export const PRAZO_DA_PRIMEIRA_CHAMADA_MS = 45_000
 
-async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPrompt, medida: MedidaDaIa, historico: readonly MensagemDoHistorico[]): Promise<ResultadoDaLlm> {
+async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPrompt, medida: MedidaDaIa, historico: readonly MensagemDoHistorico[], anexo: AnexoParaOModelo | null = null): Promise<ResultadoDaLlm> {
     const inicio = Date.now()
     // o prazo GERAL (45 s) vale para a chamada inteira: as tentativas e a leitura do corpo em fluxo
     const limite = prazo(PRAZO_DA_PRIMEIRA_CHAMADA_MS)
@@ -726,7 +734,8 @@ async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPr
         tools: [FERRAMENTA_COM_FALA],
         tool_choice: { type: 'auto' },
         // o HISTÓRICO da conversa (03/11/2026): as últimas mensagens, já sem dinheiro e cortadas; a desta vez por último
-        messages: [...historico, { role: 'user', content: mensagem }],
+        // A FOTO OU O PDF (18/11/2026): o bloco antes do texto, com a instrução de não adivinhar número; sem anexo, o texto puro, como sempre
+        messages: [...historico, { role: 'user', content: anexo ? [anexo.bloco, { type: 'text', text: anexo.instrucao }, { type: 'text', text: mensagem }] : mensagem }],
     })
     let r: Response | null = null
     let corpo: Record<string, unknown> | null
@@ -796,6 +805,8 @@ async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPr
         const erro = (corpo?.error ?? undefined) as { type?: unknown; message?: unknown } | undefined
         const janela = r.status >= 400 && r.status < 500 ? ` mensagem="${mensagemParaOLog(erro?.message, chave)}"` : ''
         if (ehSemSaldo(r.status, erro)) return { tipo: 'sem-saldo', detalhe: `status=${r.status} motivo="a conta da Anthropic está sem saldo de créditos"${janela}` }
+        // o pedido COM a mídia recusado pela API (as páginas do PDF, o formato, o tamanho do pedido): recusa nomeada da mídia, não "não consegui processar"
+        if (anexo && (r.status === 400 || r.status === 413)) return { tipo: 'midia-recusada', detalhe: `status=${r.status} tipo=${typeof erro?.type === 'string' ? erro.type : '-'}${janela}` }
         return { tipo: 'erro-da-llm', detalhe: `status=${r.status} tipo=${typeof erro?.type === 'string' ? erro.type : '-'}${janela}` }
     }
     if (corpo?.stop_reason === 'refusal') return { tipo: 'recusa', detalhe: '' }
@@ -1175,6 +1186,8 @@ export type Interlocutor = {
     /** A conversa gravada (03/11/2026): a conversa do remetente e a entrada desta mensagem, já gravada pela rota. */
     conversaId: string
     entrada: Entrada
+    /** A foto, o PDF, o áudio… que veio na mensagem (18/11/2026): só os metadados; a conversa baixa e lê, ou recusa nomeando. */
+    midia?: MidiaDaMensagem
 }
 
 /** Conduz uma mensagem do vendedor. NUNCA lança: toda falha vira uma linha `[IA]`. */
@@ -1182,7 +1195,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = {
         etapas: { coletar: null, casar: null, montar: null, calcular: null },
         levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null, raciocinio: null, parada: null, cacheLido: null, cacheEscrito: null, cabecalhosMs: null, primeiroTokenMs: null, tentativas: null, requestId: null },
-        contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', coresPadrao: 0, tipologiasPadrao: 0,
+        midia: '-', contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', coresPadrao: 0, tipologiasPadrao: 0,
     }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
@@ -1243,6 +1256,19 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         }
         const chave = process.env.ANTHROPIC_API_KEY
         if (!chave) return await responder(FALHA_SEM_CHAVE, 'sem-chave')
+
+        // A MÍDIA (18/11/2026): baixada e conferida ANTES de qualquer leitura de catálogo; o que não se lê responde dizendo o que chegou e o que fazer
+        let anexo: AnexoParaOModelo | null = null
+        if (c.midia) {
+            const leitura = leituraDaMidia(c.midia)
+            if ('motivo' in leitura) { rastro.midia = marcaNoLog(c.midia, leitura.motivo); return await falar(leitura.frase, 'midia-nao-lida') }
+            const baixada = await baixarMidia(c.wuzapiToken, c.midia)
+            if ('detalhe' in baixada) { rastro.midia = marcaNoLog(c.midia, 'falhou_ao_baixar', leitura.como); return await falar(fraseDaRecusa(c.midia, 'falhou_ao_baixar'), 'midia-nao-lida', `download=${baixada.detalhe}`) }
+            const conferida = conferirMidiaBaixada(c.midia, leitura.como, baixada.bytes)
+            if ('motivo' in conferida) { rastro.midia = marcaNoLog(c.midia, conferida.motivo, leitura.como); return await falar(conferida.frase, 'midia-nao-lida') }
+            anexo = conferida.anexo
+            rastro.midia = marcaNoLog(c.midia, 'lida', leitura.como)
+        }
 
         // O TETO DE CONSUMO entraria aqui, ANTES da chamada (dono do produto, 22/10/2026: não agora).
 
@@ -1362,7 +1388,13 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             perguntaEmAberto: pendenciaAberta ? perguntaDasPendencias(pendenciasAbertas, itensDaMontagem.length, null, filtro.jaDito)
                 : perguntaDasCondicoesAberta ?? aberta?.paraOPrompt ?? aberta?.texto ?? null,
             hoje: !pendenciaAberta && aberta && ehResgate(aberta.p) ? dataBR(new Date().toISOString()) : null,
-        }, rastro.ia, historico)
+        }, rastro.ia, historico, anexo)
+        // só existe com anexo, e o anexo só existe com a mídia
+        if (resposta.tipo === 'midia-recusada') {
+            rastro.etapas.coletar = `historico=${rastro.historico} ia=midia-recusada faltou=ia`
+            rastro.midia = marcaNoLog(c.midia as MidiaDaMensagem, 'recusada_pela_ia', anexo?.como)
+            return await falar(fraseDaMidiaRecusadaPelaIa(c.midia as MidiaDaMensagem), 'midia-nao-lida', resposta.detalhe)
+        }
         if (resposta.tipo !== 'ok') {
             rastro.etapas.coletar = `historico=${rastro.historico} ia=${resposta.tipo} faltou=ia`
             // o prazo estourou (04/11/2026): a linha [IA] sai AGORA, antes de qualquer envio — se a função morrer depois, o motivo já está no log
