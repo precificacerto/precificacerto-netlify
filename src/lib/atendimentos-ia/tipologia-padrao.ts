@@ -300,7 +300,8 @@ function decisaoDoPadrao(item: ItemDoLevantamento, abertura_: Abertura | null, t
     if (comModulos && ditos.modulos !== null && ditos.modulos !== naturalDaQuantidade(tipo)) return { motivo: 'MODULOS_DITOS' }
 
     const folhasPedidas = ditos.folhas ?? naturalDaQuantidade(tipo)
-    const comAtributos = candidatos.map((c) => ({ c, a: atributosDaDescricao(c) }))
+    // A LINHA DE PRODUTO DITA (18/11/2026): "Linha: Wolff PVC – Europa 60" no bloco do item deixa só as candidatas dessa linha
+    const comAtributos = daLinhaDita(candidatos, doItem).map((c) => ({ c, a: atributosDaDescricao(c) }))
     // o tipo, a abertura e a QUANTIDADE (folhas ou módulos) — os extras vêm depois, em três passos
     const doTipo = comAtributos.filter(({ a }) =>
         a.tipo === tipo
@@ -356,7 +357,16 @@ function decisaoDoPadrao(item: ItemDoLevantamento, abertura_: Abertura | null, t
         if (outrosExtras.length > 0 && new Set(rotulos).size === porModulacao.length && rotulos.every((r) => r !== '')) {
             return { motivo: 'MODULACAO', candidatas: porModulacao.map(({ c }) => c.tipologia), opcoes: rotulos, esquadria, extras: outrosExtras }
         }
-        // c) sem extra dito (ou nada que as distinga): falta nomeada
+        // c) UM MÓDULO SÓ (dono do produto, 18/11/2026, medido no motor 259035a9): "maxim-ar de UM módulo só pode ter um caminho". As peças que
+        //    distinguem a coluna/tala (DP-128, variável PM) da travessa soldada (DP-132, SE76N + reforço) têm quantidade (N-1), e o marco é 2 nas
+        //    duas: com N=1 a lista de peças sai IDÊNTICA, e perguntar é só atrito. A escolha é a primeira do motor em que a medida cabe; nenhuma
+        //    cabendo é LIMITES. Com N>=2 (dito) a regra já parou antes, em MODULOS_DITOS, e o modelo pergunta: aí são produtos diferentes
+        if (outrosExtras.length === 0 && (ditos.modulos === null || ditos.modulos === 1) && porModulacao.every(({ a }) => a.modulos === null || a.modulos === 1)) {
+            const cabem = porModulacao.filter(({ c }) => cabeNosLimites(c, item))
+            if (cabem.length === 0) return { motivo: 'LIMITES' }
+            return comRastro({ tipologia: cabem[0].c.tipologia })
+        }
+        // d) sem extra dito (ou nada que as distinga): falta nomeada
         return { motivo: 'SEM_NATURAL', atributos: ['modulação'], candidatas: porModulacao.map(({ c }) => c.tipologia), descricoes: porModulacao.map(({ c }) => descricaoSemLinha(c)) }
     }
 
@@ -367,6 +377,27 @@ function decisaoDoPadrao(item: ItemDoLevantamento, abertura_: Abertura | null, t
         return { motivo: 'LACUNA', esquadria, extrasDitos: [...ditos.extras], existentes }
     }
     return { motivo: 'SEM_CANDIDATA' }
+}
+
+/**
+ * A LINHA DE PRODUTO DITA NO BLOCO DO ITEM (dono do produto, 18/11/2026): o caso Daiane escreveu "Linha: Wolff PVC – Europa 60", e a regra
+ * escolhia a DP-01 (DESIGN) por ser a única maxim-ar sem rótulo. A parte que DISTINGUE cada linha do motor (sem as palavras que todas têm —
+ * "PVC WOLFF") é procurada como expressão inteira no bloco do item. Exatamente UMA linha dita: só as candidatas dela. Nenhuma ou mais de uma:
+ * a lista fica como estava (nunca se escolhe uma linha que não foi dita). Só o bloco da FICHA conta — fora dela, nada muda.
+ */
+export function daLinhaDita<C extends Pick<CandidatoDeTipologia, 'linha'>>(candidatos: readonly C[], doItem: readonly TrechoDoAcumulado[]): readonly C[] {
+    const blocos = [...new Set(doItem.map((t) => t.bloco).filter((b): b is string => typeof b === 'string'))]
+    if (blocos.length === 0) return candidatos
+    const palavras = (t: string) => semAcento(t).split(/[^a-z0-9]+/).filter(Boolean)
+    const linhas = [...new Set(candidatos.map((c) => c.linha).filter((l): l is string => typeof l === 'string' && l.trim() !== ''))]
+    if (linhas.length < 2) return candidatos
+    const comuns = new Set(palavras(linhas[0]).filter((p) => linhas.every((l) => palavras(l).includes(p))))
+    const dito = ` ${palavras(blocos.join(' ')).join(' ')} `
+    const ditas = linhas.filter((l) => {
+        const proprio = palavras(l).filter((p) => !comuns.has(p))
+        return proprio.length > 0 && dito.includes(` ${proprio.join(' ')} `)
+    })
+    return ditas.length === 1 ? candidatos.filter((c) => c.linha === ditas[0]) : candidatos
 }
 
 /** A descrição do motor sem a linha de produto do fim, para mostrar ao vendedor (nunca o código). */

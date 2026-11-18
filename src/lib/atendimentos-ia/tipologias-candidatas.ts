@@ -177,6 +177,41 @@ export type TrechoDoAcumulado = {
     abertura: Abertura | null; tipos: ReadonlySet<string>; texto: string
     /** As medidas que a LINHA traz (`medidasDaLinha`), em mm: é por elas que a linha se liga à esquadria lida. Ausente nos trechos de antes. */
     medidas?: readonly Medidas[]
+    /**
+     * O BLOCO DO ITEM a que a linha pertence, quando a mensagem é uma FICHA (`blocosDaFicha`, 18/11/2026): o texto inteiro do bloco, para
+     * quem precisa ler o que o vendedor disse do item fora das linhas de abertura e tipo (a linha de produto, "Europa 60"). Ausente fora de ficha.
+     */
+    bloco?: string
+}
+
+// ── A FICHA POR ITEM (dono do produto, 18/11/2026, o caso Daiane Pilger) ─────────────────────────────────
+/**
+ * MEDIDO em 18/11/2026: o vendedor mandou uma FICHA — "2. Item 02 — Janela maxim-ar", e, cada uma na sua linha, "- Largura: 700 mm." e
+ * "- Altura: 600 mm.". Nenhuma linha tinha o par "N x N", e nenhuma se ligava à esquadria: a regra do padrão leu a mensagem inteira, achou
+ * "maxim-ar" e "de correr" (de outro item) e desistiu (`TIPOS_DITOS`) — as quatro maxim-ar de um módulo caíram na pergunta.
+ *
+ * O BLOCO começa numa linha de CABEÇALHO DE ITEM ("2.", "2)", "Item 02") e vai até o próximo; o texto antes do primeiro cabeçalho é um bloco
+ * também. O bloco que traz EXATAMENTE UMA largura e UMA altura ROTULADAS ("largura: 700 mm", "altura 1.200") dá essa medida às linhas dele —
+ * é o par que a linha não trazia. Duas larguras no mesmo bloco não são de ninguém: o bloco fica sem medida, e nada se liga por ele.
+ */
+const CABECALHO_DE_ITEM = /^\s*(?:[-*•]\s*)?(?:\d{1,3}\s*[.)º°]\s|item\s*\d)/
+const LARGURA_ROTULADA = /\blargura\b\s*(?:[:=-]\s*)?(\d+(?:[.,]\d+)?)/g
+const ALTURA_ROTULADA = /\baltura\b\s*(?:[:=-]\s*)?(\d+(?:[.,]\d+)?)/g
+type BlocoDaFicha = { linhas: string[]; medida: Medidas | null; texto: string }
+export function blocosDaFicha(texto: string): BlocoDaFicha[] {
+    const blocos: string[][] = [[]]
+    for (const linha of texto.split('\n')) {
+        if (CABECALHO_DE_ITEM.test(semAcento(linha)) && blocos[blocos.length - 1].length > 0) blocos.push([])
+        blocos[blocos.length - 1].push(linha)
+    }
+    return blocos.map((linhas) => {
+        const t = semAcento(linhas.join('\n'))
+        const larguras = [...t.matchAll(LARGURA_ROTULADA)].map((m) => emMilimetros(m[1]))
+        const alturas = [...t.matchAll(ALTURA_ROTULADA)].map((m) => emMilimetros(m[1]))
+        const medida = larguras.length === 1 && alturas.length === 1 && larguras[0] !== null && alturas[0] !== null
+            ? { largura_mm: larguras[0], altura_mm: alturas[0] } : null
+        return { linhas, medida, texto: linhas.join('\n') }
+    })
 }
 
 // ── O VOCABULÁRIO DA OBRA (dono do produto, 13/11/2026) ──────────────────────────────────────────
@@ -257,13 +292,18 @@ export function tiposDitos(texto: string, tipos: readonly string[]): Set<string>
 export function trechosDoAcumulado(textos: readonly string[], tipos: readonly string[]): TrechoDoAcumulado[] {
     const trechos: TrechoDoAcumulado[] = []
     for (const texto of textos) {
-        for (const crua of texto.split('\n')) {
-            const linha = vocabularioDaObra(crua, tipos)
-            const abertura = aberturaDita(linha)
-            const ditos = tiposDitos(linha, tipos)
-            // a medida da linha como o vendedor a escreveu (o acréscimo do vocabulário não traz número)
-            const medidas = medidasDaLinha(crua)
-            if (abertura !== null || ditos.size > 0 || medidas.length > 0) trechos.push({ abertura, tipos: ditos, texto: linha, medidas })
+        for (const bloco of blocosDaFicha(texto)) {
+            for (const crua of bloco.linhas) {
+                const linha = vocabularioDaObra(crua, tipos)
+                const abertura = aberturaDita(linha)
+                const ditos = tiposDitos(linha, tipos)
+                // a medida da linha como o vendedor a escreveu (o acréscimo do vocabulário não traz número)
+                const medidas = medidasDaLinha(crua)
+                if (abertura === null && ditos.size === 0 && medidas.length === 0) continue
+                // a FICHA (18/11/2026): a linha de abertura ou tipo ganha a medida rotulada do bloco dela, e o bloco inteiro
+                const daFicha = bloco.medida !== null && !medidas.some((x) => x.largura_mm === bloco.medida?.largura_mm && x.altura_mm === bloco.medida?.altura_mm)
+                trechos.push({ abertura, tipos: ditos, texto: linha, medidas: daFicha ? [...medidas, bloco.medida as Medidas] : medidas, ...(bloco.medida !== null ? { bloco: bloco.texto } : {}) })
+            }
         }
     }
     return trechos
