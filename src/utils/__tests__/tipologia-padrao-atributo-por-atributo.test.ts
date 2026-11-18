@@ -5,7 +5,7 @@
  * As descrições são as do motor em uso (022fc55e, lidas em 11/11/2026, só leitura): o catálogo da plataforma, não dado de cliente.
  */
 import {
-    atributosDaDescricao, atributosDitos, atributosNoLog, oQueAEsquadriaE, origemDaTipologiaProposta, padraoDaEsquadria, tipologiaPadrao, fraseDaLinhaSemPadrao, fraseDoPadraoQueFalta, naturalDaQuantidade, tipoCurto,
+    atributosDaDescricao, atributosDitos, daLinhaDita, atributosNoLog, oQueAEsquadriaE, origemDaTipologiaProposta, padraoDaEsquadria, tipologiaPadrao, fraseDaLinhaSemPadrao, fraseDoPadraoQueFalta, naturalDaQuantidade, tipoCurto,
 } from '@/lib/atendimentos-ia/tipologia-padrao'
 import { tiposDitos } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import type { CandidatoDeTipologia } from '@/lib/atendimentos-ia/levantamento-da-conversa'
@@ -352,5 +352,21 @@ describe('O RASTRO DOS ATRIBUTOS (dono do produto, 12/11/2026): cada atributo da
             [2, [{ atributo: 'quantidade', valor: '1', origem: 'padrao_do_apanhado' as const }]],
             [1, [{ atributo: 'vidro', valor: ' incolor 8 mm, a=b/c; x ', origem: 'base_de_conhecimento' as const }, { atributo: 'cor', valor: 'Branco', origem: 'base_de_conhecimento' as const }]],
         ]))).toBe('e1:vidro=incolor_8_mm_a_b_c_x/base_de_conhecimento;cor=Branco/base_de_conhecimento,e2:quantidade=1/padrao_do_apanhado')
+    })
+})
+
+describe('A LINHA DE PRODUTO DITA NO BLOCO DO ITEM (18/11/2026): só a linha dita, uma só; nenhuma ou duas, a lista fica como estava', () => {
+    const L = (linha: string) => ({ linha })
+    const LINHAS = [L('PVC WOLFF DESIGN'), L('PVC WOLFF EUROPA 60'), L('PVC WOLFF EUROPA 42')]
+    const doBloco = (bloco: string) => [{ texto: '', abertura: 'janela' as const, tipos: new Set<string>(), bloco }]
+    it('"Linha: Wolff PVC – Europa 60" deixa só a Europa 60', () => {
+        expect(daLinhaDita(LINHAS, doBloco('- Linha: Wolff PVC – Europa 60.'))).toEqual([L('PVC WOLFF EUROPA 60')])
+    })
+    it('DUAS linhas ditas no mesmo bloco: não se escolhe nenhuma — a lista fica inteira', () => {
+        expect(daLinhaDita(LINHAS, doBloco('Europa 60 ou Europa 42'))).toEqual(LINHAS)
+    })
+    it('nenhuma linha dita, ou fora de ficha (sem bloco): a lista fica inteira', () => {
+        expect(daLinhaDita(LINHAS, doBloco('- Vidro: 600 mm'))).toEqual(LINHAS)
+        expect(daLinhaDita(LINHAS, [{ texto: 'Europa 60', abertura: 'janela' as const, tipos: new Set<string>() }])).toEqual(LINHAS)
     })
 })

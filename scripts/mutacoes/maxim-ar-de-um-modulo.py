@@ -8,8 +8,8 @@ import os, subprocess, sys
 LIB = 'src/lib/atendimentos-ia/'
 CAND, PADRAO = LIB + 'tipologias-candidatas.ts', LIB + 'tipologia-padrao.ts'
 T = 'src/utils/__tests__/'
-SUITES = [T + 'tipologia-padrao-atributo-por-atributo.test.ts', T + 'atendimentos-ia-levantamento-por-nome.test.ts', '-t', 'CASO DAIANE|tipologia padrão no código|ATRIBUTO POR ATRIBUTO|modula']
-PURA = [T + 'tipologia-padrao-atributo-por-atributo.test.ts']
+SUITES = [T + 'tipologia-padrao-atributo-por-atributo.test.ts', T + 'tipologias-candidatas.test.ts', T + 'atendimentos-ia-levantamento-por-nome.test.ts', '-t', 'CASO DAIANE|tipologia padrão no código|ATRIBUTO POR ATRIBUTO|modula']
+PURA = [T + 'tipologia-padrao-atributo-por-atributo.test.ts', T + 'tipologias-candidatas.test.ts']
 
 # (nome, arquivo, de, para, suítes)
 M = [
