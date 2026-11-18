@@ -1219,8 +1219,8 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         try {
             // a saída leva o levantamento que este turno tratou: o contexto do próximo
             const r = await gravarSaida(c.tenantId, c.conversaId, c.entrada.id, texto, idDoEnvio, rastro.levantamento !== '-' ? rastro.levantamento : null)
+            // sem a coluna do contexto a saída é gravada sem ela ('sem_contexto'); a marca no log vem da leitura do contexto, que falha junto
             rastro.gravacao = r === 'sem_migracao' ? 'sem_migracao' : 'sim'
-            if (r === 'sem_contexto') rastro.contextoDoTurno = 'sem_migracao'
         } catch (e) {
             rastro.gravacao = 'falhou'
             console.error(`${PREFIXO_DO_LOG_DA_IA} a saida nao foi gravada: ${e instanceof Error ? e.message : 'erro desconhecido'}`)
@@ -1512,12 +1512,6 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // ── a rota ──
         let alvo: { id: string; nome: string; estado: string; donoId: string; vendedor: string | null; itens: ItemGravado[] } | null = null
         let nome: string
-        // o "sim" ou o "não" sem nada a responder na montagem — sem pendência, sem as condições, sem esquadria nesta mensagem — não mexe nela
-        if (emMontagem && !saiDaMontagem && confirma !== null && emEspera.length === 0 && !pendenciaAberta && perguntaDasCondicoesAberta === null) {
-            rastro.rota = 'MONTAGEM'
-            rastro.levantamento = emMontagem.id
-            return await falar(FRASE_RESPOSTA_SEM_PERGUNTA, 'nao-avancou')
-        }
         if (emMontagem && !saiDaMontagem) {
             rastro.rota = 'MONTAGEM'
             alvo = { id: emMontagem.id, nome: emMontagem.nome, estado: emMontagem.estado, donoId: c.remetenteId, vendedor: null, itens: itensDaMontagem }

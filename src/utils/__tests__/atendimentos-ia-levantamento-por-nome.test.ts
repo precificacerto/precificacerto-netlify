@@ -6799,6 +6799,22 @@ describe('(44) O CONTEXTO DO TURNO (dono do produto, 18/11/2026): o turno só al
         expect(fotoDoBanco(ALFREDO)).toEqual(alfredo)
     })
 
+    it('a confirmação do Alfredo guardada NÃO vale quando a última resposta tratou OUTRO levantamento (já completo): o "sim" diz que não entendeu', async () => {
+        await fecharDp02('Casa do João')
+        const joao = porNomeDoLevantamento('Casa do João')
+        await oCasoAteOSim()
+        const alfredo = fotoDoBanco(ALFREDO)
+        // a última saída tratou a Casa do João (o vendedor pediu algo dela, e o agente respondeu sem perguntar nada)
+        const conversaId = (estado.db.orcamentista_conversa ?? [])[0].id
+        estado.db.orcamentista_mensagem.push({ id: 'saida-do-joao', tenant_id: TENANT, conversa_id: conversaId, direcao: 'saida', texto: 'o orçamento da Casa do João', levantamento_id: joao.id, wuzapi_mensagem_id: 'w-joao',
+            criado_em: new Date(Math.max(...estado.db.orcamentista_mensagem.map((m) => Date.parse(String(m.criado_em)))) + 1000).toISOString() })
+        llmResponde({ confirma: true })
+        await chamar('sim')
+        expect(ultimoEnviado()).toBe(conversa.FRASE_RESPOSTA_SEM_PERGUNTA)
+        expect(fotoDoBanco(ALFREDO)).toEqual(alfredo)
+        expect(linhaIa().pop()).toContain('contexto_do_turno=pergunta_fora')
+    })
+
     it('SEM a 20261118000005 (a coluna do contexto não existe): a montagem nunca captura sem o nome — o "Sim" não alcança a Daiane, e o log diz', async () => {
         estado.colunasAusentes.add('orcamentista_mensagem.levantamento_id')
         const { daiane } = await oCasoAteOSim()
