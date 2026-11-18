@@ -4,8 +4,8 @@
  * A Groq com até 2 novas tentativas; a OpenAI só com a chave; 3 minutos; a empresa liberada; o teto desligado; o uso gravado, nunca o texto;
  * e a chave nunca na saída.
  */
-import { ESPERAS_ENTRE_TENTATIVAS_MS, LIMITE_DE_SEGUNDOS, MODELO_DA_GROQ, MODELO_DA_OPENAI, URL_DA_GROQ, URL_DA_OPENAI, lerPedido, transcrever, type Dependencias, type LinhaDoUso, type Pedido, type Teto } from '../../../supabase/functions/transcribe-audio/nucleo'
-import { transcreverAudio } from '@/lib/atendimentos-ia/transcricao-do-audio'
+import { TABELA_DA_PROVA, autorizar, chaveApresentada, formatoDaChave, ESPERAS_ENTRE_TENTATIVAS_MS, LIMITE_DE_SEGUNDOS, MODELO_DA_GROQ, MODELO_DA_OPENAI, URL_DA_GROQ, URL_DA_OPENAI, lerPedido, transcrever, type Dependencias, type LinhaDoUso, type Pedido, type Teto } from '../../../supabase/functions/transcribe-audio/nucleo'
+import { PREFIXO_DO_LOG_DA_CHAVE, formatoDaChave as formatoDaChaveDoServidor, transcreverAudio } from '@/lib/atendimentos-ia/transcricao-do-audio'
 
 const TENANT = 'a0000000-0000-4000-8000-00000000000a'
 const CHAVE_GROQ = 'gsk_chave_de_teste_que_nao_pode_vazar'
@@ -155,33 +155,115 @@ describe('o pedido', () => {
 })
 
 describe('o cliente do servidor: a chamada à função e o motivo nomeado', () => {
-    const chamar = (resposta: { status: number; corpo: unknown } | 'rede') => {
-        const pedidos: Array<{ url: string; init: RequestInit }> = []
+    const JWT = 'eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.assinatura-de-teste'
+    const NOVA = 'sb_secret_chave-nova-de-teste'
+    type Rodada = { status: number; corpo: unknown } | 'rede'
+    /** O fetch falso: responde pela chave apresentada (o Authorization), e guarda cada pedido. */
+    const chamar = (env: Record<string, string>, porChave: (chave: string) => Rodada) => {
+        const pedidos: Array<{ url: string; init: RequestInit; chave: string }> = []
+        const logs: string[] = []
         const fetch = (async (url: string, init: RequestInit) => {
-            pedidos.push({ url, init })
-            if (resposta === 'rede') throw new Error('rede')
-            return { status: resposta.status, json: async () => resposta.corpo }
+            const chave = String((init.headers as Record<string, string>).Authorization).replace('Bearer ', '')
+            pedidos.push({ url, init, chave })
+            const r = porChave(chave)
+            if (r === 'rede') throw new Error('rede')
+            return { status: r.status, json: async () => r.corpo }
         }) as unknown as typeof globalThis.fetch
-        return { pedidos, r: transcreverAudio(TENANT, new Uint8Array([79, 103, 103, 83]), 'audio/ogg', 12, { url: 'https://projeto.supabase.co/', chave: 'chave-do-servidor', fetch }) }
+        return { pedidos, logs, r: transcreverAudio(TENANT, new Uint8Array([79, 103, 103, 83]), 'audio/ogg', 12, { url: 'https://projeto.supabase.co/', env: (n) => env[n], fetch, log: (l) => logs.push(l) }) }
     }
-    it('o pedido: a URL da função, o service_role no Authorization, e o áudio em base64', async () => {
-        const { pedidos, r } = chamar({ status: 200, corpo: { ok: true, texto: 'janela', provider: 'groq', segundos: 12, uso: 'ok' } })
+    const OK = { status: 200, corpo: { ok: true, texto: 'janela', provider: 'groq', segundos: 12, uso: 'ok' } }
+    const RECUSA = { status: 403, corpo: { ok: false, motivo: 'pedido_invalido', detalhe: 'chave_recusada formato=jwt status=401' } }
+
+    it('o pedido: a URL da função, a chave no Authorization e no apikey, e o áudio em base64', async () => {
+        const { pedidos, r } = chamar({ SUPABASE_SERVICE_ROLE_KEY: JWT }, () => OK)
         expect(await r).toEqual({ ok: true, texto: 'janela', provider: 'groq', segundos: 12, uso: 'ok' })
         expect(pedidos[0].url).toBe('https://projeto.supabase.co/functions/v1/transcribe-audio')
-        expect((pedidos[0].init.headers as Record<string, string>).Authorization).toBe('Bearer chave-do-servidor')
+        expect(pedidos[0].init.headers).toEqual(expect.objectContaining({ Authorization: `Bearer ${JWT}`, apikey: JWT }))
         expect(JSON.parse(String(pedidos[0].init.body))).toEqual({ tenant_id: TENANT, audio_base64: 'T2dnUw==', mimetype: 'audio/ogg', segundos_declarados: 12 })
+    })
+    it('SÓ O FORMATO LEGADO (JWT, em SUPABASE_SERVICE_ROLE_KEY): é ele que vai, e transcreve', async () => {
+        const { pedidos, r } = chamar({ SUPABASE_SERVICE_ROLE_KEY: JWT }, () => OK)
+        expect(await r).toEqual(expect.objectContaining({ ok: true }))
+        expect(pedidos.map((p) => p.chave)).toEqual([JWT])
+    })
+    it('SÓ O FORMATO NOVO (sb_secret_, em SUPABASE_SECRET_KEY): é ele que vai, e transcreve', async () => {
+        const { pedidos, r } = chamar({ SUPABASE_SECRET_KEY: NOVA }, () => OK)
+        expect(await r).toEqual(expect.objectContaining({ ok: true }))
+        expect(pedidos.map((p) => p.chave)).toEqual([NOVA])
+    })
+    it('AS DUAS: vai a NOVA, e só ela', async () => {
+        const { pedidos, r } = chamar({ SUPABASE_SECRET_KEY: NOVA, SUPABASE_SERVICE_ROLE_KEY: JWT }, () => OK)
+        expect(await r).toEqual(expect.objectContaining({ ok: true }))
+        expect(pedidos.map((p) => p.chave)).toEqual([NOVA])
+    })
+    it('a nova RECUSADA pela Supabase: cede à legada, que transcreve — sem o vendedor saber de chave nenhuma', async () => {
+        const { pedidos, logs, r } = chamar({ SUPABASE_SECRET_KEY: NOVA, SUPABASE_SERVICE_ROLE_KEY: JWT }, (c) => (c === NOVA ? { status: 401, corpo: { message: 'Invalid' } } : OK))
+        expect(await r).toEqual(expect.objectContaining({ ok: true, texto: 'janela' }))
+        expect(pedidos.map((p) => p.chave)).toEqual([NOVA, JWT])
+        expect(logs).toEqual([])
+    })
+    it('NENHUMA FUNCIONA: a recusa é NOMEADA no log — a variável, o formato e o status de cada uma — e nunca o valor da chave', async () => {
+        const { logs, r } = chamar({ SUPABASE_SECRET_KEY: NOVA, SUPABASE_SERVICE_ROLE_KEY: JWT }, (c) => (c === NOVA ? { status: 401, corpo: { message: 'Invalid' } } : RECUSA))
+        expect(await r).toEqual({ ok: false, motivo: 'audio_nao_transcrito', segundos: 12,
+            detalhe: 'chave_recusada SUPABASE_SECRET_KEY:sb_secret:401,SUPABASE_SERVICE_ROLE_KEY:jwt:403(chave_recusada formato=jwt status=401)' })
+        expect(logs).toEqual([`${PREFIXO_DO_LOG_DA_CHAVE} recusada: nenhuma chave de serviço funcionou — variavel=SUPABASE_SECRET_KEY formato=sb_secret status=401; variavel=SUPABASE_SERVICE_ROLE_KEY formato=jwt status=403(chave_recusada formato=jwt status=401)`])
+        for (const l of logs) expect([l.includes(NOVA), l.includes(JWT)]).toEqual([false, false])
+    })
+    it('A AUSÊNCIA DAS DUAS: nada é chamado, e o log diz quais variáveis faltam', async () => {
+        const { pedidos, logs, r } = chamar({}, () => OK)
+        expect(await r).toEqual({ ok: false, motivo: 'audio_nao_transcrito', segundos: 12, detalhe: 'sem_chave_de_servico' })
+        expect(pedidos).toEqual([])
+        expect(logs).toEqual([`${PREFIXO_DO_LOG_DA_CHAVE} recusada: nenhuma chave de serviço: SUPABASE_SECRET_KEY e SUPABASE_SERVICE_ROLE_KEY ausentes`])
+    })
+    it('a variável só com espaços não conta como presente', async () => {
+        const { pedidos, r } = chamar({ SUPABASE_SECRET_KEY: '   ', SUPABASE_SERVICE_ROLE_KEY: JWT }, () => OK)
+        expect(await r).toEqual(expect.objectContaining({ ok: true }))
+        expect(pedidos.map((p) => p.chave)).toEqual([JWT])
+    })
+    it('o formato, para o log', () => {
+        expect([formatoDaChaveDoServidor(NOVA), formatoDaChaveDoServidor(JWT), formatoDaChaveDoServidor('qualquer-coisa')]).toEqual(['sb_secret', 'jwt', 'outro'])
     })
     it.each([
         ['longo', 'audio_longo'], ['nao_liberada', 'audio_nao_liberado'], ['teto', 'audio_teto'], ['falhou', 'audio_nao_transcrito'], ['pedido_invalido', 'audio_nao_transcrito'],
     ])('o motivo %s da função vira %s', async (motivo, esperado) => {
-        const { r } = chamar({ status: 200, corpo: { ok: false, motivo, segundos: 190 } })
+        const { r } = chamar({ SUPABASE_SECRET_KEY: NOVA }, () => ({ status: 200, corpo: { ok: false, motivo, segundos: 190 } }))
         expect(await r).toEqual(expect.objectContaining({ ok: false, motivo: esperado, segundos: 190 }))
     })
     it('a função fora do ar, ou o corpo que não é dela: a transcrição não feita, nomeada', async () => {
-        expect(await chamar('rede').r).toEqual({ ok: false, motivo: 'audio_nao_transcrito', segundos: 12, detalhe: 'excecao' })
-        expect(await chamar({ status: 401, corpo: { msg: 'Invalid JWT' } }).r).toEqual({ ok: false, motivo: 'audio_nao_transcrito', segundos: 12, detalhe: 'status=401' })
+        expect(await chamar({ SUPABASE_SECRET_KEY: NOVA }, () => 'rede').r).toEqual({ ok: false, motivo: 'audio_nao_transcrito', segundos: 12, detalhe: 'excecao' })
+        expect(await chamar({ SUPABASE_SECRET_KEY: NOVA }, () => ({ status: 500, corpo: { msg: 'x' } })).r).toEqual({ ok: false, motivo: 'audio_nao_transcrito', segundos: 12, detalhe: 'status=500 chave=SUPABASE_SECRET_KEY' })
     })
-    it('sem a configuração do Supabase no servidor: nada é chamado', async () => {
-        expect(await transcreverAudio(TENANT, new Uint8Array([1]), null, null, { url: '', chave: '' })).toEqual({ ok: false, motivo: 'audio_nao_transcrito', segundos: null, detalhe: 'sem_configuracao' })
+    it('sem a URL do Supabase: nada é chamado, e o log diz', async () => {
+        const logs: string[] = []
+        expect(await transcreverAudio(TENANT, new Uint8Array([1]), null, null, { url: '', env: () => JWT, log: (l) => logs.push(l) })).toEqual({ ok: false, motivo: 'audio_nao_transcrito', segundos: null, detalhe: 'sem_url' })
+        expect(logs[0]).toContain('sem a URL do Supabase')
+    })
+})
+
+describe('a autorização na função: os DOIS formatos, provados pelo que a chave consegue — nunca pelo formato', () => {
+    const provaQueAceita = async () => ({ status: 200, codigo: null as string | null })
+    const provaQueRecusa = async () => ({ status: 401, codigo: 'PGRST301' })
+    it.each([['jwt', 'eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.x'], ['sb_secret', 'sb_secret_abc']])('a chave %s que a prova aceita passa', async (formato, chave) => {
+        expect(await autorizar(chave, provaQueAceita)).toEqual({ ok: true, formato })
+    })
+    it('a chave que a prova recusa: 403 NOMEADO — o formato, a tabela da prova, o status e o código; nunca a chave', async () => {
+        const r = await autorizar('sb_secret_abc', provaQueRecusa)
+        expect(r).toEqual({ ok: false, formato: 'sb_secret', status: 403, log: `chave formato=sb_secret prova=${TABELA_DA_PROVA} status=401 codigo=PGRST301`, detalhe: 'chave_recusada formato=sb_secret status=401' })
+        expect(JSON.stringify(r)).not.toContain('sb_secret_abc')
+        expect(TABELA_DA_PROVA).toBe('whatsapp_conexao')
+    })
+    it('sem chave nenhuma no pedido: 401 nomeado, e a prova nem roda', async () => {
+        const provar = jest.fn(provaQueAceita)
+        expect(await autorizar(null, provar)).toEqual({ ok: false, formato: 'ausente', status: 401, log: 'chave=ausente (nem Authorization nem apikey no pedido)', detalhe: 'chave_ausente' })
+        expect(provar).not.toHaveBeenCalled()
+    })
+    it('a chave apresentada: o Bearer, ou o apikey', () => {
+        const h = (o: Record<string, string>) => (n: string) => o[n] ?? null
+        expect(chaveApresentada(h({ Authorization: 'Bearer sb_secret_x' }))).toBe('sb_secret_x')
+        expect(chaveApresentada(h({ apikey: 'eyJa.b.c' }))).toBe('eyJa.b.c')
+        expect(chaveApresentada(h({}))).toBeNull()
+    })
+    it('o formato da função e o do chamador dizem o mesmo', () => {
+        for (const k of ['sb_secret_x', 'eyJa.b.c', 'outra']) expect(formatoDaChave(k)).toBe(formatoDaChaveDoServidor(k))
     })
 })

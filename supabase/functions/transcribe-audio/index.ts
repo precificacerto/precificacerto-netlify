@@ -2,37 +2,35 @@
 // testada mora em `nucleo.ts`, que o tsc confere e o portão `transcricao-do-audio.test.ts` exercita.
 /**
  * Edge Function `transcribe-audio` (tarefa 0018 do bridge, 18/11/2026): o áudio do WhatsApp vira texto para o Orçamentista. Quem chama é o
- * webhook (`src/lib/atendimentos-ia/transcricao-do-audio.ts`, do servidor da Vercel) com o service_role; qualquer outro papel é 403. A regra
- * toda está em `nucleo.ts`; aqui só o Deno, o banco e a autorização. A GROQ_API_KEY e a OPENAI_API_KEY são lidas por Deno.env.get e nunca
- * saem daqui.
+ * webhook (`src/lib/atendimentos-ia/transcricao-do-audio.ts`, do servidor da Vercel) com a chave de SERVIÇO — no formato legado (JWT) ou no
+ * novo (`sb_secret_…`): publicada com `verify_jwt` DESLIGADO, porque o gateway só aceita JWT, e a autorização é a PROVA da chave (`autorizar`,
+ * em `nucleo.ts`). A recusa é nomeada no log, nunca um 401 mudo. A GROQ_API_KEY e a OPENAI_API_KEY são lidas por Deno.env.get e nunca saem daqui.
  */
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { lerPedido, transcrever, type Dependencias, type LinhaDoUso, type Teto } from "./nucleo.ts"
+import { TABELA_DA_PROVA, autorizar, chaveApresentada, lerPedido, transcrever, type Dependencias, type LinhaDoUso, type Teto } from "./nucleo.ts"
 
 const json = (corpo: unknown, status = 200) => new Response(JSON.stringify(corpo), { status, headers: { "Content-Type": "application/json" } })
 const semTabela = (e: { code?: string } | null) => e?.code === "42P01" || e?.code === "PGRST205"
 
-/** O papel do JWT já verificado pela plataforma (verify_jwt): só o service_role chama. */
-function papelDoJwt(req: Request): string | null {
-  const t = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "")
-  const partes = t.split(".")
-  if (partes.length !== 3) return null
-  try {
-    const carga = JSON.parse(atob(partes[1].replace(/-/g, "+").replace(/_/g, "/")))
-    return typeof carga?.role === "string" ? carga.role : null
-  } catch {
-    return null
-  }
-}
 
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ ok: false, motivo: "pedido_invalido", detalhe: "use POST" }, 405)
-  if (papelDoJwt(req) !== "service_role") return json({ ok: false, motivo: "pedido_invalido", detalhe: "só o servidor chama esta função" }, 403)
+  // a chave apresentada, nos DOIS formatos: provada pelo que consegue ler, e é com ela (já provada de serviço) que a função fala com o banco
+  const chave = chaveApresentada((n) => req.headers.get(n))
+  const comAChave = (k: string) => createClient(Deno.env.get("SUPABASE_URL")!, k, { auth: { persistSession: false, autoRefreshToken: false } })
+  const autorizacao = await autorizar(chave, async (k) => {
+    const r = await comAChave(k).from(TABELA_DA_PROVA).select("tenant_id").limit(1)
+    return { status: r.error ? (r.status || 500) : 200, codigo: r.error?.code ?? null }
+  })
+  if (!autorizacao.ok) {
+    console.log(`[TRANSCRICAO] recusada ${autorizacao.log}`)
+    return json({ ok: false, motivo: "pedido_invalido", segundos: null, detalhe: autorizacao.detalhe, uso: "nao_gravado" }, autorizacao.status)
+  }
   const pedido = lerPedido(await req.json().catch(() => null))
   if ("erro" in pedido) return json({ ok: false, motivo: "pedido_invalido", detalhe: pedido.erro }, 400)
 
-  const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!)
+  const db = comAChave(chave as string)
   const deps: Dependencias = {
     env: (nome) => Deno.env.get(nome),
     fetch: (url, init) => fetch(url, init),
@@ -63,7 +61,7 @@ Deno.serve(async (req: Request) => {
   try {
     const r = await transcrever(pedido, deps)
     // a linha do log: o desfecho e o provedor, nunca o texto, a chave nem o áudio
-    console.log(`[TRANSCRICAO] tenant=${pedido.tenant_id} ok=${r.ok}${r.ok ? ` provider=${r.provider}` : ` motivo=${r.motivo} detalhe=${r.detalhe}`} segundos=${r.segundos ?? "-"} uso=${r.uso}`)
+    console.log(`[TRANSCRICAO] chave=${autorizacao.formato} tenant=${pedido.tenant_id} ok=${r.ok}${r.ok ? ` provider=${r.provider}` : ` motivo=${r.motivo} detalhe=${r.detalhe}`} segundos=${r.segundos ?? "-"} uso=${r.uso}`)
     return json(r)
   } catch (e) {
     console.log(`[TRANSCRICAO] tenant=${pedido.tenant_id} ok=false motivo=erro detalhe=${e instanceof Error ? e.message : "excecao"}`)

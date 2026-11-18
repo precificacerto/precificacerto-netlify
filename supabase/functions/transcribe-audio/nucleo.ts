@@ -43,6 +43,36 @@ export type Resposta =
     | { ok: true; texto: string; provider: Provedor; segundos: number | null; uso: 'ok' | 'sem_migracao' }
     | { ok: false; motivo: MotivoDaRecusa; segundos: number | null; detalhe: string; uso: 'ok' | 'sem_migracao' | 'nao_gravado' }
 
+// ── A CHAVE DE SERVIÇO (dono do produto, 18/11/2026: "a função e o chamador aceitam os DOIS formatos, sem adivinhar e sem falhar por causa
+// disso") ── o JWT legado (`eyJ…`) e o novo (`sb_secret_…`). A função não confere o formato: confere o que a chave CONSEGUE — ler uma tabela que
+// só o papel de serviço lê (`whatsapp_conexao`: só o service_role tem grant nela, medido em 18/11/2026). A chave nunca vai ao log: só o formato.
+
+export type FormatoDaChave = 'sb_secret' | 'jwt' | 'outro' | 'ausente'
+/** O formato, para o log — nunca o valor. */
+export function formatoDaChave(chave: string | null | undefined): FormatoDaChave {
+    if (!chave) return 'ausente'
+    if (chave.startsWith('sb_secret_')) return 'sb_secret'
+    if (/^eyJ[\w-]*\.[\w-]+\.[\w-]+$/.test(chave)) return 'jwt'
+    return 'outro'
+}
+/** A chave que o pedido apresenta: o `Authorization: Bearer …`, ou o `apikey`. */
+export function chaveApresentada(cabecalho: (nome: string) => string | null): string | null {
+    const bearer = (cabecalho('Authorization') ?? '').replace(/^Bearer\s+/i, '').trim()
+    return bearer || (cabecalho('apikey') ?? '').trim() || null
+}
+/** A prova da chave: o status e o código que a Supabase devolveu ao ler a tabela de prova com ela; status 200 = é de serviço. */
+export type ProvaDaChave = { status: number; codigo: string | null }
+export type Autorizacao = { ok: true; formato: FormatoDaChave } | { ok: false; formato: FormatoDaChave; status: number; log: string; detalhe: string }
+export const TABELA_DA_PROVA = 'whatsapp_conexao'
+/** Autoriza pela PROVA, nunca pelo formato. A recusa é nomeada: o formato apresentado, a tabela da prova, o status e o código da Supabase. */
+export async function autorizar(chave: string | null, provar: (chave: string) => Promise<ProvaDaChave>): Promise<Autorizacao> {
+    const formato = formatoDaChave(chave)
+    if (!chave) return { ok: false, formato, status: 401, log: 'chave=ausente (nem Authorization nem apikey no pedido)', detalhe: 'chave_ausente' }
+    const prova = await provar(chave)
+    if (prova.status >= 200 && prova.status < 300) return { ok: true, formato }
+    return { ok: false, formato, status: 403, log: `chave formato=${formato} prova=${TABELA_DA_PROVA} status=${prova.status} codigo=${prova.codigo ?? '-'}`, detalhe: `chave_recusada formato=${formato} status=${prova.status}` }
+}
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const numeroOuNulo = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null)
 
