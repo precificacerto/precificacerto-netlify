@@ -6683,7 +6683,7 @@ describe('(31) O CASO DAIANE PILGER (18/11/2026): a maxim-ar de UM módulo tem u
 
     it('a ordem 1 sem tipologia do modelo também: a altura de 1200 passa do limite da DP-132 (364 a 1164), e a DP-128, sem limite no arquivo, é a escolha', async () => {
         comAsDuasDaEuropa60()
-        llmResponde({ ...DO_MODELO, itens: DO_MODELO.itens.map((i) => (i.ordem === 1 ? { ...i, tipologia: undefined } : i)) })
+        llmResponde({ ...DO_MODELO, itens: DO_MODELO.itens.map((i) => (i.ordem === 1 ? { ...i, tipologia: undefined as string | undefined } : i)) })
         await chamar(MENSAGEM)
         const tipologias = Object.fromEntries(doLevantamento().map((i) => [Number(i.ordem), i.tipologia]))
         expect([1, 2, 4, 5, 7].map((o) => [o, tipologias[o]])).toEqual([[1, 'DP-128'], [2, 'DP-128'], [4, 'DP-128'], [5, 'DP-128'], [7, 'DP-128']])
@@ -6693,7 +6693,7 @@ describe('(31) O CASO DAIANE PILGER (18/11/2026): a maxim-ar de UM módulo tem u
 
     it('sem a DP-128 no motor, a DP-132 é o caminho das que cabem nela (600 e 1000), e a ordem 1 (1200) não recebe tipologia nenhuma — nunca "a mais próxima"', async () => {
         estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-132', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | MODULAÇÃO TRAVESSA | EUROPA 60', tipo: 'Maxim-ar', linha: 'PVC WOLFF EUROPA 60', larg_min_mm: null, larg_max_mm: null, alt_min_mm: 364, alt_max_mm: 1164 })
-        llmResponde({ ...DO_MODELO, itens: DO_MODELO.itens.map((i) => (i.ordem === 1 ? { ...i, tipologia: undefined } : i)) })
+        llmResponde({ ...DO_MODELO, itens: DO_MODELO.itens.map((i) => (i.ordem === 1 ? { ...i, tipologia: undefined as string | undefined } : i)) })
         await chamar(MENSAGEM)
         const tipologias = Object.fromEntries(doLevantamento().map((i) => [Number(i.ordem), i.tipologia]))
         expect([1, 2, 4, 5, 7].map((o) => [o, tipologias[o]])).toEqual([[1, null], [2, 'DP-132'], [4, 'DP-132'], [5, 'DP-132'], [7, 'DP-132']])
