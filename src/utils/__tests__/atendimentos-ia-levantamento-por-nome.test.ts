@@ -725,7 +725,11 @@ beforeEach(() => {
             }
             // a mensagem desta vez é a ÚLTIMA (o histórico vem antes, 03/11/2026)
             const mensagens = corpo.messages as Array<{ content: unknown }>
-            const pelaMensagem = estado.llmPeloPrompt?.(String(mensagens[mensagens.length - 1].content), textoDoSistema(corpo.system))
+            // com a foto (18/11/2026), a mensagem é uma lista de blocos: vão os de texto (a instrução da foto e o marcador), um por linha
+            const ultimaMensagem = mensagens[mensagens.length - 1].content
+            const textoDaUltima = Array.isArray(ultimaMensagem)
+                ? (ultimaMensagem as Array<{ type: string; text?: string }>).filter((b) => b.type === 'text').map((b) => b.text).join('\n') : String(ultimaMensagem)
+            const pelaMensagem = estado.llmPeloPrompt?.(textoDaUltima, textoDoSistema(corpo.system))
             if (pelaMensagem) return respostaDaLlm(200, respostaComFerramenta(pelaMensagem), init)
             const proxima = estado.respostasDaLlm.shift() ?? { status: 200, corpo: respostaComFerramenta({}) }
             if (proxima === 'lanca') throw new Error('fetch failed')
@@ -6968,6 +6972,49 @@ describe('(30) a FOTO e o PDF do vendedor (dono do produto, 18/11/2026): baixado
             expect(levantamentos()).toHaveLength(1)
             expect(itensDe(levantamentos()[0].id)).toHaveLength(antes)
             expect(linhaIa().slice(-1)[0]).toContain('montagem=outro_cliente')
+        })
+
+        /**
+         * (a) O MODELO EXTRAI O CLIENTE DA FOTO (o diagnóstico do dono do produto, 18/11/2026, no log da Vercel: `nome=faltou` — o modelo leu as duas
+         * esquadrias e devolveu o cliente VAZIO, porque as regras do nome só falavam do que o vendedor ESCREVEU NA MENSAGEM). O modelo falso daqui
+         * lê a foto do caso e só põe o nome solto do rodapé no cliente — e a cidade no endereço — se o PEDIDO lhe disser que a foto é o vendedor
+         * escrevendo e que o nome solto é o cliente; sem isso, devolve o que o de produção devolveu. É a prova do PEDIDO, não do modelo de verdade:
+         * essa só se faz com a foto enviada de novo, depois do deploy.
+         */
+        const modeloQueLeAFoto = () => {
+            estado.llmPeloPrompt = (mensagem, sistema) => {
+                if (!mensagem.startsWith('A mensagem do vendedor traz uma FOTO')) return null
+                const regra = /Um nome de pessoa SOLTO, sem rótulo, numa linha à parte antes ou depois da lista de itens, é o CLIENTE/.test(sistema)
+                    && /Um nome de pessoa solto, numa linha à parte da lista de itens, é o CLIENTE/.test(mensagem)
+                return { texto_da_imagem: LIDO, itens: [{ ...CORRER }, { ...MAXIM }], ...(regra ? { cliente: 'Alfredo Soares', nome: 'Alfredo Soares', dados_do_cliente: { endereco: 'Barao' } } : {}) }
+            }
+        }
+
+        it('(a) + (b) DE PONTA A PONTA: o pedido diz que o nome solto da foto é o cliente; o modelo o devolve; a guarda o aceita COM a confirmação; o "sim" grava', async () => {
+            estado.download = { bytes: FOTO }
+            modeloQueLeAFoto()
+            await chamarComMidia(semLegenda())
+            expect(linhaIa().join('\n')).toContain('nome=da_imagem')
+            expect(ultimoEnviado()).toBe(FRASE)
+            expect(levantamentos()).toEqual([])
+            estado.llmPeloPrompt = null
+            llmResponde({ confirma: true, itens: [] })
+            await chamar('sim')
+            expect(levantamentos()).toEqual([expect.objectContaining({ nome: 'Alfredo Soares', endereco: 'Barao' })])
+            expect(itensDe(levantamentos()[0].id).map((i) => [i.tipologia, i.largura_mm, i.altura_mm])).toEqual([['DP-02', 1500, 1200], ['DP-01', 800, 600]])
+        })
+
+        it('(a) o pedido à IA com a foto: o sistema diz que a foto é o vendedor escrevendo e que o nome solto é o CLIENTE; a instrução da foto também', async () => {
+            estado.download = { bytes: FOTO }
+            daFoto()
+            await chamarComMidia(semLegenda())
+            const pedido = comFerramenta()[0].corpo
+            const sistema = textoDoSistema(pedido.system)
+            expect(sistema).toContain('- FOTO ou PDF: o que está escrito nele é o vendedor escrevendo — vale como esta mensagem para o nome, o cliente, a cidade e o vidro.')
+            expect(sistema).toContain('é o CLIENTE — igual a uma mensagem que termina com "Cliente: Fulano": ponha-o em cliente e em nome.')
+            expect(sistema).toContain('é a cidade da obra: ponha em dados_do_cliente.endereco')
+            const instrucao = (pedido.messages as Array<{ content: Array<{ type: string; text?: string }> }>).slice(-1)[0].content[1].text
+            expect(instrucao).toContain('Um nome de pessoa solto, numa linha à parte da lista de itens, é o CLIENTE (cliente e nome); o lugar escrito junto dele é a cidade (dados_do_cliente.endereco).')
         })
 
         it('a instrução da foto pede o texto copiado em texto_da_imagem', async () => {

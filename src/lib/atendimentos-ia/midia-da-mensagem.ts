@@ -200,9 +200,11 @@ export const pdfComSenha = (b: Uint8Array) => Buffer.from(b.buffer, b.byteOffset
 const INSTRUCAO_DA_IMAGEM = 'A mensagem do vendedor traz uma FOTO (acima). Leia os itens dela como leria o texto: tipologia, medidas, quantidade, cor e vidro.'
     + ' Medida ou número que não estiver legível na foto NÃO entra: pergunte. Nunca complete, arredonde nem adivinhe um número.'
     + ' Copie em texto_da_imagem todo o texto escrito na foto, linha a linha, como está.'
+    + ' Um nome de pessoa solto, numa linha à parte da lista de itens, é o CLIENTE (cliente e nome); o lugar escrito junto dele é a cidade (dados_do_cliente.endereco).'
 const INSTRUCAO_DO_PDF = 'A mensagem do vendedor traz um PDF (acima). Leia os itens dele como leria o texto: tipologia, medidas, quantidade, cor e vidro.'
     + ' Medida ou número que não estiver legível NÃO entra: pergunte. Nunca complete, arredonde nem adivinhe um número.'
     + ' Copie em texto_da_imagem todo o texto escrito no PDF, linha a linha, como está.'
+    + ' Um nome de pessoa solto, numa linha à parte da lista de itens, é o CLIENTE (cliente e nome); o lugar escrito junto dele é a cidade (dados_do_cliente.endereco).'
 
 /** Os bytes baixados conferidos contra os limites e contra o tipo pretendido: o anexo para o modelo, ou a recusa nomeada. */
 export function conferirMidiaBaixada(m: MidiaDaMensagem, como: 'imagem' | 'pdf', bytes: Uint8Array):

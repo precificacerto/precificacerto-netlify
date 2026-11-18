@@ -25,6 +25,8 @@ M = [
  ('P1 a CONFIRMAR_DA_IMAGEM não grava os dados', PA, "            ...(p.pergunta === 'CONFIRMAR_DA_IMAGEM' ? { dados_da_imagem: p.dadosDaImagem ?? {} } : {}) },", "            },"),
  ('P2 os dados da imagem não são lidos', PA, "    if (linha && linha.pergunta === 'CONFIRMAR_DA_IMAGEM') {", "    if (false) {"),
  ('P3 o 23514 da imagem lança', PA, "    if (tabelaAusente(error) || error.code === '23514' || error.code === 'PGRST204') return false", "    if (tabelaAusente(error) || error.code === 'PGRST204') return false"),
+ ('R1 o sistema sem a regra do nome solto na foto', CONV, "Um nome de pessoa SOLTO, sem rótulo, numa linha à parte antes ou depois da lista de itens, é o CLIENTE", "Um nome de pessoa SOLTO, sem rótulo, numa linha à parte antes ou depois da lista de esquadrias, pode ser o CLIENTE"),
+ ('R2 a instrução da foto sem o nome solto', MID, "como está.'\n    + ' Um nome de pessoa solto, numa linha à parte da lista de itens, é o CLIENTE (cliente e nome); o lugar escrito junto dele é a cidade (dados_do_cliente.endereco).'\nconst INSTRUCAO_DO_PDF", "como está.'\nconst INSTRUCAO_DO_PDF"),
  ('I1 a instrução da foto sem o texto_da_imagem', MID, "    + ' Copie em texto_da_imagem todo o texto escrito na foto, linha a linha, como está.'\n", ""),
 ]
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'harness'))
