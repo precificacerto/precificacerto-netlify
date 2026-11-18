@@ -232,6 +232,8 @@ const TIPO_NA_FRASE: Readonly<Record<string, string>> = { correr: 'de correr', a
  *     é por isso que vai nomeada (dono do produto, 12/11/2026: "ausência de origem é informação [...] é a única que não tem regra para auditar").
  */
 export type OrigemDoAtributo = 'dito' | 'padrao_da_tipologia' | 'base_de_conhecimento' | 'padrao_do_apanhado' | 'escolha_do_modelo'
+    /** a tipologia pedida para a medida fora do limite, que o vendedor AUTORIZOU (18/11/2026, decisão 1) */
+    | 'autorizado_fora_do_limite'
 
 /**
  * A ORIGEM DA TIPOLOGIA QUE O MODELO PROPÔS: `dito` só quando o código está na mensagem como está (sem caixa, mas nunca normalizado — "DP-2"
@@ -259,12 +261,16 @@ export function tipologiaPadrao(item: ItemDoLevantamento, abertura: Abertura | n
 
 /** A decisão do padrão e, quando ela dá uma tipologia, os atributos dela com a origem de cada um (a mesma decisão, nunca refeita à parte). */
 export function padraoDaEsquadria(item: ItemDoLevantamento, abertura: Abertura | null, trechos: readonly TrechoDoAcumulado[], candidatos: readonly CandidatoDeTipologia[],
-    variaveis?: VariaveisDaCandidata): { decisao: DecisaoDoPadrao; atributos: AtributoAssumido[]; impedimento: string | null } {
+    variaveis?: VariaveisDaCandidata): { decisao: DecisaoDoPadrao; atributos: AtributoAssumido[]; impedimento: string | null; paraAutorizar: { tipologia: string; frase: string } | null } {
     let atributos: AtributoAssumido[] = []
     let impedimento: string | null = null
-    const decisao = decisaoDoPadrao(item, abertura, trechos, candidatos, variaveis ?? (() => null), (a) => { atributos = a }, (f) => { impedimento = f })
+    // a tipologia para a qual se pede a autorização, quando a medida não cabe em nenhuma (dono do produto, 18/11/2026, decisão 1)
+    let paraAutorizar: { tipologia: string; frase: string } | null = null
+    const decisao = decisaoDoPadrao(item, abertura, trechos, candidatos, variaveis ?? (() => null), (a) => { atributos = a }, (f) => { impedimento = f },
+        (c, fora) => { paraAutorizar = { tipologia: c.tipologia, frase: fraseDoPedidoDeAutorizacao(item, fora, c) } })
     // o registro só acontece quando a decisão é uma tipologia (`comRastro`): um motivo nunca leva atributos
-    return { decisao, atributos, impedimento: 'motivo' in decisao ? impedimento ?? fraseDoPadraoQueFalta(decisao) : null }
+    const motivo = 'motivo' in decisao ? decisao.motivo : null
+    return { decisao, atributos, impedimento: motivo !== null ? impedimento ?? fraseDoPadraoQueFalta(decisao) : null, paraAutorizar: motivo === 'LIMITES' ? paraAutorizar : null }
 }
 
 /**
@@ -294,12 +300,23 @@ export const fraseDosModulosDitos = (modulos: number, opcoes: readonly string[])
     : `Falta no motor — não há tipologia deste tipo com ${modulos} módulos. Me diga como ele é na obra; se for mesmo assim, a tipologia precisa ser cadastrada no motor.`
 export const fraseDaSemCandidata = (esquadria: string, extrasDitos: readonly string[] = []) =>
     `Falta no motor — não há tipologia de ${esquadria}${extrasDitos.length ? ` com ${eListaE(extrasDitos)}` : ''}. Me diga como ele é na obra; se for mesmo assim, a tipologia precisa ser cadastrada no motor.`
-export const fraseDoForaDoLimite = (item: Pick<ItemDoLevantamento, 'largura_mm' | 'altura_mm'>, fora: ReadonlyArray<Pick<CandidatoDeTipologia, 'descricao' | 'larg_min_mm' | 'larg_max_mm' | 'alt_min_mm' | 'alt_max_mm'>>) =>
+type ComLimites = Pick<CandidatoDeTipologia, 'descricao' | 'larg_min_mm' | 'larg_max_mm' | 'alt_min_mm' | 'alt_max_mm'>
+const medidaQuePassa = (item: Pick<ItemDoLevantamento, 'largura_mm' | 'altura_mm'>, fora: readonly ComLimites[]) =>
     `A medida ${item.largura_mm !== null ? emMm(item.largura_mm) : '?'} x ${item.altura_mm !== null ? emMm(item.altura_mm) : '?'} mm passa do limite do motor para `
-    + `${fora.map((c) => `“${descricaoSemLinha(c)}” (${limiteNaFrase(c)})`).join(' e para ')}. Confirme a medida.`
+    + `${fora.map((c) => `“${descricaoSemLinha(c)}” (${limiteNaFrase(c)})`).join(' e para ')}.`
+export const fraseDoForaDoLimite = (item: Pick<ItemDoLevantamento, 'largura_mm' | 'altura_mm'>, fora: readonly ComLimites[]) =>
+    `${medidaQuePassa(item, fora)} Confirme a medida.`
+/**
+ * O PEDIDO DE AUTORIZAÇÃO (dono do produto, 18/11/2026, decisão 1): "Você deve questionar como pedindo autorização para fabricar da mesma forma."
+ * A medida e o limite, e a tipologia que se fabrica fora dele — com mais de uma, a escolhida é nomeada (a primeira do motor, `paraAutorizar`).
+ */
+export const fraseDoPedidoDeAutorizacao = (item: Pick<ItemDoLevantamento, 'largura_mm' | 'altura_mm'>, fora: readonly ComLimites[], escolhida: ComLimites) =>
+    `${medidaQuePassa(item, fora)} Autoriza fabricar ${fora.length > 1 ? `como “${descricaoSemLinha(escolhida)}”, ` : 'assim, '}fora do limite? `
+    + 'Se a medida estiver errada, me mande a certa.'
 
 function decisaoDoPadrao(item: ItemDoLevantamento, abertura_: Abertura | null, trechos: readonly TrechoDoAcumulado[], candidatos: readonly CandidatoDeTipologia[],
-    variaveisDe: VariaveisDaCandidata, registrar: (a: AtributoAssumido[]) => void, explicar: (frase: string) => void = () => undefined): DecisaoDoPadrao {
+    variaveisDe: VariaveisDaCandidata, registrar: (a: AtributoAssumido[]) => void, explicar: (frase: string) => void = () => undefined,
+    oferecer: (c: CandidatoDeTipologia, fora: readonly CandidatoDeTipologia[]) => void = () => undefined): DecisaoDoPadrao {
     // o motivo e a frase que diz o que impede o item, juntos (18/11/2026): nenhum motivo sai sem ela
     const falta = <D extends DecisaoDoPadrao>(d: D, frase: string): D => { explicar(frase); return d }
     const tiposDaEmpresa = [...new Set(candidatos.map((c) => c.tipo).filter((t): t is string => typeof t === 'string' && t.trim() !== ''))]
@@ -386,13 +403,13 @@ function decisaoDoPadrao(item: ItemDoLevantamento, abertura_: Abertura | null, t
 
     // 1) EXATAMENTE os extras ditos — o natural de todos é não ter, e a modulação conta (a maxim-ar lisa é a DP-01, sem rótulo nenhum)
     const exatas = doTipo.filter(({ a }) => mesmosExtras(a.extras, ditos.extras))
-    if (exatas.length > 0) return comRastro(decidir(exatas, item, explicar))
+    if (exatas.length > 0) return comRastro(decidir(exatas, item, explicar, oferecer))
 
     // 2) a MODULAÇÃO como rótulo: as que têm os extras ditos e só diferem pelo rótulo da divisão
     const modulacaoDita = [...ditos.extras].filter(ehModulacao)
     const porModulacao = doTipo.filter(({ a }) => mesmosExtras(semModulacao(a.extras), semModulacao(ditos.extras)) && modulacaoDita.every((e) => a.extras.has(e)))
     // a) uma só: ela é a escolha, qualquer que seja o rótulo (o fixo de 1 módulo: só a DP-143)
-    if (porModulacao.length === 1) return comRastro(decidir(porModulacao, item, explicar))
+    if (porModulacao.length === 1) return comRastro(decidir(porModulacao, item, explicar, oferecer))
     if (porModulacao.length > 1) {
         const outrosExtras = [...semModulacao(ditos.extras)]
         const rotulos = porModulacao.map(({ a }) => [...a.extras].filter(ehModulacao).map((e) => ROTULO_DA_MODULACAO[e] ?? e).join(' e '))
@@ -406,7 +423,8 @@ function decisaoDoPadrao(item: ItemDoLevantamento, abertura_: Abertura | null, t
         //    cabendo é LIMITES. Com N>=2 (dito) a regra já parou antes, em MODULOS_DITOS, e o modelo pergunta: aí são produtos diferentes
         if (outrosExtras.length === 0 && (ditos.modulos === null || ditos.modulos === 1) && porModulacao.every(({ a }) => a.modulos === null || a.modulos === 1)) {
             const cabem = porModulacao.filter(({ c }) => cabeNosLimites(c, item))
-            if (cabem.length === 0) return falta({ motivo: 'LIMITES' }, fraseDoForaDoLimite(item, porModulacao.map(({ c }) => c)))
+            // nenhuma cabe: a autorização é pedida para a PRIMEIRA do motor — a mesma ordem que escolhe entre as que cabem
+            if (cabem.length === 0) { oferecer(porModulacao[0].c, porModulacao.map(({ c }) => c)); return falta({ motivo: 'LIMITES' }, fraseDoForaDoLimite(item, porModulacao.map(({ c }) => c))) }
             return comRastro({ tipologia: cabem[0].c.tipologia })
         }
         // d) sem extra dito (ou nada que as distinga): falta nomeada
@@ -453,7 +471,8 @@ const quantidadeNaFrase = (a: AtributosDaTipologia | null, folhas: number) =>
     a !== null && a.folhas === null ? `${folhas} ${folhas === 1 ? 'módulo' : 'módulos'}` : `${folhas} ${folhas === 1 ? 'folha' : 'folhas'}`
 
 /** Entre as que sobraram: uma só vale (se a medida couber); mais de uma é LINHA (falta nomeada) ou SEM_NATURAL — nunca "a primeira". */
-function decidir(restantes: ReadonlyArray<{ c: CandidatoDeTipologia; a: AtributosDaTipologia }>, item: ItemDoLevantamento, explicar: (frase: string) => void = () => undefined): DecisaoDoPadrao {
+function decidir(restantes: ReadonlyArray<{ c: CandidatoDeTipologia; a: AtributosDaTipologia }>, item: ItemDoLevantamento, explicar: (frase: string) => void = () => undefined,
+    oferecer: (c: CandidatoDeTipologia, fora: readonly CandidatoDeTipologia[]) => void = () => undefined): DecisaoDoPadrao {
     if (restantes.length > 1) {
         // o que ainda as distingue: atributo sem natural, ou só a linha de produto
         const diferem: string[] = []
@@ -467,7 +486,7 @@ function decidir(restantes: ReadonlyArray<{ c: CandidatoDeTipologia; a: Atributo
         return { motivo: 'LINHA', candidatas: codigos, linhas: [...new Set(restantes.map(({ c }) => c.linha ?? '(sem linha)'))] }
     }
     const [unica] = restantes
-    if (!cabeNosLimites(unica.c, item)) { explicar(fraseDoForaDoLimite(item, [unica.c])); return { motivo: 'LIMITES' } }
+    if (!cabeNosLimites(unica.c, item)) { explicar(fraseDoForaDoLimite(item, [unica.c])); oferecer(unica.c, [unica.c]); return { motivo: 'LIMITES' } }
     return { tipologia: unica.c.tipologia }
 }
 

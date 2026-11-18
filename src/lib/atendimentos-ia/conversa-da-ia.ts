@@ -203,7 +203,8 @@ import { vidroPodado } from '@/lib/atendimentos-ia/vidro'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { compararNome, formaComparavel, nomeDaMensagem, nomeDitoOuRetomado, nomeDoCliente, nomeSemPrefixo, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 import { fraseDaCorForaDaLista, perguntasDaTipologia, type JaDito } from '@/lib/atendimentos-ia/pre-definicao'
-import { atributosNoLog, origemDaTipologiaProposta, padraoDaEsquadria, type AtributoAssumido } from '@/lib/atendimentos-ia/tipologia-padrao'
+import { atributosNoLog, fraseDoForaDoLimite, fraseDoPedidoDeAutorizacao, origemDaTipologiaProposta, padraoDaEsquadria, type AtributoAssumido } from '@/lib/atendimentos-ia/tipologia-padrao'
+import { autorizacaoVale, gravarLimites, lerLimites, limitesDisponiveis, limiteVencido, pedidoEmAberto, type LimiteDoItem, type MudancaDoLimite } from '@/lib/atendimentos-ia/autorizacao-do-limite'
 import { PROMPT_BASE } from '@/utils/atendimentos-ia-prompt-base'
 import { LIMITE_DA_FALA } from '@/utils/atendimentos-ia-contexto'
 import { blocoDasInstrucoes, lerInstrucoesDaEmpresa, type InstrucaoDaCategoria } from '@/lib/atendimentos-ia/instrucoes-da-categoria'
@@ -336,6 +337,11 @@ type Rastro = {
     coresPadrao: number
     /** Esquadrias que receberam a tipologia PADRÃO do código — de correr, 2 folhas, lisa (05/11/2026). */
     tipologiasPadrao: number
+    /**
+     * A autorização da medida fora do limite (18/11/2026): `pediu:e1,autorizou:e2,negou:e3,limpou:e4`, ou `sem_migracao` (a 20261118000001 não
+     * aplicada: a conversa pede a medida certa, como antes); '-' sem nada.
+     */
+    limite: string
     /** A mídia da mensagem (18/11/2026), `<tipo>:<desfecho>` — `imagem:lida`, `audio:audio`, `pdf:pdf_grande`…; '-' sem mídia. Nunca a legenda nem o nome. */
     midia: string
 }
@@ -358,7 +364,7 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
         + (r.lista === '-' ? '' : ` lista=${r.lista} trechos=${r.trechos}`) + (r.trechosSemCandidata > 0 ? ` trechos_sem_candidata=${r.trechosSemCandidata}` : '')
         + (r.itensSemCampos > 0 ? ` itens_sem_campos=${r.itensSemCampos}` : '')
         // a montagem e os padrões (05/11/2026)
-        + (r.montagem === '-' ? '' : ` montagem=${r.montagem}`) + (r.coresPadrao > 0 ? ` cor_padrao=${r.coresPadrao}` : '') + (r.tipologiasPadrao > 0 ? ` tipologia_padrao=${r.tipologiasPadrao}` : '')
+        + (r.montagem === '-' ? '' : ` montagem=${r.montagem}`) + (r.coresPadrao > 0 ? ` cor_padrao=${r.coresPadrao}` : '') + (r.tipologiasPadrao > 0 ? ` tipologia_padrao=${r.tipologiasPadrao}` : '') + (r.limite === '-' ? '' : ` limite=${r.limite}`)
         + (r.midia === '-' ? '' : ` midia=${r.midia}`)
     console.error(`${PREFIXO_DO_LOG_DA_IA} levantamento=${r.levantamento} rota=${r.rota} propostos=${r.propostos} descartados=${r.descartados} enviou=${r.enviou ? 'sim' : 'nao'} desfecho=${desfecho}${admin} nome=${r.nome} aberta=${r.aberta}${contexto}${ia}${detalhe ? ` ${detalhe}` : ''}`)
     // as linhas por etapa (06/11/2026), na ordem do turno; a última é a resposta, que todo turno tem
@@ -640,7 +646,7 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
         '- alteracao: true quando ele pede para MUDAR um levantamento que já existe ("troca a altura", "muda a cor", "corrige"). Senão, omita.',
         '- vendedor: só quando a mensagem diz de qual VENDEDOR é o levantamento; copie o nome como foi escrito. Senão, omita.',
         '- Pergunta em aberto (quando houver, no fim): a mensagem pode ser a RESPOSTA a ela. Se o vendedor responde com um levantamento que a pergunta cita ("é o mesmo", "é esse"), ponha em `nome` o nome dele escrito como na pergunta. Se a mensagem é só o nome de um levantamento, é o nome do levantamento.',
-        '- confirma: só quando a pergunta em aberto pede confirmação — true se ele confirmou ("sim", "pode", "confirmo"), false se negou. Senão, omita.',
+        '- confirma: só quando a pergunta em aberto pede confirmação ou AUTORIZAÇÃO (a medida fora do limite) — true se ele confirmou ou autorizou ("sim", "pode", "confirmo", "autorizo", "pode fabricar"), false se negou. Senão, omita.',
         '- itens: as esquadrias desta mensagem, com os campos que ela diz. Um campo vale também quando o vendedor o deu para todas numa mensagem anterior ("todas brancas") ou se referiu a ele ("a mesma cor"). Numa alteração, só os campos que mudam. Não invente, não deduza.',
         '- cor_perfil: a cor do perfil que o vendedor DISSE. Se ela é uma das cores da empresa (lista abaixo), escreva-a como está na lista; se é outra, escreva-a como ele disse — o código confere e pergunta. Se ele não disse cor, NÃO preencha.',
         '- vidro: COPIE o vidro como o vendedor o escreveu nesta mensagem ("vidro 4mm" → vidro 4mm; "temperado 8mm" → temperado 8mm). NUNCA acrescente têmpera, cor ou qualquer palavra que ele não disse — nem da instrução da categoria VIDRO: "8mm" não vira "comum 8 mm" nem "temperado 8 mm". Se ele NÃO disse o vidro desta esquadria e a instrução de VIDRO define um padrão para ela, ponha o padrão em vidro_padrao, copiado da instrução; senão, omita os dois.',
@@ -1198,7 +1204,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = {
         etapas: { coletar: null, casar: null, montar: null, calcular: null },
         levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null, raciocinio: null, parada: null, cacheLido: null, cacheEscrito: null, cabecalhosMs: null, primeiroTokenMs: null, tentativas: null, requestId: null },
-        midia: '-', contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', coresPadrao: 0, tipologiasPadrao: 0,
+        midia: '-', contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', coresPadrao: 0, tipologiasPadrao: 0, limite: '-',
     }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
@@ -1310,7 +1316,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // Segunda onda: o que depende da família ou da montagem. As Variáveis de cada tipologia, POR FAMÍLIA, do motor do LEVANTAMENTO dela
         // (a etapa com GERAR_LEVANTAMENTO), por motor_id; os itens da montagem; e a pergunta em aberto do roteamento pelo nome — só fora da
         // montagem, que guarda a sua no levantamento — com os levantamentos do remetente que ela cita
-        const [variaveisLidas, itensDaMontagem, pergunta] = await Promise.all([
+        const [variaveisLidas, itensDaMontagem, pergunta, limitesDaMontagem] = await Promise.all([
             Promise.all(tabela.familias.map(async (f) => [f.familia, await lerVariaveisDasTipologias(f.levantamento.id)] as const)),
             emMontagem ? lerItens(c.tenantId, emMontagem.id) : Promise.resolve([] as ItemGravado[]),
             // lida também na montagem (05/11/2026): a mensagem que traz OUTRO cliente, ou "novo", sai da montagem e aí a pergunta vale
@@ -1322,6 +1328,8 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 const doRemetente = valida ? await lerLevantamentos(c.tenantId, c.remetenteId, false) : null
                 return { lida, valida, doRemetente }
             })(),
+            // o pedido de autorização da medida fora do limite, gravado no item (18/11/2026)
+            emMontagem ? lerLimites(c.tenantId, emMontagem.id) : Promise.resolve(new Map<number, LimiteDoItem>()),
         ] as const)
         const { definicao, detalhe } = definicaoEDetalhe(tabela, Object.fromEntries(variaveisLidas), doCodigo)
         // TODAS as pendências da montagem (03/11/2026): a pergunta em aberto é uma só, e cobre todas
@@ -1384,11 +1392,22 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // a instrução da etapa corrente de cada família (04/11/2026): só a de GERAR_LEVANTAMENTO, só preenchida
         const instrucoesDasEtapas = tabela.familias.flatMap((f) => (f.instrucaoDoLevantamento ? [f.instrucaoDoLevantamento] : []))
         rastro.instrucoesDasEtapas = instrucoesDasEtapas.length
+        // o pedido gravado que ainda vale para o item, dito de novo: a medida e o limite da tipologia pedida (a primeira linha do motor com o código)
+        const fraseDoPedidoGravado = (l: LimiteDoItem | undefined, i: ItemDoLevantamento): string | null => {
+            if (!l || !pedidoEmAberto(l, i)) return null
+            const doCodigoPedido = tabela.candidatos.filter((x) => x.tipologia === l.tipologia).slice(0, 1)
+            return doCodigoPedido.length ? fraseDoPedidoDeAutorizacao(i, doCodigoPedido, doCodigoPedido[0]) : null
+        }
+        // O PEDIDO DE AUTORIZAÇÃO EM ABERTO (18/11/2026) vai ao modelo como pergunta em aberto: o "sim" do vendedor é a resposta a ele
+        const pedidosDaMontagem = limitesDaMontagem === 'sem_migracao' ? [] : itensDaMontagem.flatMap((i) => {
+            const frase = fraseDoPedidoGravado(limitesDaMontagem.get(i.ordem), i)
+            return frase === null ? [] : [itensDaMontagem.length > 1 ? `Item ${i.ordem}: ${frase}` : frase]
+        })
         const resposta = await chamarLlm(chave, c.texto, {
             contexto: contexto.texto, instrucoes: instrucoes.instrucoes, instrucoesDasEtapas,
             candidatos: candidatosDoPrompt, variasFamilias, cores, escolhasPorTipologia, variaveisSemPadraoPorTipologia,
             montagem: emMontagem ? { nome: emMontagem.nome, itens: itensDaMontagem.map(camposParaOPrompt) } : null,
-            perguntaEmAberto: pendenciaAberta ? perguntaDasPendencias(pendenciasAbertas, itensDaMontagem.length, null, filtro.jaDito)
+            perguntaEmAberto: pendenciaAberta ? [...pedidosDaMontagem, perguntaDasPendencias(pendenciasAbertas, itensDaMontagem.length, null, filtro.jaDito)].join('\n')
                 : perguntaDasCondicoesAberta ?? aberta?.paraOPrompt ?? aberta?.texto ?? null,
             hoje: !pendenciaAberta && aberta && ehResgate(aberta.p) ? dataBR(new Date().toISOString()) : null,
         }, rastro.ia, historico, anexo)
@@ -1626,10 +1645,17 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
 
         // ── a proposta, validada ──
         const atuais = alvo ? alvo.itens : [itemVazio(1)]
+        // A AUTORIZAÇÃO DA MEDIDA FORA DO LIMITE (dono do produto, 18/11/2026, decisão 1): o pedido e a liberação gravados nos itens do levantamento
+        const limites: Map<number, LimiteDoItem> | 'sem_migracao' = !alvo ? await limitesDisponiveis(c.tenantId)
+            : emMontagem && alvo.id === emMontagem.id ? limitesDaMontagem : await lerLimites(c.tenantId, alvo.id)
+        if (limites === 'sem_migracao') rastro.limite = 'sem_migracao'
+        const limiteDe = (ordem: number) => (limites === 'sem_migracao' ? undefined : limites.get(ordem))
+        const marcasDoLimite: string[] = []
         const ordemPadrao = rastro.rota === 'MONTAGEM' ? pendenciaAberta?.ordem ?? (atuais.length === 1 ? atuais[0].ordem : null)
             : atuais.length === 1 ? atuais[0].ordem : null
         const proposta_ = aplicarProposta(atuais, efetiva, {
             candidatos: tabela.candidatos, aberturaDaMensagem, aberturasDitas: palavrasDeAbertura(c.texto), cores, mensagem: c.texto, ordemPadrao, definicao, familiasDoCodigo: doCodigo,
+            limiteAutorizado: (i) => autorizacaoVale(limiteDe(i.ordem), i),
         })
         // OS PADRÕES DO CÓDIGO (dono do produto, 05/11/2026), na esquadria que diz alguma coisa: a TIPOLOGIA padrão — de correr, 2 folhas, lisa —
         // quando o acumulado não indica nada fora do padrão (`tipologia-padrao.ts`); e a COR não dita = a predominante da base
@@ -1646,16 +1672,30 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 assumir(item.ordem, [{ atributo: 'tipologia', valor: item.tipologia, origem: origemDaTipologiaProposta(item.tipologia, c.texto) }])
             }
         }
+        // O "SIM" AO PEDIDO DE AUTORIZAÇÃO (18/11/2026): o item cujo pedido está em aberto, com a mesma medida, recebe a tipologia pedida e a
+        // liberação é gravada depois do levantamento, com quem e quando; o "não" pede a medida certa. Sem resposta, o item fica sem tipologia — não calcula
+        const autorizados: number[] = []
+        const negados: number[] = []
+        if (confirma !== null) {
+            for (const item of proposta_.itens) {
+                const l = limiteDe(item.ordem)
+                if (!l || !pedidoEmAberto(l, item)) continue
+                if (confirma) { item.tipologia = l.tipologia; autorizados.push(item.ordem); assumir(item.ordem, [{ atributo: 'tipologia', valor: l.tipologia, origem: 'autorizado_fora_do_limite' }]) }
+                else negados.push(item.ordem)
+            }
+        }
         // o que o padrão NÃO resolve e se diz (11/11/2026): a linha sem padrão, as descrições que nada separa, a modulação da bandeira, a lacuna
         // do motor — por esquadria, nunca "sem padrão" mudo
         const faltasDoPadrao: Array<{ ordem: number; frase: string; motivo: string }> = []
+        // os pedidos de autorização desta mensagem: ordem -> a tipologia pedida (gravados depois do levantamento)
+        const pedir = new Map<number, string>()
         // as variáveis da candidata (a aba Variáveis do motor da família dela): é por elas que o dito que confere com a tipologia se absorve (13/11/2026)
         const variaveisDaCandidata = (c: { tipologia: string; familia: string }) => definicao({ tipologia: c.tipologia, familia: c.familia })?.variaveis.map((v) => v.variavel) ?? null
         let vidrosDaConta: VidrosPadraoDaConta | null = null
         for (const item of proposta_.itens) {
             if (!dizAlgo(item)) continue
             if (item.tipologia === null) {
-                const { decisao: padrao, atributos, impedimento } = padraoDaEsquadria(item, proposta_.aberturas[item.ordem] ?? null, filtro.lidos, tabela.candidatos, variaveisDaCandidata)
+                const { decisao: padrao, atributos, impedimento, paraAutorizar } = padraoDaEsquadria(item, proposta_.aberturas[item.ordem] ?? null, filtro.lidos, tabela.candidatos, variaveisDaCandidata)
                 if ('tipologia' in padrao) {
                     item.tipologia = padrao.tipologia; rastro.tipologiasPadrao += 1; tipologiasDoPadrao.push(`e${item.ordem}:${padrao.tipologia}`)
                     assumir(item.ordem, atributos)
@@ -1665,7 +1705,12 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                     // no motor, o limite, a linha, a modulação) vai com a frase dele, item por item — nunca a pergunta genérica no lugar dela. O que é só
                     // FALTA DE INFORMAÇÃO (a abertura, o tipo, a descrição do item) segue para a pergunta da tipologia, que pergunta isso mesmo, e a
                     // reformulação do modelo continua valendo nela (03/11/2026)
-                    if (impedimento !== null && !SO_FALTA_INFORMACAO.has(padrao.motivo)) faltasDoPadrao.push({ ordem: item.ordem, frase: impedimento, motivo: padrao.motivo })
+                    // a medida fora do limite (18/11/2026): com a migração, vira PEDIDO DE AUTORIZAÇÃO, gravado no item — menos quando o vendedor
+                    // acabou de dizer "não" a ele, e aí a frase pede a medida certa
+                    if (paraAutorizar && limites !== 'sem_migracao' && !negados.includes(item.ordem)) {
+                        faltasDoPadrao.push({ ordem: item.ordem, frase: paraAutorizar.frase, motivo: padrao.motivo })
+                        pedir.set(item.ordem, paraAutorizar.tipologia)
+                    } else if (impedimento !== null && !SO_FALTA_INFORMACAO.has(padrao.motivo)) faltasDoPadrao.push({ ordem: item.ordem, frase: impedimento, motivo: padrao.motivo })
                 }
             }
             // a predominante é da cor NÃO DITA (08/11/2026): a cor dita que a empresa não tem fica vazia, e a conversa pergunta nomeando-a
@@ -1772,6 +1817,23 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             const resto = pendenciasAbertas.filter((p) => !(p.tipo === 'CAMPO' && p.campo === 'cor_perfil' && aplicada.coresForaDaLista.some((x) => x.ordem === p.ordem)))
             return await falar([...frases, ...(resto.length ? [perguntaDasPendencias(resto, n, null, filtro.jaDito)] : [])].join('\n'), 'perguntou')
         }
+        // O PEDIDO DE AUTORIZAÇÃO SEM RESPOSTA, ou com "não" (18/11/2026): nada mudou nos itens — o "não" pede a medida certa (e o pedido sai);
+        // a mensagem que não respondeu repete o pedido. Nunca a pergunta genérica da tipologia no lugar dele
+        const comPedido = alvo && limites !== 'sem_migracao' ? aplicada.itens.filter((i) => pedidoEmAberto(limiteDe(i.ordem), i)) : []
+        if (nadaMudou && alvo && comPedido.length > 0) {
+            const n = aplicada.itens.length
+            const linhas = comPedido.flatMap((i) => {
+                const frase = negados.includes(i.ordem)
+                    ? fraseDoForaDoLimite(i, tabela.candidatos.filter((x) => x.tipologia === limiteDe(i.ordem)?.tipologia).slice(0, 1))
+                    : fraseDoPedidoGravado(limiteDe(i.ordem), i)
+                return frase === null ? [] : [n > 1 ? `Item ${i.ordem}: ${frase}` : frase]
+            })
+            if (negados.length) {
+                await gravarLimites(c.tenantId, alvo.id, negados.map((ordem) => ({ tipo: 'limpar' as const, ordem })))
+                rastro.limite = negados.map((o) => `negou:e${o}`).join(',')
+            }
+            if (linhas.length) return await falar(linhas.join('\n'), negados.length ? 'perguntou' : 'nao-avancou')
+        }
         // R2: com uma pergunta em aberto, a resposta que não mudou nada é ERRO e aparece — nunca a mesma pergunta de novo
         if (nadaMudou && rastro.rota === 'MONTAGEM' && pendenciaAberta) {
             const n = itensDaMontagem.length
@@ -1838,6 +1900,30 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         }
         gravado = true
         rastro.etapas.montar = montagemNoLog(aplicada.itens.length)
+        // A AUTORIZAÇÃO, gravada no item DEPOIS do levantamento (18/11/2026): o "sim" com quem e quando, os pedidos novos, e o que venceu (a medida
+        // ou a tipologia mudou) — pedido e liberação saem juntos. O pedido que já está em aberto, com a mesma medida, não se regrava
+        for (const r of aplicada.recusas) {
+            if (r.motivo !== 'LIMITES' || limites === 'sem_migracao') continue
+            const item = aplicada.itens.find((i) => i.ordem === r.ordem)
+            if (item && item.tipologia === null && !negados.includes(r.ordem)) pedir.set(r.ordem, r.tipologia)
+        }
+        if (limites !== 'sem_migracao' && rastro.levantamento !== '-') {
+            const mudancas: MudancaDoLimite[] = []
+            for (const item of aplicada.itens) {
+                const l = limiteDe(item.ordem)
+                const pedida = pedir.get(item.ordem)
+                if (autorizados.includes(item.ordem) && l && l.tipologia === item.tipologia) { mudancas.push({ tipo: 'autorizar', ordem: item.ordem, por: c.remetenteId }); marcasDoLimite.push(`autorizou:e${item.ordem}`); continue }
+                if (pedida !== undefined) {
+                    if (l && pedidoEmAberto(l, item) && l.tipologia === pedida) continue
+                    mudancas.push({ tipo: 'pedir', ordem: item.ordem, tipologia: pedida, largura_mm: item.largura_mm, altura_mm: item.altura_mm })
+                    marcasDoLimite.push(`pediu:e${item.ordem}`)
+                    continue
+                }
+                if (negados.includes(item.ordem) || limiteVencido(l, item)) { mudancas.push({ tipo: 'limpar', ordem: item.ordem }); marcasDoLimite.push(`${negados.includes(item.ordem) ? 'negou' : 'limpou'}:e${item.ordem}`) }
+            }
+            if (mudancas.length && (await gravarLimites(c.tenantId, rastro.levantamento, mudancas)) === 'sem_migracao') rastro.limite = 'sem_migracao'
+            else if (marcasDoLimite.length) rastro.limite = marcasDoLimite.join(',')
+        }
         if (pendencia) {
             // a tipologia que o CÓDIGO descartou (03/11/2026) tem frase própria: nenhuma cabe (a medida e a faixa das que sobraram), ou a
             // palavra do vendedor contradita — antes de qualquer outra pendência, para a razão não se perder
@@ -1845,6 +1931,11 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             if (recusa) {
                 const comEsquadria = (frase: string) => (aplicada.itens.length > 1 ? `Item ${recusa.ordem}: ${frase}` : frase)
                 if (recusa.motivo === 'LIMITES') {
+                    // com a migração, a tipologia proposta que não cabe vira PEDIDO DE AUTORIZAÇÃO para ela (18/11/2026); sem, a faixa das que sobraram
+                    const doCodigoRecusado = tabela.candidatos.filter((x) => x.tipologia === recusa.tipologia).slice(0, 1)
+                    if (pedir.get(recusa.ordem) === recusa.tipologia && doCodigoRecusado.length) {
+                        return await falar(comEsquadria(fraseDoPedidoDeAutorizacao(recusa.medidas, doCodigoRecusado, doCodigoRecusado[0])), 'nenhuma-cabe')
+                    }
                     return await falar(comEsquadria(fraseDeNenhumaTipologiaCabe(recusa.medidas, filtrarPorAbertura(tabela.candidatos, recusa.abertura), recusa.abertura)), 'nenhuma-cabe')
                 }
                 if (recusa.abertura !== null) return await falar(comEsquadria(fraseDaAberturaRecusada(recusa.abertura)), 'perguntou')

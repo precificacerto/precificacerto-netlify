@@ -397,6 +397,9 @@ jest.mock('@/supabase/admin', () => ({
             q.update = (carga: Linha) => { atualizacao = carga; return q }
             q.then = (ok: (v: unknown) => unknown, erro?: (e: unknown) => unknown) => {
                 if (atualizacao) {
+                    // gravar numa coluna que a tabela não tem é PGRST204, como o PostgREST (a migração pendente)
+                    const semColunaNoUpdate = Object.keys(atualizacao).find((k) => estado.colunasAusentes.has(`${tabela}.${k}`))
+                    if (semColunaNoUpdate) return Promise.resolve({ data: null, error: { code: 'PGRST204', message: `Could not find the '${semColunaNoUpdate}' column of '${tabela}' in the schema cache` } }).then(ok, erro)
                     estado.escritas.push({ tabela, op: 'update', carga: atualizacao })
                     const atingidas = estado.updateNaoAtinge === tabela ? [] : (estado.db[tabela] ?? []).filter(casa)
                     for (const l of atingidas) Object.assign(l, atualizacao)
@@ -2746,6 +2749,8 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
     const LINHA_DP01 = 'DP-01 | MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | Maxim-ar'
     const GERONIMO = 'Cliente: Geronimo Silva. Janela de correr 1,50x1,20 e porta janela 2,50x2,40, branco, temperado 5mm'
     const item = (k: number) => itensDe(levantamentos()[0].id)[k]
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const TP = require('@/lib/atendimentos-ia/tipologia-padrao') as typeof import('@/lib/atendimentos-ia/tipologia-padrao')
 
     it('a lista ao modelo leva código, descrição, tipo e os LIMITES compactos — e o cabeçalho diz que a medida sem L ou sem A não tem limite (nunca zero)', async () => {
         await chamar('oi')
@@ -2812,13 +2817,16 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
         expect(item(0).tipologia).toBe('DP-01')
     })
 
-    it('OS LIMITES: janela 1200 x 2500 não cabe na DP-02 (altura máx 2.439): a tipologia cai e a frase nomeia a medida e a faixa das que sobraram — nunca a mais próxima', async () => {
+    it('OS LIMITES, SEM a migração 20261118000001: janela 1200 x 2500 não cabe na DP-02 (altura máx 2.439): a tipologia cai e a frase nomeia a medida e a faixa das que sobraram — nunca a mais próxima', async () => {
+        // REVISTO em 18/11/2026 (decisão 1): com a migração, a medida fora do limite vira PEDIDO DE AUTORIZAÇÃO (bloco 39); sem ela, a frase de antes
+        estado.colunasAusentes = new Set(['orcamentista_levantamento_item.limite_tipologia'])
         llmResponde({ cliente: 'Ana', itens: [{ tipologia: 'DP-02', largura_mm: 1200, altura_mm: 2500, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm' }] })
         await chamar('Cliente: Ana. Janela de correr 1200 x 2500, branco, temperado 5mm')
         // sobraram, depois do filtro "janela": a DP-02 (388 a 2.439) e a DP-01 maxim-ar (sem limite no arquivo, que não conta)
         expect(ultimoEnviado()).toBe('Nenhuma tipologia de janela cabe em 1.200 x 2.500 mm: as alturas vão de 388 mm a 2.439 mm (a tipologia sem limite no arquivo não conta). ' + TC.PEDIDO_DE_CONFIRMAR_A_MEDIDA)
         expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, largura_mm: 1200, altura_mm: 2500 }))
         expect(linhaIa()[0]).toContain('desfecho=nenhuma-cabe')
+        expect(linhaIa()[0]).toMatch(/ limite=sem_migracao(\s|$)/)
     })
 
     it('OS LIMITES: NULL nunca descarta — a DP-02 não tem limite de largura, e 5.000 mm de largura passa', async () => {
@@ -2827,13 +2835,110 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
         expect(item(0)).toEqual(expect.objectContaining({ tipologia: 'DP-02', largura_mm: 5000 }))
     })
 
-    it('OS LIMITES na alteração: a medida nova que não cabe tira a tipologia gravada, e a frase sai', async () => {
+    it('OS LIMITES na alteração: a medida nova que não cabe tira a tipologia gravada, e a frase pede a AUTORIZAÇÃO para ela', async () => {
         await fecharDp02('Casa do João')
         llmResponde({ nome: 'Casa do João', alteracao: true, itens: [{ altura_mm: 3000 }] })
         await chamar('Levantamento Casa do João: troca a altura para 3000')
-        expect(ultimoEnviado()).toContain('Nenhuma tipologia do motor cabe em 1.200 x 3.000 mm')
+        // REVISTO em 18/11/2026 (decisão 1): era "Nenhuma tipologia do motor cabe em 1.200 x 3.000 mm"; agora, a autorização para a DP-02
+        const dp02 = (estado.db.orcamentista_motor_tipologia_detalhe as Linha[]).filter((c) => c.tipologia === 'DP-02').slice(0, 1)
+        expect(ultimoEnviado()).toBe(TP.fraseDoPedidoDeAutorizacao({ largura_mm: 1200, altura_mm: 3000 }, dp02 as never, dp02[0] as never))
+        expect(item(0)).toEqual(expect.objectContaining({ limite_tipologia: 'DP-02', limite_largura_mm: 1200, limite_altura_mm: 3000, limite_autorizado_por: null }))
         // a tipologia caiu, e com ela o que era dela: as escolhas gravadas, a família e o motor
         expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, altura_mm: 3000, escolhas: null, familia: null, motor_id: null }))
+    })
+
+    describe('A AUTORIZAÇÃO DA MEDIDA FORA DO LIMITE (dono do produto, 18/11/2026, decisão 1): pergunta, grava quem e quando, e sem resposta não calcula', () => {
+        const ANA = 'Cliente: Ana. Janela de correr 1200 x 2500, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50'
+        const FORA = { tipologia: 'DP-02', largura_mm: 1200, altura_mm: 2500, quantidade: 1, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm' }
+        const dp02 = () => (estado.db.orcamentista_motor_tipologia_detalhe as Linha[]).filter((c) => c.tipologia === 'DP-02').slice(0, 1)
+        const pedido = (largura_mm = 1200, altura_mm = 2500) => TP.fraseDoPedidoDeAutorizacao({ largura_mm, altura_mm }, dp02() as never, dp02()[0] as never)
+        const pedir = async () => {
+            llmResponde({ cliente: 'Ana', itens: [{ ...FORA }], escolhas: ESCOLHAS_QUE_FECHAM })
+            await chamar(ANA)
+        }
+
+        it('a medida que passa do limite PERGUNTA a autorização, nomeando a medida e o limite, e grava o pedido no item — sem tipologia, nada se calcula', async () => {
+            await pedir()
+            expect(ultimoEnviado()).toBe(pedido())
+            expect(pedido()).toBe('A medida 1.200 x 2.500 mm passa do limite do motor para “JANELA DE CORRER 02 FOLHAS MÓVEIS” (altura de 388 a 2.439 mm). Autoriza fabricar assim, fora do limite? Se a medida estiver errada, me mande a certa.')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, limite_tipologia: 'DP-02', limite_largura_mm: 1200, limite_altura_mm: 2500, limite_autorizado_por: null, limite_autorizado_em: null }))
+            expect(typeof item(0).limite_pedido_em).toBe('string')
+            expect(linhaIa()[0]).toMatch(/ limite=pediu:e1(\s|$)/)
+            expect(levantamentos()[0].estado).toBe('EM_MONTAGEM')
+        })
+
+        it('o pedido em aberto vai ao modelo como a pergunta em aberto da mensagem seguinte', async () => {
+            await pedir()
+            llmResponde({})
+            await chamar('oi')
+            expect(textoDoSistema(estado.chamadasDaLlm[1].corpo.system)).toContain(pedido())
+        })
+
+        it('"sim, pode fabricar": a tipologia pedida entra, a liberação grava QUEM (o remetente) e QUANDO, e a conversa segue até o arquivo para conferir', async () => {
+            await pedir()
+            llmResponde({ confirma: true })
+            await chamar('sim, pode fabricar assim')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: 'DP-02', limite_tipologia: 'DP-02', limite_largura_mm: 1200, limite_altura_mm: 2500, limite_autorizado_por: VENDEDOR }))
+            expect(typeof item(0).limite_autorizado_em).toBe('string')
+            expect(linhaIa()[1]).toMatch(/ limite=autorizou:e1(\s|$)/)
+            const casar = erros.filter((l) => l.startsWith(conversa.PREFIXO_DO_LOG_DA_ETAPA) && l.includes(' casar]')).pop() ?? ''
+            expect(/ assumidos=(\S+)/.exec(casar)?.[1]).toBe('e1:tipologia=DP-02/autorizado_fora_do_limite')
+            expect(ehConfirmacaoDoArquivo(ultimoEnviado())).toBe(true)
+        })
+
+        it('autorizada, a mesma medida não perde a tipologia nos turnos seguintes — o modelo reenviando a DP-02 continua valendo', async () => {
+            await pedir()
+            llmResponde({ confirma: true })
+            await chamar('sim, autorizo')
+            llmResponde({ itens: [{ ordem: 1, ...FORA }] })
+            await chamar(ANA)
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: 'DP-02', limite_autorizado_por: VENDEDOR }))
+            for (const e of enviados()) expect([e, e.includes('Autoriza fabricar')]).toEqual([e, e === pedido()])
+        })
+
+        it('sem resposta (a mensagem não diz sim nem não, e nada muda): o pedido se repete, e o item continua sem tipologia', async () => {
+            await pedir()
+            llmResponde({})
+            await chamar('ok')
+            expect(ultimoEnviado()).toBe(pedido())
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, limite_autorizado_por: null }))
+            for (const p of perguntasDaTipologia({ abertura: true, tipo: true })) expect([p, ultimoEnviado().includes(p)]).toEqual([p, false])
+        })
+
+        it('"não": a conversa pede a medida certa, e o pedido sai do item', async () => {
+            await pedir()
+            llmResponde({ confirma: false })
+            await chamar('não')
+            expect(ultimoEnviado()).toBe(TP.fraseDoForaDoLimite({ largura_mm: 1200, altura_mm: 2500 }, dp02() as never))
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, limite_tipologia: null, limite_largura_mm: null, limite_altura_mm: null, limite_pedido_em: null }))
+            expect(linhaIa()[1]).toMatch(/ limite=negou:e1(\s|$)/)
+        })
+
+        it('a medida que muda depois da liberação não a herda: a tipologia cai pelos limites e um pedido NOVO, com a medida nova, substitui o antigo', async () => {
+            await pedir()
+            llmResponde({ confirma: true })
+            await chamar('sim')
+            llmResponde({ itens: [{ ordem: 1, altura_mm: 2600 }] })
+            await chamar('a altura é 2600')
+            expect(ultimoEnviado()).toBe(pedido(1200, 2600))
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, limite_tipologia: 'DP-02', limite_altura_mm: 2600, limite_autorizado_por: null, limite_autorizado_em: null }))
+        })
+
+        it('a medida corrigida para DENTRO do limite: a tipologia entra sem pedido, e o pedido antigo sai do item', async () => {
+            await pedir()
+            llmResponde({ itens: [{ ordem: 1, tipologia: 'DP-02', altura_mm: 1000 }] })
+            await chamar('errei, a altura é 1000')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: 'DP-02', altura_mm: 1000, limite_tipologia: null, limite_pedido_em: null }))
+            expect(linhaIa()[1]).toMatch(/ limite=limpou:e1(\s|$)/)
+        })
+
+        it('o "sim" sem pedido em aberto não autoriza nada', async () => {
+            llmResponde({ cliente: 'Ana', itens: [{ ...FORA, altura_mm: 1000 }], escolhas: ESCOLHAS_QUE_FECHAM, confirma: true })
+            await chamar('Cliente: Ana. Janela de correr 1200 x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50. sim')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: 'DP-02' }))
+            expect(item(0).limite_autorizado_por ?? null).toBeNull()
+            expect(linhaIa()[0]).not.toMatch(/ limite=/)
+        })
     })
 
     it('QUANTIDADE não dita é 1: sem a pergunta "Quantas unidades?", o item nasce com 1 e o apanhado diz 1 unidade', async () => {
@@ -4056,7 +4161,8 @@ describe('(32) as leituras antes do modelo vão em ondas: o que não depende de 
         const ondas = await ondasAte(() => estado.chamadasDaLlm.length > 0)
         await turno
         expect(estado.chamadasDaLlm).toHaveLength(1)
-        expect(ondas).toEqual([...ONDAS_DA_FAMILIA, ['orcamentista_levantamento_item', 'orcamentista_motor_variavel', 'orcamentista_pergunta_em_aberto']])
+        // REVISTO em 18/11/2026: o pedido de autorização da medida fora do limite, gravado no item, é lido na MESMA onda dos itens (uma ida a mais à tabela, não uma onda)
+        expect(ondas).toEqual([...ONDAS_DA_FAMILIA, ['orcamentista_levantamento_item', 'orcamentista_levantamento_item', 'orcamentista_motor_variavel', 'orcamentista_pergunta_em_aberto']])
     })
 
     it('a aba de Variáveis com mais de 1.000 linhas: a primeira página dá a contagem e as demais vão JUNTAS, e nenhuma linha se perde nem se repete', async () => {
@@ -6706,10 +6812,12 @@ describe('(31) O CASO DAIANE PILGER (18/11/2026): a maxim-ar de UM módulo tem u
         await chamar(MENSAGEM)
         const tipologias = Object.fromEntries(doLevantamento().map((i) => [Number(i.ordem), i.tipologia]))
         expect([1, 2, 4, 5, 7].map((o) => [o, tipologias[o]])).toEqual([[1, null], [2, 'DP-132'], [4, 'DP-132'], [5, 'DP-132'], [7, 'DP-132']])
-        // O QUE IMPEDE (dono do produto, 18/11/2026, decisão 2): o item 1 diz a medida e o limite, e nada de "não achei" nem a pergunta do modelo
+        // O QUE IMPEDE (dono do produto, 18/11/2026, decisão 2): o item 1 diz a medida e o limite, e nada de "não achei" nem a pergunta do modelo — e,
+        // pela decisão 1 do mesmo dia, pede a AUTORIZAÇÃO para fabricar fora dele (a DP-132), gravada no item
         const DP132 = estado.db.orcamentista_motor_tipologia_detalhe.filter((c: Linha) => c.tipologia === 'DP-132')
         expect(enviados()).toHaveLength(1)
-        expect(enviados()[0].split('\n')).toContain(`Item 1: ${TP.fraseDoForaDoLimite({ largura_mm: 700, altura_mm: 1200 }, DP132 as never)}`)
+        expect(enviados()[0].split('\n')).toContain(`Item 1: ${TP.fraseDoPedidoDeAutorizacao({ largura_mm: 700, altura_mm: 1200 }, DP132 as never, DP132[0] as never)}`)
+        expect(doLevantamento().find((i) => Number(i.ordem) === 1)).toEqual(expect.objectContaining({ tipologia: null, limite_tipologia: 'DP-132', limite_autorizado_por: null }))
         for (const p of [...PERGUNTAS_DE_TIPOLOGIA, DO_MODELO.pergunta.texto]) expect([p, enviados()[0].includes(p)]).toEqual([p, false])
     })
 
