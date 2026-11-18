@@ -32,6 +32,9 @@ describe('o desempate do orçamento: cidade → data → valor (+ família, quan
         const b = [orc(1, { cidade: 'Sapiranga' }), orc(2, { cidade: 'Sapiranga', valor: 2000 })]
         expect(nomes(criteriosQueSeparam(b, CRITERIOS_DO_ORCAMENTO))).toEqual(['cidade', 'valor'])
     })
+    it('a cidade já separa: a família não aparece, mesmo diferente — ela só entra junto do valor', () => {
+        expect(nomes(criteriosQueSeparam([orc(1, { cidade: 'Sapiranga' }), orc(2, { cidade: 'Novo Hamburgo', familias: ['Alumínio'] })], CRITERIOS_DO_ORCAMENTO))).toEqual(['cidade'])
+    })
     it('sem cidade em nenhuma: começa pela data — a cidade não informada não aparece', () => {
         expect(nomes(criteriosQueSeparam([orc(1), orc(2, { criado_em: '2026-11-12T15:00:00.000Z' })], CRITERIOS_DO_ORCAMENTO))).toEqual(['data'])
     })

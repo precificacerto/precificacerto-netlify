@@ -6922,6 +6922,19 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         expect(estado.db.orcamentista_pergunta_em_aberto ?? []).toEqual([])
     })
 
+    it('só entram orçamentos COM VALOR e NÃO ARQUIVADOS: o sem valor e o arquivado ficam fora, e o que sobra vai sozinho', async () => {
+        await fecharDp02('Ana Souza')
+        await fecharDp02('Ana Lima')
+        await fecharDp02('Ana Prado')
+        orcamentoDe('Ana Lima').valor_venda = null
+        Object.assign(orcamentoDe('Ana Prado'), { deleted_at: '2026-11-18T10:00:00.000Z', deleted_by: 'u-tela' })
+        const documentos = estado.documentosDoOrcamento.length
+        llmResponde({ nome: 'Ana' })
+        await chamar('me manda o orçamento da Ana')
+        expect(estado.documentosDoOrcamento).toHaveLength(documentos + 1)
+        expect(linhaIa().pop()).toContain(`levantamento=${levantamentoDe('Ana Souza').id} rota=ORCAMENTO`)
+    })
+
     it('a resposta que não aponta nenhum: a lista de novo, em outras palavras — nenhum arquivo', async () => {
         await fecharDp02('Ana Souza')
         await fecharDp02('Ana Lima')
