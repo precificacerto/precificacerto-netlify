@@ -405,6 +405,13 @@ describe('O QUE IMPEDE O ITEM, DITO (dono do produto, 18/11/2026, decisão 2): n
         expect(limiteNaFrase({ larg_min_mm: 905, larg_max_mm: 1384, alt_min_mm: null, alt_max_mm: 2032 })).toBe('largura de 905 a 1.384 mm e altura máxima de 2.032 mm')
         expect(limiteNaFrase({ larg_min_mm: 500, larg_max_mm: null, alt_min_mm: null, alt_max_mm: null })).toBe('largura mínima de 500 mm')
     })
+    it('fora do limite com DUAS de um módulo (a DP-128 e a DP-132): nenhuma cabe, e a frase nomeia as duas com o limite de cada uma', () => {
+        const limitadas = CANDIDATOS.filter((c) => c.tipologia !== 'DP-01').map((c) => (c.tipologia === 'DP-132' || c.tipologia === 'DP-128' ? { ...c, alt_min_mm: 364, alt_max_mm: 1164 } : c))
+        const r = impede('janela maxim ar', 'janela', limitadas, item(700, 1200))
+        expect(r.decisao).toEqual({ motivo: 'LIMITES' })
+        expect(r.impedimento).toBe(fraseDoForaDoLimite(item(700, 1200), ['DP-132', 'DP-128'].map((t) => limitadas.find((c) => c.tipologia === t)!)))
+        expect(r.impedimento?.split(' e para ')).toHaveLength(2)
+    })
     it('a falta de informação também se diz: sem abertura, a janela sem tipo, o dito sem representação', () => {
         expect(impede('1200 x 1000', null).impedimento).toBe(FRASE_SEM_ABERTURA)
         expect(impede('janela 1200 x 1000', 'janela').impedimento).toBe(fraseDaJanelaSemTipo(TIPOS))

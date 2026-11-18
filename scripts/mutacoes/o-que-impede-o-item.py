@@ -15,7 +15,6 @@ PONTA = [T + 'atendimentos-ia-levantamento-por-nome.test.ts', '-t', 'CASO DAIANE
 M = [
  # as frases de cada motivo
  ('F1 o impedimento não chega a quem chama', PADRAO, "(f) => { impedimento = f })", "() => undefined)", PURA),
- ('F2 com tipologia, o impedimento sai preenchido', PADRAO, "impedimento: 'motivo' in decisao ? impedimento ?? fraseDoPadraoQueFalta(decisao) : null }", "impedimento: impedimento ?? fraseDoPadraoQueFalta(decisao as never) }", PURA),
  ('F3 dois tipos ditos sem a frase própria', PADRAO, "return falta({ motivo: 'TIPOS_DITOS' }, fraseDosTiposDitos([...tiposDoMotor]))", "return { motivo: 'TIPOS_DITOS' }", PURA + ['-t', 'O QUE IMPEDE']),
  ('F4 o tipo fora do motor sem os tipos que ele tem', PADRAO, "    if (ditos.tipoForaDoMotor) return falta({ motivo: 'TIPO_FORA_DO_MOTOR' }, fraseDoTipoForaDoMotor(tiposDaEmpresa))", "    if (ditos.tipoForaDoMotor) return falta({ motivo: 'TIPO_FORA_DO_MOTOR' }, fraseDoTipoForaDoMotor([]))", PURA),
  ('F5 os módulos ditos sem as opções', PADRAO, "return falta({ motivo: 'MODULOS_DITOS' }, fraseDosModulosDitos(ditos.modulos, opcoes))", "return falta({ motivo: 'MODULOS_DITOS' }, fraseDosModulosDitos(ditos.modulos, []))", PURA),
@@ -25,13 +24,16 @@ M = [
  ('F9 o limite diz o lado que o arquivo não traz', PADRAO, ": max !== null ? `${nome} máxima de ${emMm(max)} mm` : null", ": max !== null ? `${nome} máxima de ${emMm(max)} mm` : `${nome} sem limite`", PURA),
  ('F10 a medida sem o milhar', PADRAO, "const emMm = (n: number) => n.toLocaleString('pt-BR')", "const emMm = (n: number) => String(n)", PURA),
  ('F11 a lista com "e" no lugar de "ou"', PADRAO, "`${u.slice(0, -1).join(', ')} ou ${u[u.length - 1]}`", "`${u.slice(0, -1).join(', ')} e ${u[u.length - 1]}`", PURA),
- ('F12 a janela sem tipo sem os tipos', PADRAO, "    if (tipo === null) return falta({ motivo: 'JANELA_SEM_TIPO' }, fraseDaJanelaSemTipo(tiposDaEmpresa))", "    if (tipo === null) return { motivo: 'JANELA_SEM_TIPO' }", PURA),
  # a conversa
  ('C1 a frase do impedimento não vai à resposta', CONVERSA, "faltasDoPadrao.push({ ordem: item.ordem, frase: impedimento, motivo: padrao.motivo })", "void 0", PONTA),
  ('C2 a falta de informação também vira impedimento', CONVERSA, "if (impedimento !== null && !SO_FALTA_INFORMACAO.has(padrao.motivo))", "if (impedimento !== null)", [T + 'atendimentos-ia-levantamento-por-nome.test.ts']),
- ('C3 o que mais falta não vai junto', CONVERSA, "...(resto.length ? [perguntaDasPendencias(resto, n, null, filtro.jaDito)] : [])]", "]", PONTA),
+ ('C3 o que mais falta não vai junto', CONVERSA, "${x.frase}`), ...(resto.length ? [perguntaDasPendencias(resto, n, null, filtro.jaDito)] : [])]", "${x.frase}`)]", PONTA),
  ('C4 sem o "Item N:" na frente', CONVERSA, "...semPadrao.map((x) => `${n > 1 ? `Item ${x.ordem}: ` : ''}${x.frase}`)", "...semPadrao.map((x) => x.frase)", PONTA),
 ]
+# EQUIVALENTES, fora da bateria (medidas em 18/11/2026): trocar `'motivo' in decisao ? … : null` por `impedimento ?? fraseDoPadraoQueFalta(…)`
+# não muda nada, porque com tipologia `fraseDoPadraoQueFalta` devolve null e nenhum caminho chama `explicar` antes de devolver tipologia; e
+# tirar a frase do `tipo === null` depois do tipo dito também não, porque `tipoCurto` só devolve null para tipo em branco, que `tiposDitos` não
+# devolve (a guarda é defensiva).
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'harness'))
 from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta com o código 3 (mutacao-que-nao-se-aplica.md)
