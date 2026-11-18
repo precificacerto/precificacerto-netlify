@@ -175,6 +175,7 @@ import { baixarMidia } from '@/lib/atendimentos-ia/midia-do-wuzapi'
 import { atravessarNoSim } from './travessia-do-levantamento'
 import { dependenciasDoServidor, destinosDoWhatsApp, enviarAoPrimeiroQueAceitar, etapaDoPreco, reenviarOArquivo } from './cadeia-do-sim'
 import { telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
+import { criteriosQueSeparam, fraseDeQualOrcamento, fraseDeQualOrcamentoEmOutrasPalavras, type CriterioDoDesempate, fraseDoOrcamentoSemArquivo, lerOrcamentosDosLevantamentos, ordemDoOrcamento, pedidoDoResgate, type OpcaoDoOrcamento } from '@/lib/atendimentos-ia/resgate-do-orcamento'
 /** A saída gravada quando depois do "sim" só o arquivo foi enviado (12/11/2026, 4.3): o texto não sai ao vendedor, é a marca da resposta. */
 export const SAIDA_SO_O_ARQUIVO = '[o arquivo do orçamento foi enviado, sem texto]'
 /** O levantamento que levantou SEM a confirmação gravada (a migração da pergunta em aberto pendente): sem o "sim" registrado não há orçamento. */
@@ -248,8 +249,10 @@ export type DesfechoDaIa =
     | 'repetida' | 'reenviada'
     /** A mídia do vendedor que não foi lida — o áudio, o vídeo, a planilha, o que passou do limite ou falhou ao baixar (18/11/2026): a resposta diz o quê. */
     | 'midia-nao-lida'
+    /** O PEDIDO DE ORÇAMENTO pelo nome (18/11/2026): a lista para escolher; o arquivo mandado de novo; o orçamento sem arquivo, nomeado. */
+    | 'qual-orcamento' | 'orcamento-reenviado' | 'orcamento-sem-arquivo'
 
-export type Rota = 'MONTAGEM' | 'NOVO' | 'ALTERACAO' | 'ALTERACAO_ADMIN' | 'SEM_NOME' | 'PARECIDO' | 'RESGATE' | 'NOME_EXISTE' | 'NAO_ENCONTRADO' | 'QUAL_VENDEDOR' | '-'
+export type Rota = 'MONTAGEM' | 'NOVO' | 'ALTERACAO' | 'ALTERACAO_ADMIN' | 'SEM_NOME' | 'PARECIDO' | 'RESGATE' | 'NOME_EXISTE' | 'NAO_ENCONTRADO' | 'QUAL_VENDEDOR' | 'ORCAMENTO' | 'QUAL_ORCAMENTO' | '-'
 /**
  * Como o nome foi lido — NUNCA o nome em si (dono do produto, 26/10/2026): `veio` (está no texto),
  * `faltou` (a IA não leu nenhum), `fora_do_texto` (a IA leu um que não está no texto, e ele não vale),
@@ -342,6 +345,8 @@ type Rastro = {
      * aplicada: a conversa pede a medida certa, como antes); '-' sem nada.
      */
     limite: string
+    /** O PEDIDO DE ORÇAMENTO (18/11/2026): quantos orçamentos o nome achou, ou `sem_migracao` (a QUAL_ORCAMENTO não ficou guardada); '-' sem o pedido. */
+    qualOrcamento: string
     /** A mídia da mensagem (18/11/2026), `<tipo>:<desfecho>` — `imagem:lida`, `audio:audio`, `pdf:pdf_grande`…; '-' sem mídia. Nunca a legenda nem o nome. */
     midia: string
 }
@@ -364,7 +369,7 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
         + (r.lista === '-' ? '' : ` lista=${r.lista} trechos=${r.trechos}`) + (r.trechosSemCandidata > 0 ? ` trechos_sem_candidata=${r.trechosSemCandidata}` : '')
         + (r.itensSemCampos > 0 ? ` itens_sem_campos=${r.itensSemCampos}` : '')
         // a montagem e os padrões (05/11/2026)
-        + (r.montagem === '-' ? '' : ` montagem=${r.montagem}`) + (r.coresPadrao > 0 ? ` cor_padrao=${r.coresPadrao}` : '') + (r.tipologiasPadrao > 0 ? ` tipologia_padrao=${r.tipologiasPadrao}` : '') + (r.limite === '-' ? '' : ` limite=${r.limite}`)
+        + (r.montagem === '-' ? '' : ` montagem=${r.montagem}`) + (r.coresPadrao > 0 ? ` cor_padrao=${r.coresPadrao}` : '') + (r.tipologiasPadrao > 0 ? ` tipologia_padrao=${r.tipologiasPadrao}` : '') + (r.limite === '-' ? '' : ` limite=${r.limite}`) + (r.qualOrcamento === '-' ? '' : ` qual_orcamento=${r.qualOrcamento}`)
         + (r.midia === '-' ? '' : ` midia=${r.midia}`)
     console.error(`${PREFIXO_DO_LOG_DA_IA} levantamento=${r.levantamento} rota=${r.rota} propostos=${r.propostos} descartados=${r.descartados} enviou=${r.enviou ? 'sim' : 'nao'} desfecho=${desfecho}${admin} nome=${r.nome} aberta=${r.aberta}${contexto}${ia}${detalhe ? ` ${detalhe}` : ''}`)
     // as linhas por etapa (06/11/2026), na ordem do turno; a última é a resposta, que todo turno tem
@@ -393,7 +398,11 @@ export function outraPergunta(outras: readonly string[], mensagem: string): stri
 }
 // ── O RESGATE (dono do produto, 03/11/2026): conversa, não formulário ──
 /** O que a lista do resgate mostra de cada levantamento: o nome, a data (de criação, no fuso do Brasil) e o estado. */
-export type OpcaoDeResgate = { id?: string; nome: string; criado_em: string; estado: string }
+/**
+ * Uma opção do resgate: o levantamento e o que o DESEMPATA (dono do produto, 18/11/2026: "NÃO PERGUNTE ENDEREÇO"; o agente afunila com o que JÁ
+ * TEM) — a cidade (`endereco`, que guarda só a cidade), a data e, no levantamento sem valor, a família e a quantidade de itens.
+ */
+export type OpcaoDeResgate = { id?: string; nome: string; criado_em: string; estado: string; endereco?: string | null; familias?: string[]; nItens?: number }
 export const LIMITE_DO_RESGATE = 3
 const FUSO_DO_VENDEDOR = 'America/Sao_Paulo'
 /** dd/mm/aaaa no fuso do vendedor; uma data que não se lê sai como "data não lida", nunca como hoje. */
@@ -406,8 +415,18 @@ export const estadoPorExtenso = (estado: string) => (estado === EM_MONTAGEM ? 'e
 export function opcoesDeResgate<L extends OpcaoDeResgate>(existentes: readonly L[]): L[] {
     return [...existentes].sort((a, b) => (a.criado_em < b.criado_em ? 1 : a.criado_em > b.criado_em ? -1 : 0)).slice(0, LIMITE_DO_RESGATE)
 }
-const linhaDoResgate = (o: OpcaoDeResgate, k: number) => `${k + 1}) ${o.nome} — ${dataBR(o.criado_em)}, ${estadoPorExtenso(o.estado)}`
-const listaDoResgate = (opcoes: readonly OpcaoDeResgate[]) => opcoes.map(linhaDoResgate).join('\n')
+/** O desempate do LEVANTAMENTO: a cidade, a data, a família e, com a família igual, a quantidade de itens (o valor só existe no orçamento). */
+export const CRITERIOS_DO_LEVANTAMENTO: readonly CriterioDoDesempate<OpcaoDeResgate>[] = [
+    { nome: 'cidade', valor: (o) => (typeof o.endereco === 'string' && o.endereco.trim() ? o.endereco.trim() : null) },
+    { nome: 'data', valor: (o) => dataBR(o.criado_em) },
+    { nome: 'familia', valor: (o) => (o.familias?.length ? o.familias.join(' e ') : null) },
+    { nome: 'itens', valor: (o) => (o.nItens === undefined ? null : `${o.nItens} ${o.nItens === 1 ? 'item' : 'itens'}`) },
+]
+const linhasDoResgate = (opcoes: readonly OpcaoDeResgate[]) => {
+    const criterios = criteriosQueSeparam(opcoes, CRITERIOS_DO_LEVANTAMENTO)
+    return opcoes.map((o, k) => `${k + 1}) ${o.nome} — ${[...criterios.map((c) => c.valor(o)).filter((v): v is string => v !== null), estadoPorExtenso(o.estado)].join(', ')}`)
+}
+const listaDoResgate = (opcoes: readonly OpcaoDeResgate[]) => linhasDoResgate(opcoes).join('\n')
 /** A lista numerada; o vendedor responde do jeito dele, e se for novo diz o nome. Nunca "responda: novo X" nem "escreva o nome exatamente". */
 export const fraseDoNomeParecido = (nome: string, opcoes: readonly OpcaoDeResgate[]) =>
     `Pelo que você escreveu (“${nome}”), pode ser ${opcoes.length > 1 ? 'um destes levantamentos' : 'este levantamento'}:\n${listaDoResgate(opcoes)}\n`
@@ -514,7 +533,7 @@ export const FERRAMENTA = {
             nome: { ...texto, description: 'O nome do levantamento, copiado INTEIRO como o vendedor o escreveu NESTA mensagem. Com a pergunta do nome em aberto, o nome que ele respondeu de qualquer jeito ("Geison Silva novo" → Geison Silva). Omita se ele não escreveu.' },
             cliente: { ...texto, description: 'O nome do CLIENTE, copiado como o vendedor o escreveu NESTA mensagem (ex.: "Cliente: Geronimo Silva" → Geronimo Silva). O nome do levantamento é o nome do cliente, puro. Omita se ele não escreveu.' },
             novo: { type: 'boolean', description: 'true SÓ quando o vendedor disse explicitamente que é um levantamento novo.' },
-            opcao: { ...inteiro, description: 'Quando a pergunta em aberto lista levantamentos numerados e o vendedor escolheu um deles — pelo número ("o 2"), pela ordem ("o primeiro", "o último"), pelo nome ("é o do Geronimo") ou pela data ("o de ontem") —, o número dele na lista. Senão, omita.' },
+            opcao: { ...inteiro, description: 'Quando a pergunta em aberto lista levantamentos ou orçamentos numerados e o vendedor escolheu um deles — pelo número ("o 2"), pela ordem ("o primeiro", "o último"), pelo nome ("é o do Geronimo") ou pela data ("o de ontem") —, o número dele na lista. Senão, omita.' },
             alteracao: { type: 'boolean', description: 'true quando o vendedor pede para MUDAR um levantamento que já existe (troca, muda, altera, corrige).' },
             vendedor: { ...texto, description: 'O nome do VENDEDOR dono do levantamento, copiado como foi escrito NESTA mensagem. Omita se não foi escrito.' },
             vendedor_opcao: { ...inteiro, description: 'Quando a pergunta em aberto lista FUNCIONÁRIOS, numerados, e o vendedor escolheu um deles — pelo número, pelo nome completo ou pela data do cadastro —, o número dele na lista. Senão, omita.' },
@@ -641,7 +660,7 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
         '- nome: copie o nome do levantamento INTEIRO, como o vendedor escreveu nesta mensagem. Não complete, não corrija, não encurte. Se ele não escreveu um nome, omita.',
         '- cliente: o nome do CLIENTE, copiado como o vendedor escreveu nesta mensagem ("Cliente: Geronimo Silva", "obra do Geronimo Silva" → Geronimo Silva). O nome do levantamento é o nome do cliente, puro: com o cliente dito, não pergunte o nome. Se a pergunta em aberto pede o cliente e a mensagem é só um nome de pessoa, é o cliente. Se ele não escreveu, omita.',
         '- Com a pergunta do nome em aberto (o nome do cliente, ou a lista de levantamentos parecidos), o vendedor responde do jeito dele, e o nome vem de qualquer forma: "Geison Silva novo", "é o Geison Silva", "novo: Geison Silva" → nome Geison Silva (e novo: true quando ele disse novo). Nunca espere uma forma fixa.',
-        '- opcao: quando a pergunta em aberto lista levantamentos numerados e ele escolheu um — "o 2", "o primeiro", "o último", "é o do Geronimo", "o de ontem" (compare com as datas da lista e com a data de hoje) —, o número dele na lista. Senão, omita.',
+        '- opcao: quando a pergunta em aberto lista levantamentos ou orçamentos numerados e ele escolheu um — "o 2", "o primeiro", "o último", "é o do Geronimo", "o de ontem" (compare com as datas da lista e com a data de hoje) —, o número dele na lista. Senão, omita.',
         '- novo: true SÓ quando o vendedor disse que é um levantamento novo ("novo ..."). Senão, omita.',
         '- alteracao: true quando ele pede para MUDAR um levantamento que já existe ("troca a altura", "muda a cor", "corrige"). Senão, omita.',
         '- vendedor: só quando a mensagem diz de qual VENDEDOR é o levantamento; copie o nome como foi escrito. Senão, omita.',
@@ -823,14 +842,37 @@ async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPr
 }
 
 // ── O BANCO ─────────────────────────────────────────────────────────────────────────────────
-type Levantamento = { id: string; nome: string; nome_normalizado: string; estado: string; criado_em: string; atualizado_em: string | null }
+type Levantamento = { id: string; nome: string; nome_normalizado: string; estado: string; criado_em: string; atualizado_em: string | null; endereco?: string | null; familias?: string[]; nItens?: number }
 type ItemGravado = ItemDoLevantamento & { id: string }
 // a família e o motor do cálculo (PR D): `tabela_id` não é lido nem escrito pela conversa desde então
 const COLUNAS_DO_ITEM = `id, ordem, ${CAMPOS_DA_ESQUADRIA.join(', ')}, escolhas, familia, motor_id, ambientes, obs`
 
+/**
+ * O DESEMPATE da lista do resgate (18/11/2026): as famílias (o rótulo do catálogo) e a quantidade de itens de cada levantamento, numa leitura só —
+ * a cidade já vem com o levantamento. A lista que já se separa pela cidade ou pela data não as mostra (`criteriosQueSeparam`).
+ */
+async function comDesempate<L extends { id: string }>(tenantId: string, ls: readonly L[]): Promise<Array<L & { familias: string[]; nItens: number }>> {
+    if (ls.length === 0) return []
+    const { data, error } = await supabaseAdmin.from('orcamentista_levantamento_item').select('levantamento_id, familia')
+        .eq('tenant_id', tenantId).in('levantamento_id', ls.map((l) => l.id))
+    if (error) throw new Error(`orcamentista_levantamento_item: ${error.message}`)
+    const itens = (data ?? []) as Array<{ levantamento_id: string; familia: string | null }>
+    const chaves = [...new Set(itens.map((i) => i.familia).filter((f): f is string => !!f))]
+    const rotulo = new Map<string, string>()
+    if (chaves.length) {
+        const cat = await supabaseAdmin.from('orcamentista_familia_catalogo').select('chave, rotulo').in('chave', chaves)
+        if (cat.error) throw new Error(`orcamentista_familia_catalogo: ${cat.error.message}`)
+        for (const f of (cat.data ?? []) as Array<{ chave: string; rotulo: string }>) rotulo.set(f.chave, f.rotulo)
+    }
+    return ls.map((l) => {
+        const deste = itens.filter((i) => i.levantamento_id === l.id)
+        return { ...l, nItens: deste.length, familias: [...new Set(deste.map((i) => i.familia).filter((f): f is string => !!f).map((f) => rotulo.get(f) ?? f))].sort() }
+    })
+}
+
 /** Os levantamentos do remetente — só dele, no tenant dele (decisão 2). */
 async function lerLevantamentos(tenantId: string, remetenteId: string, soEmMontagem: boolean): Promise<Levantamento[]> {
-    let q = supabaseAdmin.from('orcamentista_levantamento').select('id, nome, nome_normalizado, estado, criado_em, atualizado_em')
+    let q = supabaseAdmin.from('orcamentista_levantamento').select('id, nome, nome_normalizado, estado, criado_em, atualizado_em, endereco')
         .eq('tenant_id', tenantId).eq('remetente_id', remetenteId)
     if (soEmMontagem) q = q.eq('estado', EM_MONTAGEM)
     const { data, error } = await q.order('criado_em', { ascending: true })
@@ -1114,6 +1156,8 @@ type PerguntaRefeita = {
     paraOPrompt?: string
     /** Na CONFIRMAR_APANHADO: o levantamento do apanhado, com o dono — o admin confirma o de outro vendedor. */
     doApanhado?: LevantamentoDaEmpresa
+    /** Na QUAL_ORCAMENTO (18/11/2026): os orçamentos da lista, relidos, na ordem dela. */
+    orcamentos?: OpcaoDoOrcamento[]
 }
 
 /**
@@ -1125,14 +1169,23 @@ async function refazerPergunta(
 ): Promise<PerguntaRefeita | null> {
     const citados = p.levantamentos.map((id) => doRemetente.find((l) => l.id === id)).filter((l): l is Levantamento => !!l)
     if (p.pergunta === 'SEM_NOME') return { p, citados, texto: FRASE_SEM_NOME }
+    // a lista dos ORÇAMENTOS (18/11/2026): os orçamentos dos levantamentos citados, relidos na ordem guardada; o que sumiu sai, e sem nenhum a pergunta não vale
+    if (p.pergunta === 'QUAL_ORCAMENTO') {
+        const lidos = await lerOrcamentosDosLevantamentos(tenantId, citados)
+        const orcamentos = p.levantamentos.map((id) => lidos.find((o) => o.levantamentoId === id)).filter((o): o is OpcaoDoOrcamento => !!o)
+        return orcamentos.length && p.nome ? { p, citados, orcamentos, texto: fraseDeQualOrcamento(p.nome, orcamentos) } : null
+    }
     if (p.pergunta !== 'CONFIRMAR_APANHADO' && citados.length === 0) return null
-    if (p.pergunta === 'NOME_PARECIDO') return p.nome ? { p, citados: opcoesDeResgate(citados), texto: fraseDoNomeParecido(p.nome, opcoesDeResgate(citados)) } : null
+    if (p.pergunta === 'NOME_PARECIDO') {
+        const lista = await comDesempate(tenantId, opcoesDeResgate(citados))
+        return p.nome ? { p, citados: lista, texto: fraseDoNomeParecido(p.nome, lista) } : null
+    }
     // a CONFIRMAÇÃO DO RESGATE (03/11/2026): CONFIRMAR_ACRESCIMO com nome; o escolhido é o primeiro citado — se ele sumiu, a pergunta não vale mais
     if (p.pergunta === 'CONFIRMAR_ACRESCIMO' && p.nome !== null) {
         const escolhido = citados.find((l) => l.id === p.levantamentos[0])
         if (!escolhido) return null
-        const lista = opcoesDeResgate(citados)
-        return { p, citados: [escolhido, ...lista.filter((l) => l.id !== escolhido.id)], texto: fraseDeConfirmarResgate(escolhido), paraOPrompt: `${fraseDeConfirmarResgate(escolhido)} (Os levantamentos parecidos com “${p.nome}” eram: ${lista.map(linhaDoResgate).join('; ')}.)` }
+        const lista = await comDesempate(tenantId, opcoesDeResgate(citados))
+        return { p, citados: [escolhido, ...lista.filter((l) => l.id !== escolhido.id)], texto: fraseDeConfirmarResgate(escolhido), paraOPrompt: `${fraseDeConfirmarResgate(escolhido)} (Os levantamentos parecidos com “${p.nome}” eram: ${linhasDoResgate(lista).join('; ')}.)` }
     }
     // o ARQUIVO enviado espera o "sim" (06/11/2026): o texto da pergunta é o RESUMO da folha refeita do levantamento como está gravado — vai
     // ao prompt no lugar do PDF, e é por ele que se sabe que uma mensagem não mudou nada. Achado pelo id na EMPRESA, e não entre os do
@@ -1204,7 +1257,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = {
         etapas: { coletar: null, casar: null, montar: null, calcular: null },
         levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null, raciocinio: null, parada: null, cacheLido: null, cacheEscrito: null, cabecalhosMs: null, primeiroTokenMs: null, tentativas: null, requestId: null },
-        midia: '-', contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', coresPadrao: 0, tipologiasPadrao: 0, limite: '-',
+        midia: '-', contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', coresPadrao: 0, tipologiasPadrao: 0, limite: '-', qualOrcamento: '-',
     }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
@@ -1488,16 +1541,36 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
          * que estava em aberto, a resposta diz que não registrou — nunca a mesma pergunta como se nada fosse.
          */
         const perguntar = async (p: PerguntaEmAberto, textoDaPergunta: string, desfecho: DesfechoDaIa): Promise<DesfechoDaIa> => {
-            if (guardaPergunta) await gravarPerguntaEmAberto(c.tenantId, c.remetenteId, p)
+            // a QUAL_ORCAMENTO que o banco ainda não aceita (a 20261118000002 pendente): a lista vai, sem ficar guardada — e o log diz
+            if (guardaPergunta && !(await gravarPerguntaEmAberto(c.tenantId, c.remetenteId, p)) && p.pergunta === 'QUAL_ORCAMENTO') rastro.qualOrcamento = 'sem_migracao'
             const repetida = aberta !== null && aberta.texto === textoDaPergunta
             if (!repetida) return await falar(textoDaPergunta, desfecho)
             // a pergunta repetida vai em OUTRAS palavras — nunca "Não consegui registrar a sua resposta" (dono do produto, 03/11/2026)
             if (p.pergunta === 'SEM_NOME') return await falar(outraPergunta(OUTRAS_PERGUNTAS_DO_NOME, c.texto), 'nao-avancou')
             if (p.pergunta === 'NOME_PARECIDO' && p.nome && aberta) return await falar(fraseDoResgateEmOutrasPalavras(p.nome, aberta.citados), 'nao-avancou')
+            if (p.pergunta === 'QUAL_ORCAMENTO' && p.nome && aberta?.orcamentos) return await falar(fraseDeQualOrcamentoEmOutrasPalavras(p.nome, aberta.orcamentos), 'nao-avancou')
             if (p.pergunta === 'CONFIRMAR_ACRESCIMO' && aberta?.citados[0]) {
                 return await falar(p.nome !== null ? fraseDeConfirmarResgateEmOutrasPalavras(aberta.citados[0]) : fraseDeConfirmarAcrescimoEmOutrasPalavras(aberta.citados[0].nome), 'nao-avancou')
             }
             return await falar(fraseDeNaoRegistrei(textoDaPergunta), 'nao-avancou')
+        }
+        // O ARQUIVO DO ORÇAMENTO PEDIDO (18/11/2026): o que existe, mandado de novo pelo MESMO caminho do "sim" sem mudança (`reenviarOArquivo`) —
+        // ao dono do levantamento; chegando a quem pediu, a conversa cala (só o arquivo). Sem arquivo gerado, a frase diz, com o número
+        const mandarOrcamento = async (o: OpcaoDoOrcamento): Promise<DesfechoDaIa> => {
+            rastro.rota = 'ORCAMENTO'
+            rastro.levantamento = o.levantamentoId
+            if (temLinha) await apagarPerguntaEmAberto(c.tenantId, c.remetenteId)
+            const deps = dependenciasDoServidor((telefone, nomeDoArquivo, pdf) =>
+                enviarAoPrimeiroQueAceitar(destinosDoWhatsApp(telefone, c.telefone), (destino) => enviarDocumento(c.wuzapiToken, destino, nomeDoArquivo, pdf)))
+            const r = await reenviarOArquivo(c.tenantId, { id: o.orcamentoId, numero: o.numero, nome: o.nome }, deps)
+            rastro.etapas.calcular = `orcamento=${o.numero} ${r.rastro}`
+            if (r.semArquivo) return await falar(fraseDoOrcamentoSemArquivo(o.numero, o.nome), 'orcamento-sem-arquivo')
+            if (r.enviadoPara && telefonesCasam(r.enviadoPara, c.telefone)) {
+                await gravar(SAIDA_SO_O_ARQUIVO, r.idDoEnvio ?? SEM_ID_DO_ARQUIVO)
+                rastro.enviou = true
+                return fim('orcamento-reenviado', 'so_arquivo=sim')
+            }
+            return await responder(r.paraOVendedor ?? fraseDoOrcamentoSemArquivo(o.numero, o.nome), 'orcamento-reenviado')
         }
 
         // ── a rota ──
@@ -1535,6 +1608,33 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 alvo = { id: doApanhado.id, nome: doApanhado.nome, estado: doApanhado.estado, donoId: doApanhado.remetente_id, vendedor, itens: await lerItens(c.tenantId, doApanhado.id) }
                 nome = doApanhado.nome
             } else {
+                // O PEDIDO DE ORÇAMENTO (dono do produto, 18/11/2026: "são DOIS PEDIDOS DIFERENTES"): a lista dos orçamentos em aberto e a escolha
+                // por `opcao` manda o arquivo dele; o nome dito com a palavra "orçamento" e nenhum item busca os ORÇAMENTOS — um, o arquivo; mais de
+                // um, a lista; nenhum, segue o caminho do levantamento pelo nome (o que existe, ou o novo)
+                const qualOrcamento = aberta?.p.pergunta === 'QUAL_ORCAMENTO' && aberta.orcamentos ? aberta : null
+                if (qualOrcamento && proposta.novo !== true) {
+                    const lista = qualOrcamento.orcamentos as OpcaoDoOrcamento[]
+                    const escolhido = opcaoDaLista(proposta.opcao, lista)
+                    if (escolhido) { rastro.nome = 'da_pergunta'; return await mandarOrcamento(escolhido) }
+                    if (lido === null || formaComparavel(lido) === formaComparavel(qualOrcamento.p.nome ?? '')) {
+                        rastro.rota = 'QUAL_ORCAMENTO'
+                        return await perguntar({ pergunta: 'QUAL_ORCAMENTO', nome: qualOrcamento.p.nome, levantamentos: lista.map((o) => o.levantamentoId), itens: [] },
+                            fraseDeQualOrcamento(qualOrcamento.p.nome ?? '', lista), 'qual-orcamento')
+                    }
+                }
+                if (lido !== null && proposta.novo !== true && emEspera.length === 0 && pedidoDoResgate(c.texto) === 'orcamento') {
+                    const doNome = compararNome(lido, doRemetente ?? await lerLevantamentos(c.tenantId, c.remetenteId, false))
+                    const levantamentosDoNome = 'existente' in doNome ? [doNome.existente] : 'existentes' in doNome ? doNome.existentes : []
+                    const orcamentos = ordemDoOrcamento(await lerOrcamentosDosLevantamentos(c.tenantId, levantamentosDoNome))
+                    rastro.qualOrcamento = String(orcamentos.length)
+                    if (orcamentos.length === 1) return await mandarOrcamento(orcamentos[0])
+                    if (orcamentos.length > 1) {
+                        rastro.rota = 'QUAL_ORCAMENTO'
+                        const nomeDito = nomeSemPrefixo(lido)
+                        return await perguntar({ pergunta: 'QUAL_ORCAMENTO', nome: nomeDito, levantamentos: orcamentos.map((o) => o.levantamentoId), itens: [] },
+                            fraseDeQualOrcamento(nomeDito, orcamentos), 'qual-orcamento')
+                    }
+                }
                 // O RESGATE (03/11/2026): a lista está em aberto, e a escolha veio por `opcao` ("o primeiro", "é o do Geronimo", "o de ontem")
                 // ou a confirmação dela está em aberto. A escolha vale sobre um nome PARECIDO que a IA também tenha lido; "novo" vence tudo.
                 const resgate = aberta && ehResgate(aberta.p) ? aberta : null
@@ -1609,7 +1709,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 } else if ('existentes' in comparacao && !novo) {
                     // O RESGATE (03/11/2026): até 3, do mais recente ao mais antigo, com data e estado; a ordem gravada é a numeração
                     rastro.rota = 'PARECIDO'
-                    const opcoes = opcoesDeResgate(comparacao.existentes)
+                    const opcoes = await comDesempate(c.tenantId, opcoesDeResgate(comparacao.existentes))
                     return await perguntar(
                         { pergunta: 'NOME_PARECIDO', nome: lido, levantamentos: opcoes.map((l) => l.id), itens: emEspera },
                         fraseDoNomeParecido(lido, opcoes), 'nome-parecido',

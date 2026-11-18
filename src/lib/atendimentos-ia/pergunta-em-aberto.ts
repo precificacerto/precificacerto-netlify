@@ -33,7 +33,9 @@ export const TABELA_DA_PERGUNTA = 'orcamentista_pergunta_em_aberto'
 /** A pergunta vale o mesmo tempo que o histórico da conversa (05/11/2026): 24 h, contadas de `criado_em`. */
 export const HORAS_DA_PERGUNTA_EM_ABERTO = HORAS_DO_HISTORICO
 /** CONFIRMAR_APANHADO entrou com a migração 20261026000003 (o apanhado, dono do produto, 26/10/2026). */
-export const PERGUNTAS = ['NOME_PARECIDO', 'SEM_NOME', 'CONFIRMAR_ACRESCIMO', 'CONFIRMAR_APANHADO'] as const
+/** QUAL_ORCAMENTO entrou com a migração 20261118000002 (os dois caminhos do resgate, dono do produto, 18/11/2026): os orçamentos da lista, pelos
+ * levantamentos deles (um orçamento por levantamento, o índice único `orcamentista_orcamento_um_por_levantamento`). */
+export const PERGUNTAS = ['NOME_PARECIDO', 'SEM_NOME', 'CONFIRMAR_ACRESCIMO', 'CONFIRMAR_APANHADO', 'QUAL_ORCAMENTO'] as const
 export type CodigoDaPergunta = (typeof PERGUNTAS)[number]
 
 /** A esquadria proposta que espera resposta: só os campos da esquadria, como a LLM os propôs. */

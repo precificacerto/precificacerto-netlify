@@ -157,6 +157,8 @@ const estado = {
     colunasAusentes: new Set<string>(),
     /** A CHECK de `pergunta` como era antes da migração do apanhado: o valor novo é recusado com 23514. */
     checkAntigo: false,
+    /** a CHECK de pergunta sem a QUAL_ORCAMENTO (a migração 20261118000002 pendente, 18/11/2026) */
+    checkSemQualOrcamento: false,
     /**
      * Quando preenchida, a LLM falsa responde a partir do PROMPT, como a de verdade: o código da variável
      * só se o prompt o der ("ARI = ARREMATE INTERNO" ou "ARI: ARREMATE INTERNO"), senão a descrição que
@@ -285,6 +287,7 @@ function montar() {
     estado.updateNaoAtinge = null
     estado.deleteNaoAtinge = null
     estado.checkAntigo = false
+    estado.checkSemQualOrcamento = false
     estado.redacoes = []
     estado.redacao = null
     estado.falhaAoGravarSaida = false
@@ -477,7 +480,9 @@ jest.mock('@/supabase/admin', () => ({
                     estado.escritas.push({ tabela, op: 'upsert', carga })
                     const chave = (o?.onConflict ?? '').split(',').map((x) => x.trim())
                     if (chave.join(',') !== 'tenant_id,remetente_id') throw new Error(`upsert sem a chave primária: ${o?.onConflict}`)
-                    if (estado.checkAntigo && !['NOME_PARECIDO', 'SEM_NOME', 'CONFIRMAR_ACRESCIMO'].includes(String(carga.pergunta))) {
+                    // a CHECK sem a QUAL_ORCAMENTO (a 20261118000002 pendente): só ela é recusada
+                    if ((estado.checkAntigo && !['NOME_PARECIDO', 'SEM_NOME', 'CONFIRMAR_ACRESCIMO'].includes(String(carga.pergunta)))
+                        || (estado.checkSemQualOrcamento && carga.pergunta === 'QUAL_ORCAMENTO')) {
                         return Promise.resolve({ data: null, error: { code: '23514', message: 'new row violates check constraint "orcamentista_pergunta_em_aberto_pergunta_valida"' } })
                     }
                     const linhas = (estado.db[tabela] ??= [])
@@ -6872,5 +6877,100 @@ describe('(31) O CASO DAIANE PILGER (18/11/2026): a maxim-ar de UM módulo tem u
         const linhas = enviados()[0].split('\n')
         expect(linhas.slice(0, 2)).toEqual([`Item 1: ${TP.fraseDosTiposDitos(['Maxim-ar', 'Correr'])}`, `Item 2: ${TP.fraseDoTipoForaDoMotor(tipos)}`])
         for (const p of [...PERGUNTAS_DE_TIPOLOGIA, PERGUNTA]) expect([p, enviados()[0].includes(p)]).toEqual([p, false])
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedido de ORÇAMENTO busca orçamentos; o de LEVANTAMENTO, levantamentos — e o desempate nunca pergunta endereço', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const R = require('@/lib/atendimentos-ia/resgate-do-orcamento') as typeof import('@/lib/atendimentos-ia/resgate-do-orcamento')
+    const levantamentoDe = (nome: string) => levantamentos().find((l) => l.nome === nome) as Linha
+    const orcamentoDe = (nome: string) => (estado.db.orcamentista_orcamento as Linha[]).find((o) => o.levantamento_id === levantamentoDe(nome).id) as Linha
+    const comCidade = (nome: string, cidade: string) => { levantamentoDe(nome).endereco = cidade }
+
+    it('UM orçamento com o nome: o arquivo dele vai de novo, sem texto, e nada é recalculado nem gravado no levantamento', async () => {
+        await fecharDp02('Casa do João')
+        const documentos = estado.documentosDoOrcamento.length
+        const orcamentos = (estado.db.orcamentista_orcamento as Linha[]).length
+        llmResponde({ nome: 'Casa do João' })
+        await chamar('quero o orçamento da Casa do João')
+        expect(estado.documentosDoOrcamento).toHaveLength(documentos + 1)
+        expect((estado.db.orcamentista_orcamento as Linha[])).toHaveLength(orcamentos)
+        expect(linhaIa().pop()).toMatch(/ rota=ORCAMENTO .* desfecho=orcamento-reenviado .*qual_orcamento=1/)
+    })
+
+    it('MAIS DE UM: a lista, do mais recente ao mais antigo, separada pela CIDADE — e "o 2" manda o arquivo do segundo', async () => {
+        await fecharDp02('Ana Souza')
+        await fecharDp02('Ana Lima')
+        comCidade('Ana Souza', 'Sapiranga')
+        comCidade('Ana Lima', 'Novo Hamburgo')
+        llmResponde({ nome: 'Ana' })
+        await chamar('me manda o orçamento da Ana')
+        const lista = R.ordemDoOrcamento([orcamentoDe('Ana Souza'), orcamentoDe('Ana Lima')].map((o) => ({
+            orcamentoId: String(o.id), levantamentoId: String(o.levantamento_id), numero: Number(o.numero), nome: String(o.nome), criado_em: String(o.criado_em),
+            cidade: o.levantamento_id === levantamentoDe('Ana Souza').id ? 'Sapiranga' : 'Novo Hamburgo', valor: Number(o.valor_venda), familias: ['PVC'],
+        })))
+        expect(ultimoEnviado()).toBe(R.fraseDeQualOrcamento('Ana', lista))
+        expect(ultimoEnviado()).toContain('— Sapiranga')
+        expect(ultimoEnviado().toLowerCase()).not.toContain('endereço')
+        expect((estado.db.orcamentista_pergunta_em_aberto as Linha[])[0]).toEqual(expect.objectContaining({ pergunta: 'QUAL_ORCAMENTO', nome: 'Ana', levantamentos: lista.map((o) => o.levantamentoId) }))
+        const documentos = estado.documentosDoOrcamento.length
+        llmResponde({ opcao: 2 })
+        await chamar('o segundo')
+        expect(estado.documentosDoOrcamento).toHaveLength(documentos + 1)
+        expect(linhaIa().pop()).toContain(`levantamento=${lista[1].levantamentoId} rota=ORCAMENTO`)
+        expect(estado.db.orcamentista_pergunta_em_aberto ?? []).toEqual([])
+    })
+
+    it('a resposta que não aponta nenhum: a lista de novo, em outras palavras — nenhum arquivo', async () => {
+        await fecharDp02('Ana Souza')
+        await fecharDp02('Ana Lima')
+        llmResponde({ nome: 'Ana' })
+        await chamar('me manda o orçamento da Ana')
+        const documentos = estado.documentosDoOrcamento.length
+        llmResponde({})
+        await chamar('hmm')
+        expect(ultimoEnviado()).toContain('Ainda não entendi qual orçamento de “Ana” é.')
+        expect(estado.documentosDoOrcamento).toHaveLength(documentos)
+    })
+
+    it('sem a migração 20261118000002: a lista vai, sem ficar guardada, e o log diz qual_orcamento=sem_migracao', async () => {
+        await fecharDp02('Ana Souza')
+        await fecharDp02('Ana Lima')
+        estado.checkSemQualOrcamento = true
+        llmResponde({ nome: 'Ana' })
+        await chamar('me manda o orçamento da Ana')
+        expect(ultimoEnviado()).toContain('Achei 2 orçamentos de “Ana”')
+        expect(linhaIa().pop()).toMatch(/ qual_orcamento=sem_migracao(\s|$)/)
+    })
+
+    it('NENHUM orçamento com o nome: segue o caminho do levantamento — o novo, com o nome dito', async () => {
+        llmResponde({ nome: 'Maria Cristina' })
+        await chamar('quero o orçamento da Maria Cristina')
+        expect(levantamentos().map((l) => l.nome)).toEqual(['Maria Cristina'])
+        expect(linhaIa().pop()).toMatch(/ rota=NOVO .*qual_orcamento=0/)
+    })
+
+    it('o pedido de LEVANTAMENTO não busca orçamentos: o caminho de sempre, pelo nome — e a lista afunila pela CIDADE quando a data empata', async () => {
+        await fecharDp02('Ana Souza')
+        await fecharDp02('Ana Lima')
+        comCidade('Ana Souza', 'Sapiranga')
+        comCidade('Ana Lima', 'Novo Hamburgo')
+        const documentos = estado.documentosDoOrcamento.length
+        llmResponde({ nome: 'Ana' })
+        await chamar('continua o levantamento da Ana')
+        expect(estado.documentosDoOrcamento).toHaveLength(documentos)
+        expect(linhaIa().pop()).toContain('rota=PARECIDO')
+        expect(ultimoEnviado()).toMatch(/1\) Ana Lima — Novo Hamburgo, completo\n2\) Ana Souza — Sapiranga, completo/)
+    })
+
+    it('o levantamento em montagem sem valor: com a mesma data e sem cidade, separa pela FAMÍLIA e, com ela igual, pela quantidade de itens', async () => {
+        await fecharDp02('Ana Souza')
+        await fecharDp02('Ana Lima')
+        const lima = levantamentoDe('Ana Lima')
+        ;(estado.db.orcamentista_levantamento_item as Linha[]).push({ ...(estado.db.orcamentista_levantamento_item as Linha[]).find((i) => i.levantamento_id === lima.id), id: 'item-extra', ordem: 2 })
+        llmResponde({ nome: 'Ana' })
+        await chamar('continua o levantamento da Ana')
+        expect(ultimoEnviado()).toMatch(/1\) Ana Lima — \d\d\/\d\d\/\d{4}, 2 itens, completo\n2\) Ana Souza — \d\d\/\d\d\/\d{4}, 1 item, completo/)
     })
 })
