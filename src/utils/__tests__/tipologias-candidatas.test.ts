@@ -4,7 +4,7 @@
  * (DP-02 altura 388 a 2.439, largura sem limite; DP-100 altura 1.736 a 3.036).
  */
 import {
-    PEDIDO_DE_CONFIRMAR_A_MEDIDA, aberturaCompativel, aberturaDaDescricao, aberturaDita, aberturaDoItem, cabeNosLimites, filtrarPorAbertura,
+    PEDIDO_DE_CONFIRMAR_A_MEDIDA, aberturaCompativel, blocosDaFicha, trechosDoAcumulado, aberturaDaDescricao, aberturaDita, aberturaDoItem, cabeNosLimites, filtrarPorAbertura,
     descricaoNoPrompt, fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, limitesNoPrompt, numeroOuNulo, palavrasDeAbertura, type CandidatoParaAProposta,
 } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { CRITERIOS_DO_AGRUPAMENTO, agruparIguais, itemCompleto, itemVazio, type ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
@@ -262,5 +262,25 @@ describe('o agrupamento: tipologia + medidas + cor + vidro + família + motor + 
         const itens = [completo(1), completo(2)]
         agruparIguais(itens)
         expect(itens.map((i) => [i.ordem, i.quantidade])).toEqual([[1, 1], [2, 1]])
+    })
+})
+
+describe('A FICHA POR ITEM (o caso Daiane Pilger, 18/11/2026): a largura e a altura rotuladas do bloco ligam a linha ao item', () => {
+    const FICHA = '1. Item 01 — Janela maxim-ar\n- Largura: 700 mm.\n- Altura: 1.200 mm.\n2. Item 02 — Janela maxim-ar\n- Largura: 800 mm.\n- Altura: 600 mm.'
+    it('cada bloco começa no cabeçalho do item e leva a SUA medida', () => {
+        expect(blocosDaFicha(FICHA).map((b) => b.medida)).toEqual([{ largura_mm: 700, altura_mm: 1200 }, { largura_mm: 800, altura_mm: 600 }])
+        const trechos = trechosDoAcumulado([FICHA], ['Maxim-ar'])
+        expect(trechos.map((t) => [t.texto, t.medidas])).toEqual([
+            ['1. Item 01 — Janela maxim-ar', [{ largura_mm: 700, altura_mm: 1200 }]],
+            ['2. Item 02 — Janela maxim-ar', [{ largura_mm: 800, altura_mm: 600 }]],
+        ])
+    })
+    it('DUAS larguras no mesmo bloco não são de ninguém: o bloco fica sem medida, e nada se liga por ele', () => {
+        const duas = '1. Item 01 — Janela maxim-ar\n- Largura: 700 mm.\n- Largura: 900 mm.\n- Altura: 600 mm.'
+        expect(blocosDaFicha(duas).map((b) => b.medida)).toEqual([null])
+        expect(trechosDoAcumulado([duas], ['Maxim-ar']).map((t) => t.medidas)).toEqual([[]])
+    })
+    it('a mensagem sem rótulo nenhum não muda: a linha "N x N" continua sendo a única medida', () => {
+        expect(trechosDoAcumulado(['1 janela maxim ar 60 x 60'], ['Maxim-ar']).map((t) => t.medidas)).toEqual([[{ largura_mm: 600, altura_mm: 600 }]])
     })
 })

@@ -5,7 +5,7 @@
  * As descrições são as do motor em uso (022fc55e, lidas em 11/11/2026, só leitura): o catálogo da plataforma, não dado de cliente.
  */
 import {
-    atributosDaDescricao, atributosDitos, atributosNoLog, oQueAEsquadriaE, origemDaTipologiaProposta, padraoDaEsquadria, tipologiaPadrao, fraseDaLinhaSemPadrao, fraseDoPadraoQueFalta, naturalDaQuantidade, tipoCurto,
+    atributosDaDescricao, atributosDitos, daLinhaDita, atributosNoLog, oQueAEsquadriaE, origemDaTipologiaProposta, padraoDaEsquadria, tipologiaPadrao, fraseDaLinhaSemPadrao, fraseDoPadraoQueFalta, naturalDaQuantidade, tipoCurto,
 } from '@/lib/atendimentos-ia/tipologia-padrao'
 import { tiposDitos } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import type { CandidatoDeTipologia } from '@/lib/atendimentos-ia/levantamento-da-conversa'
@@ -183,14 +183,24 @@ describe('os motivos nomeados — onde NÃO há natural, nunca se adivinha', () 
         expect(d).toEqual({ motivo: 'SEM_NATURAL', atributos: ['descrição'], candidatas: ['DP-113', 'DP-113B'], descricoes: ['JANELA DE GIRO 01 FOLHA', 'JANELA DE GIRO 01 FOLHA'] })
         expect(fraseDoPadraoQueFalta(d)).toContain('nada do que foi dito separa')
     })
-    it('MODULAÇÃO SEM EXTRA, duas ou mais (3c): falta nomeada com as descrições — nunca escolha', () => {
-        // sem a DP-01 (a única sem rótulo), sobram DP-128 (perfil) e DP-132 (travessa): nada dito as separa
+    it('MODULAÇÃO SEM EXTRA COM UM MÓDULO SÓ (3c, dono do produto, 18/11/2026): as duas dão a MESMA lista de peças — resolve sozinho, nunca pergunta', () => {
+        // medido no motor 259035a9: as peças da coluna/tala (DP-128) e da travessa (DP-132) têm quantidade (N-1), e o marco é 2 nas duas —
+        // com N=1 a lista sai idêntica. A escolha é a PRIMEIRA DO MOTOR em que a medida cabe
         const semDP01 = CANDIDATOS.filter((c) => c.tipologia !== 'DP-01')
-        const d = padrao('janela maxim ar', 'janela', semDP01)
-        expect(d).toEqual({ motivo: 'SEM_NATURAL', atributos: ['modulação'], candidatas: ['DP-132', 'DP-128'],
-            descricoes: ['MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | MODULAÇÃO TRAVESSA', 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | PERFIL MODULAÇÃO'] })
+        expect(padrao('janela maxim ar', 'janela', semDP01)).toEqual({ tipologia: 'DP-132' })
+        expect(padrao('janela maxim-ar 1 módulo', 'janela', semDP01)).toEqual({ tipologia: 'DP-132' })
+        // a primeira que NÃO cabe sai da escolha: a altura de 1200 passa do limite da DP-132 (364 a 1164), e a DP-128, sem limite no arquivo, fica
+        const comLimite = semDP01.map((c) => (c.tipologia === 'DP-132' ? { ...c, alt_min_mm: 364, alt_max_mm: 1164 } : c))
+        expect(padrao('janela maxim ar', 'janela', comLimite, item(700, 1200))).toEqual({ tipologia: 'DP-128' })
+        // nenhuma cabendo: LIMITES — nunca "a mais próxima"
+        const nenhuma = comLimite.map((c) => (c.tipologia === 'DP-128' ? { ...c, alt_min_mm: 364, alt_max_mm: 1164 } : c))
+        expect(padrao('janela maxim ar', 'janela', nenhuma, item(700, 1200))).toEqual({ motivo: 'LIMITES' })
         // e sem a DP-132, a DP-128 é a ÚNICA: a escolha, qualquer que seja o rótulo (3a)
         expect(padrao('janela maxim ar', 'janela', semDP01.filter((c) => c.tipologia !== 'DP-132'))).toEqual({ tipologia: 'DP-128' })
+    })
+    it('com DOIS módulos ditos a pergunta continua (dono do produto, 18/11/2026): coluna aparente contra travessa soldada são produtos diferentes', () => {
+        const semDP01 = CANDIDATOS.filter((c) => c.tipologia !== 'DP-01')
+        expect(padrao('janela maxim ar 2 módulos', 'janela', semDP01)).toEqual({ motivo: 'MODULOS_DITOS' })
     })
     it('a janela sem tipo, dois tipos, um tipo que o motor não tem: sem padrão', () => {
         expect(padrao('janela 1200 x 1000', 'janela')).toEqual({ motivo: 'JANELA_SEM_TIPO' })
@@ -342,5 +352,21 @@ describe('O RASTRO DOS ATRIBUTOS (dono do produto, 12/11/2026): cada atributo da
             [2, [{ atributo: 'quantidade', valor: '1', origem: 'padrao_do_apanhado' as const }]],
             [1, [{ atributo: 'vidro', valor: ' incolor 8 mm, a=b/c; x ', origem: 'base_de_conhecimento' as const }, { atributo: 'cor', valor: 'Branco', origem: 'base_de_conhecimento' as const }]],
         ]))).toBe('e1:vidro=incolor_8_mm_a_b_c_x/base_de_conhecimento;cor=Branco/base_de_conhecimento,e2:quantidade=1/padrao_do_apanhado')
+    })
+})
+
+describe('A LINHA DE PRODUTO DITA NO BLOCO DO ITEM (18/11/2026): só a linha dita, uma só; nenhuma ou duas, a lista fica como estava', () => {
+    const L = (linha: string) => ({ linha })
+    const LINHAS = [L('PVC WOLFF DESIGN'), L('PVC WOLFF EUROPA 60'), L('PVC WOLFF EUROPA 42')]
+    const doBloco = (bloco: string) => [{ texto: '', abertura: 'janela' as const, tipos: new Set<string>(), bloco }]
+    it('"Linha: Wolff PVC – Europa 60" deixa só a Europa 60', () => {
+        expect(daLinhaDita(LINHAS, doBloco('- Linha: Wolff PVC – Europa 60.'))).toEqual([L('PVC WOLFF EUROPA 60')])
+    })
+    it('DUAS linhas ditas no mesmo bloco: não se escolhe nenhuma — a lista fica inteira', () => {
+        expect(daLinhaDita(LINHAS, doBloco('Europa 60 ou Europa 42'))).toEqual(LINHAS)
+    })
+    it('nenhuma linha dita, ou fora de ficha (sem bloco): a lista fica inteira', () => {
+        expect(daLinhaDita(LINHAS, doBloco('- Vidro: 600 mm'))).toEqual(LINHAS)
+        expect(daLinhaDita(LINHAS, [{ texto: 'Europa 60', abertura: 'janela' as const, tipos: new Set<string>() }])).toEqual(LINHAS)
     })
 })

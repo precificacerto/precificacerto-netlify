@@ -5229,8 +5229,10 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
         })
 
         // REVISTO em 11/11/2026 (modulação, 3a): este caso afirmava "sem a DP-01, a maxim-ar não tem padrão". A decisão nova diz que a ÚNICA
-        // candidata de 1 módulo sem extra é a escolha, qualquer que seja o rótulo da modulação — a DP-128 passa a valer; com DUAS, falta nomeada
-        it('sem a DP-01, a ÚNICA maxim-ar de 1 módulo sem extra (DP-128) é a escolha; com DUAS (DP-128 e DP-132), a conversa nomeia as descrições e não escolhe', async () => {
+        // candidata de 1 módulo sem extra é a escolha, qualquer que seja o rótulo da modulação — a DP-128 passa a valer.
+        // REVISTO em 18/11/2026 (dono do produto, o caso Daiane Pilger): com DUAS, de UM módulo, a lista de peças sai idêntica — "maxim-ar de UM
+        // módulo só pode ter um caminho". Não se pergunta mais: a primeira do motor em que a medida cabe
+        it('sem a DP-01, a ÚNICA maxim-ar de 1 módulo sem extra (DP-128) é a escolha; com DUAS (DP-128 e DP-132), de um módulo, a primeira do motor — sem perguntar', async () => {
             estado.db.orcamentista_motor_tipologia_detalhe = estado.db.orcamentista_motor_tipologia_detalhe.filter((d) => d.tipologia !== 'DP-01')
             estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-128', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | PERFIL MODULAÇÃO | EUROPA 60', tipo: 'Maxim-ar', linha: 'PVC WOLFF EUROPA 60' })
             llmResponde({ cliente: 'Ana', itens: [{ ...JANELA }] })
@@ -5239,11 +5241,9 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
             estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-132', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | MODULAÇÃO TRAVESSA | EUROPA 60', tipo: 'Maxim-ar', linha: 'PVC WOLFF EUROPA 60' })
             llmResponde({ cliente: 'Bia', itens: [{ ...JANELA }] })
             await chamar('Cliente: Bia. 1 janela maxim ar 600 x 600', { senderAlt: TELEFONE_DO_OUTRO })
-            expect(itens('Bia')[0].tipologia).toBeNull()
-            expect(ultimoEnviado()).toContain('MODULAÇÃO TRAVESSA')
-            expect(ultimoEnviado()).toContain('PERFIL MODULAÇÃO')
-            expect(ultimoEnviado()).not.toContain('DP-1')
-            expect(linhaIa().pop()).toContain('desfecho=padrao-nomeado')
+            expect(itens('Bia')[0].tipologia).toBe('DP-128')
+            expect(ultimoEnviado()).not.toContain('MODULAÇÃO TRAVESSA')
+            expect(linhaIa().pop()).toMatch(/ tipologia_padrao=1(\s|$)/)
         })
 
         it('PORTA DE GIRO sem folha lisa no motor: a conversa nomeia a LACUNA DO MOTOR e as que existem — nunca a de 2 folhas, nunca "sem padrão" mudo', async () => {
@@ -6622,5 +6622,80 @@ describe('(30) a FOTO e o PDF do vendedor (dono do produto, 18/11/2026): baixado
         expect(mensagens[mensagens.length - 1].content).toBe('Levantamento Casa do Pedro')
         expect(estado.downloads).toEqual([])
         expect(linhaIa().join('\n')).not.toContain('midia=')
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('(31) O CASO DAIANE PILGER (18/11/2026): a maxim-ar de UM módulo tem um caminho só, e a FICHA se lê por item', () => {
+    /** A mensagem COMO FOI GRAVADA em produção (orcamentista_mensagem 3EB0FC9BCAC2EBC4986CDD), byte a byte. */
+    const maxim = (n: string, larg: string, alt: string, vidro: string) => `${Number(n)}. Item ${n} — Janela maxim-ar\n- Tipologia: Janela maxim-ar com 01 módulo horizontal e 01 módulo vertical.\n- Quantidade: 01 unidade.\n- Largura: ${larg} mm.\n- Altura: ${alt} mm.\n- Material da estrutura: PVC branco.\n- Linha: Wolff PVC – Europa 60.\n- Vidro: ${vidro}.`
+    const T6 = 'Incolor, temperado, espessura de 6 mm'
+    const MB = 'Mini-boreal comum, espessura de 4 mm'
+    const MENSAGEM = [
+        maxim('01', '700', '1.200', T6), maxim('02', '700', '600', MB),
+        '3. Item 03 — Janela de correr com persiana\n- Tipologia: Janela de correr com 02 folhas móveis e persiana integrada, com acionamento único.\n- Quantidade: 02 unidades.\n- Largura: 1.600 mm.\n- Altura: 1.400 mm.\n- Material da estrutura: PVC branco.\n- Linha: Wolff PVC – Europa 42.\n- Vidro: Incolor, temperado, espessura de 6 mm.\n- Observação: Considera persianas manuais.',
+        maxim('04', '800', '600', MB), maxim('05', '1.200', '1.000', T6),
+        '6. Item 06 — Porta de correr\n- Tipologia: Porta de correr com 04 folhas móveis.\n- Quantidade: 01 unidade.\n- Largura: 4.750 mm.\n- Altura: 2.300 mm.\n- Material da estrutura: PVC branco.\n- Linha: Wolff PVC – Europa 42.\n- Vidro: Incolor, temperado, espessura de 8 mm.',
+        maxim('07', '300', '600', T6),
+    ].join('\n') + '\n\nCliente: Daiane Pilger\nSapiranga'
+    /** As duas maxim-ar de um módulo da Europa 60, com os limites de produção (motor 259035a9): a DP-128 sem limite no arquivo, a DP-132 de 364 a 1164. */
+    const comAsDuasDaEuropa60 = () => estado.db.orcamentista_motor_tipologia_detalhe.push(
+        { tabela_id: null, motor_id: MOTOR, tipologia: 'DP-128', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | PERFIL MODULAÇÃO | EUROPA 60', tipo: 'Maxim-ar', linha: 'PVC WOLFF EUROPA 60', larg_min_mm: null, larg_max_mm: null, alt_min_mm: null, alt_max_mm: null },
+        { tabela_id: null, motor_id: MOTOR, tipologia: 'DP-132', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | MODULAÇÃO TRAVESSA | EUROPA 60', tipo: 'Maxim-ar', linha: 'PVC WOLFF EUROPA 60', larg_min_mm: null, larg_max_mm: null, alt_min_mm: 364, alt_max_mm: 1164 })
+    const item = (ordem: number, largura_mm: number, altura_mm: number, vidro: string, sobre: Record<string, unknown> = {}) =>
+        ({ ordem, largura_mm, altura_mm, quantidade: 1, cor_perfil: 'BRANCO', vidro, abertura: 'janela', ...sobre })
+    /** O que o modelo devolveu em produção: a DP-128 na ordem 1 (por eliminação) e NADA nas maxim-ar 2, 4, 5 e 7 — com a pergunta delas. */
+    const DO_MODELO = {
+        nome: 'Daiane Pilger',
+        itens: [
+            item(1, 700, 1200, 'Incolor, temperado, espessura de 6 mm', { tipologia: 'DP-128' }),
+            item(2, 700, 600, 'Mini-boreal comum, espessura de 4 mm'),
+            item(3, 1600, 1400, 'Incolor, temperado, espessura de 6 mm', { tipologia: 'DP-02', quantidade: 2 }),
+            item(4, 800, 600, 'Mini-boreal comum, espessura de 4 mm'),
+            item(5, 1200, 1000, 'Incolor, temperado, espessura de 6 mm'),
+            item(6, 4750, 2300, 'Incolor, temperado, espessura de 8 mm', { tipologia: 'DP-100', abertura: 'porta' }),
+            item(7, 300, 600, 'Incolor, temperado, espessura de 6 mm'),
+        ],
+        pergunta: { campo: 'tipologia', texto: 'Nas maxim-ar dos itens 2, 4, 5 e 7, qual destas é a que vai?' },
+    }
+    const doLevantamento = () => itensDe(levantamentos().find((l) => l.nome === 'Daiane Pilger')?.id)
+
+    /** Toda pergunta de tipologia que a conversa sabe fazer, das funções — nunca transcrita (`assercao-negativa-que-nunca-falha.md`). */
+    const PERGUNTAS_DE_TIPOLOGIA = [false, true].flatMap((abertura) => [false, true].flatMap((tipo) => [...perguntasDaTipologia({ abertura, tipo })]))
+    const semPergunta = () => {
+        // uma resposta só, e é a do ARQUIVO para conferir: nenhuma linha "Item N:" de pendência, nenhuma pergunta de tipologia, nem a do modelo
+        expect(enviados()).toHaveLength(1)
+        expect(ehConfirmacaoDoArquivo(enviados()[0], 'Daiane Pilger')).toBe(true)
+        for (const p of [...PERGUNTAS_DE_TIPOLOGIA, DO_MODELO.pergunta.texto]) expect([p, enviados()[0].includes(p)]).toEqual([p, false])
+        expect(enviados()[0]).not.toMatch(/^Item \d+:/m)
+    }
+
+    it('com a resposta do modelo COMO FOI em produção: as maxim-ar 2, 4, 5 e 7 recebem a DP-128 sozinhas, a 1 fica com a DP-128, e nenhuma pergunta nada', async () => {
+        comAsDuasDaEuropa60()
+        llmResponde(DO_MODELO)
+        await chamar(MENSAGEM)
+        const tipologias = Object.fromEntries(doLevantamento().map((i) => [Number(i.ordem), i.tipologia]))
+        // a primeira do motor em que a medida cabe; a DP-01 (DESIGN) não entra: o vendedor disse "Europa 60"
+        expect([1, 2, 4, 5, 7].map((o) => [o, tipologias[o]])).toEqual([[1, 'DP-128'], [2, 'DP-128'], [4, 'DP-128'], [5, 'DP-128'], [7, 'DP-128']])
+        expect(linhaIa().pop()).toMatch(/ tipologia_padrao=4(\s|$)/)
+        semPergunta()
+    })
+
+    it('a ordem 1 sem tipologia do modelo também: a altura de 1200 passa do limite da DP-132 (364 a 1164), e a DP-128, sem limite no arquivo, é a escolha', async () => {
+        comAsDuasDaEuropa60()
+        llmResponde({ ...DO_MODELO, itens: DO_MODELO.itens.map((i) => (i.ordem === 1 ? { ...i, tipologia: undefined as string | undefined } : i)) })
+        await chamar(MENSAGEM)
+        const tipologias = Object.fromEntries(doLevantamento().map((i) => [Number(i.ordem), i.tipologia]))
+        expect([1, 2, 4, 5, 7].map((o) => [o, tipologias[o]])).toEqual([[1, 'DP-128'], [2, 'DP-128'], [4, 'DP-128'], [5, 'DP-128'], [7, 'DP-128']])
+        expect(linhaIa().pop()).toMatch(/ tipologia_padrao=5(\s|$)/)
+        semPergunta()
+    })
+
+    it('sem a DP-128 no motor, a DP-132 é o caminho das que cabem nela (600 e 1000), e a ordem 1 (1200) não recebe tipologia nenhuma — nunca "a mais próxima"', async () => {
+        estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-132', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | MODULAÇÃO TRAVESSA | EUROPA 60', tipo: 'Maxim-ar', linha: 'PVC WOLFF EUROPA 60', larg_min_mm: null, larg_max_mm: null, alt_min_mm: 364, alt_max_mm: 1164 })
+        llmResponde({ ...DO_MODELO, itens: DO_MODELO.itens.map((i) => (i.ordem === 1 ? { ...i, tipologia: undefined as string | undefined } : i)) })
+        await chamar(MENSAGEM)
+        const tipologias = Object.fromEntries(doLevantamento().map((i) => [Number(i.ordem), i.tipologia]))
+        expect([1, 2, 4, 5, 7].map((o) => [o, tipologias[o]])).toEqual([[1, null], [2, 'DP-132'], [4, 'DP-132'], [5, 'DP-132'], [7, 'DP-132']])
     })
 })
