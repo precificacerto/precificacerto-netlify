@@ -6611,7 +6611,7 @@ describe('(30) a FOTO e o PDF do vendedor (dono do produto, 18/11/2026): baixado
         const [pedido] = comFerramenta()
         const ultima = (pedido.corpo.messages as Array<{ content: Array<{ type: string }> }>).slice(-1)[0]
         expect(ultima.content.map((b) => b.type)).toEqual(['document', 'text', 'text'])
-        expect(enviados()).toEqual(['Recebi o PDF “Obra Pedro.pdf”, mas o serviço de IA não conseguiu abrir o PDF (ele lê até 600 páginas, sem senha): mande só as páginas das esquadrias, ou uma foto.'])
+        expect(enviados()).toEqual(['Recebi o PDF “Obra Pedro.pdf”, mas o serviço de IA não conseguiu abrir o PDF (ele lê até 600 páginas, sem senha): mande só as páginas dos itens, ou uma foto.'])
         expect(linhaIa().join('\n')).toEqual(expect.stringContaining('midia=pdf:recusada_pela_ia'))
     })
 

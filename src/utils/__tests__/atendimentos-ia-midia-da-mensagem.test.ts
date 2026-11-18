@@ -105,7 +105,7 @@ describe('(2) leituraDaMidia — o que se lê e o que se recusa, pelos metadados
             lida: false, motivo: 'imagem_grande', frase: 'Recebi a sua foto, mas ela tem 7,6 MB e eu leio imagem de até 7,5 MB: mande uma foto menor, ou me escreva as medidas.',
         })
         expect(leituraDaMidia(pdf({ tamanho: 95_000_000 }))).toEqual({
-            lida: false, motivo: 'pdf_grande', frase: 'Recebi o PDF “Obra.pdf”, mas ele tem 95,0 MB e eu leio PDF de até 90,0 MB: mande só as páginas das esquadrias, ou me escreva as medidas.',
+            lida: false, motivo: 'pdf_grande', frase: 'Recebi o PDF “Obra.pdf”, mas ele tem 95,0 MB e eu leio PDF de até 90,0 MB: mande só as páginas dos itens, ou me escreva as medidas.',
         })
     })
     it('exatamente no limite ainda é lido (a fronteira é ">")', () => {
@@ -197,7 +197,7 @@ describe('(5) o que se grava e o que vai ao log: o MARCADOR, nunca o arquivo', (
         expect(marcaNoLog(m, 'pdf_com_senha')).toBe('documento:pdf_com_senha')
     })
     it('a recusa da API nomeia o limite de páginas no PDF, e a imagem pede outra foto', () => {
-        expect(fraseDaMidiaRecusadaPelaIa(pdf())).toBe('Recebi o PDF “Obra.pdf”, mas o serviço de IA não conseguiu abrir o PDF (ele lê até 600 páginas, sem senha): mande só as páginas das esquadrias, ou uma foto.')
+        expect(fraseDaMidiaRecusadaPelaIa(pdf())).toBe('Recebi o PDF “Obra.pdf”, mas o serviço de IA não conseguiu abrir o PDF (ele lê até 600 páginas, sem senha): mande só as páginas dos itens, ou uma foto.')
         expect(fraseDaMidiaRecusadaPelaIa(midia())).toBe('Recebi a sua foto, mas o serviço de IA não aceitou a imagem: mande outra foto, ou me escreva as medidas.')
     })
     it('toda frase de recusa diz o que chegou ("Recebi …")', () => {

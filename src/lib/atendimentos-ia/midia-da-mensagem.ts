@@ -89,7 +89,7 @@ export function fraseDaRecusa(m: MidiaDaMensagem, motivo: MotivoDaRecusa, detalh
         case 'imagem_formato': return `${recebi(m)}, mas não leio esse formato de imagem (leio JPEG, PNG, GIF e WebP): mande como foto comum, ${OU_ESCREVA}.`
         case 'imagem_grande': return `${recebi(m)}, mas ela tem ${emMB(detalhe.bytes ?? 0)} e eu leio imagem de até ${emMB(LIMITE_DA_IMAGEM_BYTES)}: mande uma foto menor, ${OU_ESCREVA}.`
         case 'imagem_dimensao': return `${recebi(m)}, mas ela tem ${detalhe.largura} x ${detalhe.altura} pixels e eu leio imagem de até ${LADO_MAXIMO_DA_IMAGEM_PX} pixels de lado: mande uma foto menor, ${OU_ESCREVA}.`
-        case 'pdf_grande': return `${recebi(m)}, mas ele tem ${emMB(detalhe.bytes ?? 0)} e eu leio PDF de até ${emMB(LIMITE_DO_PDF_BYTES)}: mande só as páginas das esquadrias, ${OU_ESCREVA}.`
+        case 'pdf_grande': return `${recebi(m)}, mas ele tem ${emMB(detalhe.bytes ?? 0)} e eu leio PDF de até ${emMB(LIMITE_DO_PDF_BYTES)}: mande só as páginas dos itens, ${OU_ESCREVA}.`
         case 'pdf_com_senha': return `${recebi(m)}, mas ele está protegido por senha e eu não consigo abrir: mande o PDF sem senha, ou uma foto.`
         case 'arquivo_nao_confere': return `${recebi(m)}, mas o arquivo não é o que diz ser (não abre como ${m.tipo === 'imagem' || ehImagemDeclarada(m) ? 'imagem' : 'PDF'}): mande de novo, ${OU_ESCREVA}.`
         case 'sem_dados_do_download':
@@ -100,7 +100,7 @@ export function fraseDaRecusa(m: MidiaDaMensagem, motivo: MotivoDaRecusa, detalh
 /** O PDF ou a imagem que a API recusou (as páginas, o formato, o tamanho do pedido): recusa nomeada, nunca "não consegui processar". */
 export function fraseDaMidiaRecusadaPelaIa(m: MidiaDaMensagem): string {
     if (m.tipo === 'imagem' || ehImagemDeclarada(m)) return `${recebi(m)}, mas o serviço de IA não aceitou a imagem: mande outra foto, ${OU_ESCREVA}.`
-    return `${recebi(m)}, mas o serviço de IA não conseguiu abrir o PDF (ele lê até ${PAGINAS_MAXIMAS_DO_PDF} páginas, sem senha): mande só as páginas das esquadrias, ou uma foto.`
+    return `${recebi(m)}, mas o serviço de IA não conseguiu abrir o PDF (ele lê até ${PAGINAS_MAXIMAS_DO_PDF} páginas, sem senha): mande só as páginas dos itens, ou uma foto.`
 }
 
 /** A leitura pelos METADADOS: o que se pretende ler, ou a recusa nomeada — antes de baixar qualquer byte. */
@@ -159,7 +159,7 @@ export function dimensoesDaImagem(b: Uint8Array, tipo: TipoDeImagem): { largura:
         }
         return null
     }
-    // JPEG: percorre os segmentos até o SOF (C0-CF, menos C4, C8 e CC)
+    // JPEG: percorre os blocos de marcador até o SOF (C0-CF, menos C4, C8 e CC)
     let i = 2
     while (i + 9 < b.length) {
         if (b[i] !== 0xff) { i += 1; continue }
@@ -174,9 +174,9 @@ export function dimensoesDaImagem(b: Uint8Array, tipo: TipoDeImagem): { largura:
 /** O PDF protegido por senha: o dicionário `/Encrypt` no arquivo. */
 export const pdfComSenha = (b: Uint8Array) => Buffer.from(b.buffer, b.byteOffset, b.byteLength).includes('/Encrypt')
 
-const INSTRUCAO_DA_IMAGEM = 'A mensagem do vendedor traz uma FOTO (acima). Leia as esquadrias dela como leria o texto: tipologia, medidas, quantidade, cor e vidro.'
+const INSTRUCAO_DA_IMAGEM = 'A mensagem do vendedor traz uma FOTO (acima). Leia os itens dela como leria o texto: tipologia, medidas, quantidade, cor e vidro.'
     + ' Medida ou número que não estiver legível na foto NÃO entra: pergunte. Nunca complete, arredonde nem adivinhe um número.'
-const INSTRUCAO_DO_PDF = 'A mensagem do vendedor traz um PDF (acima). Leia as esquadrias dele como leria o texto: tipologia, medidas, quantidade, cor e vidro.'
+const INSTRUCAO_DO_PDF = 'A mensagem do vendedor traz um PDF (acima). Leia os itens dele como leria o texto: tipologia, medidas, quantidade, cor e vidro.'
     + ' Medida ou número que não estiver legível NÃO entra: pergunte. Nunca complete, arredonde nem adivinhe um número.'
 
 /** Os bytes baixados conferidos contra os limites e contra o tipo pretendido: o anexo para o modelo, ou a recusa nomeada. */
