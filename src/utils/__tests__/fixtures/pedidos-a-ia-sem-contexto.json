@@ -32,11 +32,15 @@
      "properties": {
       "nome": {
        "type": "string",
-       "description": "O nome do levantamento, copiado INTEIRO como o vendedor o escreveu NESTA mensagem. Com a pergunta do nome em aberto, o nome que ele respondeu de qualquer jeito (\"Geison Silva novo\" → Geison Silva). Omita se ele não escreveu."
+       "description": "O nome do levantamento, copiado INTEIRO como o vendedor o escreveu NESTA mensagem (ou na foto ou no PDF dela). Com a pergunta do nome em aberto, o nome que ele respondeu de qualquer jeito (\"Geison Silva novo\" → Geison Silva). Omita se ele não escreveu."
+      },
+      "texto_da_imagem": {
+       "type": "string",
+       "description": "SÓ quando a mensagem traz FOTO ou PDF: todo o texto escrito nele, copiado linha a linha como está (nomes, cidade, medidas, vidro). Nunca complete nem corrija. Sem foto nem PDF, omita."
       },
       "cliente": {
        "type": "string",
-       "description": "O nome do CLIENTE, copiado como o vendedor o escreveu NESTA mensagem (ex.: \"Cliente: Geronimo Silva\" → Geronimo Silva). O nome do levantamento é o nome do cliente, puro. Omita se ele não escreveu."
+       "description": "O nome do CLIENTE, copiado como o vendedor o escreveu NESTA mensagem (ou na foto ou no PDF dela) (ex.: \"Cliente: Geronimo Silva\" → Geronimo Silva). O nome do levantamento é o nome do cliente, puro. Omita se ele não escreveu."
       },
       "novo": {
        "type": "boolean",
@@ -65,7 +69,7 @@
       "dados_do_cliente": {
        "type": "object",
        "additionalProperties": false,
-       "description": "Os dados do cliente e da obra, SÓ os que o vendedor escreveu NESTA mensagem, copiados. Omita o que não foi dito.",
+       "description": "Os dados do cliente e da obra, SÓ os que o vendedor escreveu NESTA mensagem (ou na foto ou no PDF dela), copiados. Omita o que não foi dito.",
        "properties": {
         "telefone": {
          "type": "string"
@@ -78,7 +82,8 @@
          "description": "O tipo da edificação, como dito (casa, sobrado, prédio...)."
         },
         "endereco": {
-         "type": "string"
+         "type": "string",
+         "description": "A cidade da obra (ou o endereço), copiada como foi escrita."
         },
         "obs_obra": {
          "type": "string",
@@ -297,11 +302,15 @@
      "properties": {
       "nome": {
        "type": "string",
-       "description": "O nome do levantamento, copiado INTEIRO como o vendedor o escreveu NESTA mensagem. Com a pergunta do nome em aberto, o nome que ele respondeu de qualquer jeito (\"Geison Silva novo\" → Geison Silva). Omita se ele não escreveu."
+       "description": "O nome do levantamento, copiado INTEIRO como o vendedor o escreveu NESTA mensagem (ou na foto ou no PDF dela). Com a pergunta do nome em aberto, o nome que ele respondeu de qualquer jeito (\"Geison Silva novo\" → Geison Silva). Omita se ele não escreveu."
+      },
+      "texto_da_imagem": {
+       "type": "string",
+       "description": "SÓ quando a mensagem traz FOTO ou PDF: todo o texto escrito nele, copiado linha a linha como está (nomes, cidade, medidas, vidro). Nunca complete nem corrija. Sem foto nem PDF, omita."
       },
       "cliente": {
        "type": "string",
-       "description": "O nome do CLIENTE, copiado como o vendedor o escreveu NESTA mensagem (ex.: \"Cliente: Geronimo Silva\" → Geronimo Silva). O nome do levantamento é o nome do cliente, puro. Omita se ele não escreveu."
+       "description": "O nome do CLIENTE, copiado como o vendedor o escreveu NESTA mensagem (ou na foto ou no PDF dela) (ex.: \"Cliente: Geronimo Silva\" → Geronimo Silva). O nome do levantamento é o nome do cliente, puro. Omita se ele não escreveu."
       },
       "novo": {
        "type": "boolean",
@@ -330,7 +339,7 @@
       "dados_do_cliente": {
        "type": "object",
        "additionalProperties": false,
-       "description": "Os dados do cliente e da obra, SÓ os que o vendedor escreveu NESTA mensagem, copiados. Omita o que não foi dito.",
+       "description": "Os dados do cliente e da obra, SÓ os que o vendedor escreveu NESTA mensagem (ou na foto ou no PDF dela), copiados. Omita o que não foi dito.",
        "properties": {
         "telefone": {
          "type": "string"
@@ -343,7 +352,8 @@
          "description": "O tipo da edificação, como dito (casa, sobrado, prédio...)."
         },
         "endereco": {
-         "type": "string"
+         "type": "string",
+         "description": "A cidade da obra (ou o endereço), copiada como foi escrita."
         },
         "obs_obra": {
          "type": "string",

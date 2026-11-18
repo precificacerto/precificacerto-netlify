@@ -6884,7 +6884,7 @@ describe('(30) a FOTO e o PDF do vendedor (dono do produto, 18/11/2026): baixado
             llmResponde({ confirma: false, itens: [] })
             await chamar('não')
             expect(levantamentos()).toEqual([])
-            expect(ultimoEnviado()).toBe('Certo, não é do “Alfredo Soares”. As esquadrias da foto ficam anotadas: me diga de quem é o levantamento.')
+            expect(ultimoEnviado()).toBe('Certo, não é do “Alfredo Soares”. Os itens da foto ficam anotados: me diga de quem é o levantamento.')
             expect(aberta()).toEqual(expect.objectContaining({ pergunta: 'SEM_NOME' }))
             expect(aberta().itens as Linha[]).toHaveLength(2)
             expect(linhaIa().slice(-1)[0]).toContain('da_imagem=recusou')

@@ -31,6 +31,6 @@ export const fraseDeConfirmarDaImagem = (nome: string, d: DadosDaImagem) => `Li 
 /** A mesma pergunta, em outras palavras — quando a resposta não disse sim nem não. */
 export const fraseDeConfirmarDaImagemEmOutrasPalavras = (nome: string, d: DadosDaImagem) =>
     `Só para eu não anotar errado: o levantamento da foto é do ${doQueFoiLido(nome, d)}? Me responda sim ou me diga de quem é.`
-/** O "não": as esquadrias ficam anotadas, e falta saber de quem são. */
+/** O "não": os itens ficam anotados, e falta saber de quem são. */
 export const fraseDaImagemRecusada = (nome: string) =>
-    `Certo, não é do “${nome}”. As esquadrias da foto ficam anotadas: me diga de quem é o levantamento.`
+    `Certo, não é do “${nome}”. Os itens da foto ficam anotados: me diga de quem é o levantamento.`
