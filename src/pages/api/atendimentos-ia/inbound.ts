@@ -27,8 +27,13 @@
  * O `wuzapi_token` é a CREDENCIAL do WUZAPI — vai no header `token:`. Numa URL ele cai no log de
  * acesso do WUZAPI e da Vercel, e quem o ler passa a poder enviar mensagens como a empresa e
  * reapontar o webhook dela. O `webhook_segredo` só abre esta rota.
- * Antes do (c), 200 sem gravar nada: mensagem nossa (`IsFromMe`), de grupo (`IsGroup`), sem texto,
- * ou sem telefone legível.
+ * Antes do (c), 200 sem gravar nada: mensagem nossa (`IsFromMe`), de grupo (`IsGroup`), sem texto
+ * nem mídia, ou sem telefone legível.
+ *
+ * ══ A MÍDIA (dono do produto, 18/11/2026) ══
+ * Imagem, documento, áudio e vídeo entram (`midiaDaMensagem`); a LEGENDA vira o texto. A entrada gravada leva o MARCADOR
+ * (`[imagem]`, `[documento: <nome>]`…) mais a legenda — nunca o arquivo. A rota não baixa nada: a conversa baixa, lê ou recusa
+ * nomeando (`midia-da-mensagem.ts`). O log continua sem o texto, a legenda e o nome do arquivo.
  *
  * ══ O TELEFONE: A COMPARAÇÃO É PELA FORMA NORMALIZADA, DOS DOIS LADOS ══
  * O webhook entrega o celular COM o DDI e SEM o nono dígito (`555199114290`, medido em 22/10/2026);
@@ -58,7 +63,8 @@
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { supabaseAdmin } from '@/supabase/admin'
-import { telefoneDoRemetente, textoDaMensagem } from '@/lib/atendimentos-ia/payload-wuzapi'
+import { midiaDaMensagem, telefoneDoRemetente, textoDaMensagem } from '@/lib/atendimentos-ia/payload-wuzapi'
+import { textoDaEntradaComMidia } from '@/lib/atendimentos-ia/midia-da-mensagem'
 import { telefoneNormalizado } from '@/lib/atendimentos-ia/telefone-normalizado'
 import { conduzirMensagem } from '@/lib/atendimentos-ia/conversa-da-ia'
 import { conversaDoRemetente, gravarEntrada } from '@/lib/atendimentos-ia/conversa-gravada'
@@ -143,8 +149,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         // o que se ignora, sem gravar
         if (info.IsFromMe === true) return fim(200, 'ignorada-propria')
         if (info.IsGroup === true) return fim(200, 'ignorada-grupo')
-        const texto = textoDaMensagem(event)
-        if (texto === null) return fim(200, 'ignorada-sem-texto')
+        // A MÍDIA (18/11/2026): a foto ou o PDF entram — e o áudio, o vídeo e a planilha também, para a conversa dizer o que fazer.
+        // A LEGENDA vira o texto; sem texto nem mídia (a figurinha, a reação), segue ignorada
+        const midia = midiaDaMensagem(event)
+        const texto = textoDaMensagem(event) ?? midia?.legenda ?? null
+        if (texto === null && midia === null) return fim(200, 'ignorada-sem-texto')
         const telefone = telefoneDoRemetente(info)
         if (telefone === null) return fim(200, 'ignorada-sem-telefone')
 
@@ -180,12 +189,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         // A CONVERSA GRAVADA (03/11/2026): a conversa do remetente e a entrada, com o Info.ID — o reenvio é reconhecido aqui
         const conversaId = await conversaDoRemetente(tenantId, remetenteId, telefone)
-        const entrada = await gravarEntrada(tenantId, conversaId, texto, mensagemId)
+        // na conversa gravada vai o MARCADOR da mídia, nunca o arquivo: `[imagem]` ou `[documento: <nome>]`, mais a legenda
+        const textoDaEntrada = midia ? textoDaEntradaComMidia(midia, texto) : (texto as string)
+        const entrada = await gravarEntrada(tenantId, conversaId, textoDaEntrada, mensagemId)
         rastro.repetida = entrada.repetida
 
         // A CONVERSA. Ela nunca lança: o 200 sai de qualquer jeito. O token da conexão é o do envio;
         // não vai para log nenhum.
-        await conduzirMensagem({ tenantId, remetenteId, telefone, texto, wuzapiToken: (conexao as { wuzapi_token: string }).wuzapi_token, conversaId: entrada.conversaId, entrada })
+        await conduzirMensagem({ tenantId, remetenteId, telefone, texto: textoDaEntrada, wuzapiToken: (conexao as { wuzapi_token: string }).wuzapi_token, conversaId: entrada.conversaId, entrada, ...(midia ? { midia } : {}) })
         return fim(200, 'conduzida')
     } catch (e) {
         // Sem o token nem o texto: as mensagens acima só levam o nome da tabela e o erro do banco.

@@ -333,7 +333,9 @@ describe('(4) o que se ignora: 200 e nada gravado', () => {
     it.each([
         ['IsFromMe', evento({ info: { IsFromMe: true } })],
         ['IsGroup', evento({ info: { IsGroup: true } })],
-        ['sem texto (mídia)', evento({ message: { imageMessage: { url: 'x' } } })],
+        // a FIGURINHA e a REAÇÃO não são mídia para o orçamentista (18/11/2026): seguem ignoradas, sem gravar
+        ['sem texto nem mídia (figurinha)', evento({ message: { stickerMessage: { URL: 'x', mimetype: 'image/webp' } } })],
+        ['sem texto nem mídia (reação)', evento({ message: { reactionMessage: { text: '👍' } } })],
         ['telefone ilegível (só LID)', evento({ info: { SenderAlt: '', Sender: '123456789012345:33@lid' } })],
     ])('%s', async (_n, ev) => {
         const r = await chamar({ c: SEGREDO, corpo: { type: 'Message', event: ev } })
@@ -740,5 +742,61 @@ describe('(11) o celular sem o nono dígito: a comparação é pela forma NORMAL
             await chamar({ c: SEGREDO, corpo: doWebhook('555199114290') })
             expect(linhasDe('orcamentista_tentativa_desconhecida')).toEqual([expect.objectContaining({ telefone: '555199114290' })])
         })
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+describe('(12) a MÍDIA (18/11/2026): a legenda vira o texto, a conversa grava o MARCADOR e recebe os metadados — nunca o arquivo', () => {
+    // O FORMATO MEDIDO em 18/11/2026: o webhook traz só os metadados, nas grafias do protobuf do WhatsApp (whatsmeow)
+    const BYTES = { URL: 'https://mmg.whatsapp.net/o1/v/t62/abc', directPath: '/o1/v/t62/abc', mediaKey: 'Q2hhdmVEYU1pZGlh', fileEncSHA256: 'RW5jU2hh', fileSHA256: 'U2hh' }
+    const FOTO = { imageMessage: { ...BYTES, mimetype: 'image/jpeg', caption: 'janela da sala 1,50 x 1,20', fileLength: 183_245 } }
+    const PDF = { documentWithCaptionMessage: { message: { documentMessage: { ...BYTES, mimetype: 'application/pdf', fileName: 'Obra Geronimo.pdf', caption: 'medidas da obra', fileLength: 52_000 } } } }
+    const comMensagem = (message: Record<string, unknown>) => ({ type: 'Message', event: evento({ message }) })
+    const entradas = () => linhasDe('orcamentista_mensagem')
+
+    it('a foto COM legenda: a entrada gravada é "[imagem] <legenda>", a conversa recebe o mesmo texto e os metadados da mídia', async () => {
+        const r = await chamar({ c: SEGREDO, corpo: comMensagem(FOTO) })
+        expect(r.status).toBe(200)
+        expect(entradas().map((m) => m.texto)).toEqual(['[imagem] janela da sala 1,50 x 1,20'])
+        expect(mockConducoes).toHaveLength(1)
+        expect(mockConducoes[0].texto).toBe('[imagem] janela da sala 1,50 x 1,20')
+        expect(mockConducoes[0].midia).toEqual({
+            tipo: 'imagem', mimetype: 'image/jpeg', nome: null, legenda: 'janela da sala 1,50 x 1,20', tamanho: 183_245,
+            download: { url: BYTES.URL, directPath: BYTES.directPath, mediaKey: BYTES.mediaKey, fileEncSHA256: BYTES.fileEncSHA256, fileSHA256: BYTES.fileSHA256, fileLength: 183_245 },
+        })
+    })
+
+    it('a foto SEM legenda: a entrada é só "[imagem]" — antes era 200 "ignorada-sem-texto", e o vendedor ficava sem resposta', async () => {
+        const semLegenda: Record<string, unknown> = { ...FOTO.imageMessage }
+        delete semLegenda.caption
+        await chamar({ c: SEGREDO, corpo: comMensagem({ imageMessage: semLegenda }) })
+        expect(entradas().map((m) => m.texto)).toEqual(['[imagem]'])
+        expect(mockConducoes).toHaveLength(1)
+        expect(erros.join('\n')).not.toContain('ignorada-sem-texto')
+    })
+
+    it('o PDF com legenda (o invólucro documentWithCaptionMessage): "[documento: <nome>] <legenda>"', async () => {
+        await chamar({ c: SEGREDO, corpo: comMensagem(PDF) })
+        expect(entradas().map((m) => m.texto)).toEqual(['[documento: Obra Geronimo.pdf] medidas da obra'])
+        expect(mockConducoes[0].midia).toEqual(expect.objectContaining({ tipo: 'documento', mimetype: 'application/pdf', nome: 'Obra Geronimo.pdf', legenda: 'medidas da obra' }))
+    })
+
+    it('o áudio também entra — para a conversa responder que ainda não ouve: "[áudio]"', async () => {
+        await chamar({ c: SEGREDO, corpo: comMensagem({ audioMessage: { ...BYTES, mimetype: 'audio/ogg; codecs=opus', fileLength: 9_000 } }) })
+        expect(entradas().map((m) => m.texto)).toEqual(['[áudio]'])
+        expect(mockConducoes[0].midia).toEqual(expect.objectContaining({ tipo: 'audio' }))
+    })
+
+    it('a mensagem de TEXTO não leva a chave midia à conversa (a de antes, igual)', async () => {
+        await chamar({ c: SEGREDO })
+        expect('midia' in mockConducoes[0]).toBe(false)
+    })
+
+    it('o log não leva a legenda, o nome do arquivo, a URL nem a chave da mídia — e a rota não baixa nada', async () => {
+        await chamar({ c: SEGREDO, corpo: comMensagem(FOTO) })
+        await chamar({ c: SEGREDO, corpo: { type: 'Message', event: evento({ info: { ID: 'OUTRO' }, message: PDF }) } })
+        const tudo = [...erros, ...deLog].join('\n')
+        for (const v of ['janela da sala', 'Obra Geronimo', 'medidas da obra', BYTES.URL, BYTES.mediaKey, BYTES.directPath]) expect([v, tudo.includes(v)]).toEqual([v, false])
+        expect(fetchEspiao).not.toHaveBeenCalled()
     })
 })
