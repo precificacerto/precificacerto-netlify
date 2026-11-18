@@ -209,7 +209,7 @@ import { PROMPT_BASE } from '@/utils/atendimentos-ia-prompt-base'
 import { LIMITE_DA_FALA } from '@/utils/atendimentos-ia-contexto'
 import { blocoDasInstrucoes, lerInstrucoesDaEmpresa, type InstrucaoDaCategoria } from '@/lib/atendimentos-ia/instrucoes-da-categoria'
 import { blocoDasInstrucoesDasEtapas, type InstrucaoDaEtapa } from '@/lib/atendimentos-ia/motor-da-familia'
-import { aberturaDita, filtrarPeloAcumulado, filtrarPorAbertura, fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, palavrasDeAbertura } from '@/lib/atendimentos-ia/tipologias-candidatas'
+import { aberturaDita, cabeNosLimites, filtrarPeloAcumulado, filtrarPorAbertura, fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, palavrasDeAbertura } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, variaveisSemPadraoNoPrompt, variaveisSemPadraoParaOPrompt } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { permissaoDoRemetente, type Permissao } from '@/lib/atendimentos-ia/permissao-do-remetente'
 import {
@@ -1707,9 +1707,17 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                     // reformulação do modelo continua valendo nela (03/11/2026)
                     // a medida fora do limite (18/11/2026): com a migração, vira PEDIDO DE AUTORIZAÇÃO, gravado no item — menos quando o vendedor
                     // acabou de dizer "não" a ele, e aí a frase pede a medida certa
+                    // o pedido ANTERIOR lembra a tipologia (a que o modelo propôs não volta pelo padrão): a medida nova que ainda não cabe nela é
+                    // um pedido novo para ela, com a medida nova — nunca a pergunta genérica da tipologia
+                    const anterior = limiteDe(item.ordem)
+                    const doAnterior = anterior && !paraAutorizar && !negados.includes(item.ordem)
+                        ? tabela.candidatos.filter((x) => x.tipologia === anterior.tipologia).slice(0, 1) : []
                     if (paraAutorizar && limites !== 'sem_migracao' && !negados.includes(item.ordem)) {
                         faltasDoPadrao.push({ ordem: item.ordem, frase: paraAutorizar.frase, motivo: padrao.motivo })
                         pedir.set(item.ordem, paraAutorizar.tipologia)
+                    } else if (anterior && doAnterior.length && !doAnterior.some((x) => cabeNosLimites(x, item))) {
+                        faltasDoPadrao.push({ ordem: item.ordem, frase: fraseDoPedidoDeAutorizacao(item, doAnterior, doAnterior[0]), motivo: 'LIMITES' })
+                        pedir.set(item.ordem, anterior.tipologia)
                     } else if (impedimento !== null && !SO_FALTA_INFORMACAO.has(padrao.motivo)) faltasDoPadrao.push({ ordem: item.ordem, frase: impedimento, motivo: padrao.motivo })
                 }
             }

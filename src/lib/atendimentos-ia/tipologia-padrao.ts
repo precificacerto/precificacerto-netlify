@@ -269,8 +269,8 @@ export function padraoDaEsquadria(item: ItemDoLevantamento, abertura: Abertura |
     const decisao = decisaoDoPadrao(item, abertura, trechos, candidatos, variaveis ?? (() => null), (a) => { atributos = a }, (f) => { impedimento = f },
         (c, fora) => { paraAutorizar = { tipologia: c.tipologia, frase: fraseDoPedidoDeAutorizacao(item, fora, c) } })
     // o registro só acontece quando a decisão é uma tipologia (`comRastro`): um motivo nunca leva atributos
-    const motivo = 'motivo' in decisao ? decisao.motivo : null
-    return { decisao, atributos, impedimento: motivo !== null ? impedimento ?? fraseDoPadraoQueFalta(decisao) : null, paraAutorizar: motivo === 'LIMITES' ? paraAutorizar : null }
+    // `oferecer` só é chamado junto com o LIMITES: a tipologia oferecida existe só nele
+    return { decisao, atributos, impedimento: 'motivo' in decisao ? impedimento ?? fraseDoPadraoQueFalta(decisao) : null, paraAutorizar }
 }
 
 /**

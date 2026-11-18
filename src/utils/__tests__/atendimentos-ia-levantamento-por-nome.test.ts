@@ -2932,6 +2932,45 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
             expect(linhaIa()[1]).toMatch(/ limite=limpou:e1(\s|$)/)
         })
 
+        it('"sim" com a medida TROCADA na mesma mensagem: a liberação não vale para a medida nova — o pedido novo, com a medida nova, sem autorização', async () => {
+            await pedir()
+            llmResponde({ confirma: true, itens: [{ ordem: 1, altura_mm: 2600 }] })
+            await chamar('sim, mas a altura é 2600')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, altura_mm: 2600, limite_tipologia: 'DP-02', limite_altura_mm: 2600, limite_autorizado_por: null }))
+            expect(ultimoEnviado()).toBe(pedido(1200, 2600))
+        })
+
+        it('"não" com outra mudança junto (a quantidade): a resposta pede a medida certa — nunca o pedido de novo na mesma mensagem — e nenhum pedido fica', async () => {
+            await pedir()
+            llmResponde({ confirma: false, itens: [{ ordem: 1, quantidade: 2 }] })
+            await chamar('não, e são 2 unidades')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, quantidade: 2, limite_tipologia: null }))
+            expect(ultimoEnviado()).toContain(TP.fraseDoForaDoLimite({ largura_mm: 1200, altura_mm: 2500 }, dp02() as never))
+            expect(ultimoEnviado()).not.toContain('Autoriza fabricar')
+        })
+
+        it('o pedido que continua em aberto NÃO se regrava (o instante do pedido é o da primeira pergunta)', async () => {
+            await pedir()
+            estado.escritas = []
+            llmResponde({ itens: [{ ordem: 1, quantidade: 2 }] })
+            await chamar('são 2 unidades')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, quantidade: 2, limite_tipologia: 'DP-02' }))
+            const regravouOPedido = estado.escritas.filter((e) => e.tabela === 'orcamentista_levantamento_item' && e.op === 'update' && 'limite_pedido_em' in (e.carga as Linha))
+            expect(regravouOPedido).toEqual([])
+            expect(ultimoEnviado()).toContain(pedido())
+        })
+
+        it('sem a migração, com a montagem aberta: a leitura do pedido vira sem_migracao, a conversa segue, e nada é gravado no limite', async () => {
+            llmResponde({ cliente: 'Ana', itens: [{ ...FORA, altura_mm: 1000, vidro: undefined }] })
+            await chamar('Cliente: Ana. Janela de correr 1200 x 1000, 1 unidade, branco')
+            estado.colunasAusentes = new Set(['orcamentista_levantamento_item.limite_tipologia'])
+            llmResponde({ itens: [{ ordem: 1, altura_mm: 2500, vidro: 'Temperado 5mm' }] })
+            await chamar('a altura é 2500, temperado 5mm')
+            expect(linhaIa()[1]).toMatch(/ limite=sem_migracao(\s|$)/)
+            expect(ultimoEnviado()).not.toContain('Autoriza fabricar')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, altura_mm: 2500 }))
+        })
+
         it('o "sim" sem pedido em aberto não autoriza nada', async () => {
             llmResponde({ cliente: 'Ana', itens: [{ ...FORA, altura_mm: 1000 }], escolhas: ESCOLHAS_QUE_FECHAM, confirma: true })
             await chamar('Cliente: Ana. Janela de correr 1200 x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50. sim')

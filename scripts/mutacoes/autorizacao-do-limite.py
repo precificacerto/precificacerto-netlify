@@ -10,15 +10,16 @@ LIB = 'src/lib/atendimentos-ia/'
 AUT, PADRAO, MONT, CONV = LIB + 'autorizacao-do-limite.ts', LIB + 'tipologia-padrao.ts', LIB + 'levantamento-em-montagem.ts', LIB + 'conversa-da-ia.ts'
 T = 'src/utils/__tests__/'
 PURA = [T + 'tipologia-padrao-atributo-por-atributo.test.ts']
+MODULO = [T + 'autorizacao-do-limite.test.ts']
 PONTA = [T + 'atendimentos-ia-levantamento-por-nome.test.ts', '-t', 'AUTORIZAÇÃO DA MEDIDA|OS LIMITES|CASO DAIANE|leituras antes do modelo']
 
 # (nome, arquivo, de, para, suítes)
 M = [
  # o módulo
  ('A1 a autorização vale com outra medida', AUT, "l !== undefined && l.autorizadoPor !== null && l.tipologia === i.tipologia && mesmaMedida(l, i)", "l !== undefined && l.autorizadoPor !== null && l.tipologia === i.tipologia", PONTA),
- ('A2 a autorização vale com outra tipologia', AUT, "l !== undefined && l.autorizadoPor !== null && l.tipologia === i.tipologia && mesmaMedida(l, i)", "l !== undefined && l.autorizadoPor !== null && mesmaMedida(l, i)", PONTA),
- ('A3 o pedido vale com o item já com tipologia', AUT, "l !== undefined && l.autorizadoPor === null && i.tipologia === null && mesmaMedida(l, i)", "l !== undefined && l.autorizadoPor === null && mesmaMedida(l, i)", PONTA),
- ('A4 o pedido vale com outra medida', AUT, "l !== undefined && l.autorizadoPor === null && i.tipologia === null && mesmaMedida(l, i)", "l !== undefined && l.autorizadoPor === null && i.tipologia === null", PONTA),
+ ('A2 a autorização vale com outra tipologia', AUT, "l !== undefined && l.autorizadoPor !== null && l.tipologia === i.tipologia && mesmaMedida(l, i)", "l !== undefined && l.autorizadoPor !== null && mesmaMedida(l, i)", MODULO),
+ ('A3 o pedido vale com o item já com tipologia', AUT, "l !== undefined && l.autorizadoPor === null && i.tipologia === null && mesmaMedida(l, i)", "l !== undefined && l.autorizadoPor === null && mesmaMedida(l, i)", MODULO),
+ ('A4 o pedido vale com outra medida', AUT, "l !== undefined && l.autorizadoPor === null && i.tipologia === null && mesmaMedida(l, i)", "l !== undefined && l.autorizadoPor === null && i.tipologia === null", MODULO),
  ('A5 o vencido nunca sai', AUT, "l !== undefined && !autorizacaoVale(l, i) && !pedidoEmAberto(l, i)", "false", PONTA),
  ('A6 sem a coluna, a leitura quebra', AUT, "        if (colunaAusente(error)) return 'sem_migracao'\n        throw new Error(`orcamentista_levantamento_item (limite): ${error.message}`)\n    }\n    const linhas", "        throw new Error(`orcamentista_levantamento_item (limite): ${error.message}`)\n    }\n    const linhas", PONTA),
  ('A7 a sonda não vê a migração ausente', AUT, "    const { error } = await supabaseAdmin.from('orcamentista_levantamento_item').select('limite_tipologia').eq('tenant_id', tenantId).limit(1)", "    const error = null as { code?: string; message: string } | null", PONTA),
@@ -28,7 +29,6 @@ M = [
  # o padrão
  ('P1 a única fora do limite não oferece', PADRAO, "oferecer(unica.c, [unica.c]); return { motivo: 'LIMITES' } }", "return { motivo: 'LIMITES' } }", PURA),
  ('P2 a modulação oferece a última', PADRAO, "oferecer(porModulacao[0].c, porModulacao.map(({ c }) => c))", "oferecer(porModulacao[porModulacao.length - 1].c, porModulacao.map(({ c }) => c))", PURA),
- ('P3 paraAutorizar fora do LIMITES', PADRAO, "paraAutorizar: motivo === 'LIMITES' ? paraAutorizar : null }", "paraAutorizar }", PURA),
  ('P4 a frase sem a pergunta da autorização', PADRAO, "fora do limite? `\n    + 'Se a medida estiver errada, me mande a certa.'", "fora do limite. `\n    + 'Se a medida estiver errada, me mande a certa.'", PURA),
  # a montagem
  ('N1 a liberação não protege a tipologia', MONT, " && !ctx.limiteAutorizado(alvo)) {", ") {", PONTA),
@@ -44,6 +44,7 @@ M = [
  ('C10 o pedido em aberto não vai ao modelo', CONV, "pendenciaAberta ? [...pedidosDaMontagem, perguntaDasPendencias(", "pendenciaAberta ? [perguntaDasPendencias(", PONTA),
  ('C11 a recusa do modelo não vira pedido', CONV, "            if (item && item.tipologia === null && !negados.includes(r.ordem)) pedir.set(r.ordem, r.tipologia)\n", "", PONTA),
  ('C12 o log não diz o limite', CONV, " + (r.limite === '-' ? '' : ` limite=${r.limite}`)", "", PONTA),
+ ('C14 o pedido anterior esquece a tipologia', CONV, "} else if (anterior && doAnterior.length && !doAnterior.some((x) => cabeNosLimites(x, item))) {", "} else if (false) {", PONTA),
  ('C13 sem migração, a autorização é oferecida', CONV, "        if (limites === 'sem_migracao') rastro.limite = 'sem_migracao'\n", "", PONTA),
 ]
 
