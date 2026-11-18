@@ -55,10 +55,15 @@ export function formatoDaChave(chave: string | null | undefined): FormatoDaChave
     if (/^eyJ[\w-]*\.[\w-]+\.[\w-]+$/.test(chave)) return 'jwt'
     return 'outro'
 }
-/** A chave que o pedido apresenta: o `Authorization: Bearer …`, ou o `apikey`. */
+/**
+ * A chave que o pedido apresenta: a NOVA vem no `apikey` (o gateway da Supabase só a aceita ali), e vence; senão o `Authorization: Bearer …`;
+ * senão o `apikey` de qualquer formato.
+ */
 export function chaveApresentada(cabecalho: (nome: string) => string | null): string | null {
+    const apikey = (cabecalho('apikey') ?? '').trim()
+    if (apikey.startsWith('sb_secret_')) return apikey
     const bearer = (cabecalho('Authorization') ?? '').replace(/^Bearer\s+/i, '').trim()
-    return bearer || (cabecalho('apikey') ?? '').trim() || null
+    return bearer || apikey || null
 }
 /** A prova da chave: o status e o código que a Supabase devolveu ao ler a tabela de prova com ela; status 200 = é de serviço. */
 export type ProvaDaChave = { status: number; codigo: string | null }

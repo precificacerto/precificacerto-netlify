@@ -26,6 +26,13 @@ export type FormatoDaChave = 'sb_secret' | 'jwt' | 'outro'
 /** O formato, para o log — nunca o valor. */
 export const formatoDaChave = (v: string): FormatoDaChave => (v.startsWith('sb_secret_') ? 'sb_secret' : /^eyJ[\w-]*\.[\w-]+\.[\w-]+$/.test(v) ? 'jwt' : 'outro')
 export const PREFIXO_DO_LOG_DA_CHAVE = '[TRANSCRICAO-CHAVE]'
+/**
+ * Os cabeçalhos de cada formato (medido na Supabase em 18/11/2026): a chave NOVA vai SÓ no `apikey` — com ela também no `Authorization`, o
+ * gateway devolve 401 "Conflicting API keys … Send the intended sb_ key only in the apikey header". O JWT legado vai nos dois, como sempre.
+ */
+export const cabecalhosDaChave = (chave: string): Record<string, string> => (formatoDaChave(chave) === 'sb_secret'
+    ? { 'Content-Type': 'application/json', apikey: chave }
+    : { 'Content-Type': 'application/json', Authorization: `Bearer ${chave}`, apikey: chave })
 
 type DependenciasDaTranscricao = { url: string; env: (nome: string) => string | undefined; fetch?: typeof fetch; log?: (linha: string) => void }
 /** O ambiente do servidor, lido NA HORA da chamada (nunca no carregamento do módulo). */
@@ -50,7 +57,7 @@ export async function transcreverAudio(tenantId: string, bytes: Uint8Array, mime
         try {
             const r = await (deps.fetch ?? fetch)(`${deps.url.replace(/\/$/, '')}/functions/v1/transcribe-audio`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${chave.valor}`, apikey: chave.valor },
+                headers: cabecalhosDaChave(chave.valor),
                 body: corpoDoPedido,
                 signal: controle.signal,
             })

@@ -163,7 +163,8 @@ describe('o cliente do servidor: a chamada à função e o motivo nomeado', () =
         const pedidos: Array<{ url: string; init: RequestInit; chave: string }> = []
         const logs: string[] = []
         const fetch = (async (url: string, init: RequestInit) => {
-            const chave = String((init.headers as Record<string, string>).Authorization).replace('Bearer ', '')
+            const h = init.headers as Record<string, string>
+            const chave = h.Authorization ? h.Authorization.replace('Bearer ', '') : h.apikey
             pedidos.push({ url, init, chave })
             const r = porChave(chave)
             if (r === 'rede') throw new Error('rede')
@@ -186,10 +187,11 @@ describe('o cliente do servidor: a chamada à função e o motivo nomeado', () =
         expect(await r).toEqual(expect.objectContaining({ ok: true }))
         expect(pedidos.map((p) => p.chave)).toEqual([JWT])
     })
-    it('SÓ O FORMATO NOVO (sb_secret_, em SUPABASE_SECRET_KEY): é ele que vai, e transcreve', async () => {
+    it('SÓ O FORMATO NOVO (sb_secret_, em SUPABASE_SECRET_KEY): é ele que vai — SÓ no apikey, nunca no Authorization (o gateway recusa as duas) — e transcreve', async () => {
         const { pedidos, r } = chamar({ SUPABASE_SECRET_KEY: NOVA }, () => OK)
         expect(await r).toEqual(expect.objectContaining({ ok: true }))
         expect(pedidos.map((p) => p.chave)).toEqual([NOVA])
+        expect(pedidos[0].init.headers).toEqual({ 'Content-Type': 'application/json', apikey: NOVA })
     })
     it('AS DUAS: vai a NOVA, e só ela', async () => {
         const { pedidos, r } = chamar({ SUPABASE_SECRET_KEY: NOVA, SUPABASE_SERVICE_ROLE_KEY: JWT }, () => OK)
@@ -262,6 +264,8 @@ describe('a autorização na função: os DOIS formatos, provados pelo que a cha
         expect(chaveApresentada(h({ Authorization: 'Bearer sb_secret_x' }))).toBe('sb_secret_x')
         expect(chaveApresentada(h({ apikey: 'eyJa.b.c' }))).toBe('eyJa.b.c')
         expect(chaveApresentada(h({}))).toBeNull()
+        // a nova no apikey vence um Authorization de outro formato (o gateway só aceita a nova ali)
+        expect(chaveApresentada(h({ apikey: 'sb_secret_x', Authorization: 'Bearer eyJa.b.c' }))).toBe('sb_secret_x')
     })
     it('o formato da função e o do chamador dizem o mesmo', () => {
         for (const k of ['sb_secret_x', 'eyJa.b.c', 'outra']) expect(formatoDaChave(k)).toBe(formatoDaChaveDoServidor(k))

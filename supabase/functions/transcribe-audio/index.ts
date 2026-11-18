@@ -8,7 +8,7 @@
  */
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { TABELA_DA_PROVA, autorizar, chaveApresentada, lerPedido, transcrever, type Dependencias, type LinhaDoUso, type Teto } from "./nucleo.ts"
+import { TABELA_DA_PROVA, autorizar, chaveApresentada, formatoDaChave, lerPedido, transcrever, type Dependencias, type LinhaDoUso, type Teto } from "./nucleo.ts"
 
 const json = (corpo: unknown, status = 200) => new Response(JSON.stringify(corpo), { status, headers: { "Content-Type": "application/json" } })
 const semTabela = (e: { code?: string } | null) => e?.code === "42P01" || e?.code === "PGRST205"
@@ -18,10 +18,16 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ ok: false, motivo: "pedido_invalido", detalhe: "use POST" }, 405)
   // a chave apresentada, nos DOIS formatos: provada pelo que consegue ler, e é com ela (já provada de serviço) que a função fala com o banco
   const chave = chaveApresentada((n) => req.headers.get(n))
-  const comAChave = (k: string) => createClient(Deno.env.get("SUPABASE_URL")!, k, { auth: { persistSession: false, autoRefreshToken: false } })
+  // a PROVA vai direto ao PostgREST, com os cabeçalhos do formato: a nova SÓ no apikey (o gateway recusa a sb_ no Authorization)
   const autorizacao = await autorizar(chave, async (k) => {
-    const r = await comAChave(k).from(TABELA_DA_PROVA).select("tenant_id").limit(1)
-    return { status: r.error ? (r.status || 500) : 200, codigo: r.error?.code ?? null }
+    const cabecalhos: Record<string, string> = formatoDaChave(k) === "sb_secret" ? { apikey: k } : { apikey: k, Authorization: `Bearer ${k}` }
+    try {
+      const r = await fetch(`${Deno.env.get("SUPABASE_URL")}/rest/v1/${TABELA_DA_PROVA}?select=tenant_id&limit=1`, { headers: cabecalhos })
+      const corpo = r.ok ? null : await r.json().catch(() => null)
+      return { status: r.status, codigo: corpo?.code ?? null }
+    } catch {
+      return { status: 0, codigo: "rede" }
+    }
   })
   if (!autorizacao.ok) {
     console.log(`[TRANSCRICAO] recusada ${autorizacao.log}`)
@@ -30,7 +36,8 @@ Deno.serve(async (req: Request) => {
   const pedido = lerPedido(await req.json().catch(() => null))
   if ("erro" in pedido) return json({ ok: false, motivo: "pedido_invalido", detalhe: pedido.erro }, 400)
 
-  const db = comAChave(chave as string)
+  // o banco, com a chave de serviço do PRÓPRIO ambiente da função (a Supabase a põe lá): a do pedido só autoriza
+  const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false, autoRefreshToken: false } })
   const deps: Dependencias = {
     env: (nome) => Deno.env.get(nome),
     fetch: (url, init) => fetch(url, init),
