@@ -767,7 +767,8 @@ describe('(12) a MÍDIA (18/11/2026): a legenda vira o texto, a conversa grava o
     })
 
     it('a foto SEM legenda: a entrada é só "[imagem]" — antes era 200 "ignorada-sem-texto", e o vendedor ficava sem resposta', async () => {
-        const { caption: _semLegenda, ...semLegenda } = FOTO.imageMessage
+        const semLegenda: Record<string, unknown> = { ...FOTO.imageMessage }
+        delete semLegenda.caption
         await chamar({ c: SEGREDO, corpo: comMensagem({ imageMessage: semLegenda }) })
         expect(entradas().map((m) => m.texto)).toEqual(['[imagem]'])
         expect(mockConducoes).toHaveLength(1)

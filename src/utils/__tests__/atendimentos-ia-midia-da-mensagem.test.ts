@@ -44,7 +44,8 @@ const doPdf = (corpo: string) => new Uint8Array(Buffer.from(`%PDF-1.7\n${corpo}\
 // ═══════════════════════════════════════════════════════════════════════════════════════
 describe('(1) midiaDaMensagem — os metadados como o webhook os entrega (medido em 18/11/2026: sem base64)', () => {
     it('a foto com legenda: tipo, mimetype, legenda, tamanho e o que o download exige', () => {
-        const m = midiaDaMensagem({ Message: { imageMessage: { ...BYTES, mimetype: 'image/jpeg', caption: '  porta 2,10 x 0,80  ', fileLength: 4242 } } })
+        // o fileName que o celular às vezes manda na imagem NÃO é nome: só o documento tem nome (o marcador da foto é "[imagem]")
+        const m = midiaDaMensagem({ Message: { imageMessage: { ...BYTES, mimetype: 'image/jpeg', caption: '  porta 2,10 x 0,80  ', fileLength: 4242, fileName: 'IMG_0042.jpg' } } })
         expect(m).toEqual({ tipo: 'imagem', mimetype: 'image/jpeg', nome: null, legenda: 'porta 2,10 x 0,80', tamanho: 4242, download: { ...DOWNLOAD, fileLength: 4242 } })
     })
     it('o PDF com legenda vem dentro de documentWithCaptionMessage.message — o invólucro é aberto', () => {
@@ -63,7 +64,8 @@ describe('(1) midiaDaMensagem — os metadados como o webhook os entrega (medido
         expect(midiaDaMensagem({ Message: { videoMessage: { ...BYTES, caption: 'olha' } } })).toEqual(expect.objectContaining({ tipo: 'video', legenda: 'olha' }))
     })
     it('faltando a chave da mídia: a mídia chegou, mas o download é NULL (nunca um download pela metade)', () => {
-        const { mediaKey: _k, ...semChave } = BYTES
+        const semChave: Record<string, unknown> = { ...BYTES }
+        delete semChave.mediaKey
         expect(midiaDaMensagem({ Message: { imageMessage: { ...semChave, mimetype: 'image/jpeg' } } })).toEqual(expect.objectContaining({ tipo: 'imagem', download: null }))
     })
     it('fileLength ausente, zero ou não numérico é NULL — ausente não é zero', () => {
