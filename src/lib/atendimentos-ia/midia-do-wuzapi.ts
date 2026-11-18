@@ -21,7 +21,7 @@ export const PRAZO_DO_DOWNLOAD_MS = 90_000
 export type Download = { ok: true; bytes: Uint8Array } | { ok: false; detalhe: string }
 
 /** O endpoint é o da MENSAGEM do WhatsApp (imagem ou documento), não o de como o arquivo será lido. */
-export const caminhoDoDownload = (m: MidiaDaMensagem) => (m.tipo === 'imagem' ? '/chat/downloadimage' : '/chat/downloaddocument')
+export const caminhoDoDownload = (m: MidiaDaMensagem) => (m.tipo === 'imagem' ? '/chat/downloadimage' : m.tipo === 'audio' ? '/chat/downloadaudio' : '/chat/downloaddocument')
 
 /** O conteúdo de um data URL em base64, ou NULL quando não é um. */
 export function bytesDoDataUrl(v: unknown): Uint8Array | null {

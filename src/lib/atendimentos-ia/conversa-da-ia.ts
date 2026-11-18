@@ -172,6 +172,7 @@
 import type { MidiaDaMensagem } from '@/lib/atendimentos-ia/payload-wuzapi'
 import { conferirMidiaBaixada, fraseDaMidiaRecusadaPelaIa, fraseDaRecusa, leituraDaMidia, marcaNoLog, type AnexoParaOModelo } from '@/lib/atendimentos-ia/midia-da-mensagem'
 import { baixarMidia } from '@/lib/atendimentos-ia/midia-do-wuzapi'
+import { transcreverAudio } from '@/lib/atendimentos-ia/transcricao-do-audio'
 import { atravessarNoSim } from './travessia-do-levantamento'
 import { dependenciasDoServidor, destinosDoWhatsApp, enviarAoPrimeiroQueAceitar, etapaDoPreco, reenviarOArquivo } from './cadeia-do-sim'
 import { telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
@@ -1326,10 +1327,22 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             if ('motivo' in leitura) { rastro.midia = marcaNoLog(c.midia, leitura.motivo); return await falar(leitura.frase, 'midia-nao-lida') }
             const baixada = await baixarMidia(c.wuzapiToken, c.midia)
             if ('detalhe' in baixada) { rastro.midia = marcaNoLog(c.midia, 'falhou_ao_baixar', leitura.como); return await falar(fraseDaRecusa(c.midia, 'falhou_ao_baixar'), 'midia-nao-lida', `download=${baixada.detalhe}`) }
+            // O ÁUDIO (tarefa 0018, 18/11/2026): a transcrição vira o TEXTO da mensagem (com a legenda, se houver) — o modelo lê o que foi dito,
+            // e a entrada gravada continua o marcador `[áudio]`. Cada recusa diz o que chegou e o que fazer; o texto transcrito nunca vai ao log
+            if (leitura.como === 'audio') {
+                const t = await transcreverAudio(c.tenantId, baixada.bytes, c.midia.mimetype, c.midia.segundos)
+                if ('motivo' in t) {
+                    rastro.midia = marcaNoLog(c.midia, t.motivo, 'audio')
+                    return await falar(fraseDaRecusa(c.midia, t.motivo, t.segundos !== null ? { segundos: t.segundos } : {}), 'midia-nao-lida', t.detalhe)
+                }
+                rastro.midia = `${marcaNoLog(c.midia, 'lida', 'audio')} transcricao=${t.provider} segundos=${t.segundos ?? '-'} uso=${t.uso}`
+                c = { ...c, texto: [c.texto, t.texto].filter((x) => x && x.trim()).join('\n') }
+            } else {
             const conferida = conferirMidiaBaixada(c.midia, leitura.como, baixada.bytes)
             if ('motivo' in conferida) { rastro.midia = marcaNoLog(c.midia, conferida.motivo, leitura.como); return await falar(conferida.frase, 'midia-nao-lida') }
             anexo = conferida.anexo
             rastro.midia = marcaNoLog(c.midia, 'lida', leitura.como)
+            }
         }
 
         // O TETO DE CONSUMO entraria aqui, ANTES da chamada (dono do produto, 22/10/2026: não agora).

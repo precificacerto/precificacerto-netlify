@@ -761,7 +761,7 @@ describe('(12) a MÍDIA (18/11/2026): a legenda vira o texto, a conversa grava o
         expect(mockConducoes).toHaveLength(1)
         expect(mockConducoes[0].texto).toBe('[imagem] janela da sala 1,50 x 1,20')
         expect(mockConducoes[0].midia).toEqual({
-            tipo: 'imagem', mimetype: 'image/jpeg', nome: null, legenda: 'janela da sala 1,50 x 1,20', tamanho: 183_245,
+            tipo: 'imagem', mimetype: 'image/jpeg', nome: null, legenda: 'janela da sala 1,50 x 1,20', tamanho: 183_245, segundos: null,
             download: { url: BYTES.URL, directPath: BYTES.directPath, mediaKey: BYTES.mediaKey, fileEncSHA256: BYTES.fileEncSHA256, fileSHA256: BYTES.fileSHA256, fileLength: 183_245 },
         })
     })

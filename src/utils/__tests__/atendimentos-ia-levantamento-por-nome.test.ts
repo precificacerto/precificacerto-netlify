@@ -140,6 +140,9 @@ const estado = {
     envios: [] as Array<{ corpo: Record<string, unknown> }>,
     /** O DOWNLOAD da mídia pelo WUZAPI (18/11/2026): cada pedido, e o que ele devolve — os bytes, um status de erro, ou a exceção. */
     downloads: [] as Array<{ url: string; headers: Record<string, string>; corpo: Record<string, unknown> }>,
+    /** A Edge Function `transcribe-audio` (tarefa 0018): o que ela devolve, e os pedidos que recebeu. */
+    transcricao: { status: 200, corpo: { ok: true, texto: 'transcrito', provider: 'groq', segundos: 10, uso: 'ok' } as Record<string, unknown> } as { status: number; corpo: Record<string, unknown> } | 'lanca',
+    transcricoes: [] as Array<{ url: string; headers: Record<string, string>; corpo: Record<string, unknown> }>,
     download: { bytes: new Uint8Array() } as { bytes: Uint8Array } | { status: number } | 'lanca',
     /** Os DOCUMENTOS enviados pelo WUZAPI (o arquivo do levantamento, 06/11/2026) e o status que o envio deles devolve. */
     documentos: [] as Array<{ corpo: Record<string, unknown> }>,
@@ -724,7 +727,13 @@ beforeEach(() => {
             if (proxima === 'lanca') throw new Error('fetch failed')
             return respostaDaLlm(proxima.status, proxima.corpo, init)
         }
-        if (url.endsWith('/chat/downloadimage') || url.endsWith('/chat/downloaddocument')) {
+        if (url.endsWith('/functions/v1/transcribe-audio')) {
+            estado.transcricoes.push({ url, headers, corpo })
+            const t = estado.transcricao
+            if (t === 'lanca') throw new Error('fetch failed')
+            return { ok: t.status >= 200 && t.status < 300, status: t.status, json: async () => t.corpo }
+        }
+        if (url.endsWith('/chat/downloadimage') || url.endsWith('/chat/downloaddocument') || url.endsWith('/chat/downloadaudio')) {
             estado.downloads.push({ url, headers, corpo })
             const d = estado.download
             if (d === 'lanca') throw new Error('fetch failed')
@@ -6713,16 +6722,64 @@ describe('(30) a FOTO e o PDF do vendedor (dono do produto, 18/11/2026): baixado
         expect(log.includes(META.URL)).toBe(false)
     })
 
-    it('o ÁUDIO responde dizendo o que chegou e o que fazer — sem baixar e sem chamar o modelo com a ferramenta', async () => {
-        await chamarComMidia({ audioMessage: { ...META, mimetype: 'audio/ogg; codecs=opus', fileLength: 9000 } })
-        expect(estado.downloads).toEqual([])
-        expect(comFerramenta()).toEqual([])
-        expect(enviados()).toEqual(['Recebi o seu áudio, mas ainda não consigo ouvir áudio: me escreva o que precisa, ou mande uma foto.'])
-        // passou por falar(): o rascunho foi à redação
-        expect(estado.redacoes.map((r) => r.rascunho)).toEqual(['Recebi o seu áudio, mas ainda não consigo ouvir áudio: me escreva o que precisa, ou mande uma foto.'])
-        expect(entradasGravadas()).toEqual(['[áudio]'])
-        expect(linhaIa().join('\n')).toEqual(expect.stringContaining('desfecho=midia-nao-lida'))
-        expect(linhaIa().join('\n')).toEqual(expect.stringContaining('midia=audio:audio'))
+    describe('O ÁUDIO (tarefa 0018, 18/11/2026): baixado, transcrito pela função do Supabase, e o texto é a mensagem — o que impede, dito', () => {
+        const AUDIO = { audioMessage: { ...META, mimetype: 'audio/ogg; codecs=opus', fileLength: 9000, seconds: 14, ptt: true } }
+        const TRANSCRITO = 'Cliente: Ana. Janela de correr 1200 por 1000'
+        const urlAntes = process.env.NEXT_PUBLIC_SUPABASE_URL
+        const chaveAntes = process.env.SUPABASE_SERVICE_ROLE_KEY
+        beforeEach(() => {
+            process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://projeto-de-teste.supabase.co'
+            process.env.SUPABASE_SERVICE_ROLE_KEY = 'chave-do-servidor-de-teste'
+            estado.transcricoes = []
+            estado.transcricao = { status: 200, corpo: { ok: true, texto: TRANSCRITO, provider: 'groq', segundos: 14, uso: 'ok' } }
+            estado.download = { bytes: new Uint8Array(Buffer.from('OggS-audio')) }
+        })
+        afterAll(() => { process.env.NEXT_PUBLIC_SUPABASE_URL = urlAntes; process.env.SUPABASE_SERVICE_ROLE_KEY = chaveAntes })
+
+        it('o áudio de até 3 min: baixado pelo /chat/downloadaudio, transcrito (o tenant, a duração declarada), e o TEXTO vai ao modelo — a entrada gravada é o marcador', async () => {
+            llmResponde({ cliente: 'Ana' })
+            await chamarComMidia(AUDIO)
+            expect(estado.downloads.map((d) => d.url.replace(/^.*\/chat\//, '/chat/'))).toEqual(['/chat/downloadaudio'])
+            expect(estado.transcricoes).toHaveLength(1)
+            expect(estado.transcricoes[0].headers.Authorization).toBe('Bearer chave-do-servidor-de-teste')
+            expect(estado.transcricoes[0].corpo).toEqual(expect.objectContaining({ tenant_id: TENANT, segundos_declarados: 14, mimetype: 'audio/ogg; codecs=opus' }))
+            const mensagens = comFerramenta()[0].corpo.messages as Array<{ content: unknown }>
+            expect(String(mensagens[mensagens.length - 1].content)).toContain(TRANSCRITO)
+            expect(entradasGravadas()).toEqual(['[áudio]'])
+            const ia = linhaIa().join('\n')
+            expect(ia).toContain('midia=audio:lida transcricao=groq segundos=14 uso=ok')
+            // o texto transcrito NUNCA vai ao log
+            for (const l of erros) expect([l.slice(0, 40), l.includes(TRANSCRITO)]).toEqual([l.slice(0, 40), false])
+        })
+        it('acima de 3 min DECLARADOS: nada é baixado nem transcrito, e a resposta diz a duração e o que fazer', async () => {
+            await chamarComMidia({ audioMessage: { ...AUDIO.audioMessage, seconds: 200 } })
+            expect([estado.downloads, estado.transcricoes, comFerramenta()]).toEqual([[], [], []])
+            expect(enviados()).toEqual(['Recebi o seu áudio, mas ele tem 3 minutos e 20 segundos e eu ouço áudio de até 3 minutos: mande em partes menores, ou me escreva o que precisa.'])
+            expect(linhaIa().join('\n')).toContain('midia=audio:audio_longo')
+        })
+        it.each([
+            [{ ok: false, motivo: 'longo', segundos: 190 }, 'Recebi o seu áudio, mas ele tem 3 minutos e 10 segundos e eu ouço áudio de até 3 minutos: mande em partes menores, ou me escreva o que precisa.', 'audio_longo'],
+            [{ ok: false, motivo: 'falhou', segundos: 14 }, 'Recebi o seu áudio, mas não consegui transcrever agora: mande de novo daqui a pouco, ou me escreva o que precisa.', 'audio_nao_transcrito'],
+            [{ ok: false, motivo: 'nao_liberada', segundos: null }, 'Recebi o seu áudio, mas a transcrição de áudio não está liberada para a sua empresa: me escreva o que precisa, ou mande uma foto.', 'audio_nao_liberado'],
+            [{ ok: false, motivo: 'teto', segundos: 14 }, 'Recebi o seu áudio, mas a sua empresa já usou os minutos de áudio do mês: me escreva o que precisa, ou mande uma foto.', 'audio_teto'],
+        ])('a função devolve %j: a resposta diz o que impede, e o modelo não é chamado', async (corpo, frase, marca) => {
+            estado.transcricao = { status: 200, corpo }
+            await chamarComMidia(AUDIO)
+            expect(comFerramenta()).toEqual([])
+            expect(enviados()).toEqual([frase])
+            expect(linhaIa().join('\n')).toContain(`midia=audio:${marca}`)
+        })
+        it('a função fora do ar: a falha controlada, nomeada — nunca o silêncio', async () => {
+            estado.transcricao = 'lanca'
+            await chamarComMidia(AUDIO)
+            expect(enviados()).toEqual(['Recebi o seu áudio, mas não consegui transcrever agora: mande de novo daqui a pouco, ou me escreva o que precisa.'])
+        })
+        it('o download que falha: a frase do download, sem chamar a transcrição', async () => {
+            estado.download = { status: 500 }
+            await chamarComMidia(AUDIO)
+            expect(estado.transcricoes).toEqual([])
+            expect(enviados()).toEqual([expect.stringContaining('não consegui baixar o arquivo do WhatsApp')])
+        })
     })
 
     it('a PLANILHA e o VÍDEO também respondem, nomeando o arquivo', async () => {
