@@ -95,7 +95,9 @@ const DIVERGENCIAS_RELATADAS: Record<string, string> = {
     '1159/9': 'a travessa, como em 1159/1',
     '1163/8': 'a travessa, como em 1159/1',
     // o DP-130 são DUAS esquadrias do orçamento e9a79f30 (o item 7, 550 × 1700, e o 8, 600 × 1700), as duas com ALTURA DO PEITORIL 850 e TIPO DE
-    // PERFIL MODULAÇÃO = PERFIL ACABAMENTO + TALA (dono do produto, 19/11/2026) — a fixture traz as duas. Os 6 mm continuam sem resposta
+    // PERFIL MODULAÇÃO = PERFIL ACABAMENTO + TALA (dono do produto, 19/11/2026) — a fixture traz as duas. Os 6 mm são DIVERGÊNCIA ANOTADA na
+    // fixture (`divergencia_anotada`), NÃO defeito do motor: o motor não muda por eles até o dono do produto medir a cadeia de corte do WVetro
+    // contra o peitoril de 850 (decisão de 19/11/2026)
     '1159/7': 'a altura de BR60, 8431, SF78C, 8428 e GB34 sai 6 mm menor no motor que no WVetro (850 × 856, 704 × 710…), com a altura do peitoril 850',
     '1159/8': 'os 6 mm, como em 1159/7',
     '1163/2': 'as escolhas que o relatório não imprimiu (o interlock, a folha, a persiana): o motor usa o padrão — IL36, HF88, MF52, 1318 — e o WVetro cortou IL42 + KT42, HF112, SF66, 2681',
@@ -146,6 +148,14 @@ describe('o conferidor do corte: o motor de produção contra o corte real do WV
         expect(fora(r.soWvetro)).toEqual([])
         expect(fora(r.soMotor).length).toBeGreaterThan(0)
         expect(fora(r.soMotor).every(([x]) => BAGUETES.has(x.split('|')[0]))).toBe(true)
+    })
+    it('os 6 mm do DP-130 estão ANOTADOS na fixture como divergência à espera da medição, e não como defeito do motor (19/11/2026)', () => {
+        for (const k of ['1159/7', '1159/8']) {
+            const c = CORTE.casos.find((x) => id(x) === k) as Caso & { divergencia_anotada?: { status: string; ate: string } }
+            expect(c.divergencia_anotada?.status).toMatch(/NAO defeito do motor/)
+            expect(c.divergencia_anotada?.ate).toMatch(/peitoril de 850/)
+            expect(Object.keys(DIVERGENCIAS_RELATADAS)).toContain(k)
+        }
     })
     it('os vidros do Orientativo dos DP-128: 2 de 332 × 582 no 1163/5 (2 esquadrias), 1 de 432 × 432 no 1159/3', () => {
         const vidros = (k: string) => (CORTE.casos.find((x) => id(x) === k) as Caso).vidro_do_orientativo?.vidros

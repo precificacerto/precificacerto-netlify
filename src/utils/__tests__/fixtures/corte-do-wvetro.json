@@ -1391,7 +1391,13 @@
      "corte": "90/90",
      "obs": "MODULAÇÃO - TALA HORIZONTAL"
     }
-   ]
+   ],
+   "divergencia_anotada": {
+    "o_que": "o WVetro corta BR60, 8431, SF78C, 8428 e GB34 6 mm mais altos que o motor (850 x 856, 704 x 710, 786 x 792, 604 x 610, 664 x 670 e 764 x 770), com a ALTURA DO PEITORIL 850",
+    "status": "divergencia anotada, NAO defeito do motor: o motor nao muda por causa dela",
+    "ate": "o dono do produto medir a cadeia de corte do WVetro contra o peitoril de 850",
+    "decidido_em": "2026-11-19"
+   }
   },
   {
    "orcamento": 1159,
@@ -1604,7 +1610,13 @@
      "corte": "90/90",
      "obs": "MODULAÇÃO - TALA HORIZONTAL"
     }
-   ]
+   ],
+   "divergencia_anotada": {
+    "o_que": "o WVetro corta BR60, 8431, SF78C, 8428 e GB34 6 mm mais altos que o motor (850 x 856, 704 x 710, 786 x 792, 604 x 610, 664 x 670 e 764 x 770), com a ALTURA DO PEITORIL 850",
+    "status": "divergencia anotada, NAO defeito do motor: o motor nao muda por causa dela",
+    "ate": "o dono do produto medir a cadeia de corte do WVetro contra o peitoril de 850",
+    "decidido_em": "2026-11-19"
+   }
   },
   {
    "orcamento": 1159,
