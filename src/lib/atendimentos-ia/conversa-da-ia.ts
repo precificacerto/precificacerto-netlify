@@ -176,6 +176,7 @@ import { transcreverAudio } from '@/lib/atendimentos-ia/transcricao-do-audio'
 import { atravessarNoSim } from './travessia-do-levantamento'
 import { dependenciasDoServidor, destinosDoWhatsApp, enviarAoPrimeiroQueAceitar, etapaDoPreco, reenviarOArquivo } from './cadeia-do-sim'
 import { telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
+import { comOTextoDaImagem, fraseDaImagemRecusada, fraseDeConfirmarDaImagem, fraseDeConfirmarDaImagemEmOutrasPalavras, textoDaImagemDaProposta } from '@/lib/atendimentos-ia/lido-da-imagem'
 import { criteriosQueSeparam, fraseDeQualOrcamento, fraseDeQualOrcamentoEmOutrasPalavras, type CriterioDoDesempate, fraseDoOrcamentoSemArquivo, lerOrcamentosDosLevantamentos, ordemDoOrcamento, pedidoDoResgate, type OpcaoDoOrcamento } from '@/lib/atendimentos-ia/resgate-do-orcamento'
 /** A saída gravada quando depois do "sim" só o arquivo foi enviado (12/11/2026, 4.3): o texto não sai ao vendedor, é a marca da resposta. */
 export const SAIDA_SO_O_ARQUIVO = '[o arquivo do orçamento foi enviado, sem texto]'
@@ -252,15 +253,17 @@ export type DesfechoDaIa =
     | 'midia-nao-lida'
     /** O PEDIDO DE ORÇAMENTO pelo nome (18/11/2026): a lista para escolher; o arquivo mandado de novo; o orçamento sem arquivo, nomeado. */
     | 'qual-orcamento' | 'orcamento-reenviado' | 'orcamento-sem-arquivo'
+    /** O NOME (e a cidade, e o vidro) lido SÓ da foto ou do PDF espera um "sim" curto antes de gravar (18/11/2026). */
+    | 'confirmar-da-imagem'
 
-export type Rota = 'MONTAGEM' | 'NOVO' | 'ALTERACAO' | 'ALTERACAO_ADMIN' | 'SEM_NOME' | 'PARECIDO' | 'RESGATE' | 'NOME_EXISTE' | 'NAO_ENCONTRADO' | 'QUAL_VENDEDOR' | 'ORCAMENTO' | 'QUAL_ORCAMENTO' | '-'
+export type Rota = 'MONTAGEM' | 'NOVO' | 'ALTERACAO' | 'ALTERACAO_ADMIN' | 'SEM_NOME' | 'PARECIDO' | 'RESGATE' | 'NOME_EXISTE' | 'NAO_ENCONTRADO' | 'QUAL_VENDEDOR' | 'ORCAMENTO' | 'QUAL_ORCAMENTO' | 'DA_IMAGEM' | '-'
 /**
  * Como o nome foi lido — NUNCA o nome em si (dono do produto, 26/10/2026): `veio` (está no texto),
  * `faltou` (a IA não leu nenhum), `fora_do_texto` (a IA leu um que não está no texto, e ele não vale),
  * `da_pergunta` (não está no texto, mas é um dos que a pergunta em aberto citou), `do_cliente` (o nome saiu do
  * cliente que está no texto, 03/11/2026).
  */
-type MarcaDoNome = '-' | 'veio' | 'faltou' | 'fora_do_texto' | 'da_pergunta' | 'da_conversa' | 'do_cliente'
+type MarcaDoNome = '-' | 'veio' | 'faltou' | 'fora_do_texto' | 'da_pergunta' | 'da_conversa' | 'do_cliente' | 'da_imagem'
 /**
  * A chamada à IA, medida (dono do produto, 26/10/2026): o tempo, do envio do pedido à resposta lida, e os tokens de
  * entrada e de saída que a própria API devolve em `usage`. SÓ NÚMERO — nunca o texto do pedido nem o da resposta.
@@ -353,6 +356,11 @@ type Rastro = {
     limite: string
     /** O PEDIDO DE ORÇAMENTO (18/11/2026): quantos orçamentos o nome achou, ou `sem_migracao` (a QUAL_ORCAMENTO não ficou guardada); '-' sem o pedido. */
     qualOrcamento: string
+    /**
+     * O LIDO SÓ DA IMAGEM (18/11/2026): `perguntou` (a confirmação curta foi feita), `confirmou`, `recusou`, `sem_migracao` (a CONFIRMAR_DA_IMAGEM
+     * não ficou guardada — a 20261118000004 pendente —, e a conversa pergunta de quem é, como antes); '-' sem nada lido da imagem.
+     */
+    daImagem: string
     /** A mídia da mensagem (18/11/2026), `<tipo>:<desfecho>` — `imagem:lida`, `audio:audio`, `pdf:pdf_grande`…; '-' sem mídia. Nunca a legenda nem o nome. */
     midia: string
 }
@@ -375,7 +383,7 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
         + (r.lista === '-' ? '' : ` lista=${r.lista} trechos=${r.trechos}`) + (r.trechosSemCandidata > 0 ? ` trechos_sem_candidata=${r.trechosSemCandidata}` : '')
         + (r.itensSemCampos > 0 ? ` itens_sem_campos=${r.itensSemCampos}` : '')
         // a montagem e os padrões (05/11/2026)
-        + (r.montagem === '-' ? '' : ` montagem=${r.montagem}`) + (r.contextoDoTurno === '-' ? '' : ` contexto_do_turno=${r.contextoDoTurno}`) + (r.coresPadrao > 0 ? ` cor_padrao=${r.coresPadrao}` : '') + (r.tipologiasPadrao > 0 ? ` tipologia_padrao=${r.tipologiasPadrao}` : '') + (r.limite === '-' ? '' : ` limite=${r.limite}`) + (r.qualOrcamento === '-' ? '' : ` qual_orcamento=${r.qualOrcamento}`)
+        + (r.montagem === '-' ? '' : ` montagem=${r.montagem}`) + (r.contextoDoTurno === '-' ? '' : ` contexto_do_turno=${r.contextoDoTurno}`) + (r.coresPadrao > 0 ? ` cor_padrao=${r.coresPadrao}` : '') + (r.tipologiasPadrao > 0 ? ` tipologia_padrao=${r.tipologiasPadrao}` : '') + (r.limite === '-' ? '' : ` limite=${r.limite}`) + (r.qualOrcamento === '-' ? '' : ` qual_orcamento=${r.qualOrcamento}`) + (r.daImagem === '-' ? '' : ` da_imagem=${r.daImagem}`)
         + (r.midia === '-' ? '' : ` midia=${r.midia}`)
     console.error(`${PREFIXO_DO_LOG_DA_IA} levantamento=${r.levantamento} rota=${r.rota} propostos=${r.propostos} descartados=${r.descartados} enviou=${r.enviou ? 'sim' : 'nao'} desfecho=${desfecho}${admin} nome=${r.nome} aberta=${r.aberta}${contexto}${ia}${detalhe ? ` ${detalhe}` : ''}`)
     // as linhas por etapa (06/11/2026), na ordem do turno; a última é a resposta, que todo turno tem
@@ -541,8 +549,9 @@ export const FERRAMENTA = {
         additionalProperties: false,
         required: ['itens'],
         properties: {
-            nome: { ...texto, description: 'O nome do levantamento, copiado INTEIRO como o vendedor o escreveu NESTA mensagem. Com a pergunta do nome em aberto, o nome que ele respondeu de qualquer jeito ("Geison Silva novo" → Geison Silva). Omita se ele não escreveu.' },
-            cliente: { ...texto, description: 'O nome do CLIENTE, copiado como o vendedor o escreveu NESTA mensagem (ex.: "Cliente: Geronimo Silva" → Geronimo Silva). O nome do levantamento é o nome do cliente, puro. Omita se ele não escreveu.' },
+            nome: { ...texto, description: 'O nome do levantamento, copiado INTEIRO como o vendedor o escreveu NESTA mensagem (ou na foto ou no PDF dela). Com a pergunta do nome em aberto, o nome que ele respondeu de qualquer jeito ("Geison Silva novo" → Geison Silva). Omita se ele não escreveu.' },
+            texto_da_imagem: { ...texto, description: 'SÓ quando a mensagem traz FOTO ou PDF: todo o texto escrito nele, copiado linha a linha como está (nomes, cidade, medidas, vidro). Nunca complete nem corrija. Sem foto nem PDF, omita.' },
+            cliente: { ...texto, description: 'O nome do CLIENTE, copiado como o vendedor o escreveu NESTA mensagem (ou na foto ou no PDF dela) (ex.: "Cliente: Geronimo Silva" → Geronimo Silva). O nome do levantamento é o nome do cliente, puro. Omita se ele não escreveu.' },
             novo: { type: 'boolean', description: 'true SÓ quando o vendedor disse explicitamente que é um levantamento novo.' },
             opcao: { ...inteiro, description: 'Quando a pergunta em aberto lista levantamentos ou orçamentos numerados e o vendedor escolheu um deles — pelo número ("o 2"), pela ordem ("o primeiro", "o último"), pelo nome ("é o do Geronimo") ou pela data ("o de ontem") —, o número dele na lista. Senão, omita.' },
             alteracao: { type: 'boolean', description: 'true quando o vendedor pede para MUDAR um levantamento que já existe (troca, muda, altera, corrige).' },
@@ -552,10 +561,10 @@ export const FERRAMENTA = {
             dados_do_cliente: {
                 type: 'object',
                 additionalProperties: false,
-                description: 'Os dados do cliente e da obra, SÓ os que o vendedor escreveu NESTA mensagem, copiados. Omita o que não foi dito.',
+                description: 'Os dados do cliente e da obra, SÓ os que o vendedor escreveu NESTA mensagem (ou na foto ou no PDF dela), copiados. Omita o que não foi dito.',
                 properties: {
                     telefone: texto, email: texto, edificacao: { ...texto, description: 'O tipo da edificação, como dito (casa, sobrado, prédio...).' },
-                    endereco: texto, obs_obra: { ...texto, description: 'Uma observação da OBRA, copiada.' },
+                    endereco: { ...texto, description: 'A cidade da obra (ou o endereço), copiada como foi escrita.' }, obs_obra: { ...texto, description: 'Uma observação da OBRA, copiada.' },
                     data_entrega: { ...texto, description: 'A data de entrega dita, como AAAA-MM-DD (o vendedor escreve 27/11/26 → 2026-11-27).' },
                 },
             },
@@ -670,6 +679,9 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
         'Regras:',
         '- nome: copie o nome do levantamento INTEIRO, como o vendedor escreveu nesta mensagem. Não complete, não corrija, não encurte. Se ele não escreveu um nome, omita.',
         '- cliente: o nome do CLIENTE, copiado como o vendedor escreveu nesta mensagem ("Cliente: Geronimo Silva", "obra do Geronimo Silva" → Geronimo Silva). O nome do levantamento é o nome do cliente, puro: com o cliente dito, não pergunte o nome. Se a pergunta em aberto pede o cliente e a mensagem é só um nome de pessoa, é o cliente. Se ele não escreveu, omita.',
+        // A FOTO É O VENDEDOR ESCREVENDO (dono do produto, 18/11/2026): as regras do nome foram escritas quando só havia texto; no caso real a foto
+        // tinha duas esquadrias, uma linha em branco, "Alfredo Soares" e "Barao", e o modelo devolveu o cliente VAZIO (`nome=faltou`)
+        '- FOTO ou PDF: o que está escrito nele é o vendedor escrevendo — vale como esta mensagem para o nome, o cliente, a cidade e o vidro. Um nome de pessoa SOLTO, sem rótulo, numa linha à parte antes ou depois da lista de itens, é o CLIENTE — igual a uma mensagem que termina com "Cliente: Fulano": ponha-o em cliente e em nome. O lugar escrito junto dele (a cidade, o bairro) é a cidade da obra: ponha em dados_do_cliente.endereco. Copie os dois como estão escritos, sem corrigir acento.',
         '- Com a pergunta do nome em aberto (o nome do cliente, ou a lista de levantamentos parecidos), o vendedor responde do jeito dele, e o nome vem de qualquer forma: "Geison Silva novo", "é o Geison Silva", "novo: Geison Silva" → nome Geison Silva (e novo: true quando ele disse novo). Nunca espere uma forma fixa.',
         '- opcao: quando a pergunta em aberto lista levantamentos ou orçamentos numerados e ele escolheu um — "o 2", "o primeiro", "o último", "é o do Geronimo", "o de ontem" (compare com as datas da lista e com a data de hoje) —, o número dele na lista. Senão, omita.',
         '- novo: true SÓ quando o vendedor disse que é um levantamento novo ("novo ..."). Senão, omita.',
@@ -1186,6 +1198,8 @@ async function refazerPergunta(
         const orcamentos = p.levantamentos.map((id) => lidos.find((o) => o.levantamentoId === id)).filter((o): o is OpcaoDoOrcamento => !!o)
         return orcamentos.length && p.nome ? { p, citados, orcamentos, texto: fraseDeQualOrcamento(p.nome, orcamentos) } : null
     }
+    // a CONFIRMAÇÃO DO LIDO DA IMAGEM (18/11/2026): não cita levantamento; refeita do nome e do que a imagem deu (a cidade, os vidros)
+    if (p.pergunta === 'CONFIRMAR_DA_IMAGEM') return p.nome ? { p, citados: [], texto: fraseDeConfirmarDaImagem(p.nome, p.dadosDaImagem ?? {}) } : null
     if (p.pergunta !== 'CONFIRMAR_APANHADO' && citados.length === 0) return null
     if (p.pergunta === 'NOME_PARECIDO') {
         const lista = await comDesempate(tenantId, opcoesDeResgate(citados))
@@ -1268,7 +1282,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = {
         etapas: { coletar: null, casar: null, montar: null, calcular: null },
         levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null, raciocinio: null, parada: null, cacheLido: null, cacheEscrito: null, cabecalhosMs: null, primeiroTokenMs: null, tentativas: null, requestId: null },
-        midia: '-', contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', contextoDoTurno: '-', coresPadrao: 0, tipologiasPadrao: 0, limite: '-', qualOrcamento: '-',
+        midia: '-', contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', contextoDoTurno: '-', coresPadrao: 0, tipologiasPadrao: 0, limite: '-', qualOrcamento: '-', daImagem: '-',
     }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
@@ -1523,6 +1537,13 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             return await responder(frase, resposta.tipo, resposta.detalhe)
         }
         const proposta = resposta.proposta
+        // O TEXTO LIDO DA IMAGEM (dono do produto, 18/11/2026): conta como texto do vendedor para conferir o nome, a cidade e o vidro — mas o que
+        // vier SÓ dele espera um "sim" curto antes de gravar (`lido-da-imagem.ts`). Só existe com a foto ou o PDF; nunca vai ao log
+        const textoDaImagem = textoDaImagemDaProposta(proposta, anexo !== null)
+        const textoComImagem = comOTextoDaImagem(c.texto, textoDaImagem)
+        /** O nome lido SÓ da imagem: o que não passa no texto da mensagem e passa no texto da imagem. */
+        const nomeDaImagem = textoDaImagem === null || nomeDaMensagem(proposta.nome, c.texto) !== null || nomeDoCliente(proposta, c.texto) !== null ? null
+            : nomeDaMensagem(proposta.nome, textoComImagem) ?? nomeDoCliente(proposta, textoComImagem)
         // OS DADOS DO LEVANTAMENTO (06/11/2026): o cliente, as condições, o vendedor, e os ambientes e a obs de cada item — só o que foi DITO NESTA
         // mensagem (`dados-do-levantamento.ts`); o que não passa cai, e a proposta segue com o resto
         const dadosDaMensagem = lerDadosDaMensagem(proposta, c.texto)
@@ -1531,7 +1552,8 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // em montagem, ou o pedido de "novo", tira a mensagem da montagem e ela segue o roteamento pelo nome (novo, ou o existente que ela cita)
         // AS MENSAGENS RECENTES DA CONVERSA (16/11/2026): onde o nome pode ter sido dito antes — "é o mesmo de antes" retoma o que está nelas
         const naConversa = historico.map((m) => m.content)
-        const nomeNaMensagem = nomeDitoOuRetomado(proposta.nome, c.texto, naConversa) ?? nomeDoCliente(proposta, c.texto)
+        // a foto de OUTRO cliente também tira da montagem: o nome dela segue para a confirmação, nunca entra no levantamento em montagem
+        const nomeNaMensagem = nomeDitoOuRetomado(proposta.nome, c.texto, naConversa) ?? nomeDoCliente(proposta, c.texto) ?? nomeDaImagem
         const outroCliente = emMontagem !== undefined && nomeNaMensagem !== null && normalizarNome(nomeSemPrefixo(nomeNaMensagem)) !== normalizarNome(emMontagem.nome)
         const pedeNovo = emMontagem !== undefined && proposta.novo === true
         const saiDaMontagem = outroCliente || pedeNovo
@@ -1550,13 +1572,15 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // o fornecedor e a família que o vendedor NÃO disse saem da proposta: a pergunta de qual família não se responde pela IA.
         // O VIDRO também (04/11/2026): "copiado, nunca completado" — a palavra que não está na mensagem veio da instrução e cai; o que está fica
         // ("pode, não derrube": "incolor temperado 8 mm" sobre "vidro 8mm" vira "8 mm"); cai inteiro só quando NADA do vidro está na mensagem
-        const semFornecedorInventado = (itens: unknown) => (Array.isArray(itens) ? itens.map((i) => {
+        // O VIDRO LIDO DA IMAGEM (18/11/2026) passa pela mesma poda contra o texto da imagem, e só vale na confirmação da imagem (`comImagem`)
+        const semFornecedorInventado = (itens: unknown, comImagem = false) => (Array.isArray(itens) ? itens.map((i) => {
             if (!i || typeof i !== 'object') return i
             const item = { ...(i as Record<string, unknown>) }
             for (const k of ['fornecedor', 'familia']) if (k in item && !ditoNaMensagem(item[k], c.texto)) item[k] = undefined
             if (item.vidro !== undefined && item.vidro !== null) {
-                const podado = vidroPodado(item.vidro, c.texto)
-                if (podado === null) { item.vidro = undefined; rastro.vidrosNaoDitos += 1 }
+                const podado = vidroPodado(item.vidro, comImagem ? textoComImagem : c.texto)
+                if (comImagem) item.vidro = podado ?? undefined
+                else if (podado === null) { item.vidro = undefined; rastro.vidrosNaoDitos += 1 }
                 else if (podado !== String(item.vidro).trim()) { item.vidro = podado; rastro.vidrosPodados += 1 }
             }
             return item
@@ -1570,6 +1594,17 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         rastro.reenviadas = juncao.reenviadas
         const daPergunta = retidas.length > 0
         const emEspera: EsquadriaProposta[] = esquadriasDaProposta({ itens: juncao.itens })
+        /**
+         * As esquadrias COM o vidro lido só da imagem — só para a confirmação da imagem; e os vidros que só a imagem deu, para a pergunta dizê-los.
+         * Calculadas só quando o nome veio só da imagem: no resto da conversa o vidro da foto continua podado pelo texto, como antes.
+         */
+        const comImagem = nomeDaImagem === null ? null : (() => {
+            const brutas = semFornecedorInventado(dadosDaMensagem.proposta.itens, true)
+            const itens = esquadriasDaProposta({ itens: juntarEsquadrias(retidas, Array.isArray(brutas) ? brutas : []).itens })
+            const doTexto = new Set(emEspera.map((e) => e.vidro).filter((v): v is string => typeof v === 'string'))
+            const vidros = [...new Set(itens.map((e) => e.vidro).filter((v): v is string => typeof v === 'string' && !doTexto.has(v)))]
+            return { itens, vidros }
+        })()
         {
             // ETAPA 1 (06/11/2026): o que veio da conversa — as esquadrias desta mensagem e as retidas, quantos campos disseram, e o que
             // ainda não foi dito (a quantidade não dita é 1 e não conta como falta)
@@ -1592,6 +1627,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             // a pergunta repetida vai em OUTRAS palavras — nunca "Não consegui registrar a sua resposta" (dono do produto, 03/11/2026)
             if (p.pergunta === 'SEM_NOME') return await falar(outraPergunta(OUTRAS_PERGUNTAS_DO_NOME, c.texto), 'nao-avancou')
             if (p.pergunta === 'NOME_PARECIDO' && p.nome && aberta) return await falar(fraseDoResgateEmOutrasPalavras(p.nome, aberta.citados), 'nao-avancou')
+            if (p.pergunta === 'CONFIRMAR_DA_IMAGEM' && p.nome) return await falar(fraseDeConfirmarDaImagemEmOutrasPalavras(p.nome, p.dadosDaImagem ?? {}), 'nao-avancou')
             if (p.pergunta === 'QUAL_ORCAMENTO' && p.nome && aberta?.orcamentos) return await falar(fraseDeQualOrcamentoEmOutrasPalavras(p.nome, aberta.orcamentos), 'nao-avancou')
             if (p.pergunta === 'CONFIRMAR_ACRESCIMO' && aberta?.citados[0]) {
                 return await falar(p.nome !== null ? fraseDeConfirmarResgateEmOutrasPalavras(aberta.citados[0]) : fraseDeConfirmarAcrescimoEmOutrasPalavras(aberta.citados[0].nome), 'nao-avancou')
@@ -1637,7 +1673,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             // citou, achado pelo id, de qualquer vendedor. "sim" ou "não" confirmam; o resto ("a largura é 1500") é
             // alteração DELE, e entra no apanhado. O admin que alterou o de outro também passa por aqui (26/10/2026)
             const doApanhado = aberta?.p.pergunta === 'CONFIRMAR_APANHADO' ? aberta.doApanhado : undefined
-            if (doApanhado && (lido === null || formaComparavel(lido) === formaComparavel(doApanhado.nome_normalizado))) {
+            // a foto de OUTRO cliente, com o apanhado esperando o "sim", não é alteração dele (18/11/2026)
+            const lidoOuDaImagem = lido ?? nomeDaImagem
+            if (doApanhado && (lidoOuDaImagem === null || formaComparavel(lidoOuDaImagem) === formaComparavel(doApanhado.nome_normalizado))) {
                 if (lido === null) rastro.nome = 'da_pergunta'
                 rastro.levantamento = doApanhado.id
                 const deOutro = doApanhado.remetente_id !== c.remetenteId
@@ -1652,6 +1690,46 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 alvo = { id: doApanhado.id, nome: doApanhado.nome, estado: doApanhado.estado, donoId: doApanhado.remetente_id, vendedor, itens: await lerItens(c.tenantId, doApanhado.id) }
                 nome = doApanhado.nome
             } else {
+                // O LIDO SÓ DA IMAGEM (dono do produto, 18/11/2026): "o que vier só da imagem (nome, cidade, vidro) vale COM CONFIRMAÇÃO CURTA antes de
+                // gravar — 'é do Alfredo Soares, de Barão?' — e segue no sim." A confirmação em aberto é respondida primeiro: "sim" (ou o mesmo nome) segue
+                // com o nome, a cidade e as esquadrias guardadas; "não" guarda as esquadrias e pergunta de quem é; o resto pergunta de novo, em outras palavras
+                const daImagemAberta = aberta?.p.pergunta === 'CONFIRMAR_DA_IMAGEM' && aberta.p.nome ? aberta : null
+                const mesmoDaImagem = (n: string | null) => n !== null && daImagemAberta !== null && formaComparavel(n) === formaComparavel(daImagemAberta.p.nome as string)
+                if (daImagemAberta && (lido === null || mesmoDaImagem(lido)) && (nomeDaImagem === null || mesmoDaImagem(nomeDaImagem)) && proposta.novo !== true) {
+                    const nomeAberto = daImagemAberta.p.nome as string
+                    const dadosAbertos = daImagemAberta.p.dadosDaImagem ?? {}
+                    if (lido === null && confirma === false) {
+                        rastro.rota = 'SEM_NOME'
+                        rastro.daImagem = 'recusou'
+                        if (guardaPergunta) await gravarPerguntaEmAberto(c.tenantId, c.remetenteId, { pergunta: 'SEM_NOME', nome: null, levantamentos: [], itens: emEspera })
+                        return await falar(fraseDaImagemRecusada(nomeAberto), 'sem-nome')
+                    }
+                    if (lido === null && confirma !== true) {
+                        rastro.rota = 'DA_IMAGEM'
+                        rastro.daImagem = 'perguntou'
+                        return await perguntar({ pergunta: 'CONFIRMAR_DA_IMAGEM', nome: nomeAberto, levantamentos: [], itens: emEspera, dadosDaImagem: dadosAbertos },
+                            fraseDeConfirmarDaImagem(nomeAberto, dadosAbertos), 'confirmar-da-imagem')
+                    }
+                    // o "sim": o nome da foto vale, e a cidade dela entra no cliente (a dita nesta mensagem vence)
+                    lido = nomeAberto
+                    rastro.nome = 'da_imagem'
+                    rastro.daImagem = 'confirmou'
+                    if (dadosAbertos.endereco && dadosDaMensagem.cliente.endereco === undefined) dadosDaMensagem.cliente.endereco = dadosAbertos.endereco
+                } else if (lido === null && nomeDaImagem !== null && comImagem !== null) {
+                    const nomeLido = nomeSemPrefixo(nomeDaImagem)
+                    const endereco = dadosDaMensagem.cliente.endereco ?? lerDadosDaMensagem(proposta, textoComImagem).cliente.endereco
+                    const dados = { ...(endereco ? { endereco } : {}), ...(comImagem.vidros.length ? { vidros: comImagem.vidros } : {}) }
+                    const p: PerguntaEmAberto = { pergunta: 'CONFIRMAR_DA_IMAGEM', nome: nomeLido, levantamentos: [], itens: comImagem.itens, dadosDaImagem: dados }
+                    // sem a 20261118000004 a pergunta não fica guardada: a conversa segue como antes (pergunta de quem é), e o log diz
+                    if (guardaPergunta && await gravarPerguntaEmAberto(c.tenantId, c.remetenteId, p)) {
+                        rastro.rota = 'DA_IMAGEM'
+                        rastro.nome = 'da_imagem'
+                        rastro.daImagem = 'perguntou'
+                        const frase = fraseDeConfirmarDaImagem(nomeLido, dados)
+                        return await falar(aberta?.texto === frase ? fraseDeConfirmarDaImagemEmOutrasPalavras(nomeLido, dados) : frase, aberta?.texto === frase ? 'nao-avancou' : 'confirmar-da-imagem')
+                    }
+                    rastro.daImagem = 'sem_migracao'
+                }
                 // O PEDIDO DE ORÇAMENTO (dono do produto, 18/11/2026: "são DOIS PEDIDOS DIFERENTES"): a lista dos orçamentos em aberto e a escolha
                 // por `opcao` manda o arquivo dele; o nome dito com a palavra "orçamento" e nenhum item busca os ORÇAMENTOS — um, o arquivo; mais de
                 // um, a lista; nenhum, segue o caminho do levantamento pelo nome (o que existe, ou o novo)

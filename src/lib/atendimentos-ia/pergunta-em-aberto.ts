@@ -35,7 +35,9 @@ export const HORAS_DA_PERGUNTA_EM_ABERTO = HORAS_DO_HISTORICO
 /** CONFIRMAR_APANHADO entrou com a migração 20261026000003 (o apanhado, dono do produto, 26/10/2026). */
 /** QUAL_ORCAMENTO entrou com a migração 20261118000002 (os dois caminhos do resgate, dono do produto, 18/11/2026): os orçamentos da lista, pelos
  * levantamentos deles (um orçamento por levantamento, o índice único `orcamentista_orcamento_um_por_levantamento`). */
-export const PERGUNTAS = ['NOME_PARECIDO', 'SEM_NOME', 'CONFIRMAR_ACRESCIMO', 'CONFIRMAR_APANHADO', 'QUAL_ORCAMENTO'] as const
+/** CONFIRMAR_DA_IMAGEM entrou com a 20261118000004 (o defeito de 18/11/2026: o nome escrito na foto caía na guarda do nome): o que veio SÓ da imagem
+ * (o nome, a cidade, o vidro) espera um "sim" curto antes de gravar; a cidade vai em `dadosDaImagem`. */
+export const PERGUNTAS = ['NOME_PARECIDO', 'SEM_NOME', 'CONFIRMAR_ACRESCIMO', 'CONFIRMAR_APANHADO', 'QUAL_ORCAMENTO', 'CONFIRMAR_DA_IMAGEM'] as const
 export type CodigoDaPergunta = (typeof PERGUNTAS)[number]
 
 /** A esquadria proposta que espera resposta: só os campos da esquadria, como a LLM os propôs. */
@@ -53,6 +55,22 @@ export type PerguntaEmAberto = {
     /** Os levantamentos citados na pergunta. No resgate, em ordem decrescente de data (a numeração da lista); na confirmação, o escolhido primeiro. */
     levantamentos: string[]
     itens: EsquadriaProposta[]
+    /** Na CONFIRMAR_DA_IMAGEM: o que foi lido SÓ da imagem e espera o "sim" — a cidade (`endereco`) e os vidros (que já viajam nos itens; aqui,
+     * para a pergunta se refazer igual). Ausente nas outras. */
+    dadosDaImagem?: DadosDaImagem
+}
+
+/** O que a CONFIRMAR_DA_IMAGEM guarda em `dados_da_imagem` (20261118000004): a cidade e os vidros lidos só da imagem. */
+export type DadosDaImagem = { endereco?: string; vidros?: string[] }
+
+/** A leitura de `dados_da_imagem`: só texto não vazio; o resto é ausente (nunca o default). */
+export function lerDadosDaImagem(bruto: unknown): DadosDaImagem {
+    const o = bruto && typeof bruto === 'object' && !Array.isArray(bruto) ? (bruto as Record<string, unknown>) : {}
+    const d: DadosDaImagem = {}
+    if (typeof o.endereco === 'string' && o.endereco.trim()) d.endereco = o.endereco.trim()
+    const vidros = Array.isArray(o.vidros) ? o.vidros.filter((v): v is string => typeof v === 'string' && v.trim() !== '').map((v) => v.trim()) : []
+    if (vidros.length) d.vidros = vidros
+    return d
 }
 
 const tabelaAusente = (e: { code?: string }) => e.code === 'PGRST205' || e.code === '42P01'
@@ -134,6 +152,11 @@ export async function lerPerguntaEmAberto(tenantId: string, remetenteId: string,
     }
     const linha = lerLinha(data as Record<string, unknown> | null)
     if (linha && perguntaExpirou((data as Record<string, unknown>).criado_em, agora)) return 'expirada'
+    // os dados da imagem, SÓ na CONFIRMAR_DA_IMAGEM (que só existe com a 20261118000004): a leitura de sempre não pede a coluna nova
+    if (linha && linha.pergunta === 'CONFIRMAR_DA_IMAGEM') {
+        const d = await supabaseAdmin.from(TABELA_DA_PERGUNTA).select('dados_da_imagem').eq('tenant_id', tenantId).eq('remetente_id', remetenteId).maybeSingle()
+        return { ...linha, dadosDaImagem: lerDadosDaImagem(!d.error && d.data ? (d.data as Record<string, unknown>).dados_da_imagem : null) }
+    }
     return linha
 }
 
@@ -144,11 +167,13 @@ export async function lerPerguntaEmAberto(tenantId: string, remetenteId: string,
  */
 export async function gravarPerguntaEmAberto(tenantId: string, remetenteId: string, p: PerguntaEmAberto): Promise<boolean> {
     const { error } = await supabaseAdmin.from(TABELA_DA_PERGUNTA).upsert(
-        { tenant_id: tenantId, remetente_id: remetenteId, pergunta: p.pergunta, nome: p.nome, levantamentos: p.levantamentos, itens: p.itens, criado_em: new Date().toISOString() },
+        { tenant_id: tenantId, remetente_id: remetenteId, pergunta: p.pergunta, nome: p.nome, levantamentos: p.levantamentos, itens: p.itens, criado_em: new Date().toISOString(),
+            // a coluna nova só vai com a pergunta dela: as outras gravam como antes, com ou sem a migração
+            ...(p.pergunta === 'CONFIRMAR_DA_IMAGEM' ? { dados_da_imagem: p.dadosDaImagem ?? {} } : {}) },
         { onConflict: 'tenant_id,remetente_id' },
     )
     if (!error) return true
-    if (tabelaAusente(error) || error.code === '23514') return false
+    if (tabelaAusente(error) || error.code === '23514' || error.code === 'PGRST204') return false
     throw new Error(`${TABELA_DA_PERGUNTA}: ${error.message}`)
 }
 

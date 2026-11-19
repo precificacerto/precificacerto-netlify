@@ -162,6 +162,8 @@ const estado = {
     checkAntigo: false,
     /** a CHECK de pergunta sem a QUAL_ORCAMENTO (a migração 20261118000002 pendente, 18/11/2026) */
     checkSemQualOrcamento: false,
+    /** a CHECK de pergunta sem a CONFIRMAR_DA_IMAGEM (a migração 20261118000004 pendente, 18/11/2026) */
+    checkSemDaImagem: false,
     /** As LEITURAS feitas (18/11/2026): a tabela e os filtros por igualdade — para provar que o turno nem lê o levantamento fora do contexto. */
     leituras: [] as Array<{ tabela: string; filtros: Array<[string, unknown]> }>,
     /**
@@ -293,6 +295,7 @@ function montar() {
     estado.deleteNaoAtinge = null
     estado.checkAntigo = false
     estado.checkSemQualOrcamento = false
+    estado.checkSemDaImagem = false
     estado.leituras = []
     estado.redacoes = []
     estado.redacao = null
@@ -489,7 +492,8 @@ jest.mock('@/supabase/admin', () => ({
                     if (chave.join(',') !== 'tenant_id,remetente_id') throw new Error(`upsert sem a chave primária: ${o?.onConflict}`)
                     // a CHECK sem a QUAL_ORCAMENTO (a 20261118000002 pendente): só ela é recusada
                     if ((estado.checkAntigo && !['NOME_PARECIDO', 'SEM_NOME', 'CONFIRMAR_ACRESCIMO'].includes(String(carga.pergunta)))
-                        || (estado.checkSemQualOrcamento && carga.pergunta === 'QUAL_ORCAMENTO')) {
+                        || (estado.checkSemQualOrcamento && carga.pergunta === 'QUAL_ORCAMENTO')
+                        || (estado.checkSemDaImagem && carga.pergunta === 'CONFIRMAR_DA_IMAGEM')) {
                         return Promise.resolve({ data: null, error: { code: '23514', message: 'new row violates check constraint "orcamentista_pergunta_em_aberto_pergunta_valida"' } })
                     }
                     const linhas = (estado.db[tabela] ??= [])
@@ -725,7 +729,11 @@ beforeEach(() => {
             }
             // a mensagem desta vez é a ÚLTIMA (o histórico vem antes, 03/11/2026)
             const mensagens = corpo.messages as Array<{ content: unknown }>
-            const pelaMensagem = estado.llmPeloPrompt?.(String(mensagens[mensagens.length - 1].content), textoDoSistema(corpo.system))
+            // com a foto (18/11/2026), a mensagem é uma lista de blocos: vão os de texto (a instrução da foto e o marcador), um por linha
+            const ultimaMensagem = mensagens[mensagens.length - 1].content
+            const textoDaUltima = Array.isArray(ultimaMensagem)
+                ? (ultimaMensagem as Array<{ type: string; text?: string }>).filter((b) => b.type === 'text').map((b) => b.text).join('\n') : String(ultimaMensagem)
+            const pelaMensagem = estado.llmPeloPrompt?.(textoDaUltima, textoDoSistema(corpo.system))
             if (pelaMensagem) return respostaDaLlm(200, respostaComFerramenta(pelaMensagem), init)
             const proxima = estado.respostasDaLlm.shift() ?? { status: 200, corpo: respostaComFerramenta({}) }
             if (proxima === 'lanca') throw new Error('fetch failed')
@@ -1376,7 +1384,8 @@ describe('(8) a ferramenta NÃO vai strict; o esquema continua restrito por addi
 
     // a medida passou de 24 a 41 opcionais em 06/11/2026: os dados do levantamento (o cliente, as condições, o vendedor e a opção entre homônimos,
     // e os ambientes e a obs do item) — sem `strict`, o limite de 24 da gramática não se aplica
-    it('o esquema ENVIADO: UMA ferramenta, SEM `strict` (nem true nem false: o campo não vai), e a medida de hoje — 0 uniões, 41 opcionais', async () => {
+    // e a 42 em 18/11/2026: o `texto_da_imagem` (o texto copiado da foto ou do PDF, para conferir o nome, a cidade e o vidro)
+    it('o esquema ENVIADO: UMA ferramenta, SEM `strict` (nem true nem false: o campo não vai), e a medida de hoje — 0 uniões, 42 opcionais', async () => {
         await chamar('oi')
         const tools = estado.chamadasDaLlm[0].corpo.tools as Array<Record<string, unknown>>
         expect(tools).toHaveLength(1)
@@ -1384,7 +1393,7 @@ describe('(8) a ferramenta NÃO vai strict; o esquema continua restrito por addi
         expect(JSON.stringify(estado.chamadasDaLlm[0].corpo)).not.toContain('"strict"')
         const { unioes, opcionais } = contar(tools[0].input_schema)
         expect(unioes).toBe(0)
-        expect(opcionais).toBe(41)
+        expect(opcionais).toBe(42)
     })
 })
 
@@ -6840,6 +6849,195 @@ describe('(30) a FOTO e o PDF do vendedor (dono do produto, 18/11/2026): baixado
         expect(ultima.content.map((b) => b.type)).toEqual(['document', 'text', 'text'])
         expect(enviados()).toEqual(['Recebi o PDF “Obra Pedro.pdf”, mas o serviço de IA não conseguiu abrir o PDF (ele lê até 600 páginas, sem senha): mande só as páginas dos itens, ou uma foto.'])
         expect(linhaIa().join('\n')).toEqual(expect.stringContaining('midia=pdf:recusada_pela_ia'))
+    })
+
+    // ═════ O LIDO SÓ DA IMAGEM (o defeito de 18/11/2026, 18:42): o nome escrito na foto caía na guarda do nome ═════
+    describe('(30b) o nome, a cidade e o vidro lidos SÓ da foto pedem um "sim" curto antes de gravar; o da legenda segue direto', () => {
+        /** A foto do caso, como chegou: sem legenda — o texto da mensagem é só "[imagem]". */
+        const semLegenda = () => foto({ caption: undefined })
+        const LIDO = 'janela de correr 2 folhas - 1,50 x 1,20\njanela maxim ar - 0,80 x 0,60\n\nAlfredo Soares\nBarao'
+        const CORRER = { tipologia: 'DP-02', largura_mm: 1500, altura_mm: 1200, quantidade: 1 }
+        const MAXIM = { tipologia: 'DP-01', largura_mm: 800, altura_mm: 600, quantidade: 1 }
+        const daFoto = (sobre: Record<string, unknown> = {}) =>
+            llmResponde({ nome: 'Alfredo Soares', texto_da_imagem: LIDO, dados_do_cliente: { endereco: 'Barao' }, itens: [{ ...CORRER }, { ...MAXIM }], ...sobre })
+        const aberta = () => (estado.db.orcamentista_pergunta_em_aberto ?? [])[0]
+        const FRASE = 'Li na foto: é do “Alfredo Soares”, de “Barao”?'
+
+        it('O CASO: a foto com duas esquadrias, o nome e a cidade, e o texto "[imagem]" — pergunta "é do Alfredo Soares, de Barao?" e NÃO grava', async () => {
+            estado.download = { bytes: FOTO }
+            daFoto()
+            await chamarComMidia(semLegenda())
+            expect(entradasGravadas()).toEqual(['[imagem]'])
+            expect(ultimoEnviado()).toBe(FRASE)
+            expect(levantamentos()).toEqual([])
+            expect(aberta()).toEqual(expect.objectContaining({ pergunta: 'CONFIRMAR_DA_IMAGEM', nome: 'Alfredo Soares', levantamentos: [], dados_da_imagem: { endereco: 'Barao' } }))
+            expect((aberta().itens as Linha[]).map((i) => [i.largura_mm, i.altura_mm])).toEqual([[1500, 1200], [800, 600]])
+            const ia = linhaIa().join('\n')
+            expect(ia).toContain('rota=DA_IMAGEM')
+            expect(ia).toContain('nome=da_imagem')
+            expect(ia).toContain('da_imagem=perguntou')
+            // o texto lido da foto nunca vai ao log
+            expect(erros.some((l) => l.includes('Alfredo') || l.includes('Barao'))).toBe(false)
+        })
+
+        it('o "sim": o levantamento "Alfredo Soares" nasce com a cidade "Barao" e as DUAS esquadrias da foto', async () => {
+            estado.download = { bytes: FOTO }
+            daFoto()
+            await chamarComMidia(semLegenda())
+            llmResponde({ confirma: true, itens: [] })
+            await chamar('sim')
+            expect(levantamentos()).toHaveLength(1)
+            expect(levantamentos()[0]).toEqual(expect.objectContaining({ nome: 'Alfredo Soares', endereco: 'Barao' }))
+            expect(itensDe(levantamentos()[0].id).map((i) => [i.largura_mm, i.altura_mm])).toEqual([[1500, 1200], [800, 600]])
+            const ia = linhaIa().slice(-1)[0]
+            expect(ia).toContain('nome=da_imagem')
+            expect(ia).toContain('da_imagem=confirmou')
+        })
+
+        it('o "não": nada é gravado, as esquadrias ficam anotadas e a pergunta é de quem é', async () => {
+            estado.download = { bytes: FOTO }
+            daFoto()
+            await chamarComMidia(semLegenda())
+            llmResponde({ confirma: false, itens: [] })
+            await chamar('não')
+            expect(levantamentos()).toEqual([])
+            expect(ultimoEnviado()).toBe('Certo, não é do “Alfredo Soares”. Os itens da foto ficam anotados: me diga de quem é o levantamento.')
+            expect(aberta()).toEqual(expect.objectContaining({ pergunta: 'SEM_NOME' }))
+            expect(aberta().itens as Linha[]).toHaveLength(2)
+            expect(linhaIa().slice(-1)[0]).toContain('da_imagem=recusou')
+        })
+
+        it('nem sim nem não: a mesma confirmação, em outras palavras — nunca grava', async () => {
+            estado.download = { bytes: FOTO }
+            daFoto()
+            await chamarComMidia(semLegenda())
+            llmResponde({ itens: [] })
+            await chamar('hmm')
+            expect(levantamentos()).toEqual([])
+            expect(ultimoEnviado()).toBe('Só para eu não anotar errado: o levantamento da foto é do “Alfredo Soares”, de “Barao”? Me responda sim ou me diga de quem é.')
+            expect(aberta()).toEqual(expect.objectContaining({ pergunta: 'CONFIRMAR_DA_IMAGEM', dados_da_imagem: { endereco: 'Barao' } }))
+        })
+
+        it('o VIDRO só da foto entra na confirmação e, no "sim", é gravado', async () => {
+            estado.download = { bytes: FOTO }
+            daFoto({ texto_da_imagem: `${LIDO}\nvidro 4mm`, itens: [{ ...CORRER, vidro: '4mm' }] })
+            await chamarComMidia(semLegenda())
+            expect(ultimoEnviado()).toBe('Li na foto: é do “Alfredo Soares”, de “Barao”, com vidro “4mm”?')
+            expect(aberta().dados_da_imagem).toEqual({ endereco: 'Barao', vidros: ['4mm'] })
+            llmResponde({ confirma: true, itens: [] })
+            await chamar('sim')
+            expect(itensDe(levantamentos()[0].id).map((i) => i.vidro)).toEqual(['4mm'])
+        })
+
+        it('A LEGENDA com o nome segue DIRETO, como hoje: nenhuma confirmação, e o vidro só da foto continua podado', async () => {
+            estado.download = { bytes: FOTO }
+            daFoto({ texto_da_imagem: `${LIDO}\nvidro 4mm`, itens: [{ ...CORRER, vidro: '4mm' }] })
+            await chamarComMidia(foto({ caption: 'Alfredo Soares' }))
+            expect(levantamentos()).toEqual([expect.objectContaining({ nome: 'Alfredo Soares' })])
+            expect(itensDe(levantamentos()[0].id).map((i) => i.vidro ?? null)).toEqual([null])
+            const ia = linhaIa().join('\n')
+            expect(ia).not.toContain('da_imagem=')
+            expect(ia).toContain('nome=veio')
+        })
+
+        it('SEM a 20261118000004 (a CHECK recusa a CONFIRMAR_DA_IMAGEM): a conversa pergunta de quem é, como antes, e o log diz', async () => {
+            estado.checkSemDaImagem = true
+            estado.download = { bytes: FOTO }
+            daFoto()
+            await chamarComMidia(semLegenda())
+            expect(ultimoEnviado()).toBe(conversa.FRASE_SEM_NOME)
+            expect(levantamentos()).toEqual([])
+            expect(aberta()).toEqual(expect.objectContaining({ pergunta: 'SEM_NOME' }))
+            expect(linhaIa().join('\n')).toContain('da_imagem=sem_migracao')
+        })
+
+        it('o nome que NÃO está no texto da foto (inventado) não vale: pergunta de quem é', async () => {
+            estado.download = { bytes: FOTO }
+            daFoto({ nome: 'Joana Prado' })
+            await chamarComMidia(semLegenda())
+            expect(ultimoEnviado()).toBe(conversa.FRASE_SEM_NOME)
+            expect(linhaIa().join('\n')).not.toContain('da_imagem=')
+        })
+
+        it('sem o texto copiado da foto, nada muda: pergunta de quem é', async () => {
+            estado.download = { bytes: FOTO }
+            daFoto({ texto_da_imagem: undefined })
+            await chamarComMidia(semLegenda())
+            expect(ultimoEnviado()).toBe(conversa.FRASE_SEM_NOME)
+        })
+
+        it('numa mensagem de TEXTO, o `texto_da_imagem` que o modelo mandar é ignorado (não há foto)', async () => {
+            llmResponde({ nome: 'Alfredo Soares', texto_da_imagem: LIDO, itens: [{ ...CORRER }] })
+            await chamar('janela de correr 1,50 x 1,20')
+            expect(ultimoEnviado()).toBe(conversa.FRASE_SEM_NOME)
+            expect(linhaIa().join('\n')).toContain('nome=fora_do_texto')
+        })
+
+        it('com um levantamento EM MONTAGEM, a foto de OUTRO cliente sai da montagem e pergunta — nenhuma esquadria entra no da montagem', async () => {
+            llmResponde({ nome: 'Casa do João', itens: [{ tipologia: 'DP-02', largura_mm: 1200 }] })
+            await chamar('Levantamento Casa do João, uma janela de correr 1200 de largura')
+            expect(levantamentos()).toEqual([expect.objectContaining({ nome: 'Casa do João', estado: 'EM_MONTAGEM' })])
+            const antes = itensDe(levantamentos()[0].id).length
+            estado.download = { bytes: FOTO }
+            daFoto()
+            await chamarComMidia(semLegenda())
+            expect(ultimoEnviado()).toBe(FRASE)
+            expect(levantamentos()).toHaveLength(1)
+            expect(itensDe(levantamentos()[0].id)).toHaveLength(antes)
+            expect(linhaIa().slice(-1)[0]).toContain('montagem=outro_cliente')
+        })
+
+        /**
+         * (a) O MODELO EXTRAI O CLIENTE DA FOTO (o diagnóstico do dono do produto, 18/11/2026, no log da Vercel: `nome=faltou` — o modelo leu as duas
+         * esquadrias e devolveu o cliente VAZIO, porque as regras do nome só falavam do que o vendedor ESCREVEU NA MENSAGEM). O modelo falso daqui
+         * lê a foto do caso e só põe o nome solto do rodapé no cliente — e a cidade no endereço — se o PEDIDO lhe disser que a foto é o vendedor
+         * escrevendo e que o nome solto é o cliente; sem isso, devolve o que o de produção devolveu. É a prova do PEDIDO, não do modelo de verdade:
+         * essa só se faz com a foto enviada de novo, depois do deploy.
+         */
+        const modeloQueLeAFoto = () => {
+            estado.llmPeloPrompt = (mensagem, sistema) => {
+                if (!mensagem.startsWith('A mensagem do vendedor traz uma FOTO')) return null
+                const regra = /Um nome de pessoa SOLTO, sem rótulo, numa linha à parte antes ou depois da lista de itens, é o CLIENTE/.test(sistema)
+                    && /Um nome de pessoa solto, numa linha à parte da lista de itens, é o CLIENTE/.test(mensagem)
+                return { texto_da_imagem: LIDO, itens: [{ ...CORRER }, { ...MAXIM }], ...(regra ? { cliente: 'Alfredo Soares', nome: 'Alfredo Soares', dados_do_cliente: { endereco: 'Barao' } } : {}) }
+            }
+        }
+
+        it('(a) + (b) DE PONTA A PONTA: o pedido diz que o nome solto da foto é o cliente; o modelo o devolve; a guarda o aceita COM a confirmação; o "sim" grava', async () => {
+            estado.download = { bytes: FOTO }
+            modeloQueLeAFoto()
+            await chamarComMidia(semLegenda())
+            expect(linhaIa().join('\n')).toContain('nome=da_imagem')
+            expect(ultimoEnviado()).toBe(FRASE)
+            expect(levantamentos()).toEqual([])
+            estado.llmPeloPrompt = null
+            llmResponde({ confirma: true, itens: [] })
+            await chamar('sim')
+            expect(levantamentos()).toEqual([expect.objectContaining({ nome: 'Alfredo Soares', endereco: 'Barao' })])
+            expect(itensDe(levantamentos()[0].id).map((i) => [i.tipologia, i.largura_mm, i.altura_mm])).toEqual([['DP-02', 1500, 1200], ['DP-01', 800, 600]])
+        })
+
+        it('(a) o pedido à IA com a foto: o sistema diz que a foto é o vendedor escrevendo e que o nome solto é o CLIENTE; a instrução da foto também', async () => {
+            estado.download = { bytes: FOTO }
+            daFoto()
+            await chamarComMidia(semLegenda())
+            const pedido = comFerramenta()[0].corpo
+            const sistema = textoDoSistema(pedido.system)
+            expect(sistema).toContain('- FOTO ou PDF: o que está escrito nele é o vendedor escrevendo — vale como esta mensagem para o nome, o cliente, a cidade e o vidro.')
+            expect(sistema).toContain('é o CLIENTE — igual a uma mensagem que termina com "Cliente: Fulano": ponha-o em cliente e em nome.')
+            expect(sistema).toContain('é a cidade da obra: ponha em dados_do_cliente.endereco')
+            const instrucao = (pedido.messages as Array<{ content: Array<{ type: string; text?: string }> }>).slice(-1)[0].content[1].text
+            expect(instrucao).toContain('Um nome de pessoa solto, numa linha à parte da lista de itens, é o CLIENTE (cliente e nome); o lugar escrito junto dele é a cidade (dados_do_cliente.endereco).')
+        })
+
+        it('a instrução da foto pede o texto copiado em texto_da_imagem', async () => {
+            estado.download = { bytes: FOTO }
+            daFoto()
+            await chamarComMidia(semLegenda())
+            const ultima = (comFerramenta()[0].corpo.messages as Array<{ content: Array<{ type: string; text?: string }> }>).slice(-1)[0]
+            expect(ultima.content[1].text).toContain('Copie em texto_da_imagem todo o texto escrito na foto')
+            expect(ultima.content[2].text).toBe('[imagem]')
+        })
     })
 
     it('a mensagem de TEXTO continua indo ao modelo como texto puro (o pedido de antes, byte a byte)', async () => {
