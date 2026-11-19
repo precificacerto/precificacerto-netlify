@@ -4,7 +4,7 @@
  * (DP-02 altura 388 a 2.439, largura sem limite; DP-100 altura 1.736 a 3.036).
  */
 import {
-    PEDIDO_DE_CONFIRMAR_A_MEDIDA, aberturaCompativel, blocosDaFicha, trechosDoAcumulado, aberturaDaDescricao, aberturaDita, aberturaDoItem, cabeNosLimites, filtrarPorAbertura,
+    PEDIDO_DE_CONFIRMAR_A_MEDIDA, ALTURA_DA_PORTA_MM, aberturaPelaAltura, medidasNaOrdemEscrita, vocabularioDaObra, aberturaCompativel, blocosDaFicha, trechosDoAcumulado, aberturaDaDescricao, aberturaDita, aberturaDoItem, cabeNosLimites, filtrarPorAbertura,
     descricaoNoPrompt, fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, limitesNoPrompt, numeroOuNulo, palavrasDeAbertura, type CandidatoParaAProposta,
 } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { CRITERIOS_DO_AGRUPAMENTO, agruparIguais, itemCompleto, itemVazio, type ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
@@ -282,5 +282,33 @@ describe('A FICHA POR ITEM (o caso Daiane Pilger, 18/11/2026): a largura e a alt
     })
     it('a mensagem sem rótulo nenhum não muda: a linha "N x N" continua sendo a única medida', () => {
         expect(trechosDoAcumulado(['1 janela maxim ar 60 x 60'], ['Maxim-ar']).map((t) => t.medidas)).toEqual([[{ largura_mm: 600, altura_mm: 600 }]])
+    })
+})
+
+describe('AS REGRAS DO DIRCEU GONZALEZ (dono do produto, 19/11/2026): a ordem das medidas e a altura que decide', () => {
+    it('a altura de 2,00 m ou mais é porta; abaixo, janela', () => {
+        expect(ALTURA_DA_PORTA_MM).toBe(2000)
+        expect(aberturaPelaAltura(2000)).toBe('porta')
+        expect(aberturaPelaAltura(1999)).toBe('janela')
+    })
+    it('a persiana sem palavra de abertura ganha a da altura: 1,40 é janela, 2,40 é porta; sem medida, janela como antes', () => {
+        expect(vocabularioDaObra('Persiana - 1,80 x 1,40', ['Correr'])).toBe('Persiana - 1,80 x 1,40 [janela de correr com persiana]')
+        expect(vocabularioDaObra('Persiana - 2,20 x 2,40', ['Correr'])).toBe('Persiana - 2,20 x 2,40 [porta de correr com persiana]')
+        expect(vocabularioDaObra('Persiana', ['Correr'])).toBe('Persiana [janela de correr com persiana]')
+    })
+    it('a linha sem palavra e com uma medida tem a abertura da altura; com a palavra, a palavra', () => {
+        expect(trechosDoAcumulado(['1,50 x 1,20'], ['Correr'])[0].abertura).toBe('janela')
+        expect(trechosDoAcumulado(['2,10 x 2,20'], ['Correr'])[0].abertura).toBe('porta')
+        expect(trechosDoAcumulado(['porta 1,80 x 1,40'], ['Correr'])[0].abertura).toBe('porta')
+        expect(trechosDoAcumulado(['POrta janela de correr - 2,20 x 2,40'], ['Correr'])[0].abertura).toBe('porta')
+    })
+    it('A ALTURA É A SEGUNDA MEDIDA: a proposta trocada volta à ordem escrita; a que está na ordem, ou cujo par foi escrito, fica', () => {
+        expect(medidasNaOrdemEscrita({ largura_mm: 1200, altura_mm: 1500 }, ['janela 1,50 x 1,20'])).toEqual({ largura_mm: 1500, altura_mm: 1200 })
+        const naOrdem = { largura_mm: 1500, altura_mm: 1200 }
+        expect(medidasNaOrdemEscrita(naOrdem, ['janela 1,50 x 1,20'])).toBe(naOrdem)
+        const asDuas = { largura_mm: 1200, altura_mm: 1500 }
+        expect(medidasNaOrdemEscrita(asDuas, ['1,50 x 1,20', '1,20 x 1,50'])).toBe(asDuas)
+        const semLinha = { largura_mm: 1200, altura_mm: 1500 }
+        expect(medidasNaOrdemEscrita(semLinha, ['sem medida'])).toBe(semLinha)
     })
 })
