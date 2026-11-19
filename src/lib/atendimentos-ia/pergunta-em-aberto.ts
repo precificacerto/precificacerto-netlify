@@ -61,7 +61,12 @@ export type PerguntaEmAberto = {
 }
 
 /** O que a CONFIRMAR_DA_IMAGEM guarda em `dados_da_imagem` (20261118000004): a cidade e os vidros lidos só da imagem. */
-export type DadosDaImagem = { endereco?: string; vidros?: string[] }
+/**
+ * `texto` (19/11/2026): o texto lido da foto, para o turno do "sim" ler as linhas dela (a altura que decide janela ou porta, a persiana que é de
+ * correr) — sem ele o "sim" só tinha o marcador "[imagem]" e perguntava o que a foto já dizia (o caso do Dirceu Gonzalez). Fica só aqui, na
+ * pergunta em aberto, e sai com ela: não vai à conversa gravada nem ao log.
+ */
+export type DadosDaImagem = { endereco?: string; vidros?: string[]; texto?: string }
 
 /** A leitura de `dados_da_imagem`: só texto não vazio; o resto é ausente (nunca o default). */
 export function lerDadosDaImagem(bruto: unknown): DadosDaImagem {
@@ -70,6 +75,7 @@ export function lerDadosDaImagem(bruto: unknown): DadosDaImagem {
     if (typeof o.endereco === 'string' && o.endereco.trim()) d.endereco = o.endereco.trim()
     const vidros = Array.isArray(o.vidros) ? o.vidros.filter((v): v is string => typeof v === 'string' && v.trim() !== '').map((v) => v.trim()) : []
     if (vidros.length) d.vidros = vidros
+    if (typeof o.texto === 'string' && o.texto.trim()) d.texto = o.texto.trim()
     return d
 }
 
