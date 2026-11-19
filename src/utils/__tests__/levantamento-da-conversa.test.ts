@@ -1566,3 +1566,30 @@ describe('(ORC) o custo do orçamento I.A. pelo CAMINHO COMPLETO, e a reconcilia
         expect('recusas' in r && r.recusas).toEqual([m.texto])
     })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('(19) a PEÇA QUE NINGUÉM PEDIU no cálculo (dono do produto, 19/11/2026): o item gravado sem a escolha não leva a travessa do padrão', () => {
+    // sintéticas, na forma da DP-72 de produção (motor 259035a9): a UT com Padrão 1 = SIM e uma peça de travessa com a condição (UT=1)
+    const comTravessa = () => {
+        const v = (banco.db.orcamentista_motor_variavel as Array<Record<string, unknown>>).find((x) => x.tipologia === 'DP-02') as Record<string, unknown>
+        ;(banco.db.orcamentista_motor_variavel as Array<Record<string, unknown>>).push({ ...v, id: 'v-ut', variavel: 'UT', descricao: 'USA TRAVESSA?', padrao: '1', opcoes: '1 = SIM; 2 = NÃO', condicao: null, min_max: null, ordem: 9999 })
+        const p = (banco.db.orcamentista_motor_perfil as Array<Record<string, unknown>>).find((x) => x.tipologia === 'DP-02') as Record<string, unknown>
+        ;(banco.db.orcamentista_motor_perfil as Array<Record<string, unknown>>).push({ ...p, id: 'p-trv', perfil: 'TRV/WOLFF', descricao: 'TRAVESSA', condicao: '(UT=1)', ordem: 9999 })
+    }
+    const calcular = async (escolhas: Record<string, number>) => {
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        if (!('candidatos' in t)) throw new Error('era para ler a lista: ' + t.frase)
+        return M().mensagemDoLevantamento(TENANT, t, lev({ escolhas }))
+    }
+    it('sem a UT escolhida (o item 6 da Daiane, escolhas sem ela): a travessa NÃO entra — a conta é a de sempre, sem o TRV', async () => {
+        comTravessa()
+        const r = await calcular({ ARI: 4, ARE: 1, MAE: 2 })
+        expect(r.texto).not.toContain('TRV')
+        expect(semEtapa(r)).toEqual({ texto: TEXTO_QUE_FECHA, desfecho: 'levantou' })
+    })
+    it('o contraste: a UT = 1 que o vendedor ESCOLHEU (gravada) leva a travessa — o TRV aparece', async () => {
+        comTravessa()
+        const r = await calcular({ ARI: 4, ARE: 1, MAE: 2, UT: 1 })
+        expect(r.texto).toContain('TRV')
+    })
+})

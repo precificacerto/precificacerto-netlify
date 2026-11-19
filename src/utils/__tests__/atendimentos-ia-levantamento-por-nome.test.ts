@@ -7341,6 +7341,28 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         expect(estado.documentos.slice(arquivos).filter((d) => !/^Orcamento/i.test(String(d.corpo.FileName)))).toEqual([])
         expect(linhaIa().pop()).toMatch(/ rota=ORCAMENTO .*qual_orcamento=1/)
     })
+    // A PEÇA QUE NINGUÉM PEDIU (dono do produto, 19/11/2026): a travessa do motor (UT, Padrão 1 = SIM) não entra em silêncio — o item gravado
+    // leva UT = 2 nas escolhas, e o rastro diz. Sintética: a UT na DP-02 da fixture, com a forma do motor 259035a9
+    const comTravessaNoMotor = () => {
+        const modelo = (estado.db.orcamentista_motor_variavel as Linha[]).find((v) => v.tipologia === 'DP-02') as Linha
+        ;(estado.db.orcamentista_motor_variavel as Linha[]).push({ ...modelo, id: 'v-ut', variavel: 'UT', descricao: 'USA TRAVESSA?', padrao: '1', opcoes: '1 = SIM; 2 = NÃO', condicao: null, min_max: null, ordem: 9999 })
+    }
+    it('A TRAVESSA NÃO PEDIDA: o item gravado leva UT = 2 (NÃO) nas escolhas, e a linha [IA] diz sem_peca_nao_pedida=1', async () => {
+        comTravessaNoMotor()
+        llmResponde({ nome: 'Daiane Pilger', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Daiane Pilger: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        const d = levantamentos().find((l) => l.nome === 'Daiane Pilger') as Linha
+        expect(itensDe(d.id).map((i) => (i.escolhas as Record<string, number> | null)?.UT)).toEqual([2])
+        expect(linhaIa().pop()).toMatch(/ sem_peca_nao_pedida=1(\s|$)/)
+        // sem a UT no motor, nada se acrescenta
+    })
+    it('sem a UT na tipologia, as escolhas do item não ganham nada e a linha [IA] não diz sem_peca_nao_pedida', async () => {
+        llmResponde({ nome: 'Daiane Pilger', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Daiane Pilger: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        const d = levantamentos().find((l) => l.nome === 'Daiane Pilger') as Linha
+        expect(itensDe(d.id).map((i) => 'UT' in ((i.escolhas as Record<string, number> | null) ?? {}))).toEqual([false])
+        expect(linhaIa().pop()).not.toContain('sem_peca_nao_pedida')
+    })
     it('o pedido de orçamento que TRAZ ESQUADRIA (muda o levantamento) não vale como o "sim": a mudança vai ao arquivo, para conferir', async () => {
         const antes = await levantamentoDaDaiane(true)
         llmResponde({ nome: 'daiane pilger', itens: [{ ...DP02, quantidade: 2 }] })

@@ -105,7 +105,7 @@
 import { descricaoNoPrompt, limitesNoPrompt, numeroOuNulo } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { supabaseAdmin } from '@/supabase/admin'
 import { COLUNAS_LIDAS, COLUNAS_OPCIONAIS, lerTipologia, variaveisDaAba, type AbasDoMotor, type AvisoDoAvaliador, type Tipologia } from '@/lib/atendimentos-ia/avaliador-de-formulas'
-import { descreverArremate, escolhasComPadrao, lerEscolhasGravadas, traduzirVocabulario, type VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
+import { descreverArremate, escolhasComPadrao, lerEscolhasGravadas, semAsPecasNaoPedidas, traduzirVocabulario, type VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import {
     formatarReais, levantarBarras,
     type ItemDaTabela, type RegraDoDePara, type ResultadoDoLevantamento,
@@ -1017,7 +1017,12 @@ async function calcularFamilia(
     faltas.push(...doBanco.faltas)
     if (doBanco.faltas.length) codigos.push(`ABAS_DO_MOTOR:${doBanco.faltas.length}`)
     // os valores das variáveis sem padrão (06/11/2026) chegam ao avaliador pela tipologia: sem ela, só as capturadas
-    const escolhas = itensDoGrupo.map((e, k) => lerEscolhasGravadas(e.escolhas, lidas[dg.esquadrias[k].tipologia] ?? null))
+    // A PEÇA NÃO PEDIDA (19/11/2026): no item gravado sem a escolha (o item 6 da Daiane, de antes), a opção que não acrescenta a peça, também aqui
+    const escolhas = itensDoGrupo.map((e, k) => {
+        const t = lidas[dg.esquadrias[k].tipologia] ?? null
+        const lidasDoItem = lerEscolhasGravadas(e.escolhas, t)
+        return t ? { ...semAsPecasNaoPedidas(t, lidasDoItem, null), ...lidasDoItem } : lidasDoItem
+    })
     dg.esquadrias.forEach((e, k) => { if (lidas[e.tipologia]) e.escolhas = descreverArremate(lidas[e.tipologia], escolhas[k]) })
     if (faltas.length) return { faltas, rotulos, codigos, caminhos: [] }
 
