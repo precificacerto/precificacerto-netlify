@@ -157,6 +157,8 @@ const estado = {
     colunasAusentes: new Set<string>(),
     /** A CHECK de `pergunta` como era antes da migração do apanhado: o valor novo é recusado com 23514. */
     checkAntigo: false,
+    /** a CHECK de pergunta sem a QUAL_ORCAMENTO (a migração 20261118000002 pendente, 18/11/2026) */
+    checkSemQualOrcamento: false,
     /** As LEITURAS feitas (18/11/2026): a tabela e os filtros por igualdade — para provar que o turno nem lê o levantamento fora do contexto. */
     leituras: [] as Array<{ tabela: string; filtros: Array<[string, unknown]> }>,
     /**
@@ -287,6 +289,7 @@ function montar() {
     estado.updateNaoAtinge = null
     estado.deleteNaoAtinge = null
     estado.checkAntigo = false
+    estado.checkSemQualOrcamento = false
     estado.leituras = []
     estado.redacoes = []
     estado.redacao = null
@@ -400,6 +403,9 @@ jest.mock('@/supabase/admin', () => ({
             q.update = (carga: Linha) => { atualizacao = carga; return q }
             q.then = (ok: (v: unknown) => unknown, erro?: (e: unknown) => unknown) => {
                 if (atualizacao) {
+                    // gravar numa coluna que a tabela não tem é PGRST204, como o PostgREST (a migração pendente)
+                    const semColunaNoUpdate = Object.keys(atualizacao).find((k) => estado.colunasAusentes.has(`${tabela}.${k}`))
+                    if (semColunaNoUpdate) return Promise.resolve({ data: null, error: { code: 'PGRST204', message: `Could not find the '${semColunaNoUpdate}' column of '${tabela}' in the schema cache` } }).then(ok, erro)
                     estado.escritas.push({ tabela, op: 'update', carga: atualizacao })
                     const atingidas = estado.updateNaoAtinge === tabela ? [] : (estado.db[tabela] ?? []).filter(casa)
                     for (const l of atingidas) Object.assign(l, atualizacao)
@@ -478,7 +484,9 @@ jest.mock('@/supabase/admin', () => ({
                     estado.escritas.push({ tabela, op: 'upsert', carga })
                     const chave = (o?.onConflict ?? '').split(',').map((x) => x.trim())
                     if (chave.join(',') !== 'tenant_id,remetente_id') throw new Error(`upsert sem a chave primária: ${o?.onConflict}`)
-                    if (estado.checkAntigo && !['NOME_PARECIDO', 'SEM_NOME', 'CONFIRMAR_ACRESCIMO'].includes(String(carga.pergunta))) {
+                    // a CHECK sem a QUAL_ORCAMENTO (a 20261118000002 pendente): só ela é recusada
+                    if ((estado.checkAntigo && !['NOME_PARECIDO', 'SEM_NOME', 'CONFIRMAR_ACRESCIMO'].includes(String(carga.pergunta)))
+                        || (estado.checkSemQualOrcamento && carga.pergunta === 'QUAL_ORCAMENTO')) {
                         return Promise.resolve({ data: null, error: { code: '23514', message: 'new row violates check constraint "orcamentista_pergunta_em_aberto_pergunta_valida"' } })
                     }
                     const linhas = (estado.db[tabela] ??= [])
@@ -2750,6 +2758,8 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
     const LINHA_DP01 = 'DP-01 | MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | Maxim-ar'
     const GERONIMO = 'Cliente: Geronimo Silva. Janela de correr 1,50x1,20 e porta janela 2,50x2,40, branco, temperado 5mm'
     const item = (k: number) => itensDe(levantamentos()[0].id)[k]
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const TP = require('@/lib/atendimentos-ia/tipologia-padrao') as typeof import('@/lib/atendimentos-ia/tipologia-padrao')
 
     it('a lista ao modelo leva código, descrição, tipo e os LIMITES compactos — e o cabeçalho diz que a medida sem L ou sem A não tem limite (nunca zero)', async () => {
         await chamar('oi')
@@ -2816,13 +2826,16 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
         expect(item(0).tipologia).toBe('DP-01')
     })
 
-    it('OS LIMITES: janela 1200 x 2500 não cabe na DP-02 (altura máx 2.439): a tipologia cai e a frase nomeia a medida e a faixa das que sobraram — nunca a mais próxima', async () => {
+    it('OS LIMITES, SEM a migração 20261118000001: janela 1200 x 2500 não cabe na DP-02 (altura máx 2.439): a tipologia cai e a frase nomeia a medida e a faixa das que sobraram — nunca a mais próxima', async () => {
+        // REVISTO em 18/11/2026 (decisão 1): com a migração, a medida fora do limite vira PEDIDO DE AUTORIZAÇÃO (bloco 39); sem ela, a frase de antes
+        estado.colunasAusentes = new Set(['orcamentista_levantamento_item.limite_tipologia'])
         llmResponde({ cliente: 'Ana', itens: [{ tipologia: 'DP-02', largura_mm: 1200, altura_mm: 2500, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm' }] })
         await chamar('Cliente: Ana. Janela de correr 1200 x 2500, branco, temperado 5mm')
         // sobraram, depois do filtro "janela": a DP-02 (388 a 2.439) e a DP-01 maxim-ar (sem limite no arquivo, que não conta)
         expect(ultimoEnviado()).toBe('Nenhuma tipologia de janela cabe em 1.200 x 2.500 mm: as alturas vão de 388 mm a 2.439 mm (a tipologia sem limite no arquivo não conta). ' + TC.PEDIDO_DE_CONFIRMAR_A_MEDIDA)
         expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, largura_mm: 1200, altura_mm: 2500 }))
         expect(linhaIa()[0]).toContain('desfecho=nenhuma-cabe')
+        expect(linhaIa()[0]).toMatch(/ limite=sem_migracao(\s|$)/)
     })
 
     it('OS LIMITES: NULL nunca descarta — a DP-02 não tem limite de largura, e 5.000 mm de largura passa', async () => {
@@ -2831,13 +2844,149 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
         expect(item(0)).toEqual(expect.objectContaining({ tipologia: 'DP-02', largura_mm: 5000 }))
     })
 
-    it('OS LIMITES na alteração: a medida nova que não cabe tira a tipologia gravada, e a frase sai', async () => {
+    it('OS LIMITES na alteração: a medida nova que não cabe tira a tipologia gravada, e a frase pede a AUTORIZAÇÃO para ela', async () => {
         await fecharDp02('Casa do João')
         llmResponde({ nome: 'Casa do João', alteracao: true, itens: [{ altura_mm: 3000 }] })
         await chamar('Levantamento Casa do João: troca a altura para 3000')
-        expect(ultimoEnviado()).toContain('Nenhuma tipologia do motor cabe em 1.200 x 3.000 mm')
+        // REVISTO em 18/11/2026 (decisão 1): era "Nenhuma tipologia do motor cabe em 1.200 x 3.000 mm"; agora, a autorização para a DP-02
+        const dp02 = (estado.db.orcamentista_motor_tipologia_detalhe as Linha[]).filter((c) => c.tipologia === 'DP-02').slice(0, 1)
+        expect(ultimoEnviado()).toBe(TP.fraseDoPedidoDeAutorizacao({ largura_mm: 1200, altura_mm: 3000 }, dp02 as never, dp02[0] as never))
+        expect(item(0)).toEqual(expect.objectContaining({ limite_tipologia: 'DP-02', limite_largura_mm: 1200, limite_altura_mm: 3000, limite_autorizado_por: null }))
         // a tipologia caiu, e com ela o que era dela: as escolhas gravadas, a família e o motor
         expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, altura_mm: 3000, escolhas: null, familia: null, motor_id: null }))
+    })
+
+    describe('A AUTORIZAÇÃO DA MEDIDA FORA DO LIMITE (dono do produto, 18/11/2026, decisão 1): pergunta, grava quem e quando, e sem resposta não calcula', () => {
+        const ANA = 'Cliente: Ana. Janela de correr 1200 x 2500, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50'
+        const FORA = { tipologia: 'DP-02', largura_mm: 1200, altura_mm: 2500, quantidade: 1, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm' }
+        const dp02 = () => (estado.db.orcamentista_motor_tipologia_detalhe as Linha[]).filter((c) => c.tipologia === 'DP-02').slice(0, 1)
+        const pedido = (largura_mm = 1200, altura_mm = 2500) => TP.fraseDoPedidoDeAutorizacao({ largura_mm, altura_mm }, dp02() as never, dp02()[0] as never)
+        const pedir = async () => {
+            llmResponde({ cliente: 'Ana', itens: [{ ...FORA }], escolhas: ESCOLHAS_QUE_FECHAM })
+            await chamar(ANA)
+        }
+
+        it('a medida que passa do limite PERGUNTA a autorização, nomeando a medida e o limite, e grava o pedido no item — sem tipologia, nada se calcula', async () => {
+            await pedir()
+            expect(ultimoEnviado()).toBe(pedido())
+            expect(pedido()).toBe('A medida 1.200 x 2.500 mm passa do limite do motor para “JANELA DE CORRER 02 FOLHAS MÓVEIS” (altura de 388 a 2.439 mm). Autoriza fabricar assim, fora do limite? Se a medida estiver errada, me mande a certa.')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, limite_tipologia: 'DP-02', limite_largura_mm: 1200, limite_altura_mm: 2500, limite_autorizado_por: null, limite_autorizado_em: null }))
+            expect(typeof item(0).limite_pedido_em).toBe('string')
+            expect(linhaIa()[0]).toMatch(/ limite=pediu:e1(\s|$)/)
+            expect(levantamentos()[0].estado).toBe('EM_MONTAGEM')
+        })
+
+        it('o pedido em aberto vai ao modelo como a pergunta em aberto da mensagem seguinte', async () => {
+            await pedir()
+            llmResponde({})
+            await chamar('oi')
+            expect(textoDoSistema(estado.chamadasDaLlm[1].corpo.system)).toContain(pedido())
+        })
+
+        it('"sim, pode fabricar": a tipologia pedida entra, a liberação grava QUEM (o remetente) e QUANDO, e a conversa segue até o arquivo para conferir', async () => {
+            await pedir()
+            llmResponde({ confirma: true })
+            await chamar('sim, pode fabricar assim')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: 'DP-02', limite_tipologia: 'DP-02', limite_largura_mm: 1200, limite_altura_mm: 2500, limite_autorizado_por: VENDEDOR }))
+            expect(typeof item(0).limite_autorizado_em).toBe('string')
+            expect(linhaIa()[1]).toMatch(/ limite=autorizou:e1(\s|$)/)
+            const casar = erros.filter((l) => l.startsWith(conversa.PREFIXO_DO_LOG_DA_ETAPA) && l.includes(' casar]')).pop() ?? ''
+            expect(/ assumidos=(\S+)/.exec(casar)?.[1]).toBe('e1:tipologia=DP-02/autorizado_fora_do_limite')
+            expect(ehConfirmacaoDoArquivo(ultimoEnviado())).toBe(true)
+        })
+
+        it('autorizada, a mesma medida não perde a tipologia nos turnos seguintes — o modelo reenviando a DP-02 continua valendo', async () => {
+            await pedir()
+            llmResponde({ confirma: true })
+            await chamar('sim, autorizo')
+            llmResponde({ itens: [{ ordem: 1, ...FORA }] })
+            await chamar(ANA)
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: 'DP-02', limite_autorizado_por: VENDEDOR }))
+            for (const e of enviados()) expect([e, e.includes('Autoriza fabricar')]).toEqual([e, e === pedido()])
+        })
+
+        it('sem resposta (a mensagem não diz sim nem não, e nada muda): o pedido se repete, e o item continua sem tipologia', async () => {
+            await pedir()
+            llmResponde({})
+            await chamar('ok')
+            expect(ultimoEnviado()).toBe(pedido())
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, limite_autorizado_por: null }))
+            for (const p of perguntasDaTipologia({ abertura: true, tipo: true })) expect([p, ultimoEnviado().includes(p)]).toEqual([p, false])
+        })
+
+        it('"não": a conversa pede a medida certa, e o pedido sai do item', async () => {
+            await pedir()
+            llmResponde({ confirma: false })
+            await chamar('não')
+            expect(ultimoEnviado()).toBe(TP.fraseDoForaDoLimite({ largura_mm: 1200, altura_mm: 2500 }, dp02() as never))
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, limite_tipologia: null, limite_largura_mm: null, limite_altura_mm: null, limite_pedido_em: null }))
+            expect(linhaIa()[1]).toMatch(/ limite=negou:e1(\s|$)/)
+        })
+
+        it('a medida que muda depois da liberação não a herda: a tipologia cai pelos limites e um pedido NOVO, com a medida nova, substitui o antigo', async () => {
+            await pedir()
+            llmResponde({ confirma: true })
+            await chamar('sim')
+            llmResponde({ itens: [{ ordem: 1, altura_mm: 2600 }] })
+            await chamar('a altura é 2600')
+            expect(ultimoEnviado()).toBe(pedido(1200, 2600))
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, limite_tipologia: 'DP-02', limite_altura_mm: 2600, limite_autorizado_por: null, limite_autorizado_em: null }))
+        })
+
+        it('a medida corrigida para DENTRO do limite: a tipologia entra sem pedido, e o pedido antigo sai do item', async () => {
+            await pedir()
+            llmResponde({ itens: [{ ordem: 1, tipologia: 'DP-02', altura_mm: 1000 }] })
+            await chamar('errei, a altura é 1000')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: 'DP-02', altura_mm: 1000, limite_tipologia: null, limite_pedido_em: null }))
+            expect(linhaIa()[1]).toMatch(/ limite=limpou:e1(\s|$)/)
+        })
+
+        it('"sim" com a medida TROCADA na mesma mensagem: a liberação não vale para a medida nova — o pedido novo, com a medida nova, sem autorização', async () => {
+            await pedir()
+            llmResponde({ confirma: true, itens: [{ ordem: 1, altura_mm: 2600 }] })
+            await chamar('sim, mas a altura é 2600')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, altura_mm: 2600, limite_tipologia: 'DP-02', limite_altura_mm: 2600, limite_autorizado_por: null }))
+            expect(ultimoEnviado()).toBe(pedido(1200, 2600))
+        })
+
+        it('"não" com outra mudança junto (a quantidade): a resposta pede a medida certa — nunca o pedido de novo na mesma mensagem — e nenhum pedido fica', async () => {
+            await pedir()
+            llmResponde({ confirma: false, itens: [{ ordem: 1, quantidade: 2 }] })
+            await chamar('não, e são 2 unidades')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, quantidade: 2, limite_tipologia: null }))
+            expect(ultimoEnviado()).toContain(TP.fraseDoForaDoLimite({ largura_mm: 1200, altura_mm: 2500 }, dp02() as never))
+            expect(ultimoEnviado()).not.toContain('Autoriza fabricar')
+        })
+
+        it('o pedido que continua em aberto NÃO se regrava (o instante do pedido é o da primeira pergunta)', async () => {
+            await pedir()
+            estado.escritas = []
+            llmResponde({ itens: [{ ordem: 1, quantidade: 2 }] })
+            await chamar('são 2 unidades')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, quantidade: 2, limite_tipologia: 'DP-02' }))
+            const regravouOPedido = estado.escritas.filter((e) => e.tabela === 'orcamentista_levantamento_item' && e.op === 'update' && 'limite_pedido_em' in (e.carga as Linha))
+            expect(regravouOPedido).toEqual([])
+            expect(ultimoEnviado()).toContain(pedido())
+        })
+
+        it('sem a migração, com a montagem aberta: a leitura do pedido vira sem_migracao, a conversa segue, e nada é gravado no limite', async () => {
+            llmResponde({ cliente: 'Ana', itens: [{ ...FORA, altura_mm: 1000, vidro: undefined }] })
+            await chamar('Cliente: Ana. Janela de correr 1200 x 1000, 1 unidade, branco')
+            estado.colunasAusentes = new Set(['orcamentista_levantamento_item.limite_tipologia'])
+            llmResponde({ itens: [{ ordem: 1, altura_mm: 2500, vidro: 'Temperado 5mm' }] })
+            await chamar('a altura é 2500, temperado 5mm')
+            expect(linhaIa()[1]).toMatch(/ limite=sem_migracao(\s|$)/)
+            expect(ultimoEnviado()).not.toContain('Autoriza fabricar')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, altura_mm: 2500 }))
+        })
+
+        it('o "sim" sem pedido em aberto não autoriza nada', async () => {
+            llmResponde({ cliente: 'Ana', itens: [{ ...FORA, altura_mm: 1000 }], escolhas: ESCOLHAS_QUE_FECHAM, confirma: true })
+            await chamar('Cliente: Ana. Janela de correr 1200 x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50. sim')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: 'DP-02' }))
+            expect(item(0).limite_autorizado_por ?? null).toBeNull()
+            expect(linhaIa()[0]).not.toMatch(/ limite=/)
+        })
     })
 
     it('QUANTIDADE não dita é 1: sem a pergunta "Quantas unidades?", o item nasce com 1 e o apanhado diz 1 unidade', async () => {
@@ -4066,7 +4215,8 @@ describe('(32) as leituras antes do modelo vão em ondas: o que não depende de 
         const ondas = await ondasAte(() => estado.chamadasDaLlm.length > 0)
         await turno
         expect(estado.chamadasDaLlm).toHaveLength(1)
-        expect(ondas).toEqual([...ONDAS_DA_FAMILIA, ['orcamentista_levantamento_item', 'orcamentista_motor_variavel', 'orcamentista_pergunta_em_aberto']])
+        // REVISTO em 18/11/2026: o pedido de autorização da medida fora do limite, gravado no item, é lido na MESMA onda dos itens (uma ida a mais à tabela, não uma onda)
+        expect(ondas).toEqual([...ONDAS_DA_FAMILIA, ['orcamentista_levantamento_item', 'orcamentista_levantamento_item', 'orcamentista_motor_variavel', 'orcamentista_pergunta_em_aberto']])
     })
 
     it('a aba de Variáveis com mais de 1.000 linhas: a primeira página dá a contagem e as demais vão JUNTAS, e nenhuma linha se perde nem se repete', async () => {
@@ -4509,8 +4659,11 @@ describe('(37) Jorge Koss: o cliente no primeiro turno, as duas esquadrias até 
         // a "janela maxim ar" já sai com a maxim-ar PADRÃO (DP-01, dono do produto, 05/11/2026): só a porta fica sem tipologia
         expect(itens()[1]).toEqual(expect.objectContaining({ ordem: 2, tipologia: 'DP-01', largura_mm: 600, altura_mm: 600, quantidade: 1, vidro: 'mini boreal', cor_perfil: null }))
         expect(linhaIa()[0]).toMatch(/ tipologia_padrao=1(\s|$)/)
-        // a resposta pergunta a tipologia (a pergunta do modelo, que não traz código nem número), nunca a descrição completa de novo
-        expect(ultimoEnviado()).toContain('A porta de correr tem trilho embutido?')
+        // REVISTO em 18/11/2026 (dono do produto, decisão 2: "o agente sempre diz o que o impede"): este motor de teste não tem porta de correr de
+        // 2 folhas — a resposta diz que FALTA NO MOTOR, nomeando o que foi dito, em vez da pergunta do modelo pela mais próxima (a de 6 folhas)
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const TP = require('@/lib/atendimentos-ia/tipologia-padrao') as typeof import('@/lib/atendimentos-ia/tipologia-padrao')
+        expect(ultimoEnviado()).toContain(`Item 1: ${TP.fraseDaSemCandidata('porta de correr de 2 folhas')}`)
 
         // T2 — o vendedor reenvia a lista inteira (como fez em produção): nada se perde, nada duplica
         llmResponde({ itens: [{ ordem: 1, ...PORTA }, { ordem: 2, ...JANELA }] })
@@ -5082,7 +5235,11 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
         it('"janela maxim ar com bandeira 60 x 60" (a maxim-ar com bandeira só existe com modulação, que não tem natural): a pergunta fixa pede a descrição de novo — nunca "é janela ou porta? abre de correr?", nunca o que tem natural', async () => {
             llmResponde({ cliente: 'Ana', itens: [{ ...JANELA }] })
             await chamar('Cliente: Ana. 1 janela maxim ar com bandeira, mini boreal 60 x60')
-            expect(ultimoEnviado()).toBe(`${perguntasDaTipologia({ abertura: true, tipo: true })[0]} E me diga a cor do perfil.`)
+            // REVISTO em 18/11/2026 (decisão 2): este motor de teste não tem maxim-ar com bandeira — a resposta diz que falta no motor, com o extra
+            // dito, e o que mais falta (a cor) vai junto; nunca "é janela ou porta?", nunca o que tem natural
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const TP = require('@/lib/atendimentos-ia/tipologia-padrao') as typeof import('@/lib/atendimentos-ia/tipologia-padrao')
+            expect(ultimoEnviado()).toBe(`${TP.fraseDaSemCandidata('janela maxim-ar de 1 módulo', ['bandeira'])}\nQual a cor do perfil?`)
             expect(ultimoEnviado()).not.toContain('É janela ou porta?')
             expect(ultimoEnviado()).not.toContain('Abre de correr')
             // a resposta que não coube vai numa OUTRA forma do mesmo conjunto
@@ -6672,6 +6829,8 @@ describe('(31) O CASO DAIANE PILGER (18/11/2026): a maxim-ar de UM módulo tem u
         pergunta: { campo: 'tipologia', texto: 'Nas maxim-ar dos itens 2, 4, 5 e 7, qual destas é a que vai?' },
     }
     const doLevantamento = () => itensDe(levantamentos().find((l) => l.nome === 'Daiane Pilger')?.id)
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const TP = require('@/lib/atendimentos-ia/tipologia-padrao') as typeof import('@/lib/atendimentos-ia/tipologia-padrao')
 
     /** Toda pergunta de tipologia que a conversa sabe fazer, das funções — nunca transcrita (`assercao-negativa-que-nunca-falha.md`). */
     const PERGUNTAS_DE_TIPOLOGIA = [false, true].flatMap((abertura) => [false, true].flatMap((tipo) => [...perguntasDaTipologia({ abertura, tipo })]))
@@ -6710,6 +6869,135 @@ describe('(31) O CASO DAIANE PILGER (18/11/2026): a maxim-ar de UM módulo tem u
         await chamar(MENSAGEM)
         const tipologias = Object.fromEntries(doLevantamento().map((i) => [Number(i.ordem), i.tipologia]))
         expect([1, 2, 4, 5, 7].map((o) => [o, tipologias[o]])).toEqual([[1, null], [2, 'DP-132'], [4, 'DP-132'], [5, 'DP-132'], [7, 'DP-132']])
+        // O QUE IMPEDE (dono do produto, 18/11/2026, decisão 2): o item 1 diz a medida e o limite, e nada de "não achei" nem a pergunta do modelo — e,
+        // pela decisão 1 do mesmo dia, pede a AUTORIZAÇÃO para fabricar fora dele (a DP-132), gravada no item
+        const DP132 = estado.db.orcamentista_motor_tipologia_detalhe.filter((c: Linha) => c.tipologia === 'DP-132')
+        expect(enviados()).toHaveLength(1)
+        expect(enviados()[0].split('\n')).toContain(`Item 1: ${TP.fraseDoPedidoDeAutorizacao({ largura_mm: 700, altura_mm: 1200 }, DP132 as never, DP132[0] as never)}`)
+        expect(doLevantamento().find((i) => Number(i.ordem) === 1)).toEqual(expect.objectContaining({ tipologia: null, limite_tipologia: 'DP-132', limite_autorizado_por: null }))
+        for (const p of [...PERGUNTAS_DE_TIPOLOGIA, DO_MODELO.pergunta.texto]) expect([p, enviados()[0].includes(p)]).toEqual([p, false])
+    })
+
+    it('O QUE IMPEDE, item a item: dois itens que não fecham por razões diferentes recebem CADA UM a sua frase, e o modelo não fala por eles', async () => {
+        const MSG = '1. Item 01 — Janela\n- Tipologia: janela maxim-ar de correr.\n- Quantidade: 01 unidade.\n- Largura: 1.200 mm.\n- Altura: 1.000 mm.\n- Vidro: Incolor, temperado, espessura de 6 mm.\n'
+            + '2. Item 02 — Janela\n- Tipologia: janela basculante.\n- Quantidade: 01 unidade.\n- Largura: 800 mm.\n- Altura: 600 mm.\n- Vidro: Mini-boreal comum, espessura de 4 mm.\n\nCliente: Daiane Pilger'
+        const PERGUNTA = 'Qual das tipologias do catálogo é cada uma?'
+        llmResponde({ nome: 'Daiane Pilger', itens: [item(1, 1200, 1000, T6), item(2, 800, 600, MB)], pergunta: { campo: 'tipologia', texto: PERGUNTA } })
+        await chamar(MSG)
+        const tipos = [...new Set(estado.db.orcamentista_motor_tipologia_detalhe.filter((c: Linha) => c.motor_id === MOTOR).map((c: Linha) => c.tipo as string))]
+        expect(doLevantamento().map((i) => i.tipologia)).toEqual([null, null])
+        expect(enviados()).toHaveLength(1)
+        const linhas = enviados()[0].split('\n')
+        expect(linhas.slice(0, 2)).toEqual([`Item 1: ${TP.fraseDosTiposDitos(['Maxim-ar', 'Correr'])}`, `Item 2: ${TP.fraseDoTipoForaDoMotor(tipos)}`])
+        for (const p of [...PERGUNTAS_DE_TIPOLOGIA, PERGUNTA]) expect([p, enviados()[0].includes(p)]).toEqual([p, false])
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedido de ORÇAMENTO busca orçamentos; o de LEVANTAMENTO, levantamentos — e o desempate nunca pergunta endereço', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const R = require('@/lib/atendimentos-ia/resgate-do-orcamento') as typeof import('@/lib/atendimentos-ia/resgate-do-orcamento')
+    const levantamentoDe = (nome: string) => levantamentos().find((l) => l.nome === nome) as Linha
+    const orcamentoDe = (nome: string) => (estado.db.orcamentista_orcamento as Linha[]).find((o) => o.levantamento_id === levantamentoDe(nome).id) as Linha
+    const comCidade = (nome: string, cidade: string) => { levantamentoDe(nome).endereco = cidade }
+
+    it('UM orçamento com o nome: o arquivo dele vai de novo, sem texto, e nada é recalculado nem gravado no levantamento', async () => {
+        await fecharDp02('Casa do João')
+        const documentos = estado.documentosDoOrcamento.length
+        const orcamentos = (estado.db.orcamentista_orcamento as Linha[]).length
+        llmResponde({ nome: 'Casa do João' })
+        await chamar('quero o orçamento da Casa do João')
+        expect(estado.documentosDoOrcamento).toHaveLength(documentos + 1)
+        expect((estado.db.orcamentista_orcamento as Linha[])).toHaveLength(orcamentos)
+        expect(linhaIa().pop()).toMatch(/ rota=ORCAMENTO .* desfecho=orcamento-reenviado .*qual_orcamento=1/)
+    })
+
+    it('MAIS DE UM: a lista, do mais recente ao mais antigo, separada pela CIDADE — e "o 2" manda o arquivo do segundo', async () => {
+        await fecharDp02('Ana Souza')
+        await fecharDp02('Ana Lima')
+        comCidade('Ana Souza', 'Sapiranga')
+        comCidade('Ana Lima', 'Novo Hamburgo')
+        llmResponde({ nome: 'Ana' })
+        await chamar('me manda o orçamento da Ana')
+        const lista = R.ordemDoOrcamento([orcamentoDe('Ana Souza'), orcamentoDe('Ana Lima')].map((o) => ({
+            orcamentoId: String(o.id), levantamentoId: String(o.levantamento_id), numero: Number(o.numero), nome: String(o.nome), criado_em: String(o.criado_em),
+            cidade: o.levantamento_id === levantamentoDe('Ana Souza').id ? 'Sapiranga' : 'Novo Hamburgo', valor: Number(o.valor_venda), familias: ['PVC'],
+        })))
+        expect(ultimoEnviado()).toBe(R.fraseDeQualOrcamento('Ana', lista))
+        expect(ultimoEnviado()).toContain('— Sapiranga')
+        expect(ultimoEnviado().toLowerCase()).not.toContain('endereço')
+        expect((estado.db.orcamentista_pergunta_em_aberto as Linha[])[0]).toEqual(expect.objectContaining({ pergunta: 'QUAL_ORCAMENTO', nome: 'Ana', levantamentos: lista.map((o) => o.levantamentoId) }))
+        const documentos = estado.documentosDoOrcamento.length
+        llmResponde({ opcao: 2 })
+        await chamar('o segundo')
+        expect(estado.documentosDoOrcamento).toHaveLength(documentos + 1)
+        expect(linhaIa().pop()).toContain(`levantamento=${lista[1].levantamentoId} rota=ORCAMENTO`)
+        expect(estado.db.orcamentista_pergunta_em_aberto ?? []).toEqual([])
+    })
+
+    it('só entram orçamentos COM VALOR e NÃO ARQUIVADOS: o sem valor e o arquivado ficam fora, e o que sobra vai sozinho', async () => {
+        await fecharDp02('Ana Souza')
+        await fecharDp02('Ana Lima')
+        await fecharDp02('Ana Prado')
+        orcamentoDe('Ana Lima').valor_venda = null
+        Object.assign(orcamentoDe('Ana Prado'), { deleted_at: '2026-11-18T10:00:00.000Z', deleted_by: 'u-tela' })
+        const documentos = estado.documentosDoOrcamento.length
+        llmResponde({ nome: 'Ana' })
+        await chamar('me manda o orçamento da Ana')
+        expect(estado.documentosDoOrcamento).toHaveLength(documentos + 1)
+        expect(linhaIa().pop()).toContain(`levantamento=${levantamentoDe('Ana Souza').id} rota=ORCAMENTO`)
+    })
+
+    it('a resposta que não aponta nenhum: a lista de novo, em outras palavras — nenhum arquivo', async () => {
+        await fecharDp02('Ana Souza')
+        await fecharDp02('Ana Lima')
+        llmResponde({ nome: 'Ana' })
+        await chamar('me manda o orçamento da Ana')
+        const documentos = estado.documentosDoOrcamento.length
+        llmResponde({})
+        await chamar('hmm')
+        expect(ultimoEnviado()).toContain('Ainda não entendi qual orçamento de “Ana” é.')
+        expect(estado.documentosDoOrcamento).toHaveLength(documentos)
+    })
+
+    it('sem a migração 20261118000002: a lista vai, sem ficar guardada, e o log diz qual_orcamento=sem_migracao', async () => {
+        await fecharDp02('Ana Souza')
+        await fecharDp02('Ana Lima')
+        estado.checkSemQualOrcamento = true
+        llmResponde({ nome: 'Ana' })
+        await chamar('me manda o orçamento da Ana')
+        expect(ultimoEnviado()).toContain('Achei 2 orçamentos de “Ana”')
+        expect(linhaIa().pop()).toMatch(/ qual_orcamento=sem_migracao(\s|$)/)
+    })
+
+    it('NENHUM orçamento com o nome: segue o caminho do levantamento — o novo, com o nome dito', async () => {
+        llmResponde({ nome: 'Maria Cristina' })
+        await chamar('quero o orçamento da Maria Cristina')
+        expect(levantamentos().map((l) => l.nome)).toEqual(['Maria Cristina'])
+        expect(linhaIa().pop()).toMatch(/ rota=NOVO .*qual_orcamento=0/)
+    })
+
+    it('o pedido de LEVANTAMENTO não busca orçamentos: o caminho de sempre, pelo nome — e a lista afunila pela CIDADE quando a data empata', async () => {
+        await fecharDp02('Ana Souza')
+        await fecharDp02('Ana Lima')
+        comCidade('Ana Souza', 'Sapiranga')
+        comCidade('Ana Lima', 'Novo Hamburgo')
+        const documentos = estado.documentosDoOrcamento.length
+        llmResponde({ nome: 'Ana' })
+        await chamar('continua o levantamento da Ana')
+        expect(estado.documentosDoOrcamento).toHaveLength(documentos)
+        expect(linhaIa().pop()).toContain('rota=PARECIDO')
+        expect(ultimoEnviado()).toMatch(/1\) Ana Lima — Novo Hamburgo, completo\n2\) Ana Souza — Sapiranga, completo/)
+    })
+
+    it('o levantamento em montagem sem valor: com a mesma data e sem cidade, separa pela FAMÍLIA e, com ela igual, pela quantidade de itens', async () => {
+        await fecharDp02('Ana Souza')
+        await fecharDp02('Ana Lima')
+        const lima = levantamentoDe('Ana Lima')
+        ;(estado.db.orcamentista_levantamento_item as Linha[]).push({ ...(estado.db.orcamentista_levantamento_item as Linha[]).find((i) => i.levantamento_id === lima.id), id: 'item-extra', ordem: 2 })
+        llmResponde({ nome: 'Ana' })
+        await chamar('continua o levantamento da Ana')
+        expect(ultimoEnviado()).toMatch(/1\) Ana Lima — \d\d\/\d\d\/\d{4}, 2 itens, completo\n2\) Ana Souza — \d\d\/\d\d\/\d{4}, 1 item, completo/)
     })
 })
 

@@ -78,10 +78,13 @@ const PERGUNTAS_COM_TIPO_DITO = [
     'Ela é janela ou porta?',
     'Para eu achar o item certo: é janela ou porta?',
 ] as const
+// NUNCA "não achei no catálogo" (dono do produto, 18/11/2026, o caso Daiane Pilger): esta pergunta é a de RESERVA, quando a regra do padrão
+// nem chegou a dizer o que impede o item — afirmar que o catálogo não tem é dizer o que não foi medido. A falta do motor de verdade tem a
+// frase dela (`fraseDaSemCandidata`, `tipologia-padrao.ts`)
 const PERGUNTAS_COM_TUDO_DITO = [
-    'Não achei esse item no catálogo com o que você descreveu. Me diga como ele é na obra, do jeito que você vê.',
-    'Me descreva de novo o item, como ele é na obra: não achei um igual no catálogo.',
-    'Para eu achar o item certo, me conte de novo como ele é — não encontrei um igual no catálogo.',
+    'Com o que foi dito, ainda não consegui fechar o tipo deste item. Me diga como ele é na obra, do jeito que você vê.',
+    'Me descreva de novo este item, como ele é na obra: com o que veio, ainda não fechei o tipo dele.',
+    'Para eu fechar o tipo deste item, me conte de novo como ele é na obra.',
 ] as const
 /** As formas da pergunta da tipologia para o que já foi dito: a primeira é a fixa, as outras são as reformulações. */
 export function perguntasDaTipologia(jaDito: JaDito = NADA_DITO): readonly string[] {

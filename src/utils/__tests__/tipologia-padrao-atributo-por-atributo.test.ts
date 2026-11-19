@@ -5,7 +5,9 @@
  * As descrições são as do motor em uso (022fc55e, lidas em 11/11/2026, só leitura): o catálogo da plataforma, não dado de cliente.
  */
 import {
-    atributosDaDescricao, atributosDitos, daLinhaDita, atributosNoLog, oQueAEsquadriaE, origemDaTipologiaProposta, padraoDaEsquadria, tipologiaPadrao, fraseDaLinhaSemPadrao, fraseDoPadraoQueFalta, naturalDaQuantidade, tipoCurto,
+    atributosDaDescricao, atributosDitos, daLinhaDita, fraseDaJanelaSemTipo, fraseDosTiposDitos, fraseDoTipoForaDoMotor, fraseDosModulosDitos,
+    fraseDaSemCandidata, fraseDoForaDoLimite, fraseDoPedidoDeAutorizacao, limiteNaFrase, FRASE_SEM_ABERTURA, FRASE_DITO_SEM_REPRESENTACAO,
+    atributosNoLog, oQueAEsquadriaE, origemDaTipologiaProposta, padraoDaEsquadria, tipologiaPadrao, fraseDaLinhaSemPadrao, fraseDoPadraoQueFalta, naturalDaQuantidade, tipoCurto,
 } from '@/lib/atendimentos-ia/tipologia-padrao'
 import { tiposDitos } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import type { CandidatoDeTipologia } from '@/lib/atendimentos-ia/levantamento-da-conversa'
@@ -325,7 +327,8 @@ describe('O RASTRO DOS ATRIBUTOS (dono do produto, 12/11/2026): cada atributo da
         expect(so('janela fixa', 'janela')['modulação de travessa']).toBe('com/padrao_da_tipologia')
     })
     it('sem tipologia (um motivo), nenhum atributo: o rastro não afirma o que não foi decidido', () => {
-        expect(rastro('janela 1200 x 1000', 'janela')).toEqual({ decisao: { motivo: 'JANELA_SEM_TIPO' }, atributos: [] })
+        // e o que impede o item vem DITO (18/11/2026): a janela sem tipo pergunta como abre, com os tipos que o motor tem
+        expect(rastro('janela 1200 x 1000', 'janela')).toEqual({ decisao: { motivo: 'JANELA_SEM_TIPO' }, atributos: [], impedimento: fraseDaJanelaSemTipo([...new Set(CANDIDATOS.map((c) => c.tipo as string))]), paraAutorizar: null })
         const lacuna = rastro('porta de giro', 'porta')
         expect(lacuna.decisao).toMatchObject({ motivo: 'LACUNA' })
         expect(lacuna.atributos).toEqual([])
@@ -368,5 +371,61 @@ describe('A LINHA DE PRODUTO DITA NO BLOCO DO ITEM (18/11/2026): só a linha dit
     it('nenhuma linha dita, ou fora de ficha (sem bloco): a lista fica inteira', () => {
         expect(daLinhaDita(LINHAS, doBloco('- Vidro: 600 mm'))).toEqual(LINHAS)
         expect(daLinhaDita(LINHAS, [{ texto: 'Europa 60', abertura: 'janela' as const, tipos: new Set<string>() }])).toEqual(LINHAS)
+    })
+})
+
+describe('O QUE IMPEDE O ITEM, DITO (dono do produto, 18/11/2026, decisão 2): nenhum motivo do padrão fica sem frase', () => {
+    const TIPOS = [...new Set(CANDIDATOS.map((c) => c.tipo as string))]
+    const impede = (texto: string, abertura: 'porta' | 'janela' | null, candidatos = CANDIDATOS, i = item()) =>
+        padraoDaEsquadria(i, abertura, abertura === null ? [] : [trecho(texto, abertura)], candidatos)
+    it('dois tipos ditos: nomeia os dois e pergunta qual', () => {
+        expect(impede('janela maxim ar de correr', 'janela')).toEqual({ decisao: { motivo: 'TIPOS_DITOS' }, atributos: [], impedimento: fraseDosTiposDitos(['Correr', 'Maxim-ar']), paraAutorizar: null })
+        expect(fraseDosTiposDitos(['Correr', 'Maxim-ar'])).toBe('Para este item foram ditas duas aberturas, de correr ou maxim-ar: qual delas é?')
+    })
+    it('o tipo que o motor não tem: diz os tipos que ele tem', () => {
+        expect(impede('janela basculante', 'janela')).toEqual({ decisao: { motivo: 'TIPO_FORA_DO_MOTOR' }, atributos: [], impedimento: fraseDoTipoForaDoMotor(TIPOS), paraAutorizar: null })
+        expect(fraseDoTipoForaDoMotor(['Correr', 'Maxim-ar'])).toBe('O tipo de abertura dito para este item não existe no motor da empresa, que tem de correr ou maxim-ar: como ele abre?')
+    })
+    it('módulos ditos: as opções que existem no motor, pela descrição', () => {
+        const opcoes = ['MAXIM-AR COM 01 MÓDULO HORIZONTAL E "V" MÓDULOS VERTICAIS | MODULAÇÃO TRAVESSA', 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 02 MÓDULOS VERTICAIS | PERFIL MODULAÇÃO']
+        expect(impede('janela maxim ar 2 módulos', 'janela')).toEqual({ decisao: { motivo: 'MODULOS_DITOS' }, atributos: [], impedimento: fraseDosModulosDitos(2, opcoes), paraAutorizar: null })
+        expect(fraseDosModulosDitos(2, ['A', 'B'])).toBe('Este item tem 2 módulos, e a divisão entre eles muda a peça: “A” ou “B”. Qual é?')
+        expect(fraseDosModulosDitos(3, [])).toBe('Falta no motor — não há tipologia deste tipo com 3 módulos. Me diga como ele é na obra; se for mesmo assim, a tipologia precisa ser cadastrada no motor.')
+    })
+    it('nenhuma candidata no motor: "falta no motor", com o item e o que foi dito', () => {
+        expect(impede('janela maxim ar com bandeira e veneziana', 'janela')).toEqual({ decisao: { motivo: 'SEM_CANDIDATA' }, atributos: [], impedimento: fraseDaSemCandidata('janela maxim-ar de 1 módulo', ['bandeira', 'veneziana']), paraAutorizar: null })
+        expect(impede('porta de giro com persiana e veneziana', 'porta').impedimento).toBe(fraseDaSemCandidata('porta de giro de 1 folha', ['persiana', 'veneziana']))
+        expect(fraseDaSemCandidata('porta de giro de 1 folha', ['persiana', 'veneziana'])).toBe('Falta no motor — não há tipologia de porta de giro de 1 folha com persiana e veneziana. Me diga como ele é na obra; se for mesmo assim, a tipologia precisa ser cadastrada no motor.')
+        expect(fraseDaSemCandidata('porta de giro de 1 folha')).toBe('Falta no motor — não há tipologia de porta de giro de 1 folha. Me diga como ele é na obra; se for mesmo assim, a tipologia precisa ser cadastrada no motor.')
+    })
+    it('fora do limite: a medida e o limite por extenso; o lado que o arquivo não traz não é dito', () => {
+        const comLimite = CANDIDATOS.filter((c) => c.tipologia !== 'DP-01' && c.tipologia !== 'DP-128').map((c) => (c.tipologia === 'DP-132' ? { ...c, alt_min_mm: 364, alt_max_mm: 1164 } : c))
+        const dp132 = comLimite.filter((c) => c.tipologia === 'DP-132')
+        expect(impede('janela maxim ar', 'janela', comLimite, item(700, 1200))).toEqual({ decisao: { motivo: 'LIMITES' }, atributos: [], impedimento: fraseDoForaDoLimite(item(700, 1200), dp132),
+            paraAutorizar: { tipologia: 'DP-132', frase: fraseDoPedidoDeAutorizacao(item(700, 1200), dp132, dp132[0]) } })
+        expect(fraseDoPedidoDeAutorizacao(item(700, 1200), [{ descricao: 'X | EUROPA 60', larg_min_mm: null, larg_max_mm: null, alt_min_mm: 364, alt_max_mm: 1164 }], { descricao: 'X | EUROPA 60', larg_min_mm: null, larg_max_mm: null, alt_min_mm: 364, alt_max_mm: 1164 }))
+            .toBe('A medida 700 x 1.200 mm passa do limite do motor para “X” (altura de 364 a 1.164 mm). Autoriza fabricar assim, fora do limite? Se a medida estiver errada, me mande a certa.')
+        expect(fraseDoForaDoLimite(item(700, 1200), [{ descricao: 'X | EUROPA 60', larg_min_mm: null, larg_max_mm: null, alt_min_mm: 364, alt_max_mm: 1164 }])).toBe('A medida 700 x 1.200 mm passa do limite do motor para “X” (altura de 364 a 1.164 mm). Confirme a medida.')
+        expect(limiteNaFrase({ larg_min_mm: 905, larg_max_mm: 1384, alt_min_mm: null, alt_max_mm: 2032 })).toBe('largura de 905 a 1.384 mm e altura máxima de 2.032 mm')
+        expect(limiteNaFrase({ larg_min_mm: 500, larg_max_mm: null, alt_min_mm: null, alt_max_mm: null })).toBe('largura mínima de 500 mm')
+    })
+    it('fora do limite com DUAS de um módulo (a DP-128 e a DP-132): nenhuma cabe, e a frase nomeia as duas com o limite de cada uma', () => {
+        const limitadas = CANDIDATOS.filter((c) => c.tipologia !== 'DP-01').map((c) => (c.tipologia === 'DP-132' || c.tipologia === 'DP-128' ? { ...c, alt_min_mm: 364, alt_max_mm: 1164 } : c))
+        const r = impede('janela maxim ar', 'janela', limitadas, item(700, 1200))
+        expect(r.decisao).toEqual({ motivo: 'LIMITES' })
+        expect(r.impedimento).toBe(fraseDoForaDoLimite(item(700, 1200), ['DP-132', 'DP-128'].map((t) => limitadas.find((c) => c.tipologia === t)!)))
+        expect(r.impedimento?.split(' e para ')).toHaveLength(2)
+        // a autorização é pedida para a PRIMEIRA do motor (a DP-132 vem antes da DP-128 na lista), e a frase nomeia a escolhida
+        expect(r.paraAutorizar?.tipologia).toBe('DP-132')
+        expect(r.paraAutorizar?.frase).toContain('Autoriza fabricar como “MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | MODULAÇÃO TRAVESSA”, fora do limite?')
+    })
+    it('a falta de informação também se diz: sem abertura, a janela sem tipo, o dito sem representação', () => {
+        expect(impede('1200 x 1000', null).impedimento).toBe(FRASE_SEM_ABERTURA)
+        expect(impede('janela 1200 x 1000', 'janela').impedimento).toBe(fraseDaJanelaSemTipo(TIPOS))
+        expect(fraseDaJanelaSemTipo(['Correr', 'Fixo'])).toBe('Esta janela abre como: de correr ou fixa?')
+        expect(impede('janela de correr motorizada', 'janela').impedimento).toBe(FRASE_DITO_SEM_REPRESENTACAO)
+    })
+    it('com tipologia escolhida, nenhum impedimento', () => {
+        expect(impede('janela de correr', 'janela')).toMatchObject({ decisao: { tipologia: 'DP-02' }, impedimento: null })
     })
 })

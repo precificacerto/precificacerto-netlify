@@ -1,0 +1,3827 @@
+{
+ "_leia_me": "As esquadrias como o WVetro as cortou, extraidas dos Orientativos de Montagem dos orcamentos 1159 e 1163 da Esquadrias De Paula (17/11/2026). Cada caso traz o vao (L_mm, H_mm), as escolhas que o relatorio imprimiu e a lista de pecas com o comprimento de corte REAL de fabrica. Serve para conferir o avaliador peca por peca contra corte de verdade. ATENCAO ao arremate: o WVetro imprimiu a medida do vao, e o motor soma o acrescimo da opcao (BZ1770 +66, BZ0010 +50); o PO decidiu em 17/11/2026 que o CERTO e o do motor - nesses perfis a referencia e a regra, nao o numero impresso aqui.",
+ "medido_em": "2026-11-17",
+ "totais": {
+  "esquadrias": 19,
+  "tipologias": 13,
+  "pecas": 408
+ },
+ "casos": [
+  {
+   "orcamento": 1159,
+   "item": 1,
+   "tipologia": "DP-39",
+   "descricao": "PORTA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42",
+   "L_mm": 1700,
+   "H_mm": 2700,
+   "quantidade": 1,
+   "medida": "Interna",
+   "variaveis_do_relatorio": {
+    "TIPO DE INSTALAÇÃO": "FACEAMENTO INTERNO",
+    "ARREMATE INTERNO": "BZ1770 - ARREMATE 70MM",
+    "ARREMATE EXTERNO": "BZ0010 - ARREMATE 20MM",
+    "MEDIDA ARREMATE EXTERNO": "VÃO+50MM (CORTE 90/90) - PARA",
+    "MODELO DO INTERLOCK": "INTERLOCK + CAPA",
+    "COR DOS ACESSÓRIOS": "PRETO",
+    "MODO DE FECHAMENTO FOLHA INTERNA": "CREMONA COM MAÇANETA SEM CHAVE",
+    "MODO DE FECHAMENTO FOLHA EXTERNA": "CREMONA COM MAÇANETA COM CHAVE",
+    "MODELO DA MAÇANETA SEM CHAVE": "MAÇANETA QUADRI P.35",
+    "TIPO DE ROLDANA": "10158 - 120KG/ PAR",
+    "CALÇO E FOLGA DE VIDRO UTILIZADO": "CALÇO 5MM - FOLGA DE 5MM CADA"
+   },
+   "vidros": [
+    {
+     "quantidade": 2,
+     "largura_mm": 705,
+     "altura_mm": 2465
+    }
+   ],
+   "pecas": [
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1700,
+     "quantidade": 1,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2700,
+     "quantidade": 1,
+     "corte": "45/90",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2700,
+     "quantidade": 1,
+     "corte": "90/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1700,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2700,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "HF88/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1706,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MARCO - LARGURA"
+    },
+    {
+     "codigo": "HF88/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2706,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MARCO - ALTURA"
+    },
+    {
+     "codigo": "1023/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1595,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MARCO - TRILHO CLICK"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1536,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2536,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "SF92/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 858,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "FOLHA - LARGURA"
+    },
+    {
+     "codigo": "SF92/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2618,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "FOLHA - ALTURA"
+    },
+    {
+     "codigo": "IL42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2612,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "FOLHA - INTERLOCK"
+    },
+    {
+     "codigo": "KT42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2612,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "FOLHA - CAPA INTERLOCK"
+    },
+    {
+     "codigo": "8427/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 640,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "FOLHA - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8427/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2400,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "FOLHA - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "GB25/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 700,
+     "quantidade": 4,
+     "corte": "45/45",
+     "obs": "VIDRO - BAGUETE 25MM LARGURA"
+    },
+    {
+     "codigo": "GB25/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2460,
+     "quantidade": 4,
+     "corte": "45/45",
+     "obs": "VIDRO - BAGUETE 25MM ALTURA S/ TRAV"
+    }
+   ]
+  },
+  {
+   "orcamento": 1159,
+   "item": 2,
+   "tipologia": "DP-02",
+   "descricao": "JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42",
+   "L_mm": 1200,
+   "H_mm": 1100,
+   "quantidade": 1,
+   "medida": "Interna",
+   "variaveis_do_relatorio": {
+    "TIPO DE INSTALAÇÃO": "FACEAMENTO INTERNO",
+    "ARREMATE INTERNO": "BZ1770 - ARREMATE 70MM",
+    "ARREMATE EXTERNO": "BZ0010 - ARREMATE 20MM",
+    "MONTAGEM ARREMATE EXTERNO": "PERIMETRAL",
+    "MEDIDA ARREMATE EXTERNO": "VÃO+50MM (CORTE 90/90) - PARA",
+    "MODELO DO INTERLOCK": "IL42 - INTERLOCK + CAPA",
+    "COR DOS ACESSÓRIOS": "PRETO",
+    "MODO DE FECHAMENTO DA FOLHA INTERNA": "CREMONA COM MAÇANETA",
+    "MODO DE FECHAMENTO DA FOLHA EXTERNA": "CREMONA COM FECHO ALAVANCA",
+    "MODELO DA MAÇANETA": "MAÇANETA QUADRI P.35",
+    "TIPO DE ROLDANA": "14545 - 60KG/ PAR",
+    "CALÇO E FOLGA DE VIDRO UTILIZADO": "CALÇO 5MM - FOLGA DE 5MM CADA"
+   },
+   "vidros": [
+    {
+     "quantidade": 2,
+     "largura_mm": 494,
+     "altura_mm": 916
+    }
+   ],
+   "pecas": [
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1200,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1100,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1200,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1100,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "HF88/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1206,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MARCO - LARGURA"
+    },
+    {
+     "codigo": "HF88/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1106,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MARCO - ALTURA"
+    },
+    {
+     "codigo": "1023/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1095,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MARCO - TRILHO CLICK"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1036,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 936,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "SF66/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 595,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "FOLHA - LARGURA"
+    },
+    {
+     "codigo": "SF66/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1017,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "FOLHA - ALTURA"
+    },
+    {
+     "codigo": "8433/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 429,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "FOLHA - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8433/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 851,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "FOLHA - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "IL42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1011,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "FOLHA - INTERLOCK"
+    },
+    {
+     "codigo": "KT42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1011,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "FOLHA - CAPA INTERLOCK"
+    },
+    {
+     "codigo": "GB25/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 489,
+     "quantidade": 4,
+     "corte": "45/45",
+     "obs": "VIDRO - BAGUETE 25MM LARGURA"
+    },
+    {
+     "codigo": "GB25/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 911,
+     "quantidade": 4,
+     "corte": "45/45",
+     "obs": "VIDRO - BAGUETE 25MM ALTURA"
+    }
+   ]
+  },
+  {
+   "orcamento": 1159,
+   "item": 3,
+   "tipologia": "DP-128",
+   "descricao": "MAXIM-AR COM 01 MÓDULO HORIZONTAL E 01 MÓDULO VERTICAL | EUROPA",
+   "L_mm": 600,
+   "H_mm": 600,
+   "quantidade": 1,
+   "medida": "Interna",
+   "variaveis_do_relatorio": {
+    "TIPO DE INSTALAÇÃO": "FACEAMENTO INTERNO",
+    "ARREMATE INTERNO": "BZ1770 - ARREMATE 70MM",
+    "ARREMATE EXTERNO": "BZ0010 - ARREMATE 20MM",
+    "MONTAGEM ARREMATE EXTERNO": "PERIMETRAL",
+    "MEDIDA ARREMATE EXTERNO": "VÃO+50MM (CORTE 90/90) - PARA",
+    "QUANTIDADE DE MÓDULOS HORIZONTAIS": "1.00",
+    "COR DOS ACESSÓRIOS": "PRETO",
+    "MODO DE FECHAMENTO": "CREMONA + MAÇANETA",
+    "CALÇO E FOLGA DE VIDRO UTILIZADO": "CALÇO 5MM - FOLGA DE 5MM CADA"
+   },
+   "vidros": [
+    {
+     "quantidade": 1,
+     "largura_mm": 432,
+     "altura_mm": 432
+    }
+   ],
+   "pecas": [
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 600,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 600,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 600,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 600,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BR60/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 606,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MARCO - LARGURA"
+    },
+    {
+     "codigo": "BR60/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 606,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MARCO - ALTURA"
+    },
+    {
+     "codigo": "8431/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 460,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8431/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 460,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "SF78C/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 542,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "FOLHA - LARGURA"
+    },
+    {
+     "codigo": "SF78C/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 542,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "FOLHA - ALTURA"
+    },
+    {
+     "codigo": "8428/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 360,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "FOLHA - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8428/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 360,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "FOLHA - REFORÇO DE AÇO ALTURA"
+    }
+   ]
+  },
+  {
+   "orcamento": 1159,
+   "item": 4,
+   "tipologia": "DP-07",
+   "descricao": "JANELA DE CORRER 02 FOLHAS MÓVEIS COM PERSIANA | ACIONAMENTO",
+   "L_mm": 1600,
+   "H_mm": 1400,
+   "quantidade": 1,
+   "medida": "Interna",
+   "variaveis_do_relatorio": {
+    "ESQUADRIAS DE PAULA": "Emissão :    17/11/26 10:28:51"
+   },
+   "vidros": [
+    {
+     "quantidade": 2,
+     "largura_mm": 694,
+     "altura_mm": 1016
+    }
+   ],
+   "pecas": [
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1600,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1400,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1600,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1400,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "HF88/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1606,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "JAN - MARCO - LARGURA"
+    },
+    {
+     "codigo": "HF88/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1206,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "JAN - MARCO - ALTURA"
+    },
+    {
+     "codigo": "1023/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1495,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "JAN - MARCO - TRILHO CLICK"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1436,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "JAN - MARCO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1036,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "JAN - MARCO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "SF66/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 795,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "JAN - FOLHA - LARGURA"
+    },
+    {
+     "codigo": "SF66/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1117,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "JAN - FOLHA - ALTURA"
+    },
+    {
+     "codigo": "8433/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 629,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "JAN - FOLHA - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8433/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 951,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "JAN - FOLHA - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "IL42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1111,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "JAN - FOLHA - INTERLOCK"
+    },
+    {
+     "codigo": "KT42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1111,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "JAN - FOLHA - CAPA INTERLOCK"
+    },
+    {
+     "codigo": "GB25/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 689,
+     "quantidade": 4,
+     "corte": "45/45",
+     "obs": "JAN - VIDRO - BAGUETE 25MM LARGURA"
+    },
+    {
+     "codigo": "GB25/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1011,
+     "quantidade": 4,
+     "corte": "45/45",
+     "obs": "JAN - VIDRO - BAGUETE 25MM ALTURA"
+    },
+    {
+     "codigo": "BZ20010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1584,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - TAMPA INTERNA"
+    },
+    {
+     "codigo": "BZ20010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1584,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - TAMPA EXTERNA"
+    },
+    {
+     "codigo": "BZ20010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1584,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - TAMPA SUPERIOR"
+    },
+    {
+     "codigo": "BZ20010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1584,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - TAMPA INFERIOR (REFILADA)"
+    },
+    {
+     "codigo": "BZ3016/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1584,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - ACABAMENTO EXTERNO"
+    },
+    {
+     "codigo": "4661/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1535,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - PERFIL TERMINAL"
+    },
+    {
+     "codigo": "BZ5563/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1200,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "PERS - GUIA LATERAL"
+    },
+    {
+     "codigo": "2681/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1535,
+     "quantidade": 23,
+     "corte": "90/90",
+     "obs": "PERS - PALHETA VENTILADA"
+    },
+    {
+     "codigo": "2681.1/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1535,
+     "quantidade": 6,
+     "corte": "90/90",
+     "obs": "PERS - PALHETA CEGA"
+    }
+   ]
+  },
+  {
+   "orcamento": 1159,
+   "item": 5,
+   "tipologia": "DP-07",
+   "descricao": "JANELA DE CORRER 02 FOLHAS MÓVEIS COM PERSIANA | ACIONAMENTO",
+   "L_mm": 1200,
+   "H_mm": 1400,
+   "quantidade": 1,
+   "medida": "Interna",
+   "variaveis_do_relatorio": {
+    "ESQUADRIAS DE PAULA": "Emissão :    17/11/26 10:28:51"
+   },
+   "vidros": [
+    {
+     "quantidade": 2,
+     "largura_mm": 494,
+     "altura_mm": 1016
+    }
+   ],
+   "pecas": [
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1200,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1400,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1200,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1400,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "HF88/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1206,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "JAN - MARCO - LARGURA"
+    },
+    {
+     "codigo": "HF88/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1206,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "JAN - MARCO - ALTURA"
+    },
+    {
+     "codigo": "1023/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1095,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "JAN - MARCO - TRILHO CLICK"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1036,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "JAN - MARCO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1036,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "JAN - MARCO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "SF66/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 595,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "JAN - FOLHA - LARGURA"
+    },
+    {
+     "codigo": "SF66/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1117,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "JAN - FOLHA - ALTURA"
+    },
+    {
+     "codigo": "8433/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 429,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "JAN - FOLHA - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8433/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 951,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "JAN - FOLHA - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "IL42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1111,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "JAN - FOLHA - INTERLOCK"
+    },
+    {
+     "codigo": "KT42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1111,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "JAN - FOLHA - CAPA INTERLOCK"
+    },
+    {
+     "codigo": "GB25/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 489,
+     "quantidade": 4,
+     "corte": "45/45",
+     "obs": "JAN - VIDRO - BAGUETE 25MM LARGURA"
+    },
+    {
+     "codigo": "GB25/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1011,
+     "quantidade": 4,
+     "corte": "45/45",
+     "obs": "JAN - VIDRO - BAGUETE 25MM ALTURA"
+    },
+    {
+     "codigo": "BZ20010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1184,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - TAMPA INTERNA"
+    },
+    {
+     "codigo": "BZ20010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1184,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - TAMPA EXTERNA"
+    },
+    {
+     "codigo": "BZ20010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1184,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - TAMPA SUPERIOR"
+    },
+    {
+     "codigo": "BZ20010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1184,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - TAMPA INFERIOR (REFILADA)"
+    },
+    {
+     "codigo": "BZ3016/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1184,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - ACABAMENTO EXTERNO"
+    },
+    {
+     "codigo": "4661/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1135,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - PERFIL TERMINAL"
+    },
+    {
+     "codigo": "BZ5563/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1200,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "PERS - GUIA LATERAL"
+    },
+    {
+     "codigo": "1317/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1135,
+     "quantidade": 18,
+     "corte": "90/90",
+     "obs": "PERS - PALHETA VENTILADA"
+    },
+    {
+     "codigo": "1317.1/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1135,
+     "quantidade": 5,
+     "corte": "90/90",
+     "obs": "PERS - PALHETA CEGA"
+    }
+   ]
+  },
+  {
+   "orcamento": 1159,
+   "item": 6,
+   "tipologia": "DP-07",
+   "descricao": "JANELA DE CORRER 02 FOLHAS MÓVEIS COM PERSIANA | ACIONAMENTO",
+   "L_mm": 1800,
+   "H_mm": 1400,
+   "quantidade": 1,
+   "medida": "Interna",
+   "variaveis_do_relatorio": {
+    "ESQUADRIAS DE PAULA": "Emissão :    17/11/26 10:28:51"
+   },
+   "vidros": [
+    {
+     "quantidade": 2,
+     "largura_mm": 794,
+     "altura_mm": 1016
+    }
+   ],
+   "pecas": [
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1800,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1400,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1800,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1400,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "HF88/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1806,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "JAN - MARCO - LARGURA"
+    },
+    {
+     "codigo": "HF88/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1206,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "JAN - MARCO - ALTURA"
+    },
+    {
+     "codigo": "1023/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1695,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "JAN - MARCO - TRILHO CLICK"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1636,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "JAN - MARCO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1036,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "JAN - MARCO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "SF66/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 895,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "JAN - FOLHA - LARGURA"
+    },
+    {
+     "codigo": "SF66/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1117,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "JAN - FOLHA - ALTURA"
+    },
+    {
+     "codigo": "8433/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 729,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "JAN - FOLHA - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8433/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 951,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "JAN - FOLHA - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "IL42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1111,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "JAN - FOLHA - INTERLOCK"
+    },
+    {
+     "codigo": "KT42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1111,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "JAN - FOLHA - CAPA INTERLOCK"
+    },
+    {
+     "codigo": "GB25/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 789,
+     "quantidade": 4,
+     "corte": "45/45",
+     "obs": "JAN - VIDRO - BAGUETE 25MM LARGURA"
+    },
+    {
+     "codigo": "GB25/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1011,
+     "quantidade": 4,
+     "corte": "45/45",
+     "obs": "JAN - VIDRO - BAGUETE 25MM ALTURA"
+    },
+    {
+     "codigo": "BZ20010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1784,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - TAMPA INTERNA"
+    },
+    {
+     "codigo": "BZ20010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1784,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - TAMPA EXTERNA"
+    },
+    {
+     "codigo": "BZ20010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1784,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - TAMPA SUPERIOR"
+    },
+    {
+     "codigo": "BZ20010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1784,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - TAMPA INFERIOR (REFILADA)"
+    },
+    {
+     "codigo": "BZ3016/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1784,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - ACABAMENTO EXTERNO"
+    },
+    {
+     "codigo": "4661/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1735,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - PERFIL TERMINAL"
+    },
+    {
+     "codigo": "BZ5563/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1200,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "PERS - GUIA LATERAL"
+    },
+    {
+     "codigo": "2681/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1735,
+     "quantidade": 23,
+     "corte": "90/90",
+     "obs": "PERS - PALHETA VENTILADA"
+    },
+    {
+     "codigo": "2681.1/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1735,
+     "quantidade": 6,
+     "corte": "90/90",
+     "obs": "PERS - PALHETA CEGA"
+    }
+   ]
+  },
+  {
+   "orcamento": 1159,
+   "item": 7,
+   "tipologia": "DP-130",
+   "descricao": "MAXIM-AR COM 1 MÓDULOS HORIZONTAIS | PEITORIL FIXO | PERFIL",
+   "L_mm": 550,
+   "H_mm": 1700,
+   "quantidade": 1,
+   "medida": "Interna",
+   "variaveis_do_relatorio": {
+    "TIPO DE INSTALAÇÃO": "FACEAMENTO INTERNO",
+    "ARREMATE INTERNO": "BZ1770 - ARREMATE 70MM",
+    "ARREMATE EXTERNO": "BZ0010 - ARREMATE 20MM",
+    "MONTAGEM ARREMATE EXTERNO": "PERIMETRAL",
+    "MEDIDA ARREMATE EXTERNO": "VÃO+50MM (CORTE 90/90) - PARA",
+    "QUANTIDADE DE MÓDULOS HORIZONTAIS": "1.00",
+    "TIPO DE PERFIL MODULAÇÃO": "PERFIL ACABAMENTO + TALA",
+    "ALTURA DO PEITORIL": "850.00",
+    "COR DOS ACESSÓRIOS": "PRETO",
+    "MODO DE FECHAMENTO": "CREMONA + MAÇANETA",
+    "CALÇO E FOLGA DE VIDRO UTILIZADO": "CALÇO 5MM - FOLGA DE 5MM CADA"
+   },
+   "vidros": [
+    {
+     "quantidade": 1,
+     "largura_mm": 382,
+     "altura_mm": 682
+    },
+    {
+     "quantidade": 1,
+     "largura_mm": 482,
+     "altura_mm": 782
+    }
+   ],
+   "pecas": [
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 550,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1700,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 550,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1700,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BR60/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 556,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MAX - MARCO - LARGURA"
+    },
+    {
+     "codigo": "BR60/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 856,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MAX - MARCO - ALTURA"
+    },
+    {
+     "codigo": "8431/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 410,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MAX - MARCO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8431/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 710,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MAX - MARCO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "SF78C/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 492,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MAX - FOLHA - LARGURA"
+    },
+    {
+     "codigo": "SF78C/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 792,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MAX - FOLHA - ALTURA"
+    },
+    {
+     "codigo": "8428/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 310,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MAX - FOLHA - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8428/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 610,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MAX - FOLHA - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "GB34/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 370,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "MAX - VIDRO - BAGUETE 34MM LARGURA"
+    },
+    {
+     "codigo": "GB34/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 670,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "MAX - VIDRO - BAGUETE 34MM ALTURA"
+    },
+    {
+     "codigo": "BR60/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 556,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "FIXO - MARCO - LARGURA"
+    },
+    {
+     "codigo": "BR60/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 856,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "FIXO - MARCO - ALTURA"
+    },
+    {
+     "codigo": "8431/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 410,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "FIXO - MARCO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8431/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 710,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "FIXO - MARCO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "GB34/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 470,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "FIXO - VIDRO - BAGUETE 34MM LARGURA"
+    },
+    {
+     "codigo": "GB34/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 770,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "FIXO - VIDRO - BAGUETE 34MM ALTURA"
+    },
+    {
+     "codigo": "CA6/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 550,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MODULAÇÃO - ACABAMENTO HORIZONTAL"
+    },
+    {
+     "codigo": "2202/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 550,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "MODULAÇÃO - TALA HORIZONTAL"
+    }
+   ]
+  },
+  {
+   "orcamento": 1159,
+   "item": 8,
+   "tipologia": "DP-130",
+   "descricao": "MAXIM-AR COM 1 MÓDULOS HORIZONTAIS | PEITORIL FIXO | PERFIL",
+   "L_mm": 600,
+   "H_mm": 1700,
+   "quantidade": 1,
+   "medida": "Interna",
+   "variaveis_do_relatorio": {
+    "TIPO DE INSTALAÇÃO": "FACEAMENTO INTERNO",
+    "ARREMATE INTERNO": "BZ1770 - ARREMATE 70MM",
+    "ARREMATE EXTERNO": "BZ0010 - ARREMATE 20MM",
+    "MONTAGEM ARREMATE EXTERNO": "PERIMETRAL",
+    "MEDIDA ARREMATE EXTERNO": "VÃO+50MM (CORTE 90/90) - PARA",
+    "QUANTIDADE DE MÓDULOS HORIZONTAIS": "1.00",
+    "TIPO DE PERFIL MODULAÇÃO": "PERFIL ACABAMENTO + TALA",
+    "ALTURA DO PEITORIL": "850.00",
+    "COR DOS ACESSÓRIOS": "PRETO",
+    "MODO DE FECHAMENTO": "CREMONA + MAÇANETA",
+    "CALÇO E FOLGA DE VIDRO UTILIZADO": "CALÇO 5MM - FOLGA DE 5MM CADA"
+   },
+   "vidros": [
+    {
+     "quantidade": 1,
+     "largura_mm": 432,
+     "altura_mm": 682
+    },
+    {
+     "quantidade": 1,
+     "largura_mm": 532,
+     "altura_mm": 782
+    }
+   ],
+   "pecas": [
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 600,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1700,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 600,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1700,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BR60/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 606,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MAX - MARCO - LARGURA"
+    },
+    {
+     "codigo": "BR60/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 856,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MAX - MARCO - ALTURA"
+    },
+    {
+     "codigo": "8431/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 460,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MAX - MARCO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8431/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 710,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MAX - MARCO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "SF78C/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 542,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MAX - FOLHA - LARGURA"
+    },
+    {
+     "codigo": "SF78C/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 792,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MAX - FOLHA - ALTURA"
+    },
+    {
+     "codigo": "8428/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 360,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MAX - FOLHA - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8428/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 610,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MAX - FOLHA - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "GB34/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 420,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "MAX - VIDRO - BAGUETE 34MM LARGURA"
+    },
+    {
+     "codigo": "GB34/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 670,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "MAX - VIDRO - BAGUETE 34MM ALTURA"
+    },
+    {
+     "codigo": "BR60/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 606,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "FIXO - MARCO - LARGURA"
+    },
+    {
+     "codigo": "BR60/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 856,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "FIXO - MARCO - ALTURA"
+    },
+    {
+     "codigo": "8431/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 460,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "FIXO - MARCO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8431/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 710,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "FIXO - MARCO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "GB34/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 520,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "FIXO - VIDRO - BAGUETE 34MM LARGURA"
+    },
+    {
+     "codigo": "GB34/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 770,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "FIXO - VIDRO - BAGUETE 34MM ALTURA"
+    },
+    {
+     "codigo": "CA6/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 600,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MODULAÇÃO - ACABAMENTO HORIZONTAL"
+    },
+    {
+     "codigo": "2202/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 600,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "MODULAÇÃO - TALA HORIZONTAL"
+    }
+   ]
+  },
+  {
+   "orcamento": 1159,
+   "item": 9,
+   "tipologia": "DP-72",
+   "descricao": "PORTA DE CORRER 04 FOLHAS MÓVEIS | EUROPA 42",
+   "L_mm": 3000,
+   "H_mm": 2500,
+   "quantidade": 1,
+   "medida": "Interna",
+   "variaveis_do_relatorio": {
+    "TIPO DE INSTALAÇÃO": "FACEAMENTO INTERNO",
+    "ARREMATE INTERNO": "BZ1770 - ARREMATE 70MM",
+    "ARREMATE EXTERNO": "BZ0010 - ARREMATE 20MM",
+    "MEDIDA ARREMATE EXTERNO": "VÃO+50MM (CORTE 90/90) - PARA",
+    "PERFIL PARA TRILHO MONOVIA": "HF112 - 03 VIAS REFILADO",
+    "MODELO DO INTERLOCK": "INTERLOCK + CAPA",
+    "COR DOS ACESSÓRIOS": "PRETO",
+    "MODO DE FECHAMENTO FOLHA INTERNA": "CREMONA COM MAÇANETA SEM CHAVE",
+    "MODO DE FECHAMENTO FOLHA EXTERNA": "CREMONA COM MAÇANETA COM CHAVE",
+    "MODELO DA MAÇANETA SEM CHAVE": "MAÇANETA QUADRI P.35",
+    "TIPO DE ROLDANA": "10158 - 120KG/ PAR",
+    "CALÇO E FOLGA DE VIDRO UTILIZADO": "CALÇO 5MM - FOLGA DE 5MM CADA"
+   },
+   "vidros": [
+    {
+     "quantidade": 4,
+     "largura_mm": 640,
+     "altura_mm": 2255
+    }
+   ],
+   "pecas": [
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 3066,
+     "quantidade": 1,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2533,
+     "quantidade": 1,
+     "corte": "45/90",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2533,
+     "quantidade": 1,
+     "corte": "90/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 3050,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2550,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "9125/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 3000,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "INSTALAÇÃO - AFASTADOR Z"
+    },
+    {
+     "codigo": "HF112/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 3006,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MARCO - LARGURA"
+    },
+    {
+     "codigo": "HF112/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 3006,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MARCO - LARGURA (REFILADO)"
+    },
+    {
+     "codigo": "HF112/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2506,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MARCO - ALTURA"
+    },
+    {
+     "codigo": "HF112/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2506,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MARCO - ALTURA (REFILADO)"
+    },
+    {
+     "codigo": "1023/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2896,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "MARCO - TRILHO CLICK"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2836,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2336,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2836,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2336,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "SF92/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 803,
+     "quantidade": 8,
+     "corte": "45S/45S",
+     "obs": "FOLHA - LARGURA"
+    },
+    {
+     "codigo": "SF92/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2418,
+     "quantidade": 8,
+     "corte": "45S/45S",
+     "obs": "FOLHA - ALTURA"
+    },
+    {
+     "codigo": "IL42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2412,
+     "quantidade": 6,
+     "corte": "90/90",
+     "obs": "FOLHA - INTERLOCK"
+    },
+    {
+     "codigo": "KT42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2412,
+     "quantidade": 6,
+     "corte": "90/90",
+     "obs": "FOLHA - CAPA INTERLOCK"
+    },
+    {
+     "codigo": "8427/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 585,
+     "quantidade": 8,
+     "corte": "90/90",
+     "obs": "FOLHA - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8427/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2200,
+     "quantidade": 8,
+     "corte": "90/90",
+     "obs": "FOLHA - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "GB25/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 645,
+     "quantidade": 8,
+     "corte": "45/45",
+     "obs": "VIDRO - BAGUETE 25MM LARGURA"
+    },
+    {
+     "codigo": "GB25/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2260,
+     "quantidade": 8,
+     "corte": "45/45",
+     "obs": "VIDRO - BAGUETE 25MM ALTURA S/ TRAV"
+    }
+   ]
+  },
+  {
+   "orcamento": 1163,
+   "item": 1,
+   "tipologia": "DP-144",
+   "descricao": "FIXO COM 01 MÓDULO HORIZONTAL E 05 MÓDULOS VERTICAIS |",
+   "L_mm": 1600,
+   "H_mm": 5320,
+   "quantidade": 1,
+   "medida": "Interna",
+   "variaveis_do_relatorio": {
+    "TIPO DE INSTALAÇÃO": "FACEAMENTO INTERNO",
+    "ARREMATE INTERNO": "BZ1770 - ARREMATE 70MM",
+    "ARREMATE EXTERNO": "BZ0010 - ARREMATE 20MM",
+    "MONTAGEM ARREMATE EXTERNO": "PERIMETRAL",
+    "MEDIDA ARREMATE EXTERNO": "VÃO+50MM (CORTE 90/90) - PARA",
+    "QUANTIDADE DE MÓDULOS VERTICAIS": "5.00",
+    "TIPO DE MARCO": "BR60 - MARCO ESTREITO",
+    "CALÇO E FOLGA DE VIDRO UTILIZADO": "CALÇO 5MM - FOLGA DE 5MM CADA",
+    "COR DOS ACESSÓRIOS": "PRETO"
+   },
+   "vidros": [
+    {
+     "quantidade": 5,
+     "largura_mm": 1532,
+     "altura_mm": 1031
+    }
+   ],
+   "pecas": [
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1600,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 5320,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1600,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 5320,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BR60/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1606,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MARCO - LARGURA"
+    },
+    {
+     "codigo": "BR60/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 5326,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MARCO - ALTURA"
+    },
+    {
+     "codigo": "8431/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1460,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8431/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 5180,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "SE76N/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1532,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "MARCO - TRAVESSA HORIZONTAL"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1382,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO TRAVESSA"
+    },
+    {
+     "codigo": "GB34/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1520,
+     "quantidade": 10,
+     "corte": "45/45",
+     "obs": "VIDRO - BAGUETE 34MM LARGURA"
+    },
+    {
+     "codigo": "GB34/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1019,
+     "quantidade": 10,
+     "corte": "45/45",
+     "obs": "VIDRO - BAGUETE 34MM ALTURA"
+    }
+   ]
+  },
+  {
+   "orcamento": 1163,
+   "item": 2,
+   "tipologia": "DP-17",
+   "descricao": "JANELA DE CORRER 03 FOLHAS MÓVEIS COM PERSIANA | 02 VIDROS - 01",
+   "L_mm": 1200,
+   "H_mm": 1450,
+   "quantidade": 1,
+   "medida": "Interna",
+   "variaveis_do_relatorio": {
+    "ESQUADRIAS DE PAULA": "Emissão :    17/11/26 09:10:15",
+    "MODO DE FECHAMENTO DA FOLHA DE TELA": "CONCHA CEGA 26X152",
+    "MODELO DA MAÇANETA": "MAÇANETA QUADRI P.35",
+    "TIPO DE ROLDANA FOLHA VIDRO": "14545 - 60KG/ PAR",
+    "TIPO DE ROLDANA FOLHA TELA": "14545 - 60KG/ PAR",
+    "CALÇO E FOLGA DE VIDRO UTILIZADO": "CALÇO 5MM - FOLGA DE 5MM CADA"
+   },
+   "vidros": [
+    {
+     "quantidade": 2,
+     "largura_mm": 494,
+     "altura_mm": 1066
+    }
+   ],
+   "pecas": [
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1200,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1450,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1200,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1450,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "HF112/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1206,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "JAN - MARCO - LARGURA"
+    },
+    {
+     "codigo": "HF112/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1256,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "JAN - MARCO - ALTURA"
+    },
+    {
+     "codigo": "1023/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1096,
+     "quantidade": 3,
+     "corte": "90/90",
+     "obs": "JAN - MARCO - TRILHO CLICK"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1036,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "JAN - MARCO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1086,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "JAN - MARCO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "SF66/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 595,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "JAN - FOLHA VIDRO - LARGURA"
+    },
+    {
+     "codigo": "SF66/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1167,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "JAN - FOLHA VIDRO - ALTURA"
+    },
+    {
+     "codigo": "8433/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 429,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "JAN - FOLHA VIDRO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8433/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1001,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "JAN - FOLHA VIDRO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "IL42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1161,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "JAN - FOLHA VIDRO - INTERLOCK"
+    },
+    {
+     "codigo": "KT42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1161,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "JAN - FOLHA VIDRO - CAPA INTERLOCK"
+    },
+    {
+     "codigo": "GB25/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 489,
+     "quantidade": 4,
+     "corte": "45/45",
+     "obs": "JAN - VIDRO - BAGUETE 25MM LARGURA"
+    },
+    {
+     "codigo": "GB25/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1061,
+     "quantidade": 4,
+     "corte": "45/45",
+     "obs": "JAN - VIDRO - BAGUETE 25MM ALTURA"
+    },
+    {
+     "codigo": "SF66/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 595,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "JAN - FOLHA TELA - LARGURA"
+    },
+    {
+     "codigo": "SF66/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1167,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "JAN - FOLHA TELA - ALTURA"
+    },
+    {
+     "codigo": "8433/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 429,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "JAN - FOLHA TELA - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8433/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1001,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "JAN - FOLHA TELA - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "KT42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1161,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "JAN - FOLHA TELA - CAPA INTERLOCK"
+    },
+    {
+     "codigo": "IL42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1161,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "JAN - FOLHA TELA - INTERLOCK"
+    },
+    {
+     "codigo": "GB34/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 489,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "JAN - TELA - BAGUETE"
+    },
+    {
+     "codigo": "GB34/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1061,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "JAN - TELA - BAGUETE"
+    },
+    {
+     "codigo": "BZ20010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1184,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - TAMPA INTERNA"
+    },
+    {
+     "codigo": "BZ20010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1184,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - TAMPA EXTERNA"
+    },
+    {
+     "codigo": "BZ20010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1184,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - TAMPA SUPERIOR"
+    },
+    {
+     "codigo": "BZ20010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1184,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - TAMPA INFERIOR (REFILADA)"
+    },
+    {
+     "codigo": "BZ3016/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1184,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - ACABAMENTO EXTERNO"
+    },
+    {
+     "codigo": "4661/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1135,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - PERFIL TERMINAL"
+    },
+    {
+     "codigo": "BZ5563/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1250,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "PERS - GUIA LATERAL"
+    },
+    {
+     "codigo": "2681/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1135,
+     "quantidade": 24,
+     "corte": "90/90",
+     "obs": "PERS - PALHETA VENTILADA"
+    },
+    {
+     "codigo": "2681.1/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1135,
+     "quantidade": 6,
+     "corte": "90/90",
+     "obs": "PERS - PALHETA CEGA"
+    }
+   ]
+  },
+  {
+   "orcamento": 1163,
+   "item": 3,
+   "tipologia": "DP-122",
+   "descricao": "JANELA OSCILO BATENTE 01 FOLHA | EUROPA 60",
+   "L_mm": 500,
+   "H_mm": 1150,
+   "quantidade": 1,
+   "medida": "Interna",
+   "variaveis_do_relatorio": {
+    "TIPO DE INSTALAÇÃO": "FACEAMENTO INTERNO",
+    "ARREMATE INTERNO": "BZ1770 - ARREMATE 70MM",
+    "ARREMATE EXTERNO": "BZ0010 - ARREMATE 20MM",
+    "MONTAGEM ARREMATE EXTERNO": "PERIMETRAL",
+    "MEDIDA ARREMATE EXTERNO": "VÃO+50MM (CORTE 90/90) - PARA",
+    "LADO DA MAÇANETA": "A DEFINIR",
+    "COR DOS ACESSÓRIOS": "PRETO",
+    "CALÇO E FOLGA DE VIDRO UTILIZADO": "CALÇO 5MM - FOLGA DE 5MM CADA"
+   },
+   "vidros": [
+    {
+     "quantidade": 1,
+     "largura_mm": 342,
+     "altura_mm": 992
+    }
+   ],
+   "pecas": [
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 500,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1150,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 500,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1150,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BR60/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 506,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MARCO - LARGURA"
+    },
+    {
+     "codigo": "BR60/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1156,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MARCO - ALTURA"
+    },
+    {
+     "codigo": "8431/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 360,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8431/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1010,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "FR73N/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 442,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "FOLHA - LARGURA"
+    },
+    {
+     "codigo": "FR73N/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1092,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "FOLHA - ALTURA"
+    },
+    {
+     "codigo": "8429/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 270,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "FOLHA - REFORÇO LARGURA"
+    },
+    {
+     "codigo": "8429/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 920,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "FOLHA - REFORÇO ALTURA"
+    },
+    {
+     "codigo": "GB34/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 330,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "VIDRO - BAGUETE 34MM LARGURA"
+    },
+    {
+     "codigo": "GB34/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 980,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "VIDRO - BAGUETE 34MM ALTURA"
+    }
+   ]
+  },
+  {
+   "orcamento": 1163,
+   "item": 4,
+   "tipologia": "DP-12",
+   "descricao": "JANELA DE CORRER 03 FOLHAS MÓVEIS | 02 VIDROS - 01 TELA | EUROPA 42",
+   "L_mm": 1250,
+   "H_mm": 1150,
+   "quantidade": 1,
+   "medida": "Interna",
+   "variaveis_do_relatorio": {
+    "ESQUADRIAS DE PAULA": "Emissão :    17/11/26 09:10:15"
+   },
+   "vidros": [
+    {
+     "quantidade": 2,
+     "largura_mm": 519,
+     "altura_mm": 966
+    }
+   ],
+   "pecas": [
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1250,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1150,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1250,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1150,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "HF112/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1256,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MARCO - LARGURA"
+    },
+    {
+     "codigo": "HF112/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1156,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MARCO - ALTURA"
+    },
+    {
+     "codigo": "1023/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1146,
+     "quantidade": 3,
+     "corte": "90/90",
+     "obs": "MARCO - TRILHO CLICK"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1086,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 986,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "SF66/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 620,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "FOLHA VIDRO - LARGURA"
+    },
+    {
+     "codigo": "SF66/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1067,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "FOLHA VIDRO - ALTURA"
+    },
+    {
+     "codigo": "8433/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 454,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "FOLHA VIDRO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8433/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 901,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "FOLHA VIDRO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "IL42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1061,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "FOLHA VIDRO - INTERLOCK"
+    },
+    {
+     "codigo": "KT42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1061,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "FOLHA VIDRO - CAPA INTERLOCK"
+    },
+    {
+     "codigo": "SF66/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 620,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "FOLHA TELA - LARGURA"
+    },
+    {
+     "codigo": "SF66/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1067,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "FOLHA TELA - ALTURA"
+    },
+    {
+     "codigo": "8433/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 454,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "FOLHA TELA - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8433/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 901,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "FOLHA TELA - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "KT42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1061,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "FOLHA TELA - CAPA INTERLOCK"
+    },
+    {
+     "codigo": "IL42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1061,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "FOLHA TELA - INTERLOCK"
+    },
+    {
+     "codigo": "GB34/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 514,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "TELA - BAGUETE"
+    },
+    {
+     "codigo": "GB34/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 961,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "TELA - BAGUETE"
+    }
+   ]
+  },
+  {
+   "orcamento": 1163,
+   "item": 5,
+   "tipologia": "DP-128",
+   "descricao": "MAXIM-AR COM 01 MÓDULO HORIZONTAL E 01 MÓDULO VERTICAL | EUROPA",
+   "L_mm": 500,
+   "H_mm": 750,
+   "quantidade": 2,
+   "medida": "Interna",
+   "variaveis_do_relatorio": {
+    "TIPO DE INSTALAÇÃO": "FACEAMENTO INTERNO",
+    "ARREMATE INTERNO": "BZ1770 - ARREMATE 70MM",
+    "ARREMATE EXTERNO": "BZ0010 - ARREMATE 20MM",
+    "MONTAGEM ARREMATE EXTERNO": "PERIMETRAL",
+    "MEDIDA ARREMATE EXTERNO": "VÃO+50MM (CORTE 90/90) - PARA",
+    "QUANTIDADE DE MÓDULOS HORIZONTAIS": "1.00",
+    "COR DOS ACESSÓRIOS": "PRETO",
+    "MODO DE FECHAMENTO": "CREMONA + MAÇANETA",
+    "CALÇO E FOLGA DE VIDRO UTILIZADO": "CALÇO 5MM - FOLGA DE 5MM CADA"
+   },
+   "vidros": [
+    {
+     "quantidade": 2,
+     "largura_mm": 332,
+     "altura_mm": 582
+    }
+   ],
+   "pecas": [
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 500,
+     "quantidade": 4,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 750,
+     "quantidade": 4,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 500,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 750,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BR60/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 506,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "MARCO - LARGURA"
+    },
+    {
+     "codigo": "BR60/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 756,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "MARCO - ALTURA"
+    },
+    {
+     "codigo": "8431/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 360,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8431/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 610,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "SF78C/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 442,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "FOLHA - LARGURA"
+    },
+    {
+     "codigo": "SF78C/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 692,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "FOLHA - ALTURA"
+    },
+    {
+     "codigo": "8428/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 260,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "FOLHA - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8428/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 510,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "FOLHA - REFORÇO DE AÇO ALTURA"
+    }
+   ]
+  },
+  {
+   "orcamento": 1163,
+   "item": 6,
+   "tipologia": "DP-142",
+   "descricao": "FIXO COM 01 MÓDULO HORIZONTAL E 01 MÓDULO VERTICAL | EUROPA 60",
+   "L_mm": 1800,
+   "H_mm": 3340,
+   "quantidade": 1,
+   "medida": "Interna",
+   "variaveis_do_relatorio": {
+    "TIPO DE INSTALAÇÃO": "FACEAMENTO INTERNO",
+    "ARREMATE INTERNO": "BZ1770 - ARREMATE 70MM",
+    "ARREMATE EXTERNO": "BZ0010 - ARREMATE 20MM",
+    "MONTAGEM ARREMATE EXTERNO": "PERIMETRAL",
+    "MEDIDA ARREMATE EXTERNO": "VÃO+50MM (CORTE 90/90) - PARA",
+    "QUANTIDADE DE MÓDULOS HORIZONTAIS": "1.00",
+    "TIPO DE MARCO": "BR60 - MARCO ESTREITO",
+    "CALÇO E FOLGA DE VIDRO UTILIZADO": "CALÇO 5MM - FOLGA DE 5MM CADA",
+    "COR DOS ACESSÓRIOS": "PRETO"
+   },
+   "vidros": [
+    {
+     "quantidade": 1,
+     "largura_mm": 1722,
+     "altura_mm": 3262
+    }
+   ],
+   "pecas": [
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1900,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 3440,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1850,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 3390,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BR60/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1806,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MARCO - LARGURA"
+    },
+    {
+     "codigo": "BR60/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 3346,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MARCO - ALTURA"
+    },
+    {
+     "codigo": "8431/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1660,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8431/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 3200,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "GB34/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1720,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "VIDRO - BAGUETE 34MM LARGURA"
+    },
+    {
+     "codigo": "GB34/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 3260,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "VIDRO - BAGUETE 34MM ALTURA"
+    }
+   ]
+  },
+  {
+   "orcamento": 1163,
+   "item": 7,
+   "tipologia": "DP-122",
+   "descricao": "JANELA OSCILO BATENTE 01 FOLHA | EUROPA 60",
+   "L_mm": 500,
+   "H_mm": 750,
+   "quantidade": 2,
+   "medida": "Interna",
+   "variaveis_do_relatorio": {
+    "TIPO DE INSTALAÇÃO": "FACEAMENTO INTERNO",
+    "ARREMATE INTERNO": "BZ1770 - ARREMATE 70MM",
+    "ARREMATE EXTERNO": "BZ0010 - ARREMATE 20MM",
+    "MONTAGEM ARREMATE EXTERNO": "PERIMETRAL",
+    "MEDIDA ARREMATE EXTERNO": "VÃO+50MM (CORTE 90/90) - PARA",
+    "LADO DA MAÇANETA": "A DEFINIR",
+    "COR DOS ACESSÓRIOS": "PRETO",
+    "CALÇO E FOLGA DE VIDRO UTILIZADO": "CALÇO 5MM - FOLGA DE 5MM CADA"
+   },
+   "vidros": [
+    {
+     "quantidade": 2,
+     "largura_mm": 342,
+     "altura_mm": 592
+    }
+   ],
+   "pecas": [
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 500,
+     "quantidade": 4,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 750,
+     "quantidade": 4,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 500,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 750,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BR60/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 506,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "MARCO - LARGURA"
+    },
+    {
+     "codigo": "BR60/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 756,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "MARCO - ALTURA"
+    },
+    {
+     "codigo": "8431/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 360,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8431/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 610,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "FR73N/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 442,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "FOLHA - LARGURA"
+    },
+    {
+     "codigo": "FR73N/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 692,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "FOLHA - ALTURA"
+    },
+    {
+     "codigo": "8429/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 270,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "FOLHA - REFORÇO LARGURA"
+    },
+    {
+     "codigo": "8429/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 520,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "FOLHA - REFORÇO ALTURA"
+    },
+    {
+     "codigo": "GB34/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 330,
+     "quantidade": 4,
+     "corte": "45/45",
+     "obs": "VIDRO - BAGUETE 34MM LARGURA"
+    },
+    {
+     "codigo": "GB34/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 580,
+     "quantidade": 4,
+     "corte": "45/45",
+     "obs": "VIDRO - BAGUETE 34MM ALTURA"
+    }
+   ]
+  },
+  {
+   "orcamento": 1163,
+   "item": 8,
+   "tipologia": "DP-73",
+   "descricao": "PORTA DE CORRER 04 FOLHAS MÓVEIS | TRILHO PVC EMBUTIDO | EUROPA",
+   "L_mm": 5150,
+   "H_mm": 2550,
+   "quantidade": 1,
+   "medida": "Interna",
+   "variaveis_do_relatorio": {
+    "TIPO DE INSTALAÇÃO": "FACEAMENTO INTERNO",
+    "ARREMATE INTERNO": "BZ1770 - ARREMATE 70MM",
+    "ARREMATE EXTERNO": "BZ0010 - ARREMATE 20MM",
+    "MEDIDA ARREMATE EXTERNO": "VÃO+50MM (CORTE 90/90) - PARA",
+    "PERFIL PARA TRILHO MONOVIA": "HF112 - 03 VIAS REFILADO",
+    "MODELO DO INTERLOCK": "INTERLOCK + CAPA",
+    "COR DOS ACESSÓRIOS": "PRETO",
+    "MODO DE FECHAMENTO FOLHA INTERNA": "CREMONA COM MAÇANETA SEM CHAVE",
+    "MODO DE FECHAMENTO FOLHA EXTERNA": "CREMONA COM MAÇANETA COM CHAVE",
+    "MODELO DA MAÇANETA SEM CHAVE": "MAÇANETA QUADRI P.35",
+    "TIPO DE ROLDANA": "10158 - 120KG/ PAR",
+    "CALÇO E FOLGA DE VIDRO UTILIZADO": "CALÇO 5MM - FOLGA DE 5MM CADA"
+   },
+   "vidros": [
+    {
+     "quantidade": 4,
+     "largura_mm": 1177,
+     "altura_mm": 2357
+    }
+   ],
+   "pecas": [
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 5216,
+     "quantidade": 1,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2608,
+     "quantidade": 1,
+     "corte": "45/90",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2608,
+     "quantidade": 1,
+     "corte": "90/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 5200,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2600,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "9125/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 5150,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "EMBUTIMENTO - AFASTADOR Z"
+    },
+    {
+     "codigo": "HF112/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 5156,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MARCO - LARGURA"
+    },
+    {
+     "codigo": "HF112/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 5156,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MARCO - LARGURA (REFILADO)"
+    },
+    {
+     "codigo": "HF112/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2608,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MARCO - ALTURA"
+    },
+    {
+     "codigo": "HF112/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2608,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "MARCO - ALTURA (REFILADO)"
+    },
+    {
+     "codigo": "1023/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 5046,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "MARCO - TRILHO CLICK"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 4986,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2438,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 4986,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2438,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "MARCO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "SF92/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1340,
+     "quantidade": 8,
+     "corte": "45S/45S",
+     "obs": "FOLHA - LARGURA"
+    },
+    {
+     "codigo": "SF92/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2520,
+     "quantidade": 8,
+     "corte": "45S/45S",
+     "obs": "FOLHA - ALTURA"
+    },
+    {
+     "codigo": "IL42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2514,
+     "quantidade": 6,
+     "corte": "90/90",
+     "obs": "FOLHA - INTERLOCK"
+    },
+    {
+     "codigo": "KT42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2514,
+     "quantidade": 6,
+     "corte": "90/90",
+     "obs": "FOLHA - CAPA INTERLOCK"
+    },
+    {
+     "codigo": "8427/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1122,
+     "quantidade": 8,
+     "corte": "90/90",
+     "obs": "FOLHA - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8427/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2302,
+     "quantidade": 8,
+     "corte": "90/90",
+     "obs": "FOLHA - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "GB25/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1182,
+     "quantidade": 8,
+     "corte": "45/45",
+     "obs": "VIDRO - BAGUETE 25MM LARGURA"
+    },
+    {
+     "codigo": "GB25/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2362,
+     "quantidade": 8,
+     "corte": "45/45",
+     "obs": "VIDRO - BAGUETE 25MM ALTURA S/ TRAV"
+    }
+   ]
+  },
+  {
+   "orcamento": 1163,
+   "item": 9,
+   "tipologia": "DP-69",
+   "descricao": "PORTA DE CORRER 03 FOLHAS MÓVEIS COM PERSIANA | 02 VIDROS - 01",
+   "L_mm": 2300,
+   "H_mm": 2350,
+   "quantidade": 1,
+   "medida": "Interna",
+   "variaveis_do_relatorio": {
+    "ESQUADRIAS DE PAULA": "Emissão :    17/11/26 09:10:15",
+    "MODO DE FECHAMENTO FOLHA DE TELA": "CONCHA CEGA 26X152",
+    "MODELO DA MAÇANETA SEM CHAVE": "MAÇANETA QUADRI P.35",
+    "TIPO DE ROLDANA FOLHA VIDRO": "10158 - 120KG/ PAR",
+    "TIPO DE ROLDANA FOLHA TELA": "10158 - 120KG/ PAR",
+    "CALÇO E FOLGA DE VIDRO UTILIZADO": "CALÇO 5MM - FOLGA DE 5MM CADA"
+   },
+   "vidros": [
+    {
+     "quantidade": 2,
+     "largura_mm": 1005,
+     "altura_mm": 1915
+    }
+   ],
+   "pecas": [
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2300,
+     "quantidade": 1,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2350,
+     "quantidade": 1,
+     "corte": "45/90",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2350,
+     "quantidade": 1,
+     "corte": "90/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2300,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2350,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "9125/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2300,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "INSTALAÇÃO - AFASTADOR Z"
+    },
+    {
+     "codigo": "HF112/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2306,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "PORTA - MARCO - LARGURA"
+    },
+    {
+     "codigo": "HF112/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2156,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "PORTA - MARCO - ALTURA"
+    },
+    {
+     "codigo": "1023/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2196,
+     "quantidade": 3,
+     "corte": "90/90",
+     "obs": "PORTA - MARCO - TRILHO CLICK"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2136,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "PORTA - MARCO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1986,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "PORTA - MARCO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "SF92/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1158,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "PORTA - FOLHA VIDRO - LARGURA"
+    },
+    {
+     "codigo": "SF92/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2068,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "PORTA - FOLHA VIDRO - ALTURA"
+    },
+    {
+     "codigo": "8427/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 940,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "PORTA - FOLHA VIDRO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8427/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1850,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "PORTA - FOLHA VIDRO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "IL42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2062,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "PORTA - FOLHA VIDRO - INTERLOCK"
+    },
+    {
+     "codigo": "KT42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2062,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "PORTA - FOLHA VIDRO - CAPA INTERLOCK"
+    },
+    {
+     "codigo": "KT42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2062,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PORTA - FOLHA TELA - CAPA INTERLOCK"
+    },
+    {
+     "codigo": "IL42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2062,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PORTA - FOLHA TELA - INTERLOCK"
+    },
+    {
+     "codigo": "GB25/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1000,
+     "quantidade": 4,
+     "corte": "45/45",
+     "obs": "PORTA - VIDRO - BAGUETE 25MM LARGURA"
+    },
+    {
+     "codigo": "GB25/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1910,
+     "quantidade": 4,
+     "corte": "45/45",
+     "obs": "PORTA - VIDRO - BAGUETE 25MM ALTURA S/ TRAV"
+    },
+    {
+     "codigo": "SF92/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1158,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "PORTA - FOLHA TELA - LARGURA"
+    },
+    {
+     "codigo": "SF92/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2068,
+     "quantidade": 2,
+     "corte": "45S/45S",
+     "obs": "PORTA - FOLHA TELA - ALTURA"
+    },
+    {
+     "codigo": "8427/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 940,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "PORTA - FOLHA TELA - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8427/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1850,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "PORTA - FOLHA TELA - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "GB34/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1000,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "PORTA - TELA - BAGUETE 34MM LARGURA"
+    },
+    {
+     "codigo": "GB34/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1910,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "PORTA - TELA - BAGUETE 34MM ALTURA S/ TRAV"
+    },
+    {
+     "codigo": "BZ20010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2284,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - TAMPA INTERNA"
+    },
+    {
+     "codigo": "BZ20010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2284,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - TAMPA EXTERNA"
+    },
+    {
+     "codigo": "BZ20010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2284,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - TAMPA SUPERIOR"
+    },
+    {
+     "codigo": "BZ20010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2284,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - TAMPA INFERIOR (REFILADA)"
+    },
+    {
+     "codigo": "BZ3016/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2284,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - ACABAMENTO EXTERNO"
+    },
+    {
+     "codigo": "4661/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1117,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "PERS - PERFIL TERMINAL"
+    },
+    {
+     "codigo": "BZ5563/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2150,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "PERS - GUIA LATERAL"
+    },
+    {
+     "codigo": "BZ4556/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2150,
+     "quantidade": 1,
+     "corte": "90/90",
+     "obs": "PERS - GUIA CENTRAL"
+    },
+    {
+     "codigo": "2681/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1117,
+     "quantidade": 80,
+     "corte": "90/90",
+     "obs": "PERS - PALHETA VENTILADA"
+    },
+    {
+     "codigo": "2681.1/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1117,
+     "quantidade": 20,
+     "corte": "90/90",
+     "obs": "PERS - PALHETA CEGA"
+    }
+   ]
+  },
+  {
+   "orcamento": 1163,
+   "item": 10,
+   "tipologia": "DP-69",
+   "descricao": "PORTA DE CORRER 03 FOLHAS MÓVEIS COM PERSIANA | 02 VIDROS - 01",
+   "L_mm": 2200,
+   "H_mm": 2350,
+   "quantidade": 2,
+   "medida": "Interna",
+   "variaveis_do_relatorio": {
+    "ESQUADRIAS DE PAULA": "Emissão :    17/11/26 09:10:15",
+    "MODO DE FECHAMENTO FOLHA DE TELA": "CONCHA CEGA 26X152",
+    "MODELO DA MAÇANETA SEM CHAVE": "MAÇANETA QUADRI P.35",
+    "TIPO DE ROLDANA FOLHA VIDRO": "10158 - 120KG/ PAR",
+    "TIPO DE ROLDANA FOLHA TELA": "10158 - 120KG/ PAR",
+    "CALÇO E FOLGA DE VIDRO UTILIZADO": "CALÇO 5MM - FOLGA DE 5MM CADA"
+   },
+   "vidros": [
+    {
+     "quantidade": 4,
+     "largura_mm": 955,
+     "altura_mm": 1915
+    }
+   ],
+   "pecas": [
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2200,
+     "quantidade": 2,
+     "corte": "45/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2350,
+     "quantidade": 2,
+     "corte": "45/90",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ1770/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2350,
+     "quantidade": 2,
+     "corte": "90/45",
+     "obs": "ARREMATE - ARREMATE INTERNO 70MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2200,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "BZ0010/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2350,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "ARREMATE - ARREMATE EXTERNO 20MM"
+    },
+    {
+     "codigo": "9125/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2200,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "INSTALAÇÃO - AFASTADOR Z"
+    },
+    {
+     "codigo": "HF112/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2206,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "PORTA - MARCO - LARGURA"
+    },
+    {
+     "codigo": "HF112/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2156,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "PORTA - MARCO - ALTURA"
+    },
+    {
+     "codigo": "1023/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2096,
+     "quantidade": 6,
+     "corte": "90/90",
+     "obs": "PORTA - MARCO - TRILHO CLICK"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2036,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "PORTA - MARCO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8432/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1986,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "PORTA - MARCO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "SF92/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1108,
+     "quantidade": 8,
+     "corte": "45S/45S",
+     "obs": "PORTA - FOLHA VIDRO - LARGURA"
+    },
+    {
+     "codigo": "SF92/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2068,
+     "quantidade": 8,
+     "corte": "45S/45S",
+     "obs": "PORTA - FOLHA VIDRO - ALTURA"
+    },
+    {
+     "codigo": "8427/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 890,
+     "quantidade": 8,
+     "corte": "90/90",
+     "obs": "PORTA - FOLHA VIDRO - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8427/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1850,
+     "quantidade": 8,
+     "corte": "90/90",
+     "obs": "PORTA - FOLHA VIDRO - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "IL42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2062,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "PORTA - FOLHA VIDRO - INTERLOCK"
+    },
+    {
+     "codigo": "KT42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2062,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "PORTA - FOLHA VIDRO - CAPA INTERLOCK"
+    },
+    {
+     "codigo": "KT42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2062,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "PORTA - FOLHA TELA - CAPA INTERLOCK"
+    },
+    {
+     "codigo": "IL42/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2062,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "PORTA - FOLHA TELA - INTERLOCK"
+    },
+    {
+     "codigo": "GB25/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 950,
+     "quantidade": 8,
+     "corte": "45/45",
+     "obs": "PORTA - VIDRO - BAGUETE 25MM LARGURA"
+    },
+    {
+     "codigo": "GB25/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1910,
+     "quantidade": 8,
+     "corte": "45/45",
+     "obs": "PORTA - VIDRO - BAGUETE 25MM ALTURA S/ TRAV"
+    },
+    {
+     "codigo": "SF92/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1108,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "PORTA - FOLHA TELA - LARGURA"
+    },
+    {
+     "codigo": "SF92/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2068,
+     "quantidade": 4,
+     "corte": "45S/45S",
+     "obs": "PORTA - FOLHA TELA - ALTURA"
+    },
+    {
+     "codigo": "8427/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 890,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "PORTA - FOLHA TELA - REFORÇO DE AÇO LARGURA"
+    },
+    {
+     "codigo": "8427/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1850,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "PORTA - FOLHA TELA - REFORÇO DE AÇO ALTURA"
+    },
+    {
+     "codigo": "GB34/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 950,
+     "quantidade": 4,
+     "corte": "45/45",
+     "obs": "PORTA - TELA - BAGUETE 34MM LARGURA"
+    },
+    {
+     "codigo": "GB34/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 1910,
+     "quantidade": 4,
+     "corte": "45/45",
+     "obs": "PORTA - TELA - BAGUETE 34MM ALTURA S/ TRAV"
+    },
+    {
+     "codigo": "BZ20010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2184,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "PERS - TAMPA INTERNA"
+    },
+    {
+     "codigo": "BZ20010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2184,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "PERS - TAMPA EXTERNA"
+    },
+    {
+     "codigo": "BZ20010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2184,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "PERS - TAMPA SUPERIOR"
+    },
+    {
+     "codigo": "BZ20010/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2184,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "PERS - TAMPA INFERIOR (REFILADA)"
+    },
+    {
+     "codigo": "BZ3016/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 2184,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "PERS - ACABAMENTO EXTERNO"
+    },
+    {
+     "codigo": "4661/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1067,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "PERS - PERFIL TERMINAL"
+    },
+    {
+     "codigo": "BZ5563/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2150,
+     "quantidade": 4,
+     "corte": "90/90",
+     "obs": "PERS - GUIA LATERAL"
+    },
+    {
+     "codigo": "BZ4556/WOLFF",
+     "posicao": "Altura",
+     "comprimento_mm": 2150,
+     "quantidade": 2,
+     "corte": "90/90",
+     "obs": "PERS - GUIA CENTRAL"
+    },
+    {
+     "codigo": "2681/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1067,
+     "quantidade": 160,
+     "corte": "90/90",
+     "obs": "PERS - PALHETA VENTILADA"
+    },
+    {
+     "codigo": "2681.1/WOLFF",
+     "posicao": "Largura",
+     "comprimento_mm": 1067,
+     "quantidade": 40,
+     "corte": "90/90",
+     "obs": "PERS - PALHETA CEGA"
+    }
+   ]
+  }
+ ]
+}

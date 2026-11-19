@@ -142,6 +142,11 @@ export type ContextoDaProposta = {
     ordemPadrao: number | null
     definicao: DefinicaoDaTipologia
     familiasDoCodigo: FamiliasDoCodigo
+    /**
+     * A medida fora do limite AUTORIZADA (dono do produto, 18/11/2026, decisão 1): o item cuja tipologia e medida são as que o vendedor liberou
+     * não perde a tipologia pelos limites (`autorizacao-do-limite.ts`). Obrigatório: sem autorização lida, quem chama diz `() => false`.
+     */
+    limiteAutorizado: (item: ItemDoLevantamento) => boolean
 }
 
 export type ResultadoDaProposta = {
@@ -276,7 +281,7 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
         // próxima"; NULL no limite nunca descarta. As medidas ficam; a conversa diz a faixa das que sobraram.
         if (alvo.tipologia !== null && (alvo.largura_mm !== null || alvo.altura_mm !== null)) {
             const candidatas = candidatasDoCodigo(alvo.tipologia)
-            if (candidatas.length > 0 && !candidatas.some((c) => cabeNosLimites(c, alvo))) {
+            if (candidatas.length > 0 && !candidatas.some((c) => cabeNosLimites(c, alvo)) && !ctx.limiteAutorizado(alvo)) {
                 if (tipologiaProposta) descartados += 1
                 recusas.push({ ordem: alvo.ordem, motivo: 'LIMITES', tipologia: alvo.tipologia, abertura, medidas: { largura_mm: alvo.largura_mm, altura_mm: alvo.altura_mm } })
                 alvo.tipologia = null
