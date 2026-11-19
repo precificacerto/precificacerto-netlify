@@ -7269,7 +7269,25 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         expect(estado.documentosDoOrcamento).toHaveLength(2)
         expect(((estado.db.orcamentista_orcamento ?? []) as Linha[]).length).toBe(orcamentos)
         expect(estado.documentos.slice(arquivos).filter((d) => !/^Orcamento/i.test(String(d.corpo.FileName)))).toEqual([])
-        expect(linhaIa().pop()).toMatch(/ rota=ORCAMENTO .*qual_orcamento=1/)
+        expect(linhaIa().pop()).toMatch(/ rota=ORCAMENTO .*qual_orcamento=1.* alteracao_pendente=sim/)
+        // (19/11/2026, dono do produto) entrega o que foi pedido e AVISA em UMA linha o que ficou pendente — e a confirmação continua em aberto
+        expect(ultimoEnviado()).toBe(conversa.FRASE_ALTERACAO_FORA_DO_ORCAMENTO)
+        expect(ultimoEnviado().split('\n')).toHaveLength(1)
+        expect((estado.db.orcamentista_pergunta_em_aberto ?? []) as Linha[]).toEqual([expect.objectContaining({ pergunta: 'CONFIRMAR_APANHADO' })])
+        // e o "sim" seguinte ainda confirma a alteração: o orçamento é refeito com ela, e a confirmação sai
+        llmResponde({ confirma: true })
+        await chamar('sim')
+        expect(estado.documentosDoOrcamento).toHaveLength(3)
+        expect((estado.db.orcamentista_pergunta_em_aberto ?? []) as Linha[]).toEqual([])
+    })
+    it('sem alteração esperando o "sim", o orçamento existente vai SÓ como arquivo — sem a linha da alteração', async () => {
+        await fecharDp02('Daiane Pilger')
+        const envios = estado.envios.length
+        llmResponde({ nome: 'daiane pilger' })
+        await chamar('Quero o orcamento daiane pilger')
+        expect(estado.documentosDoOrcamento).toHaveLength(2)
+        expect(estado.envios.slice(envios).map((e) => JSON.stringify(e.corpo)).filter((t) => t.includes(conversa.FRASE_ALTERACAO_FORA_DO_ORCAMENTO))).toEqual([])
+        expect(linhaIa().pop()).toContain(' so_arquivo=sim')
     })
     it('o pedido de orçamento que TRAZ ESQUADRIA (muda o levantamento) não vale como o "sim": a mudança vai ao arquivo, para conferir', async () => {
         const antes = await levantamentoDaDaiane(true)
