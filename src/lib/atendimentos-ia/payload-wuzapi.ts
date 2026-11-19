@@ -80,6 +80,8 @@ export type MidiaDaMensagem = {
     legenda: string | null
     /** O tamanho declarado em bytes (`fileLength`), ou NULL quando não veio — ausente não é zero. */
     tamanho: number | null
+    /** A duração DECLARADA em segundos (`seconds`), no áudio e no vídeo; NULL nos outros e quando não veio (18/11/2026, tarefa 0018). */
+    segundos: number | null
     /** NULL quando falta algum dos campos do download: a mídia chegou, mas não há como buscá-la. */
     download: DadosDoDownload | null
 }
@@ -101,6 +103,13 @@ function campoTamanho(o: Record<string, unknown>): number | null {
     const v = o.fileLength ?? o.FileLength
     const n = typeof v === 'number' ? v : typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : NaN
     return Number.isSafeInteger(n) && n > 0 ? n : null
+}
+
+/** A duração declarada do áudio (`seconds`): inteiro não negativo, ou NULL — ausente não é zero. */
+function campoSegundos(o: Record<string, unknown>): number | null {
+    const v = o.seconds ?? o.Seconds
+    const n = typeof v === 'number' ? v : typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : NaN
+    return Number.isSafeInteger(n) && n >= 0 ? n : null
 }
 
 /** A mensagem de verdade, sem os invólucros (no máximo três camadas). */
@@ -139,6 +148,7 @@ export function midiaDaMensagem(event: any): MidiaDaMensagem | null {
             nome: tipo === 'documento' ? campoTexto(m, 'fileName', 'FileName') : null,
             legenda: legenda === null ? null : legenda.trim(),
             tamanho,
+            segundos: tipo === 'audio' || tipo === 'video' ? campoSegundos(m) : null,
             download: (url || directPath) && mediaKey && fileEncSHA256 && fileSHA256
                 ? { url: url ?? '', directPath: directPath ?? '', mediaKey, fileEncSHA256, fileSHA256, fileLength: tamanho }
                 : null,

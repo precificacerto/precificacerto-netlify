@@ -44,10 +44,12 @@ export type MotivoDaRecusa =
     | 'audio' | 'video' | 'planilha' | 'documento_nao_pdf' | 'imagem_formato'
     | 'imagem_grande' | 'imagem_dimensao' | 'pdf_grande' | 'pdf_com_senha' | 'arquivo_nao_confere'
     | 'sem_dados_do_download' | 'falhou_ao_baixar'
+    /** O ÁUDIO (18/11/2026, tarefa 0018): acima de 3 minutos; a transcrição que falhou; a empresa sem a liberação; o teto do mês. */
+    | 'audio_longo' | 'audio_nao_transcrito' | 'audio_nao_liberado' | 'audio_teto'
 
 /** O que se pretende ler, decidido pelos METADADOS do evento, antes de baixar. */
 export type Leitura =
-    | { lida: true; como: 'imagem' | 'pdf' }
+    | { lida: true; como: 'imagem' | 'pdf' | 'audio' }
     | { lida: false; motivo: MotivoDaRecusa; frase: string }
 
 /** O que vai ao modelo, já conferido pelos bytes. */
@@ -60,6 +62,9 @@ const mimeBase = (m: string | null) => (m ?? '').split(';')[0].trim().toLowerCas
 const ehPlanilha = (m: MidiaDaMensagem) => PLANILHA_MIME.test(mimeBase(m.mimetype)) || (m.nome !== null && PLANILHA_EXT.test(m.nome))
 const ehPdfDeclarado = (m: MidiaDaMensagem) => mimeBase(m.mimetype) === PDF || (m.nome !== null && /\.pdf$/i.test(m.nome))
 const ehImagemDeclarada = (m: MidiaDaMensagem) => (TIPOS_DE_IMAGEM as readonly string[]).includes(mimeBase(m.mimetype))
+
+/** O limite do áudio (dono do produto, 18/11/2026): "acima disso não transcreve, e responde pedindo para dividir ou escrever". */
+export const LIMITE_DO_AUDIO_SEGUNDOS = 180
 
 /** Megabytes com uma casa, vírgula decimal — "12,3 MB". Arredonda PARA CIMA: o número dito nunca é menor que o arquivo. */
 export const emMB = (bytes: number) => `${(Math.ceil(bytes / 100_000) / 10).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} MB`
@@ -80,9 +85,22 @@ const recebi = (m: MidiaDaMensagem) => `Recebi ${oQueChegou(m)}`
 const OU_ESCREVA = 'ou me escreva as medidas'
 
 /** As frases de recusa: dizem o que chegou, por que não foi lido e o que fazer. Passam por `falar()`, como as outras perguntas. */
-export function fraseDaRecusa(m: MidiaDaMensagem, motivo: MotivoDaRecusa, detalhe: { bytes?: number; largura?: number; altura?: number } = {}): string {
+/** "2 minutos e 5 segundos", "3 minutos", "40 segundos" — a duração como o vendedor fala. */
+export function duracaoPorExtenso(segundos: number): string {
+    const s = Math.ceil(segundos)
+    const min = Math.floor(s / 60), seg = s % 60
+    const m = min ? `${min} ${min === 1 ? 'minuto' : 'minutos'}` : ''
+    const r = seg ? `${seg} ${seg === 1 ? 'segundo' : 'segundos'}` : ''
+    return m && r ? `${m} e ${r}` : m || r || '0 segundo'
+}
+
+export function fraseDaRecusa(m: MidiaDaMensagem, motivo: MotivoDaRecusa, detalhe: { bytes?: number; largura?: number; altura?: number; segundos?: number } = {}): string {
     switch (motivo) {
         case 'audio': return `${recebi(m)}, mas ainda não consigo ouvir áudio: me escreva o que precisa, ou mande uma foto.`
+        case 'audio_longo': return `${recebi(m)}, mas ele tem ${detalhe.segundos !== undefined ? `${duracaoPorExtenso(detalhe.segundos)} e eu ouço` : 'mais do que eu ouço:'} áudio de até 3 minutos: mande em partes menores, ou me escreva o que precisa.`
+        case 'audio_nao_transcrito': return `${recebi(m)}, mas não consegui transcrever agora: mande de novo daqui a pouco, ou me escreva o que precisa.`
+        case 'audio_nao_liberado': return `${recebi(m)}, mas a transcrição de áudio não está liberada para a sua empresa: me escreva o que precisa, ou mande uma foto.`
+        case 'audio_teto': return `${recebi(m)}, mas a sua empresa já usou os minutos de áudio do mês: me escreva o que precisa, ou mande uma foto.`
         case 'video': return `${recebi(m)}, mas ainda não consigo assistir vídeo: me mande uma foto ou um PDF, ${OU_ESCREVA}.`
         case 'planilha': return `${recebi(m)}, mas ainda não consigo ler planilha: me mande em PDF ou em foto, ${OU_ESCREVA}.`
         case 'documento_nao_pdf': return `${recebi(m)}, mas de documento eu só leio PDF: me mande em PDF ou em foto, ${OU_ESCREVA}.`
@@ -106,7 +124,12 @@ export function fraseDaMidiaRecusadaPelaIa(m: MidiaDaMensagem): string {
 /** A leitura pelos METADADOS: o que se pretende ler, ou a recusa nomeada — antes de baixar qualquer byte. */
 export function leituraDaMidia(m: MidiaDaMensagem): Leitura {
     const recusa = (motivo: MotivoDaRecusa, detalhe: { bytes?: number } = {}): Leitura => ({ lida: false, motivo, frase: fraseDaRecusa(m, motivo, detalhe) })
-    if (m.tipo === 'audio') return recusa('audio')
+    // O ÁUDIO (18/11/2026, tarefa 0018): a duração declarada acima de 3 minutos recusa SEM baixar; o resto vai à transcrição, que confere de novo
+    if (m.tipo === 'audio') {
+        if (m.segundos !== null && m.segundos > LIMITE_DO_AUDIO_SEGUNDOS) return { lida: false, motivo: 'audio_longo', frase: fraseDaRecusa(m, 'audio_longo', { segundos: m.segundos }) }
+        if (m.download === null) return recusa('sem_dados_do_download')
+        return { lida: true, como: 'audio' }
+    }
     if (m.tipo === 'video') return recusa('video')
     let como: 'imagem' | 'pdf'
     if (m.tipo === 'imagem') {
@@ -214,5 +237,5 @@ export function marcadorDaMidia(m: MidiaDaMensagem): string {
 export const textoDaEntradaComMidia = (m: MidiaDaMensagem, texto: string | null) => (texto ? `${marcadorDaMidia(m)} ${texto}` : marcadorDaMidia(m))
 
 /** O tipo e o desfecho da mídia para a linha [IA]: só códigos — nunca a legenda nem o nome do arquivo. */
-export const marcaNoLog = (m: MidiaDaMensagem, desfecho: 'lida' | MotivoDaRecusa | 'recusada_pela_ia', como?: 'imagem' | 'pdf') =>
+export const marcaNoLog = (m: MidiaDaMensagem, desfecho: 'lida' | MotivoDaRecusa | 'recusada_pela_ia', como?: 'imagem' | 'pdf' | 'audio') =>
     `${como ?? m.tipo}:${desfecho}`

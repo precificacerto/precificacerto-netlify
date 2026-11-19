@@ -13,7 +13,7 @@
 import { midiaDaMensagem, type MidiaDaMensagem } from '@/lib/atendimentos-ia/payload-wuzapi'
 import {
     LADO_MAXIMO_DA_IMAGEM_PX, LIMITE_DA_IMAGEM_BYTES, LIMITE_DA_IMAGEM_EM_BASE64, LIMITE_DO_PDF_BYTES, LIMITE_DO_PDF_EM_BASE64,
-    conferirMidiaBaixada, dimensoesDaImagem, emMB, fraseDaMidiaRecusadaPelaIa, fraseDaRecusa, leituraDaMidia, marcadorDaMidia,
+    conferirMidiaBaixada, dimensoesDaImagem, duracaoPorExtenso, emMB, fraseDaMidiaRecusadaPelaIa, fraseDaRecusa, leituraDaMidia, marcadorDaMidia,
     marcaNoLog, textoDaEntradaComMidia, tipoPelosBytes,
 } from '@/lib/atendimentos-ia/midia-da-mensagem'
 import { baixarMidia, bytesDoDataUrl, caminhoDoDownload } from '@/lib/atendimentos-ia/midia-do-wuzapi'
@@ -22,7 +22,7 @@ const BYTES = { URL: 'https://mmg.whatsapp.net/x', directPath: '/x', mediaKey: '
 const DOWNLOAD = { url: BYTES.URL, directPath: BYTES.directPath, mediaKey: BYTES.mediaKey, fileEncSHA256: BYTES.fileEncSHA256, fileSHA256: BYTES.fileSHA256 }
 
 function midia(sobre: Partial<MidiaDaMensagem> = {}): MidiaDaMensagem {
-    return { tipo: 'imagem', mimetype: 'image/jpeg', nome: null, legenda: null, tamanho: 1000, download: { ...DOWNLOAD, fileLength: 1000 }, ...sobre }
+    return { tipo: 'imagem', mimetype: 'image/jpeg', nome: null, legenda: null, tamanho: 1000, segundos: null, download: { ...DOWNLOAD, fileLength: 1000 }, ...sobre }
 }
 const pdf = (sobre: Partial<MidiaDaMensagem> = {}) => midia({ tipo: 'documento', mimetype: 'application/pdf', nome: 'Obra.pdf', ...sobre })
 
@@ -46,7 +46,7 @@ describe('(1) midiaDaMensagem — os metadados como o webhook os entrega (medido
     it('a foto com legenda: tipo, mimetype, legenda, tamanho e o que o download exige', () => {
         // o fileName que o celular às vezes manda na imagem NÃO é nome: só o documento tem nome (o marcador da foto é "[imagem]")
         const m = midiaDaMensagem({ Message: { imageMessage: { ...BYTES, mimetype: 'image/jpeg', caption: '  porta 2,10 x 0,80  ', fileLength: 4242, fileName: 'IMG_0042.jpg' } } })
-        expect(m).toEqual({ tipo: 'imagem', mimetype: 'image/jpeg', nome: null, legenda: 'porta 2,10 x 0,80', tamanho: 4242, download: { ...DOWNLOAD, fileLength: 4242 } })
+        expect(m).toEqual({ tipo: 'imagem', mimetype: 'image/jpeg', nome: null, legenda: 'porta 2,10 x 0,80', tamanho: 4242, segundos: null, download: { ...DOWNLOAD, fileLength: 4242 } })
     })
     it('o PDF com legenda vem dentro de documentWithCaptionMessage.message — o invólucro é aberto', () => {
         const m = midiaDaMensagem({ Message: { documentWithCaptionMessage: { message: { documentMessage: { ...BYTES, mimetype: 'application/pdf', fileName: 'Obra.pdf', caption: 'medidas' } } } } })
@@ -82,6 +82,31 @@ describe('(1) midiaDaMensagem — os metadados como o webhook os entrega (medido
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
 describe('(2) leituraDaMidia — o que se lê e o que se recusa, pelos metadados, ANTES de baixar', () => {
+    it('O ÁUDIO (tarefa 0018, 18/11/2026): vai à transcrição; acima de 3 minutos DECLARADOS recusa sem baixar, dizendo a duração; sem os dados do download, recusa', () => {
+        expect(leituraDaMidia(midia({ tipo: 'audio', mimetype: 'audio/ogg', segundos: 42 }))).toEqual({ lida: true, como: 'audio' })
+        expect(leituraDaMidia(midia({ tipo: 'audio', mimetype: 'audio/ogg', segundos: null }))).toEqual({ lida: true, como: 'audio' })
+        expect(leituraDaMidia(midia({ tipo: 'audio', mimetype: 'audio/ogg', segundos: 180 }))).toEqual({ lida: true, como: 'audio' })
+        expect(leituraDaMidia(midia({ tipo: 'audio', mimetype: 'audio/ogg', segundos: 245 }))).toEqual({ lida: false, motivo: 'audio_longo',
+            frase: 'Recebi o seu áudio, mas ele tem 4 minutos e 5 segundos e eu ouço áudio de até 3 minutos: mande em partes menores, ou me escreva o que precisa.' })
+        expect(leituraDaMidia(midia({ tipo: 'audio', segundos: 10, download: null }))).toEqual(expect.objectContaining({ lida: false, motivo: 'sem_dados_do_download' }))
+    })
+    it('a duração por extenso', () => {
+        expect([duracaoPorExtenso(40), duracaoPorExtenso(60), duracaoPorExtenso(61), duracaoPorExtenso(125.2), duracaoPorExtenso(181)]).toEqual(['40 segundos', '1 minuto', '1 minuto e 1 segundo', '2 minutos e 6 segundos', '3 minutos e 1 segundo'])
+    })
+    it('as frases do áudio dizem o que chegou e o que fazer', () => {
+        const a = midia({ tipo: 'audio', mimetype: 'audio/ogg' })
+        expect(fraseDaRecusa(a, 'audio_nao_transcrito')).toBe('Recebi o seu áudio, mas não consegui transcrever agora: mande de novo daqui a pouco, ou me escreva o que precisa.')
+        expect(fraseDaRecusa(a, 'audio_nao_liberado')).toBe('Recebi o seu áudio, mas a transcrição de áudio não está liberada para a sua empresa: me escreva o que precisa, ou mande uma foto.')
+        expect(fraseDaRecusa(a, 'audio_teto')).toBe('Recebi o seu áudio, mas a sua empresa já usou os minutos de áudio do mês: me escreva o que precisa, ou mande uma foto.')
+        expect(fraseDaRecusa(a, 'audio_longo')).toBe('Recebi o seu áudio, mas ele tem mais do que eu ouço: áudio de até 3 minutos: mande em partes menores, ou me escreva o que precisa.')
+    })
+    it('o áudio do evento: a duração declarada (`seconds`) é lida; e o download é pelo endpoint do áudio', () => {
+        const m = midiaDaMensagem({ Message: { audioMessage: { ...BYTES, mimetype: 'audio/ogg; codecs=opus', seconds: 37, ptt: true, fileLength: 9000 } } })
+        expect(m).toEqual(expect.objectContaining({ tipo: 'audio', segundos: 37, tamanho: 9000 }))
+        expect(caminhoDoDownload(m as MidiaDaMensagem)).toBe('/chat/downloadaudio')
+        expect(midiaDaMensagem({ Message: { audioMessage: { ...BYTES, mimetype: 'audio/ogg' } } })).toEqual(expect.objectContaining({ tipo: 'audio', segundos: null }))
+        expect(midiaDaMensagem({ Message: { imageMessage: { ...BYTES, mimetype: 'image/jpeg', seconds: 5 } } })).toEqual(expect.objectContaining({ segundos: null }))
+    })
     it('foto JPEG e PDF são lidos', () => {
         expect(leituraDaMidia(midia())).toEqual({ lida: true, como: 'imagem' })
         expect(leituraDaMidia(pdf())).toEqual({ lida: true, como: 'pdf' })
@@ -91,7 +116,6 @@ describe('(2) leituraDaMidia — o que se lê e o que se recusa, pelos metadados
         expect(leituraDaMidia(midia({ tipo: 'documento', mimetype: 'image/png', nome: 'planta.png' }))).toEqual({ lida: true, como: 'imagem' })
     })
     it.each([
-        ['áudio', midia({ tipo: 'audio', mimetype: 'audio/ogg' }), 'audio', 'Recebi o seu áudio, mas ainda não consigo ouvir áudio: me escreva o que precisa, ou mande uma foto.'],
         ['vídeo', midia({ tipo: 'video', mimetype: 'video/mp4' }), 'video', 'Recebi o seu vídeo, mas ainda não consigo assistir vídeo: me mande uma foto ou um PDF, ou me escreva as medidas.'],
         ['planilha pelo mimetype', pdf({ mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', nome: 'Obra.xlsx' }), 'planilha', 'Recebi a planilha “Obra.xlsx”, mas ainda não consigo ler planilha: me mande em PDF ou em foto, ou me escreva as medidas.'],
         ['planilha pela extensão (.csv)', pdf({ mimetype: 'application/octet-stream', nome: 'medidas.csv' }), 'planilha', 'Recebi a planilha “medidas.csv”, mas ainda não consigo ler planilha: me mande em PDF ou em foto, ou me escreva as medidas.'],
