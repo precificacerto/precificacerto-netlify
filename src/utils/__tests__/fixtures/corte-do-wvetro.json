@@ -1,5 +1,5 @@
 {
- "_leia_me": "As esquadrias como o WVetro as cortou, extraidas dos Orientativos de Montagem dos orcamentos 1159 e 1163 da Esquadrias De Paula (17/11/2026). Cada caso traz o vao (L_mm, H_mm), as escolhas que o relatorio imprimiu e a lista de pecas com o comprimento de corte REAL de fabrica. Serve para conferir o avaliador peca por peca contra corte de verdade. ATENCAO ao arremate: o WVetro imprimiu a medida do vao, e o motor soma o acrescimo da opcao (BZ1770 +66, BZ0010 +50); o PO decidiu em 17/11/2026 que o CERTO e o do motor - nesses perfis a referencia e a regra, nao o numero impresso aqui.",
+ "_leia_me": "As esquadrias como o WVetro as cortou, extraidas dos Orientativos de Montagem dos orcamentos 1159 e 1163 da Esquadrias De Paula (17/11/2026). Cada caso traz o vao (L_mm, H_mm), as escolhas que o relatorio imprimiu e a lista de pecas com o comprimento de corte REAL de fabrica. Serve para conferir o avaliador peca por peca contra corte de verdade. ATENCAO ao arremate: o WVetro imprimiu a medida do vao, e o motor soma o acrescimo da opcao (BZ1770 +66, BZ0010 +50); o PO decidiu em 17/11/2026 que o CERTO e o do motor - nesses perfis a referencia e a regra, nao o numero impresso aqui. ACRESCIMO de 19/11/2026 (dono do produto, com o Orientativo na mao): os dois DP-128 (1159/3 e 1163/5) trazem `vidro_do_orientativo` - MINI-BOREAL 04MM COMUM, 4 mm -, porque o relatorio nao imprime baguete neles; e as quantidades das pecas sao do ITEM inteiro (a quantidade de esquadrias vezes a de cada uma).",
  "medido_em": "2026-11-17",
  "totais": {
   "esquadrias": 19,
@@ -476,7 +476,19 @@
      "corte": "90/90",
      "obs": "FOLHA - REFORÇO DE AÇO ALTURA"
     }
-   ]
+   ],
+   "vidro_do_orientativo": {
+    "descricao": "MINI-BOREAL 04MM COMUM",
+    "espessura_mm": 4,
+    "vidros": [
+     {
+      "L_mm": 432,
+      "H_mm": 432,
+      "quantidade": 1
+     }
+    ],
+    "fonte": "Orientativo do WVetro, orcamento e9a79f30, conferido pelo dono do produto em 19/11/2026"
+   }
   },
   {
    "orcamento": 1159,
@@ -1379,7 +1391,13 @@
      "corte": "90/90",
      "obs": "MODULAÇÃO - TALA HORIZONTAL"
     }
-   ]
+   ],
+   "divergencia_anotada": {
+    "o_que": "o WVetro corta BR60, 8431, SF78C, 8428 e GB34 6 mm mais altos que o motor (850 x 856, 704 x 710, 786 x 792, 604 x 610, 664 x 670 e 764 x 770), com a ALTURA DO PEITORIL 850",
+    "status": "divergencia anotada, NAO defeito do motor: o motor nao muda por causa dela",
+    "ate": "o dono do produto medir a cadeia de corte do WVetro contra o peitoril de 850",
+    "decidido_em": "2026-11-19"
+   }
   },
   {
    "orcamento": 1159,
@@ -1592,7 +1610,13 @@
      "corte": "90/90",
      "obs": "MODULAÇÃO - TALA HORIZONTAL"
     }
-   ]
+   ],
+   "divergencia_anotada": {
+    "o_que": "o WVetro corta BR60, 8431, SF78C, 8428 e GB34 6 mm mais altos que o motor (850 x 856, 704 x 710, 786 x 792, 604 x 610, 664 x 670 e 764 x 770), com a ALTURA DO PEITORIL 850",
+    "status": "divergencia anotada, NAO defeito do motor: o motor nao muda por causa dela",
+    "ate": "o dono do produto medir a cadeia de corte do WVetro contra o peitoril de 850",
+    "decidido_em": "2026-11-19"
+   }
   },
   {
    "orcamento": 1159,
@@ -2707,7 +2731,19 @@
      "corte": "90/90",
      "obs": "FOLHA - REFORÇO DE AÇO ALTURA"
     }
-   ]
+   ],
+   "vidro_do_orientativo": {
+    "descricao": "MINI-BOREAL 04MM COMUM",
+    "espessura_mm": 4,
+    "vidros": [
+     {
+      "L_mm": 332,
+      "H_mm": 582,
+      "quantidade": 2
+     }
+    ],
+    "fonte": "Orientativo do WVetro, orcamento 5deae2cc, conferido pelo dono do produto em 19/11/2026"
+   }
   },
   {
    "orcamento": 1163,
