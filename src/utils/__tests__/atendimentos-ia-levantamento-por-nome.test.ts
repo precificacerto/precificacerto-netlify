@@ -5343,13 +5343,22 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
 
         it('A LINHA SEM PADRÃO, de ponta a ponta: a mesma porta lisa em duas linhas — a conversa NÃO escolhe nem pergunta: responde a falta de configuração nomeando as linhas, e a esquadria fica sem tipologia', async () => {
             comPortaLisa()
-            // sintética: a DP-39 numa segunda linha (o motor 022fc55e não tem porta lisa em duas linhas; só a maxim-ar, e lá o extra desempata)
-            estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-39B', descricao: 'PORTA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 60', tipo: 'Correr', linha: 'PVC WOLFF EUROPA 60', alt_min_mm: 1736, alt_max_mm: 3036 })
+            // sintética: a DP-39 numa segunda linha que NÃO é a EUROPA 60 (com a 60, a linha padrão decide — 19/11/2026, o teste seguinte)
+            estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-39B', descricao: 'PORTA DE CORRER 02 FOLHAS MÓVEIS | DESIGN', tipo: 'Correr', linha: 'PVC WOLFF DESIGN', alt_min_mm: 1736, alt_max_mm: 3036 })
             llmResponde({ cliente: 'Ana', itens: [{ ...PORTA, abertura: 'porta' }] })
             await chamar('Cliente: Ana. 1 porta de correr 2,50 x 2,20, vidro comum 6 mm incolor')
             expect(itens('Ana')[0].tipologia).toBeNull()
-            expect(ultimoEnviado()).toContain(TP().fraseDaLinhaSemPadrao(['PVC WOLFF EUROPA 42', 'PVC WOLFF EUROPA 60']))
+            expect(ultimoEnviado()).toContain(TP().fraseDaLinhaSemPadrao(['PVC WOLFF EUROPA 42', 'PVC WOLFF DESIGN']))
             expect(linhaIa().pop()).toContain('desfecho=sem-linha')
+        })
+
+        it('A LINHA PADRÃO É A EUROPA 60 (19/11/2026), de ponta a ponta: a mesma porta lisa na 42 e na 60, a medida cabendo nas duas — a da 60, sem perguntar', async () => {
+            comPortaLisa()
+            estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-39C', descricao: 'PORTA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 60', tipo: 'Correr', linha: 'PVC WOLFF EUROPA 60', alt_min_mm: 1736, alt_max_mm: 3036 })
+            llmResponde({ cliente: 'Ana', itens: [{ ...PORTA, abertura: 'porta' }] })
+            await chamar('Cliente: Ana. 1 porta de correr 2,50 x 2,20, vidro comum 6 mm incolor')
+            expect(itens('Ana')[0].tipologia).toBe('DP-39C')
+            expect(ultimoEnviado()).not.toContain('linha de produto padrão')
         })
 
         it('o que esta fixture NÃO tem (3 folhas, persiana, bandeira, trilho embutido), um tipo que o motor não tem (porta de abrir) e a medida fora dos limites: sem candidata, sem padrão — o modelo decide', async () => {
@@ -5391,7 +5400,7 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
             await chamar('Cliente: Ana. porta de correr 2,50 x 2,20')
             expect(itens('Ana')[0].tipologia).toBeNull()
             comPortaLisa()
-            estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-239', descricao: 'PORTA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 60', tipo: 'Correr', linha: 'PVC WOLFF EUROPA 60' })
+            estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-239', descricao: 'PORTA DE CORRER 02 FOLHAS MÓVEIS | DESIGN', tipo: 'Correr', linha: 'PVC WOLFF DESIGN' })
             llmResponde({ cliente: 'Bia', itens: [{ ...PORTA, abertura: 'porta' }] })
             await chamar('Cliente: Bia. porta de correr 2,50 x 2,20', { senderAlt: TELEFONE_DO_OUTRO })
             expect(itens('Bia')[0].tipologia).toBeNull()
@@ -5438,6 +5447,32 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
             expect(itens('Bia')[0].tipologia).toBe('DP-128')
             expect(ultimoEnviado()).not.toContain('MODULAÇÃO TRAVESSA')
             expect(linhaIa().pop()).toMatch(/ tipologia_padrao=1(\s|$)/)
+        })
+
+        it('A LINHA PADRÃO no PADRÃO DO CÓDIGO (19/11/2026): com a DP-01 (DESIGN) e a DP-128 (EUROPA 60) no motor, a maxim-ar lisa é a DP-128', async () => {
+            estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-128', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | PERFIL MODULAÇÃO | EUROPA 60', tipo: 'Maxim-ar', linha: 'PVC WOLFF EUROPA 60' })
+            llmResponde({ cliente: 'Ana', itens: [{ ...JANELA }] })
+            await chamar('Cliente: Ana. 1 janela maxim ar 800 x 600')
+            expect(itens('Ana')[0].tipologia).toBe('DP-128')
+            expect(linhaIa().pop()).toMatch(/ tipologia_padrao=1(\s|$)/)
+        })
+
+        it('A LINHA PADRÃO na ESCOLHA DO MODELO (19/11/2026, o levantamento 25 do Dirceu): o modelo propôs a DP-01 para a maxim-ar 800 x 600 — grava a DP-128, e o log diz linha_padrao=1', async () => {
+            estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-128', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | PERFIL MODULAÇÃO | EUROPA 60', tipo: 'Maxim-ar', linha: 'PVC WOLFF EUROPA 60' })
+            llmResponde({ cliente: 'Dirceu Gonzalez', itens: [{ ...JANELA, tipologia: 'DP-01', largura_mm: 800, altura_mm: 600 }] })
+            await chamar('Cliente: Dirceu Gonzalez. Janela maxim ar - 0,80 x 0,60')
+            expect(itens('Dirceu Gonzalez')[0].tipologia).toBe('DP-128')
+            expect(linhaIa().pop()).toMatch(/ linha_padrao=1(\s|$)/)
+            // o vendedor que DISSE o código é obedecido: a DP-01 fica
+            llmResponde({ cliente: 'Eva', itens: [{ ...JANELA, tipologia: 'DP-01', largura_mm: 800, altura_mm: 600 }] })
+            await chamar('Cliente: Eva. DP-01 0,80 x 0,60', { senderAlt: TELEFONE_DO_OUTRO })
+            expect(itens('Eva')[0].tipologia).toBe('DP-01')
+            expect(linhaIa().pop()).not.toContain('linha_padrao=')
+            // a 60 em que a medida não cabe (altura acima de 1164) não conta: a DP-01 fica
+            estado.db.orcamentista_motor_tipologia_detalhe = estado.db.orcamentista_motor_tipologia_detalhe.map((d) => (d.tipologia === 'DP-128' ? { ...d, alt_min_mm: 364, alt_max_mm: 1164 } : d))
+            llmResponde({ cliente: 'Ivo', itens: [{ ...JANELA, tipologia: 'DP-01', largura_mm: 800, altura_mm: 1200 }] })
+            await chamar('Cliente: Ivo. Janela maxim ar - 0,80 x 1,20', { senderAlt: TELEFONE_DO_TERCEIRO })
+            expect(itens('Ivo')[0].tipologia).toBe('DP-01')
         })
 
         it('PORTA DE GIRO sem folha lisa no motor: a conversa nomeia a LACUNA DO MOTOR e as que existem — nunca a de 2 folhas, nunca "sem padrão" mudo', async () => {
