@@ -11,8 +11,9 @@
  * O QUE O PORTÃO AINDA NÃO TRAVA, nomeado (relatado no bridge, resposta 0017):
  *   - 4 casos SEM ESCOLHAS NA FIXTURE: a extração pegou só o cabeçalho da página ("ESQUADRIAS DE PAULA": "Emissão: …") — sem as escolhas, o
  *     motor usaria o padrão, e o confronto mediria o padrão, não o corte;
- *   - 2 casos (DP-128) sem baguete impresso: a espessura do vidro, que decide o baguete, não se lê — o avaliador recusa nomeando-a;
- *   - 9 casos com divergência FORA do arremate, relatados com a peça e os dois números, e NÃO consertados aqui (a tarefa: "Pode ser defeito
+ *   - 2 casos (DP-128) sem baguete impresso: o vidro vem do Orientativo (MINI-BOREAL 04MM COMUM, 4 mm — dono do produto, 19/11/2026), e o
+ *     WVetro não corta baguete neles; a divergência que sobra é SÓ o baguete que o motor gera, do lado do motor;
+ *   - 8 casos com divergência FORA do arremate (o 1163/7 fecha desde 19/11/2026: as peças do WVetro são do ITEM, a quantidade vezes a esquadria), relatados com a peça e os dois números, e NÃO consertados aqui (a tarefa: "Pode ser defeito
  *     do avaliador, e é exatamente isso que o portão existe para achar"). O portão confere que continuam divergindo: quando a causa for
  *     resolvida, ele fica vermelho e o caso passa para a lista dos que fecham.
  *
@@ -27,7 +28,11 @@ const CORTE = require('./fixtures/corte-do-wvetro.json') as { totais: Record<str
 const MOTOR = require('./fixtures/motor-das-tipologias-do-corte.json') as { tabelas: Record<string, Array<Record<string, unknown>>> }
 
 type Peca = { codigo: string; posicao: string; comprimento_mm: number; quantidade: number }
-type Caso = { orcamento: number; item: number; tipologia: string; L_mm: number; H_mm: number; variaveis_do_relatorio: Record<string, string>; pecas: Peca[] }
+type Caso = {
+    orcamento: number; item: number; tipologia: string; L_mm: number; H_mm: number; quantidade: number; variaveis_do_relatorio: Record<string, string>; pecas: Peca[]
+    /** O vidro lido do Orientativo pelo dono do produto (19/11/2026), nos casos em que o relatório não imprime baguete. */
+    vidro_do_orientativo?: { descricao: string; espessura_mm: number; vidros: Array<{ L_mm: number; H_mm: number; quantidade: number }> }
+}
 
 const ARREMATE = new Set(['BZ1770/WOLFF', 'BZ0006/WOLFF', 'BZ0010/WOLFF', 'BZ0012/WOLFF'])
 const id = (c: Caso) => `${c.orcamento}/${c.item}`
@@ -66,26 +71,38 @@ function conferir(c: Caso) {
     const t = lerTipologia(abas, c.tipologia)
     if ('recusas' in t) throw new Error(`${id(c)}: ${t.recusas[0].mensagem}`)
     const { escolhas } = escolhasDoRelatorio(t.tipologia, c.variaveis_do_relatorio)
-    const r = avaliarTipologia({ tipologia: t.tipologia, L_mm: c.L_mm, H_mm: c.H_mm, escolhas, espessura_vidro_mm: espessuraDoBaguete(c) })
+    const espessura = c.vidro_do_orientativo?.espessura_mm ?? espessuraDoBaguete(c)
+    const r = avaliarTipologia({ tipologia: t.tipologia, L_mm: c.L_mm, H_mm: c.H_mm, escolhas, espessura_vidro_mm: espessura })
     if ('recusas' in r) return { recusas: r.recusas.map((x) => x.mensagem) }
-    const motor = contar(r.pecas), wv = contar(c.pecas)
+    // o WVetro imprime as peças do ITEM: as de UMA esquadria vezes a quantidade de esquadrias (19/11/2026: o 1163/7, 2 esquadrias, imprime ×4)
+    const motor = contar(r.pecas.map((p) => ({ ...p, quantidade: p.quantidade * c.quantidade }))), wv = contar(c.pecas)
     return { soMotor: sobra(motor, wv), soWvetro: sobra(wv, motor) }
 }
 
 const SEM_ESCOLHAS_NA_FIXTURE = ['1159/4', '1159/5', '1159/6', '1163/4']
-const SEM_BAGUETE_IMPRESSO = ['1159/3', '1163/5']
-const FECHAM = ['1159/2', '1163/1', '1163/3', '1163/6']
+/**
+ * OS DOIS DP-128 (dono do produto, 19/11/2026, com o Orientativo na mão): o vidro é MINI-BOREAL 04MM COMUM (4 mm) nos dois, e o WVetro NÃO tem
+ * baguete nenhum na lista deles — nem GB34, nem GB19, nem GB31 —, ao contrário do DP-122 e do DP-130. "Se o motor gerar baguete no DP-128, a
+ * divergência é essa, e é do lado do motor." O portão confere que ela é SÓ essa: o baguete que o motor gera, e nada mais fora do arremate.
+ */
+const BAGUETE_SO_NO_MOTOR = ['1159/3', '1163/5']
+const BAGUETES = new Set(['GB34/WOLFF', 'GB19/WOLFF', 'GB31/WOLFF', 'GB25/WOLFF'])
+/** O 1163/7 (DP-122 de 500 × 750) fecha: o motor gera as sete peças do WVetro (19/11/2026, "trate como motor certo") — a diferença era a quantidade do item. */
+const FECHAM = ['1159/2', '1163/1', '1163/3', '1163/6', '1163/7']
 /** As divergências FORA do arremate, relatadas ao PO em 18/11/2026 (bridge, resposta 0017) — com a causa provável, não confirmada. */
 const DIVERGENCIAS_RELATADAS: Record<string, string> = {
     '1159/1': 'a travessa: o relatório não imprime "USA TRAVESSA?", o motor usa o padrão (sim) e corta o GB25 em dois; o WVetro cortou inteiro',
     '1159/9': 'a travessa, como em 1159/1',
     '1163/8': 'a travessa, como em 1159/1',
+    // o DP-130 são DUAS esquadrias do orçamento e9a79f30 (o item 7, 550 × 1700, e o 8, 600 × 1700), as duas com ALTURA DO PEITORIL 850 e TIPO DE
+    // PERFIL MODULAÇÃO = PERFIL ACABAMENTO + TALA (dono do produto, 19/11/2026) — a fixture traz as duas. Os 6 mm são DIVERGÊNCIA ANOTADA na
+    // fixture (`divergencia_anotada`), NÃO defeito do motor: o motor não muda por eles até o dono do produto medir a cadeia de corte do WVetro
+    // contra o peitoril de 850 (decisão de 19/11/2026)
     '1159/7': 'a altura de BR60, 8431, SF78C, 8428 e GB34 sai 6 mm menor no motor que no WVetro (850 × 856, 704 × 710…), com a altura do peitoril 850',
     '1159/8': 'os 6 mm, como em 1159/7',
     '1163/2': 'as escolhas que o relatório não imprimiu (o interlock, a folha, a persiana): o motor usa o padrão — IL36, HF88, MF52, 1318 — e o WVetro cortou IL42 + KT42, HF112, SF66, 2681',
     '1163/9': 'as escolhas não impressas, como em 1163/2 (HF88 × HF112, MF52 × SF92, 1318 × 2681, IL50 × IL42 + KT42)',
-    '1163/10': 'as escolhas não impressas, como em 1163/9, e o WVetro cortou o dobro das folhas (quantidade 2 na mesma linha?)',
-    '1163/7': 'o WVetro cortou BR60, 8431, FR73N, 8429 e GB34 que o motor não gera para o DP-122 de 500 × 750',
+    '1163/10': 'as escolhas não impressas, como em 1163/9 (a quantidade do item já é aplicada desde 19/11/2026; o que sobra é HF88 × HF112, MF52 × SF92, 1318 × 2681, IL50 × IL42 + KT42)',
 }
 
 describe('o conferidor do corte: o motor de produção contra o corte real do WVetro', () => {
@@ -93,7 +110,7 @@ describe('o conferidor do corte: o motor de produção contra o corte real do WV
         expect(CORTE.casos).toHaveLength(19)
         expect(new Set(CORTE.casos.map((c) => c.tipologia)).size).toBe(13)
         expect(CORTE.casos.reduce((n, c) => n + c.pecas.length, 0)).toBe(408)
-        const listas = [...SEM_ESCOLHAS_NA_FIXTURE, ...SEM_BAGUETE_IMPRESSO, ...FECHAM, ...Object.keys(DIVERGENCIAS_RELATADAS)]
+        const listas = [...SEM_ESCOLHAS_NA_FIXTURE, ...BAGUETE_SO_NO_MOTOR, ...FECHAM, ...Object.keys(DIVERGENCIAS_RELATADAS)]
         expect([...listas].sort()).toEqual(CORTE.casos.map(id).sort())
     })
 
@@ -117,11 +134,33 @@ describe('o conferidor do corte: o motor de produção contra o corte real do WV
         expect(Object.keys(c.variaveis_do_relatorio)).toEqual(['ESQUADRIAS DE PAULA'])
     })
 
-    it.each(SEM_BAGUETE_IMPRESSO)('%s: sem baguete impresso, a espessura do vidro não se lê, e o avaliador RECUSA nomeando-a', (k) => {
+    it.each(BAGUETE_SO_NO_MOTOR)('%s (DP-128): o vidro do Orientativo é 4 mm; o WVetro não corta baguete, e a ÚNICA divergência fora do arremate é o baguete que o motor gera', (k) => {
         const c = CORTE.casos.find((x) => id(x) === k) as Caso
+        // o relatório não imprime baguete: a espessura não se lê do corte, e sem o Orientativo o avaliador recusa nomeando-a
         expect(espessuraDoBaguete(c)).toBeNull()
+        expect(c.vidro_do_orientativo).toEqual(expect.objectContaining({ descricao: 'MINI-BOREAL 04MM COMUM', espessura_mm: 4 }))
+        expect(c.pecas.filter((p) => BAGUETES.has(p.codigo))).toEqual([])
+        const semVidro = conferir({ ...c, vidro_do_orientativo: undefined })
+        expect('recusas' in semVidro && semVidro.recusas.some((m) => m.includes('depende da espessura do vidro'))).toBe(true)
         const r = conferir(c)
-        expect('recusas' in r && r.recusas.some((m) => m.includes('depende da espessura do vidro'))).toBe(true)
+        if ('recusas' in r) throw new Error(r.recusas.join('; '))
+        const fora = (xs: ReadonlyArray<readonly [string, number]>) => xs.filter(([x]) => !ARREMATE.has(x.split('|')[0]))
+        expect(fora(r.soWvetro)).toEqual([])
+        expect(fora(r.soMotor).length).toBeGreaterThan(0)
+        expect(fora(r.soMotor).every(([x]) => BAGUETES.has(x.split('|')[0]))).toBe(true)
+    })
+    it('os 6 mm do DP-130 estão ANOTADOS na fixture como divergência à espera da medição, e não como defeito do motor (19/11/2026)', () => {
+        for (const k of ['1159/7', '1159/8']) {
+            const c = CORTE.casos.find((x) => id(x) === k) as Caso & { divergencia_anotada?: { status: string; ate: string } }
+            expect(c.divergencia_anotada?.status).toMatch(/NAO defeito do motor/)
+            expect(c.divergencia_anotada?.ate).toMatch(/peitoril de 850/)
+            expect(Object.keys(DIVERGENCIAS_RELATADAS)).toContain(k)
+        }
+    })
+    it('os vidros do Orientativo dos DP-128: 2 de 332 × 582 no 1163/5 (2 esquadrias), 1 de 432 × 432 no 1159/3', () => {
+        const vidros = (k: string) => (CORTE.casos.find((x) => id(x) === k) as Caso).vidro_do_orientativo?.vidros
+        expect(vidros('1163/5')).toEqual([{ L_mm: 332, H_mm: 582, quantidade: 2 }])
+        expect(vidros('1159/3')).toEqual([{ L_mm: 432, H_mm: 432, quantidade: 1 }])
     })
 
     it.each(Object.entries(DIVERGENCIAS_RELATADAS))('%s DIVERGE fora do arremate (%s): continua divergindo — quando a causa for resolvida, este caso passa para os que fecham', (k) => {
