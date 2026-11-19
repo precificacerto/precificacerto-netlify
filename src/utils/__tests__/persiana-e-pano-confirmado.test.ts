@@ -169,11 +169,17 @@ describe('A LINHA DE ITEM: a medida N x N, e não "qualquer linha com dois núme
         // a vírgula com dezena é centímetro, não metro ("60,5" = 605 mm, nunca 60.500)
         expect(emMilimetros('60,5')).toBe(605)
     })
-    it('linha de item SEM abertura afirmada traz a lista inteira; sem ela, a lista é a das linhas que afirmam', () => {
+    it('linha de item SEM palavra de abertura decide pela altura; com duas medidas, traz a lista inteira; sem ela, a lista é a das linhas que afirmam', () => {
         const so = filtrarPeloAcumulado(CANDIDATOS, ['1 janela maxim ar 60 x 60'])
         expect(so.candidatos.map((c) => c.tipologia)).toEqual(['DP-01'])
+        // REGRA DO DONO DO PRODUTO, 19/11/2026: sem a palavra, a ALTURA decide (1,30 < 2,00 m é janela) — a linha não traz mais as portas
         const comItem = filtrarPeloAcumulado(CANDIDATOS, ['1 janela maxim ar 60 x 60\n2 esquadrias 1,50 x 1,30'])
-        expect(comItem.candidatos).toHaveLength(CANDIDATOS.length)
+        const naoPortas = CANDIDATOS.filter((c) => !/^PORTA/i.test(c.descricao)).map((c) => c.tipologia)
+        expect(naoPortas.length).toBeLessThan(CANDIDATOS.length)
+        expect(comItem.candidatos.map((c) => c.tipologia)).toEqual(naoPortas)
+        // a linha com DUAS medidas diferentes não é de uma esquadria só: a altura não decide, e a lista volta inteira
+        const duas = filtrarPeloAcumulado(CANDIDATOS, ['1 janela maxim ar 60 x 60\n2 esquadrias 1,50 x 1,30 e 2,00 x 2,20'])
+        expect(duas.candidatos).toHaveLength(CANDIDATOS.length)
         // a linha sem medida nem palavra não é linha de item
         const comCliente = filtrarPeloAcumulado(CANDIDATOS, ['1 janela maxim ar 60 x 60\nCliente: Beatriz Fonseca'])
         expect(comCliente.candidatos.map((c) => c.tipologia)).toEqual(['DP-01'])

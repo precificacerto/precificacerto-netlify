@@ -212,7 +212,7 @@ import { PROMPT_BASE } from '@/utils/atendimentos-ia-prompt-base'
 import { LIMITE_DA_FALA } from '@/utils/atendimentos-ia-contexto'
 import { blocoDasInstrucoes, lerInstrucoesDaEmpresa, type InstrucaoDaCategoria } from '@/lib/atendimentos-ia/instrucoes-da-categoria'
 import { blocoDasInstrucoesDasEtapas, type InstrucaoDaEtapa } from '@/lib/atendimentos-ia/motor-da-familia'
-import { aberturaDita, cabeNosLimites, filtrarPeloAcumulado, filtrarPorAbertura, fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, palavrasDeAbertura } from '@/lib/atendimentos-ia/tipologias-candidatas'
+import { aberturaDita, cabeNosLimites, filtrarPeloAcumulado, filtrarPorAbertura, fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, medidasNaOrdemEscrita, numeroOuNulo, palavrasDeAbertura } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, variaveisSemPadraoNoPrompt, variaveisSemPadraoParaOPrompt } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { permissaoDoRemetente, type Permissao } from '@/lib/atendimentos-ia/permissao-do-remetente'
 import {
@@ -361,6 +361,8 @@ type Rastro = {
      * não ficou guardada — a 20261118000004 pendente —, e a conversa pergunta de quem é, como antes); '-' sem nada lido da imagem.
      */
     daImagem: string
+    /** A ALTURA É A SEGUNDA MEDIDA (19/11/2026): quantas esquadrias propostas com as medidas trocadas voltaram à ordem escrita. */
+    medidasNaOrdem: number
     /** A mídia da mensagem (18/11/2026), `<tipo>:<desfecho>` — `imagem:lida`, `audio:audio`, `pdf:pdf_grande`…; '-' sem mídia. Nunca a legenda nem o nome. */
     midia: string
 }
@@ -383,7 +385,7 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
         + (r.lista === '-' ? '' : ` lista=${r.lista} trechos=${r.trechos}`) + (r.trechosSemCandidata > 0 ? ` trechos_sem_candidata=${r.trechosSemCandidata}` : '')
         + (r.itensSemCampos > 0 ? ` itens_sem_campos=${r.itensSemCampos}` : '')
         // a montagem e os padrões (05/11/2026)
-        + (r.montagem === '-' ? '' : ` montagem=${r.montagem}`) + (r.contextoDoTurno === '-' ? '' : ` contexto_do_turno=${r.contextoDoTurno}`) + (r.coresPadrao > 0 ? ` cor_padrao=${r.coresPadrao}` : '') + (r.tipologiasPadrao > 0 ? ` tipologia_padrao=${r.tipologiasPadrao}` : '') + (r.limite === '-' ? '' : ` limite=${r.limite}`) + (r.qualOrcamento === '-' ? '' : ` qual_orcamento=${r.qualOrcamento}`) + (r.daImagem === '-' ? '' : ` da_imagem=${r.daImagem}`)
+        + (r.montagem === '-' ? '' : ` montagem=${r.montagem}`) + (r.contextoDoTurno === '-' ? '' : ` contexto_do_turno=${r.contextoDoTurno}`) + (r.coresPadrao > 0 ? ` cor_padrao=${r.coresPadrao}` : '') + (r.tipologiasPadrao > 0 ? ` tipologia_padrao=${r.tipologiasPadrao}` : '') + (r.limite === '-' ? '' : ` limite=${r.limite}`) + (r.qualOrcamento === '-' ? '' : ` qual_orcamento=${r.qualOrcamento}`) + (r.daImagem === '-' ? '' : ` da_imagem=${r.daImagem}`) + (r.medidasNaOrdem > 0 ? ` medidas_na_ordem=${r.medidasNaOrdem}` : '')
         + (r.midia === '-' ? '' : ` midia=${r.midia}`)
     console.error(`${PREFIXO_DO_LOG_DA_IA} levantamento=${r.levantamento} rota=${r.rota} propostos=${r.propostos} descartados=${r.descartados} enviou=${r.enviou ? 'sim' : 'nao'} desfecho=${desfecho}${admin} nome=${r.nome} aberta=${r.aberta}${contexto}${ia}${detalhe ? ` ${detalhe}` : ''}`)
     // as linhas por etapa (06/11/2026), na ordem do turno; a última é a resposta, que todo turno tem
@@ -675,6 +677,10 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
         '',
         'Os campos de cada esquadria: tipologia; largura_mm; altura_mm; quantidade; cor_perfil; vidro.',
         'Medidas em milímetros, inteiras: se o vendedor disser em metros ou centímetros, converta.',
+        // AS TRÊS REGRAS DO TESTE DO DIRCEU GONZALEZ (dono do produto, 19/11/2026): a ordem das medidas, a altura que decide e a persiana de correr
+        'A ALTURA É SEMPRE A SEGUNDA MEDIDA: em "1,50 x 1,20" a largura é 1,50 e a altura é 1,20 — no texto, na foto e no áudio.',
+        'A ALTURA DECIDE ENTRE JANELA E PORTA quando a descrição não diz qual é: altura de 2,00 m ou mais é porta-janela; abaixo de 2,00 m é janela. Com a medida dada, NUNCA pergunte "é janela ou porta?". O que o vendedor escreveu vence: "porta" é porta mesmo com altura menor.',
+        'PERSIANA É SEMPRE DE CORRER: o item descrito como persiana já é de correr (janela ou porta pela altura) — não pergunte como abre. Nele, só o vidro pode faltar.',
         '',
         'Regras:',
         '- nome: copie o nome do levantamento INTEIRO, como o vendedor escreveu nesta mensagem. Não complete, não corrija, não encurte. Se ele não escreveu um nome, omita.',
@@ -1282,7 +1288,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = {
         etapas: { coletar: null, casar: null, montar: null, calcular: null },
         levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null, raciocinio: null, parada: null, cacheLido: null, cacheEscrito: null, cabecalhosMs: null, primeiroTokenMs: null, tentativas: null, requestId: null },
-        midia: '-', contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', contextoDoTurno: '-', coresPadrao: 0, tipologiasPadrao: 0, limite: '-', qualOrcamento: '-', daImagem: '-',
+        midia: '-', contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', contextoDoTurno: '-', coresPadrao: 0, tipologiasPadrao: 0, limite: '-', qualOrcamento: '-', daImagem: '-', medidasNaOrdem: 0,
     }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
@@ -1326,6 +1332,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     // em que ponto a falha aconteceu decide a frase: antes de gravar, ao gravar, ou depois
     let gravando = false
     let gravado = false
+    // O PEDIDO DE ORÇAMENTO DO NOME QUE AINDA NÃO TEM ORÇAMENTO (dono do produto, 19/11/2026, o caso da Daiane Pilger): "Quando ele pedir orçamento,
+    // não pode devolver o levantamento para confirmar" — os levantamentos do nome dito, para o pedido valer como o "sim" e ir direto ao orçamento
+    let pedidoDoOrcamento: ReadonlySet<string> | null = null
     try {
         // O REENVIO DO WUZAPI (03/11/2026): a entrada já estava gravada. Com a saída enviada, 200 sem conduzir nem reenviar; com a saída
         // sem id de envio (o envio falhou de fato), só o reenvio do texto gravado; sem saída, em voo (a primeira ainda roda) não se faz
@@ -1478,7 +1487,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // janela E o tipo do motor (correr, maxim-ar, giro…); o trecho sem candidata traz a lista inteira. Só a lista do prompt: a validação
         // da tipologia proposta continua contra a lista inteira (`tipologias-candidatas.ts`)
         const acumulado = [...lido.mensagens.filter((m) => m.role === 'user').map((m) => m.content), c.texto]
-        const filtro = filtrarPeloAcumulado(tabela.candidatos, acumulado)
+        let filtro = filtrarPeloAcumulado(tabela.candidatos, acumulado)
         const candidatosDoPrompt = filtro.candidatos
         rastro.lista = `${candidatosDoPrompt.length}/${tabela.candidatos.length}`
         rastro.trechos = filtro.trechos
@@ -1563,6 +1572,31 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             guardaPergunta = guardaLida
             temLinha = temLinhaLida
             rastro.aberta = marcaDaAberta
+        }
+        // O TEXTO DA FOTO NAS LINHAS DO VENDEDOR (dono do produto, 19/11/2026, o caso do Dirceu Gonzalez: "Persiana - 1,80 x 1,40" escrito na
+        // foto gerou "é janela ou porta?" e "como abre?", porque as linhas da conversa eram só "[imagem]" — `trechos=0` no log). A foto é o
+        // vendedor escrevendo: o texto lido dela (nesta mensagem, ou o guardado na confirmação da foto, no turno do "sim") entra nas linhas que
+        // decidem a abertura, o tipo e o padrão. A lista do prompt já foi; a decisão do padrão e a pergunta usam as linhas com a foto
+        const textoDaFotoGuardado = aberta?.p.pergunta === 'CONFIRMAR_DA_IMAGEM' ? aberta.p.dadosDaImagem?.texto ?? null : null
+        const textosDaFoto = [textoDaImagem, textoDaFotoGuardado].filter((t): t is string => t !== null)
+        if (textosDaFoto.length) {
+            filtro = filtrarPeloAcumulado(tabela.candidatos, [...acumulado, ...textosDaFoto])
+            rastro.trechos = filtro.trechos
+            rastro.trechosSemCandidata = filtro.semCandidata
+        }
+        // A ALTURA É SEMPRE A SEGUNDA MEDIDA (dono do produto, 19/11/2026): a esquadria proposta com a largura e a altura trocadas em relação a
+        // uma linha do vendedor volta à ordem escrita (`medidasNaOrdemEscrita`)
+        if (Array.isArray(dadosDaMensagem.proposta.itens)) {
+            const textosDasMedidas = [...acumulado, ...textosDaFoto]
+            dadosDaMensagem.proposta.itens = dadosDaMensagem.proposta.itens.map((i) => {
+                if (!i || typeof i !== 'object') return i
+                const item = i as Record<string, unknown>
+                const m = { largura_mm: numeroOuNulo(item.largura_mm), altura_mm: numeroOuNulo(item.altura_mm) }
+                const na = medidasNaOrdemEscrita(m, textosDasMedidas)
+                if (na === m) return i
+                rastro.medidasNaOrdem += 1
+                return { ...item, largura_mm: na.largura_mm, altura_mm: na.altura_mm }
+            })
         }
         // a fala abre a resposta de TODA empresa (03/11/2026), filtrada: a que traz número cai
         const fala = falaValida(proposta.fala)
@@ -1687,6 +1721,14 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 rastro.rota = deOutro ? 'ALTERACAO_ADMIN' : 'ALTERACAO'
                 if (lido === null && confirma === false) return await falar(fraseDoApanhadoNaoConfirmado(doApanhado.nome), 'nao-confirmou')
                 const vendedor = deOutro ? (await nomesDosVendedores(c.tenantId, [doApanhado.remetente_id])).get(doApanhado.remetente_id) ?? VENDEDOR_SEM_NOME : null
+                // o PEDIDO DE ORÇAMENTO com o arquivo esperando o "sim" (19/11/2026, o caso da Daiane Pilger): pedir orçamento traz o ORÇAMENTO — o que
+                // existe (o mais recente), ou o feito agora do levantamento; nunca o arquivo do levantamento de novo para conferir
+                if (lido !== null && proposta.novo !== true && emEspera.length === 0 && pedidoDoResgate(c.texto) === 'orcamento') {
+                    const orcamentos = ordemDoOrcamento(await lerOrcamentosDosLevantamentos(c.tenantId, [doApanhado]))
+                    rastro.qualOrcamento = String(orcamentos.length)
+                    if (orcamentos.length > 0) return await mandarOrcamento(orcamentos[0])
+                    pedidoDoOrcamento = new Set([doApanhado.id])
+                }
                 alvo = { id: doApanhado.id, nome: doApanhado.nome, estado: doApanhado.estado, donoId: doApanhado.remetente_id, vendedor, itens: await lerItens(c.tenantId, doApanhado.id) }
                 nome = doApanhado.nome
             } else {
@@ -1718,7 +1760,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 } else if (lido === null && nomeDaImagem !== null && comImagem !== null) {
                     const nomeLido = nomeSemPrefixo(nomeDaImagem)
                     const endereco = dadosDaMensagem.cliente.endereco ?? lerDadosDaMensagem(proposta, textoComImagem).cliente.endereco
-                    const dados = { ...(endereco ? { endereco } : {}), ...(comImagem.vidros.length ? { vidros: comImagem.vidros } : {}) }
+                    const dados = { ...(endereco ? { endereco } : {}), ...(comImagem.vidros.length ? { vidros: comImagem.vidros } : {}), ...(textoDaImagem ? { texto: textoDaImagem } : {}) }
                     const p: PerguntaEmAberto = { pergunta: 'CONFIRMAR_DA_IMAGEM', nome: nomeLido, levantamentos: [], itens: comImagem.itens, dadosDaImagem: dados }
                     // sem a 20261118000004 a pergunta não fica guardada: a conversa segue como antes (pergunta de quem é), e o log diz
                     if (guardaPergunta && await gravarPerguntaEmAberto(c.tenantId, c.remetenteId, p)) {
@@ -1750,6 +1792,8 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                     const orcamentos = ordemDoOrcamento(await lerOrcamentosDosLevantamentos(c.tenantId, levantamentosDoNome))
                     rastro.qualOrcamento = String(orcamentos.length)
                     if (orcamentos.length === 1) return await mandarOrcamento(orcamentos[0])
+                    // nenhum orçamento: o orçamento sai do levantamento do nome, sem lista e sem "confere?" (a confirmação só se pede do que falta)
+                    if (orcamentos.length === 0 && levantamentosDoNome.length > 0) pedidoDoOrcamento = new Set(levantamentosDoNome.map((l) => l.id))
                     if (orcamentos.length > 1) {
                         rastro.rota = 'QUAL_ORCAMENTO'
                         const nomeDito = nomeSemPrefixo(lido)
@@ -2226,9 +2270,13 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const guardada = aberta !== null && aberta.p.pergunta === 'CONFIRMAR_APANHADO' && aberta.p.levantamentos[0] === rastro.levantamento ? aberta.p : null
         const dadosAgora = guardada && guardada.nome !== null && rastro.levantamento ? await dadosDaFolhaGravada(c.tenantId, rastro.levantamento, definicao, detalhe) : null
         const simVale = !confirmouApanhado && guardada !== null && confirmacaoVale(guardada, dadosAgora ? resumoDoArquivo(dadosAgora) : null)
+        // o pedido de orçamento vale como o "sim" só para o levantamento do nome dito (a mensagem com esquadria nem chega aqui: ela vai ao arquivo)
+        const pediuOrcamento = !confirmouApanhado && !simVale && pedidoDoOrcamento !== null && pedidoDoOrcamento.has(rastro.levantamento)
+        if (pediuOrcamento) rastro.etapas.montar = `${rastro.etapas.montar ?? ''} orcamento_pedido=sim`.trim()
+        const vaiAoOrcamento = confirmouApanhado || simVale || pediuOrcamento
         if (guardada && guardada.nome !== null) rastro.etapas.montar += ` sim_anterior=${simVale ? 'vale' : 'definicao_mudou'}`
         let semApanhado = ''
-        if (!confirmouApanhado && !simVale) {
+        if (!vaiAoOrcamento) {
             // O ARQUIVO DO LEVANTAMENTO (dono do produto, 06/11/2026): a folha A4 no lugar da mensagem-resumo em texto; a confirmação é sobre ELE
             const { dados, folha } = await gerarArquivoDoLevantamento({ tenantId: c.tenantId, levantamentoId: rastro.levantamento, itens: aplicada.itens, definicao, detalhe,
                 vidroPadrao: vidrosDaConta?.ok ? (i) => vidroNoConsiderado(vidrosDaConta!, i, tabela.candidatos) : undefined })
@@ -2251,7 +2299,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // aqui, quando o levantamento tentaria evoluir, que a regra ÚNICA vale — se o cálculo recusa, o levantamento não evolui, com a falta curta
         const levantamento = await mensagemDoLevantamento(c.tenantId, tabela, { nome, itens: aplicada.itens })
         // o "sim" dado fica guardado com a marca da definição que ele aprovou: a mensagem seguinte sabe se ele ainda vale
-        if (levantamento.desfecho === 'recusou' && (confirmouApanhado || simVale) && rastro.levantamento) {
+        if (levantamento.desfecho === 'recusou' && vaiAoOrcamento && rastro.levantamento) {
             const dadosConfirmados = dadosAgora ?? await dadosDaFolhaGravada(c.tenantId, rastro.levantamento, definicao, detalhe)
             if (dadosConfirmados) {
                 await gravarPerguntaEmAberto(c.tenantId, c.remetenteId, { pergunta: 'CONFIRMAR_APANHADO', nome: marcaDaConfirmacao(resumoDoArquivo(dadosConfirmados)), levantamentos: [rastro.levantamento], itens: [] })
@@ -2265,7 +2313,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         }
         // A TRAVESSIA (dono do produto, 10/11/2026): o "sim" ao levantamento COMPLETO que levantou atravessa para o orçamento do agente, pelo
         // MESMO código da ação manual. Idempotente; nunca muda a resposta ao vendedor — o resultado vai ao log da etapa do cálculo
-        if ((confirmouApanhado || simVale) && levantamento.desfecho === 'levantou' && estado === COMPLETO && rastro.levantamento) {
+        if (vaiAoOrcamento && levantamento.desfecho === 'levantou' && estado === COMPLETO && rastro.levantamento) {
             // a ETAPA DO PREÇO (11/11/2026): precifica, gera o PDF e o envia ao DONO do levantamento (nunca a quem disse "sim"); sem preço formado
             // não há PDF, e o texto diz o que falta. O que ela tem a dizer vai junto da resposta, e a falha do envio não desfaz nada
             // O ORÇAMENTO QUE JÁ EXISTE é ATUALIZADO com o mesmo número (13/11/2026); o "sim" SEM MUDANÇA manda o arquivo que existe (`reenviarOArquivo`)

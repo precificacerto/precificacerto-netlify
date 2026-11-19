@@ -43,6 +43,14 @@ export function aberturaDita(texto: string): Abertura | null {
     return s.size === 1 ? [...s][0] : null
 }
 
+/**
+ * A ALTURA DECIDE ENTRE JANELA E PORTA (dono do produto, 19/11/2026, o teste do Dirceu Gonzalez): "altura >= 2,00 m é porta-janela; abaixo de
+ * 2,00 m é janela. O agente NÃO pergunta mais 'é janela ou porta?' quando a medida já foi dada. A descrição escrita pelo vendedor tem
+ * precedência: se ele escreveu 'porta', é porta mesmo com altura menor; a regra da altura só vale quando a descrição não diz qual é."
+ */
+export const ALTURA_DA_PORTA_MM = 2000
+export const aberturaPelaAltura = (alturaMm: number): Abertura => (alturaMm >= ALTURA_DA_PORTA_MM ? 'porta' : 'janela')
+
 /** A abertura que a DESCRIÇÃO da tipologia declara: a PRIMEIRA palavra. MAXIM-AR, FIXO e o resto não declaram (null). */
 export function aberturaDaDescricao(descricao: string | null): Abertura | null {
     if (typeof descricao !== 'string') return null
@@ -231,7 +239,9 @@ export function vocabularioDaObra(linha: string, tipos: readonly string[]): stri
     if (!DIZ_PERSIANA.test(t) || SEM_PERSIANA.test(t)) return linha
     if (!tipos.some((tipo) => palavrasDoTipo(tipo).includes('correr'))) return linha
     const acrescimo: string[] = []
-    if (palavrasDeAbertura(linha).size === 0) acrescimo.push('janela')
+    // a abertura que a linha não diz: a da ALTURA, quando a linha traz uma medida só (19/11/2026); sem medida, a janela de antes
+    const medidas = medidasDaLinha(linha)
+    if (palavrasDeAbertura(linha).size === 0) acrescimo.push(medidas.length === 1 ? aberturaPelaAltura(medidas[0].altura_mm as number) : 'janela')
     if (tiposDitos(linha, tipos).size === 0) acrescimo.push('de correr')
     return acrescimo.length === 0 ? linha : `${linha} [${acrescimo.join(' ')} com persiana]`
 }
@@ -295,14 +305,18 @@ export function trechosDoAcumulado(textos: readonly string[], tipos: readonly st
         for (const bloco of blocosDaFicha(texto)) {
             for (const crua of bloco.linhas) {
                 const linha = vocabularioDaObra(crua, tipos)
-                const abertura = aberturaDita(linha)
+                const dita = aberturaDita(linha)
                 const ditos = tiposDitos(linha, tipos)
                 // a medida da linha como o vendedor a escreveu (o acréscimo do vocabulário não traz número)
                 const medidas = medidasDaLinha(crua)
-                if (abertura === null && ditos.size === 0 && medidas.length === 0) continue
+                if (dita === null && ditos.size === 0 && medidas.length === 0) continue
                 // a FICHA (18/11/2026): a linha de abertura ou tipo ganha a medida rotulada do bloco dela, e o bloco inteiro
                 const daFicha = bloco.medida !== null && !medidas.some((x) => x.largura_mm === bloco.medida?.largura_mm && x.altura_mm === bloco.medida?.altura_mm)
-                trechos.push({ abertura, tipos: ditos, texto: linha, medidas: daFicha ? [...medidas, bloco.medida as Medidas] : medidas, ...(bloco.medida !== null ? { bloco: bloco.texto } : {}) })
+                const todas = daFicha ? [...medidas, bloco.medida as Medidas] : medidas
+                // A ALTURA DECIDE (19/11/2026): a linha que não diz porta nem janela e traz UMA medida tem a abertura da altura; a palavra escrita
+                // vence sempre. Com duas medidas diferentes na linha, nenhuma decide (a linha não é de uma esquadria só)
+                const abertura = dita ?? (todas.length === 1 ? aberturaPelaAltura(todas[0].altura_mm as number) : null)
+                trechos.push({ abertura, tipos: ditos, texto: linha, medidas: todas, ...(bloco.medida !== null ? { bloco: bloco.texto } : {}) })
             }
         }
     }
@@ -340,4 +354,18 @@ export function filtrarPeloAcumulado<C extends { descricao: string | null; tipo:
         for (const c of servem) ficam.add(c)
     }
     return { candidatos: candidatos.filter((c) => ficam.has(c)), trechos: trechos.length, semCandidata, jaDito, lidos: trechos }
+}
+
+// ── A ALTURA É SEMPRE A SEGUNDA MEDIDA (dono do produto, 19/11/2026) ─────────────────────────────
+/**
+ * "Em '1,50 x 1,20' a largura é 1,50 e a altura é 1,20. Vale em texto, foto e áudio." O modelo é instruído; o código confere: a esquadria
+ * proposta com as medidas TROCADAS em relação a uma linha do vendedor ("1,50 x 1,20" lida como largura 1200 e altura 1500) volta à ordem
+ * escrita — só quando nenhuma linha traz o par na ordem proposta (aí a ordem proposta também foi escrita, e fica).
+ */
+export function medidasNaOrdemEscrita(m: Medidas, textos: readonly string[]): Medidas {
+    if (m.largura_mm === null || m.altura_mm === null || m.largura_mm === m.altura_mm) return m
+    const escritas = textos.flatMap((t) => t.split('\n').flatMap((l) => medidasDaLinha(l)))
+    const naOrdem = escritas.some((x) => x.largura_mm === m.largura_mm && x.altura_mm === m.altura_mm)
+    const trocada = escritas.some((x) => x.largura_mm === m.altura_mm && x.altura_mm === m.largura_mm)
+    return trocada && !naOrdem ? { largura_mm: m.altura_mm, altura_mm: m.largura_mm } : m
 }
