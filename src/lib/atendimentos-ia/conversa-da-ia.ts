@@ -1326,6 +1326,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     // em que ponto a falha aconteceu decide a frase: antes de gravar, ao gravar, ou depois
     let gravando = false
     let gravado = false
+    // O PEDIDO DE ORÇAMENTO DO NOME QUE AINDA NÃO TEM ORÇAMENTO (dono do produto, 19/11/2026, o caso da Daiane Pilger): "Quando ele pedir orçamento,
+    // não pode devolver o levantamento para confirmar" — os levantamentos do nome dito, para o pedido valer como o "sim" e ir direto ao orçamento
+    let pedidoDoOrcamento: ReadonlySet<string> | null = null
     try {
         // O REENVIO DO WUZAPI (03/11/2026): a entrada já estava gravada. Com a saída enviada, 200 sem conduzir nem reenviar; com a saída
         // sem id de envio (o envio falhou de fato), só o reenvio do texto gravado; sem saída, em voo (a primeira ainda roda) não se faz
@@ -1687,6 +1690,14 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 rastro.rota = deOutro ? 'ALTERACAO_ADMIN' : 'ALTERACAO'
                 if (lido === null && confirma === false) return await falar(fraseDoApanhadoNaoConfirmado(doApanhado.nome), 'nao-confirmou')
                 const vendedor = deOutro ? (await nomesDosVendedores(c.tenantId, [doApanhado.remetente_id])).get(doApanhado.remetente_id) ?? VENDEDOR_SEM_NOME : null
+                // o PEDIDO DE ORÇAMENTO com o arquivo esperando o "sim" (19/11/2026, o caso da Daiane Pilger): pedir orçamento traz o ORÇAMENTO — o que
+                // existe (o mais recente), ou o feito agora do levantamento; nunca o arquivo do levantamento de novo para conferir
+                if (lido !== null && proposta.novo !== true && emEspera.length === 0 && pedidoDoResgate(c.texto) === 'orcamento') {
+                    const orcamentos = ordemDoOrcamento(await lerOrcamentosDosLevantamentos(c.tenantId, [doApanhado]))
+                    rastro.qualOrcamento = String(orcamentos.length)
+                    if (orcamentos.length > 0) return await mandarOrcamento(orcamentos[0])
+                    pedidoDoOrcamento = new Set([doApanhado.id])
+                }
                 alvo = { id: doApanhado.id, nome: doApanhado.nome, estado: doApanhado.estado, donoId: doApanhado.remetente_id, vendedor, itens: await lerItens(c.tenantId, doApanhado.id) }
                 nome = doApanhado.nome
             } else {
@@ -1750,6 +1761,8 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                     const orcamentos = ordemDoOrcamento(await lerOrcamentosDosLevantamentos(c.tenantId, levantamentosDoNome))
                     rastro.qualOrcamento = String(orcamentos.length)
                     if (orcamentos.length === 1) return await mandarOrcamento(orcamentos[0])
+                    // nenhum orçamento: o orçamento sai do levantamento do nome, sem lista e sem "confere?" (a confirmação só se pede do que falta)
+                    if (orcamentos.length === 0 && levantamentosDoNome.length > 0) pedidoDoOrcamento = new Set(levantamentosDoNome.map((l) => l.id))
                     if (orcamentos.length > 1) {
                         rastro.rota = 'QUAL_ORCAMENTO'
                         const nomeDito = nomeSemPrefixo(lido)
@@ -2226,9 +2239,13 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const guardada = aberta !== null && aberta.p.pergunta === 'CONFIRMAR_APANHADO' && aberta.p.levantamentos[0] === rastro.levantamento ? aberta.p : null
         const dadosAgora = guardada && guardada.nome !== null && rastro.levantamento ? await dadosDaFolhaGravada(c.tenantId, rastro.levantamento, definicao, detalhe) : null
         const simVale = !confirmouApanhado && guardada !== null && confirmacaoVale(guardada, dadosAgora ? resumoDoArquivo(dadosAgora) : null)
+        // o pedido de orçamento vale como o "sim" só para o levantamento do nome dito (a mensagem com esquadria nem chega aqui: ela vai ao arquivo)
+        const pediuOrcamento = !confirmouApanhado && !simVale && pedidoDoOrcamento !== null && pedidoDoOrcamento.has(rastro.levantamento)
+        if (pediuOrcamento) rastro.etapas.montar = `${rastro.etapas.montar ?? ''} orcamento_pedido=sim`.trim()
+        const vaiAoOrcamento = confirmouApanhado || simVale || pediuOrcamento
         if (guardada && guardada.nome !== null) rastro.etapas.montar += ` sim_anterior=${simVale ? 'vale' : 'definicao_mudou'}`
         let semApanhado = ''
-        if (!confirmouApanhado && !simVale) {
+        if (!vaiAoOrcamento) {
             // O ARQUIVO DO LEVANTAMENTO (dono do produto, 06/11/2026): a folha A4 no lugar da mensagem-resumo em texto; a confirmação é sobre ELE
             const { dados, folha } = await gerarArquivoDoLevantamento({ tenantId: c.tenantId, levantamentoId: rastro.levantamento, itens: aplicada.itens, definicao, detalhe,
                 vidroPadrao: vidrosDaConta?.ok ? (i) => vidroNoConsiderado(vidrosDaConta!, i, tabela.candidatos) : undefined })
@@ -2251,7 +2268,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // aqui, quando o levantamento tentaria evoluir, que a regra ÚNICA vale — se o cálculo recusa, o levantamento não evolui, com a falta curta
         const levantamento = await mensagemDoLevantamento(c.tenantId, tabela, { nome, itens: aplicada.itens })
         // o "sim" dado fica guardado com a marca da definição que ele aprovou: a mensagem seguinte sabe se ele ainda vale
-        if (levantamento.desfecho === 'recusou' && (confirmouApanhado || simVale) && rastro.levantamento) {
+        if (levantamento.desfecho === 'recusou' && vaiAoOrcamento && rastro.levantamento) {
             const dadosConfirmados = dadosAgora ?? await dadosDaFolhaGravada(c.tenantId, rastro.levantamento, definicao, detalhe)
             if (dadosConfirmados) {
                 await gravarPerguntaEmAberto(c.tenantId, c.remetenteId, { pergunta: 'CONFIRMAR_APANHADO', nome: marcaDaConfirmacao(resumoDoArquivo(dadosConfirmados)), levantamentos: [rastro.levantamento], itens: [] })
@@ -2265,7 +2282,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         }
         // A TRAVESSIA (dono do produto, 10/11/2026): o "sim" ao levantamento COMPLETO que levantou atravessa para o orçamento do agente, pelo
         // MESMO código da ação manual. Idempotente; nunca muda a resposta ao vendedor — o resultado vai ao log da etapa do cálculo
-        if ((confirmouApanhado || simVale) && levantamento.desfecho === 'levantou' && estado === COMPLETO && rastro.levantamento) {
+        if (vaiAoOrcamento && levantamento.desfecho === 'levantou' && estado === COMPLETO && rastro.levantamento) {
             // a ETAPA DO PREÇO (11/11/2026): precifica, gera o PDF e o envia ao DONO do levantamento (nunca a quem disse "sim"); sem preço formado
             // não há PDF, e o texto diz o que falta. O que ela tem a dizer vai junto da resposta, e a falha do envio não desfaz nada
             // O ORÇAMENTO QUE JÁ EXISTE é ATUALIZADO com o mesmo número (13/11/2026); o "sim" SEM MUDANÇA manda o arquivo que existe (`reenviarOArquivo`)
