@@ -9,7 +9,7 @@ import {
     fraseDaSemCandidata, fraseDoForaDoLimite, fraseDoPedidoDeAutorizacao, limiteNaFrase, FRASE_SEM_ABERTURA, FRASE_DITO_SEM_REPRESENTACAO,
     atributosNoLog, oQueAEsquadriaE, origemDaTipologiaProposta, padraoDaEsquadria, tipologiaPadrao, fraseDaLinhaSemPadrao, fraseDoPadraoQueFalta, naturalDaQuantidade, tipoCurto,
 } from '@/lib/atendimentos-ia/tipologia-padrao'
-import { tiposDitos } from '@/lib/atendimentos-ia/tipologias-candidatas'
+import { tiposDitos, trechosDoAcumulado } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import type { CandidatoDeTipologia } from '@/lib/atendimentos-ia/levantamento-da-conversa'
 import type { ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 
@@ -427,5 +427,49 @@ describe('O QUE IMPEDE O ITEM, DITO (dono do produto, 18/11/2026, decisão 2): n
     })
     it('com tipologia escolhida, nenhum impedimento', () => {
         expect(impede('janela de correr', 'janela')).toMatchObject({ decisao: { tipologia: 'DP-02' }, impedimento: null })
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+/**
+ * O TESTE REAL DO DIRCEU GONZALEZ (dono do produto, 19/11/2026): "Persiana - 1,80 x 1,40" gerou duas perguntas — "é janela ou porta?" e "como
+ * abre?" — que as regras dispensam. As regras: a ALTURA É A SEGUNDA MEDIDA; a ALTURA DECIDE entre janela e porta-janela (>= 2,00 m é porta;
+ * abaixo, janela) quando a descrição não diz qual é, e a palavra escrita vence; a PERSIANA É SEMPRE DE CORRER. As linhas pelo MESMO leitor da
+ * conversa (`trechosDoAcumulado`), e a abertura do item NULA: é a linha que decide.
+ */
+describe('O CASO DO DIRCEU GONZALEZ (19/11/2026): a altura decide entre janela e porta, e persiana é de correr', () => {
+    const lidos = (texto: string) => trechosDoAcumulado([texto], tiposDoMotor)
+    const semAbertura = (texto: string, i: ItemDoLevantamento) => tipologiaPadrao(i, null, lidos(texto), CANDIDATOS)
+    const FOTO = 'janela de correr 2 folhas - 1,50 x 1,20\njanela maxim ar - 0,80 x 0,60\nPOrta janela de correr - 2,20 x 2,40\nPersiana - 1,80 x 1,40\n\nDirceu Gonzalez\nGaivota - SC'
+
+    it('"Persiana - 1,80 x 1,40": janela de correr com persiana (DP-07) — não pergunta janela ou porta, nem como abre', () => {
+        expect(semAbertura('Persiana - 1,80 x 1,40', item(1800, 1400))).toEqual({ tipologia: 'DP-07' })
+    })
+    it('"Persiana - 2,20 x 2,40": porta de correr com persiana (DP-48) — a altura de 2,40 é porta', () => {
+        expect(semAbertura('Persiana - 2,20 x 2,40', item(2200, 2400))).toEqual({ tipologia: 'DP-48' })
+    })
+    it('a fronteira é 2,00 m: 2,00 é porta, 1,99 é janela', () => {
+        expect(semAbertura('correr 1,50 x 2,00', item(1500, 2000))).toEqual({ tipologia: 'DP-39' })
+        expect(semAbertura('correr 1,50 x 1,99', item(1500, 1990))).toEqual({ tipologia: 'DP-02' })
+    })
+    it('a PALAVRA vence a altura: "Porta de correr 1,80 x 1,40" é porta; "janela de correr 2,10 x 2,20" é janela', () => {
+        expect(semAbertura('Porta de correr 1,80 x 1,40', item(1800, 1400))).toEqual({ tipologia: 'DP-39' })
+        expect(semAbertura('janela de correr 2,10 x 2,20', item(2100, 2200))).toEqual({ tipologia: 'DP-02' })
+    })
+    it('a FOTO do Dirceu, linha a linha: cada item decide pela linha dele — nenhum pergunta abertura nem tipo', () => {
+        const linhas = lidos(FOTO)
+        expect(tipologiaPadrao(item(1500, 1200), null, linhas, CANDIDATOS)).toEqual({ tipologia: 'DP-02' })
+        expect(tipologiaPadrao(item(2200, 2400), null, linhas, CANDIDATOS)).toEqual({ tipologia: 'DP-39' })
+        expect(tipologiaPadrao(item(1800, 1400), null, linhas, CANDIDATOS)).toEqual({ tipologia: 'DP-07' })
+    })
+    it('sem palavra e SEM medida, nada decide: a pergunta de antes continua (a regra nunca inventa a altura)', () => {
+        expect(lidos('correr')).toEqual([expect.objectContaining({ abertura: null })])
+        expect(semAbertura('correr', item(null as unknown as number, null as unknown as number))).toEqual({ motivo: 'SEM_ABERTURA' })
+    })
+    it('a linha com DUAS medidas diferentes não é de uma esquadria só: a altura não decide por ela', () => {
+        expect(lidos('correr 1,50 x 1,20 e 2,20 x 2,40')[0].abertura).toBeNull()
+    })
+    it('"sem persiana" não é persiana: a linha não ganha o correr do apelido', () => {
+        expect(lidos('janela sem persiana 1,50 x 1,20')[0].tipos.size).toBe(0)
     })
 })

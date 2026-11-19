@@ -2796,9 +2796,15 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
         // pelo ACUMULADO (05/11/2026) o TIPO do motor também filtra: "janela de correr" é janela ∧ Correr, e a maxim-ar sai
         ['janela', 'Cliente: Ana. Janela de correr 1500 x 1200', [LINHA_DP02], [LINHA_DP100, LINHA_DP01]],
         ['as duas palavras (fora de "porta janela") e "correr"', GERONIMO, [LINHA_DP02, LINHA_DP100], [LINHA_DP01]],
-        ['nenhuma das palavras, mas "correr"', 'Cliente: Ana. Esquadria de correr 1500 x 1200', [LINHA_DP02, LINHA_DP100], [LINHA_DP01]],
-        ['nenhuma palavra e nenhum tipo', 'Cliente: Ana. Item 1500 x 1200', [LINHA_DP02, LINHA_DP100, LINHA_DP01], []],
-    ])('a mensagem com %s: a lista já vai filtrada — a maxim-ar fica quando nenhum tipo é dito', async (_caso, mensagem, ficam, saem) => {
+        // A ALTURA DECIDE (dono do produto, 19/11/2026): sem porta nem janela escrita, 1,20 m de altura é janela — a porta sai da lista;
+        // 2,40 m é porta-janela — a janela de correr sai
+        ['nenhuma das palavras, mas "correr", 1,20 de altura', 'Cliente: Ana. Esquadria de correr 1500 x 1200', [LINHA_DP02], [LINHA_DP01, LINHA_DP100]],
+        ['nenhuma das palavras, mas "correr", 2,40 de altura', 'Cliente: Ana. Esquadria de correr 2500 x 2400', [LINHA_DP100], [LINHA_DP01, LINHA_DP02]],
+        ['nenhuma palavra e nenhum tipo, 1,20 de altura', 'Cliente: Ana. Item 1500 x 1200', [LINHA_DP02, LINHA_DP01], [LINHA_DP100]],
+        ['nenhuma palavra e nenhum tipo, 2,40 de altura', 'Cliente: Ana. Item 2500 x 2400', [LINHA_DP100, LINHA_DP01], [LINHA_DP02]],
+        // a palavra escrita vence a altura: "porta" com 1,40 de altura é porta
+        ['"porta" com altura abaixo de 2,00', 'Cliente: Ana. Porta de correr 1800 x 1400', [LINHA_DP100], [LINHA_DP02]],
+    ])('a mensagem com %s: a lista já vai filtrada — a maxim-ar fica quando nenhum tipo é dito, e sem a palavra a altura decide', async (_caso, mensagem, ficam, saem) => {
         await chamar(mensagem)
         for (const l of ficam) expect(sistemaDe()).toContain(l)
         for (const l of saem) expect(sistemaDe()).not.toContain(l)
@@ -6870,7 +6876,7 @@ describe('(30) a FOTO e o PDF do vendedor (dono do produto, 18/11/2026): baixado
             expect(entradasGravadas()).toEqual(['[imagem]'])
             expect(ultimoEnviado()).toBe(FRASE)
             expect(levantamentos()).toEqual([])
-            expect(aberta()).toEqual(expect.objectContaining({ pergunta: 'CONFIRMAR_DA_IMAGEM', nome: 'Alfredo Soares', levantamentos: [], dados_da_imagem: { endereco: 'Barao' } }))
+            expect(aberta()).toEqual(expect.objectContaining({ pergunta: 'CONFIRMAR_DA_IMAGEM', nome: 'Alfredo Soares', levantamentos: [], dados_da_imagem: { endereco: 'Barao', texto: LIDO } }))
             expect((aberta().itens as Linha[]).map((i) => [i.largura_mm, i.altura_mm])).toEqual([[1500, 1200], [800, 600]])
             const ia = linhaIa().join('\n')
             expect(ia).toContain('rota=DA_IMAGEM')
@@ -6915,7 +6921,7 @@ describe('(30) a FOTO e o PDF do vendedor (dono do produto, 18/11/2026): baixado
             await chamar('hmm')
             expect(levantamentos()).toEqual([])
             expect(ultimoEnviado()).toBe('Só para eu não anotar errado: o levantamento da foto é do “Alfredo Soares”, de “Barao”? Me responda sim ou me diga de quem é.')
-            expect(aberta()).toEqual(expect.objectContaining({ pergunta: 'CONFIRMAR_DA_IMAGEM', dados_da_imagem: { endereco: 'Barao' } }))
+            expect(aberta()).toEqual(expect.objectContaining({ pergunta: 'CONFIRMAR_DA_IMAGEM', dados_da_imagem: { endereco: 'Barao', texto: LIDO } }))
         })
 
         it('o VIDRO só da foto entra na confirmação e, no "sim", é gravado', async () => {
@@ -6923,7 +6929,7 @@ describe('(30) a FOTO e o PDF do vendedor (dono do produto, 18/11/2026): baixado
             daFoto({ texto_da_imagem: `${LIDO}\nvidro 4mm`, itens: [{ ...CORRER, vidro: '4mm' }] })
             await chamarComMidia(semLegenda())
             expect(ultimoEnviado()).toBe('Li na foto: é do “Alfredo Soares”, de “Barao”, com vidro “4mm”?')
-            expect(aberta().dados_da_imagem).toEqual({ endereco: 'Barao', vidros: ['4mm'] })
+            expect(aberta().dados_da_imagem).toEqual({ endereco: 'Barao', vidros: ['4mm'], texto: `${LIDO}\nvidro 4mm` })
             llmResponde({ confirma: true, itens: [] })
             await chamar('sim')
             expect(itensDe(levantamentos()[0].id).map((i) => i.vidro)).toEqual(['4mm'])
@@ -7028,6 +7034,35 @@ describe('(30) a FOTO e o PDF do vendedor (dono do produto, 18/11/2026): baixado
             expect(sistema).toContain('é a cidade da obra: ponha em dados_do_cliente.endereco')
             const instrucao = (pedido.messages as Array<{ content: Array<{ type: string; text?: string }> }>).slice(-1)[0].content[1].text
             expect(instrucao).toContain('Um nome de pessoa solto, numa linha à parte da lista de itens, é o CLIENTE (cliente e nome); o lugar escrito junto dele é a cidade (dados_do_cliente.endereco).')
+        })
+
+        /**
+         * O TESTE REAL DO DIRCEU GONZALEZ (dono do produto, 19/11/2026): a foto trazia "Persiana - 1,80 x 1,40", e no turno do "sim" a conversa
+         * perguntou "é janela ou porta?" e "como abre?" — as linhas do vendedor eram só "[imagem]" (`trechos=0` no log). Agora o texto da foto vai
+         * com a confirmação e entra nas linhas do "sim": a altura decide a janela, a persiana é de correr, e o item é a DP-07 sem pergunta.
+         */
+        it('O CASO DO DIRCEU: a persiana da foto, no "sim", vira janela de correr com persiana (DP-07) — sem "janela ou porta" nem "como abre"', async () => {
+            estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-07', descricao: 'JANELA DE CORRER 02 FOLHAS MÓVEIS COM PERSIANA | EUROPA 42', tipo: 'Correr', linha: 'PVC WOLFF EUROPA 42' })
+            const DIRCEU = 'Persiana - 1,80 x 1,40\n\nDirceu Gonzalez\nGaivota - SC'
+            estado.download = { bytes: FOTO }
+            llmResponde({ nome: 'Dirceu Gonzalez', texto_da_imagem: DIRCEU, dados_do_cliente: { endereco: 'Gaivota - SC' }, itens: [{ largura_mm: 1800, altura_mm: 1400, quantidade: 1, cor_perfil: 'BRANCO' }] })
+            await chamarComMidia(semLegenda())
+            expect(ultimoEnviado()).toBe('Li na foto: é do “Dirceu Gonzalez”, de “Gaivota - SC”?')
+            expect(aberta().dados_da_imagem).toEqual({ endereco: 'Gaivota - SC', texto: DIRCEU })
+            llmResponde({ confirma: true, itens: [] })
+            await chamar('Sim')
+            const lev = levantamentos().find((l) => l.nome === 'Dirceu Gonzalez') as Linha
+            expect(itensDe(lev.id).map((i) => [i.tipologia, i.largura_mm, i.altura_mm])).toEqual([['DP-07', 1800, 1400]])
+            for (const t of ['janela ou porta', 'abre']) expect(ultimoEnviado()).not.toContain(t)
+            expect(linhaIa().pop()).toContain('tipologia_padrao=1')
+        })
+
+        it('A ALTURA É A SEGUNDA MEDIDA: o modelo que troca "1,80 x 1,40" (largura 1400, altura 1800) volta à ordem escrita, e o log diz', async () => {
+            llmResponde({ nome: 'Casa do Teste', itens: [{ tipologia: 'DP-02', largura_mm: 1400, altura_mm: 1800, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm' }] })
+            await chamar('Levantamento Casa do Teste: janela de correr 1,80 x 1,40, branco, temperado 5mm')
+            const lev = levantamentos().find((l) => l.nome === 'Casa do Teste') as Linha
+            expect(itensDe(lev.id).map((i) => [i.largura_mm, i.altura_mm])).toEqual([[1800, 1400]])
+            expect(linhaIa().pop()).toContain('medidas_na_ordem=1')
         })
 
         it('a instrução da foto pede o texto copiado em texto_da_imagem', async () => {
