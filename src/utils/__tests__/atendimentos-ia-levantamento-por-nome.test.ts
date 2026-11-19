@@ -159,6 +159,8 @@ const estado = {
     checkAntigo: false,
     /** a CHECK de pergunta sem a QUAL_ORCAMENTO (a migração 20261118000002 pendente, 18/11/2026) */
     checkSemQualOrcamento: false,
+    /** As LEITURAS feitas (18/11/2026): a tabela e os filtros por igualdade — para provar que o turno nem lê o levantamento fora do contexto. */
+    leituras: [] as Array<{ tabela: string; filtros: Array<[string, unknown]> }>,
     /**
      * Quando preenchida, a LLM falsa responde a partir do PROMPT, como a de verdade: o código da variável
      * só se o prompt o der ("ARI = ARREMATE INTERNO" ou "ARI: ARREMATE INTERNO"), senão a descrição que
@@ -288,6 +290,7 @@ function montar() {
     estado.deleteNaoAtinge = null
     estado.checkAntigo = false
     estado.checkSemQualOrcamento = false
+    estado.leituras = []
     estado.redacoes = []
     estado.redacao = null
     estado.falhaAoGravarSaida = false
@@ -408,6 +411,7 @@ jest.mock('@/supabase/admin', () => ({
                     for (const l of atingidas) Object.assign(l, atualizacao)
                     return Promise.resolve({ data: devolveAtingidas ? atingidas.map(projetar) : null, error: null }).then(ok, erro)
                 }
+                estado.leituras.push({ tabela, filtros: [...filtros] })
                 if (estado.ausentes.has(tabela)) return naOnda(ausente()).then(ok, erro)
                 if (estado.leiturasQueFalham.has(tabela)) return naOnda({ data: null, error: { code: '57014', message: `leitura de ${tabela} cancelada (falha simulada)` } }).then(ok, erro)
                 if (colunaQueFalta) return naOnda({ data: null, error: { code: '42703', message: `column ${tabela}.${colunaQueFalta} does not exist` } }).then(ok, erro)
@@ -3319,7 +3323,8 @@ describe('(25) o resgate do levantamento antigo e o contexto que não se perde (
         llmResponde({ confirma: true })
         await chamar('sim')
         expect(levantamentos().every((l) => itensDe(l.id).length === 1)).toBe(true)
-        expect(ultimoEnviado()).toBe(conversa.FRASE_SEM_NOME)
+        // o "sim" sem nada a que responder diz que não entendeu (dono do produto, 18/11/2026) — antes pedia o nome
+        expect(ultimoEnviado()).toBe(conversa.FRASE_RESPOSTA_SEM_PERGUNTA)
     })
 
     it('a resposta "é o mesmo" aponta o citado da lista gravado COM o prefixo de antes, pelo nome puro (o prefixo não conta na pergunta)', async () => {
@@ -4157,14 +4162,19 @@ describe('(32) as leituras antes do modelo vão em ondas: o que não depende de 
         for (const p of estado.pendentes.splice(0)) p.liberar()
         return ondas
     }
-    const interlocutor = (texto: string) => ({
-        tenantId: TENANT, remetenteId: VENDEDOR, telefone: TELEFONE_DO_WEBHOOK, texto, wuzapiToken: TOKEN, conversaId: 'c1',
-        entrada: { conversaId: 'c1', id: 'e1', criadoEm: new Date().toISOString(), repetida: false },
-    })
+    // a conversa da mensagem anterior, quando houve (o contexto do turno é a última saída DELA, 18/11/2026); senão uma conversa nova
+    const interlocutor = (texto: string) => {
+        const conversaId = String((estado.db.orcamentista_conversa ?? [])[0]?.id ?? 'c1')
+        return {
+            tenantId: TENANT, remetenteId: VENDEDOR, telefone: TELEFONE_DO_WEBHOOK, texto, wuzapiToken: TOKEN, conversaId,
+            entrada: { conversaId, id: 'e1', criadoEm: new Date().toISOString(), repetida: false },
+        }
+    }
 
     /** As cinco primeiras ondas de toda mensagem: a conta e a conversa; o catálogo da família; os itens e os motores das etapas; a contagem e o fornecedor; a lista de tipologias. */
+    // + uma leitura de orcamentista_mensagem na PRIMEIRA onda (18/11/2026): o contexto do turno (o levantamento da última saída) — nenhuma onda a mais
     const ONDAS_DA_FAMILIA = [
-        ['orcamentista_contexto_do_atendimento', 'orcamentista_levantamento', 'orcamentista_materia_prima', 'orcamentista_mensagem', 'orcamentista_mp_categoria', 'orcamentista_mp_categoria', 'orcamentista_mp_categoria', 'orcamentista_mp_categoria_fornecedor'],
+        ['orcamentista_contexto_do_atendimento', 'orcamentista_levantamento', 'orcamentista_materia_prima', 'orcamentista_mensagem', 'orcamentista_mensagem', 'orcamentista_mp_categoria', 'orcamentista_mp_categoria', 'orcamentista_mp_categoria', 'orcamentista_mp_categoria_fornecedor'],
         ['orcamentista_familia_catalogo', 'orcamentista_familia_catalogo', 'orcamentista_familia_etapa', 'orcamentista_fornecedor', 'orcamentista_tabela'],
         ['orcamentista_etapa_catalogo', 'orcamentista_motor'],
         ['orcamentista_fornecedor', 'orcamentista_motor_tipologia_detalhe'],
@@ -4983,30 +4993,33 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
             expect(linhaIa().pop()).not.toContain('montagem=')
         })
 
-        it('com DUAS montagens vivas do mesmo vendedor (a migração 20261105000001 derrubou o "um por remetente"), a mensagem sem nome cai na mais recentemente TOCADA, não na mais antiga nem na criada por último', async () => {
+        // REESCRITO em 18/11/2026 (o "Sim" do Alfredo que fechou a Daiane): a mensagem sem nome NÃO cai na montagem "mais recentemente tocada" —
+        // o critério não é estado nem data. Ela cai na montagem que a ÚLTIMA resposta tratou (o contexto gravado na saída); a outra fica intacta
+        it('com DUAS montagens vivas do mesmo vendedor, a mensagem sem nome cai na que a ÚLTIMA resposta tratou — nunca na tocada por último', async () => {
             await abrirSemVidro('Jorge Koss')
             llmResponde({ cliente: 'Maria Cristina', itens: [{ ...PORTA }] })
             await chamar(MARIA)
             expect(levantamentos().map((l) => [l.nome, l.estado])).toEqual([['Jorge Koss', 'EM_MONTAGEM'], ['Maria Cristina', 'EM_MONTAGEM']])
-            // o Jorge Koss foi tocado DEPOIS (o vendedor voltou a ele pelo nome há 1 min); a Maria, há 2 h
+            // a DATA diz o Jorge Koss (tocado há 1 min, a Maria há 2 h); a CONVERSA diz a Maria (a última resposta foi sobre ela): vale a conversa
             porNome('Maria Cristina').atualizado_em = new Date(Date.now() - 2 * HORA).toISOString()
             porNome('Jorge Koss').atualizado_em = new Date(Date.now() - 60_000).toISOString()
-            // "2 unidades" não fecha o Jorge Koss (falta o vidro): ele continua EM_MONTAGEM, e a próxima mensagem pode ir em qualquer dos dois
+            const jorgeAntes = { ...porNome('Jorge Koss') }
             llmResponde({ itens: [{ quantidade: 2 }] })
             await chamar('são 2 unidades')
             expect(linhaIa().pop()).toContain(`rota=MONTAGEM`)
-            expect(linhaIa().pop()).toContain(`levantamento=${porNome('Jorge Koss').id}`)
-            expect(itens('Jorge Koss')[0].quantidade).toBe(2)
-            expect(itens('Maria Cristina')[0].quantidade).toBe(1)
-            expect(levantamentos().map((l) => l.estado)).toEqual(['EM_MONTAGEM', 'EM_MONTAGEM'])
-            // agora a Maria é a mais recente: a próxima sem nome vai NELA, embora o Jorge Koss seja o mais antigo e também esteja em montagem
-            porNome('Maria Cristina').atualizado_em = new Date(Date.now() + 1000).toISOString()
-            llmResponde({ itens: [{ cor_perfil: 'BRANCO' }] })
-            await chamar('branco')
             expect(linhaIa().pop()).toContain(`levantamento=${porNome('Maria Cristina').id}`)
-            expect(itens('Maria Cristina')[0].cor_perfil).toBe('BRANCO')
-            expect(itens('Jorge Koss')[0].cor_perfil).toBe('BRANCO')
-            expect(itens('Jorge Koss')[0].vidro).toBeNull()
+            expect(itens('Maria Cristina')[0].quantidade).toBe(2)
+            expect(itens('Jorge Koss')[0].quantidade).toBe(1)
+            expect(porNome('Jorge Koss')).toEqual(jorgeAntes)
+            // o vendedor volta ao Jorge Koss PELO NOME: o contexto passa a ser ele, e a próxima sem nome vai nele
+            llmResponde({ nome: 'Jorge Koss', itens: [{ ordem: 1, cor_perfil: 'BRANCO' }] })
+            await chamar('Jorge Koss: branco')
+            expect(linhaIa().pop()).toContain(`levantamento=${porNome('Jorge Koss').id}`)
+            llmResponde({ itens: [{ quantidade: 3 }] })
+            await chamar('são 3')
+            expect(linhaIa().pop()).toContain(`levantamento=${porNome('Jorge Koss').id}`)
+            expect(itens('Jorge Koss')[0].quantidade).toBe(3)
+            expect(itens('Maria Cristina')[0].quantidade).toBe(2)
         })
 
         it('a montagem sem atualizado_em expira pelo criado_em (ausente não é "agora")', () => {
@@ -6985,5 +6998,126 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         llmResponde({ nome: 'Ana' })
         await chamar('continua o levantamento da Ana')
         expect(ultimoEnviado()).toMatch(/1\) Ana Lima — \d\d\/\d\d\/\d{4}, 2 itens, completo\n2\) Ana Souza — \d\d\/\d\d\/\d{4}, 1 item, completo/)
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('(44) O CONTEXTO DO TURNO (dono do produto, 18/11/2026): o turno só alcança o levantamento que a conversa está tratando — o caso Alfredo × Daiane', () => {
+    /**
+     * O caso real, 19:20 a 19:21: o mesmo vendedor; o 23 "Daiane Pilger" em montagem desde a manhã; o 24 "Alfredo Soares" recém-criado e completo,
+     * com o arquivo mandado para conferir; e o "Sim". Em produção o "Sim" caiu na montagem da Daiane (escolhida pelo ESTADO), a fechou e mandou o
+     * arquivo dela. A regra: "Se eu confirmei o Alfredo, tem que vir Alfredo [...] levantamento de OUTRO cliente não é alcançável por um turno que
+     * não falou dele, em hipótese nenhuma — nem para ler, nem para mandar arquivo, e muito menos para mudar estado."
+     */
+    const DAIANE = 'Daiane Pilger'
+    const ALFREDO = 'Alfredo Soares'
+    const fotoDoBanco = (nome: string) => {
+        const l = porNomeDoLevantamento(nome)
+        return { levantamento: { ...l }, itens: itensDe(l.id).map((i) => ({ ...i })) }
+    }
+    const porNomeDoLevantamento = (nome: string) => levantamentos().find((l) => l.nome === nome) as Linha
+    const leiturasDosItensDe = (id: unknown) => estado.leituras.filter((r) => r.tabela === 'orcamentista_levantamento_item' && JSON.stringify(r.filtros ?? []).includes(String(id)))
+    async function oCasoAteOSim() {
+        await abrirSemVidro(DAIANE)
+        expect(porNomeDoLevantamento(DAIANE).estado).toBe('EM_MONTAGEM')
+        llmResponde({ nome: ALFREDO, itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar(`Levantamento ${ALFREDO}: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50`)
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado(), ALFREDO)).toBe(true)
+        return { daiane: fotoDoBanco(DAIANE), arquivos: estado.documentos.length }
+    }
+
+    it('O CASO: o "Sim" depois do arquivo do 24 (Alfredo) confirma o 24 — e o 23 (Daiane, em montagem) fica INTACTO: estado, atualizado_em, itens e arquivo', async () => {
+        const { daiane, arquivos } = await oCasoAteOSim()
+        llmResponde({ confirma: true })
+        await chamar('Sim')
+        const ia = linhaIa().pop() as string
+        expect(ia).toContain(`levantamento=${porNomeDoLevantamento(ALFREDO).id}`)
+        expect(ia).not.toContain(String(porNomeDoLevantamento(DAIANE).id))
+        expect(ia).not.toContain('rota=MONTAGEM')
+        expect(fotoDoBanco(DAIANE)).toEqual(daiane)
+        // nenhum arquivo da Daiane: os arquivos mandados depois do "Sim" não são dela
+        expect(estado.documentos.slice(arquivos).map((d) => String(d.corpo.FileName ?? d.corpo.Caption ?? ''))).not.toEqual(expect.arrayContaining([expect.stringContaining('Daiane')]))
+        expect(ultimoEnviado()).not.toContain(DAIANE)
+    })
+
+    it('o "Sim" nem LÊ os itens da Daiane: a montagem fora do contexto não é consultada', async () => {
+        await oCasoAteOSim()
+        const idDaDaiane = porNomeDoLevantamento(DAIANE).id
+        const antes = leiturasDosItensDe(idDaDaiane).length
+        llmResponde({ confirma: true })
+        await chamar('Sim')
+        expect(leiturasDosItensDe(idDaDaiane).length).toBe(antes)
+        expect(linhaIa().pop()).toContain('montagem=fora_do_contexto')
+    })
+
+    it('um SEGUNDO "sim", sem nada pendente: diz que não entendeu — não escolhe a Daiane, não reabre o Alfredo', async () => {
+        await oCasoAteOSim()
+        llmResponde({ confirma: true })
+        await chamar('Sim')
+        const daiane = fotoDoBanco(DAIANE)
+        const alfredo = fotoDoBanco(ALFREDO)
+        const arquivos = estado.documentos.length
+        llmResponde({ confirma: true })
+        await chamar('sim')
+        expect(ultimoEnviado()).toBe(conversa.FRASE_RESPOSTA_SEM_PERGUNTA)
+        expect(fotoDoBanco(DAIANE)).toEqual(daiane)
+        expect(fotoDoBanco(ALFREDO)).toEqual(alfredo)
+        expect(estado.documentos).toHaveLength(arquivos)
+    })
+
+    it('a Daiane continua alcançável PELO NOME: "Daiane Pilger: temperado 5mm" vai nela, e o contexto passa a ser ela', async () => {
+        await oCasoAteOSim()
+        llmResponde({ nome: DAIANE, itens: [{ ordem: 1, vidro: 'Temperado 5mm' }] })
+        await chamar(`${DAIANE}: temperado 5mm`)
+        expect(linhaIa().pop()).toContain(`levantamento=${porNomeDoLevantamento(DAIANE).id}`)
+        expect(itensDe(porNomeDoLevantamento(DAIANE).id)[0].vidro).toBe('Temperado 5mm')
+    })
+
+    it('a confirmação do Alfredo guardada NÃO vale depois que a conversa passou à Daiane: o "sim" seguinte não fecha o Alfredo', async () => {
+        await oCasoAteOSim()
+        const alfredo = fotoDoBanco(ALFREDO)
+        // a conversa passa à Daiane pelo nome, sem fechá-la (o vidro continua faltando)
+        llmResponde({ nome: DAIANE, itens: [{ ordem: 1, quantidade: 2 }] })
+        await chamar(`${DAIANE}: são 2`)
+        expect(linhaIa().pop()).toContain(`levantamento=${porNomeDoLevantamento(DAIANE).id}`)
+        llmResponde({ confirma: true })
+        await chamar('sim')
+        const ia = linhaIa().pop() as string
+        expect(ia).not.toContain(`levantamento=${porNomeDoLevantamento(ALFREDO).id}`)
+        expect(fotoDoBanco(ALFREDO)).toEqual(alfredo)
+    })
+
+    it('a confirmação do Alfredo guardada NÃO vale quando a última resposta tratou OUTRO levantamento (já completo): o "sim" diz que não entendeu', async () => {
+        await fecharDp02('Casa do João')
+        const joao = porNomeDoLevantamento('Casa do João')
+        await oCasoAteOSim()
+        const alfredo = fotoDoBanco(ALFREDO)
+        // a última saída tratou a Casa do João (o vendedor pediu algo dela, e o agente respondeu sem perguntar nada)
+        const conversaId = (estado.db.orcamentista_conversa ?? [])[0].id
+        estado.db.orcamentista_mensagem.push({ id: 'saida-do-joao', tenant_id: TENANT, conversa_id: conversaId, direcao: 'saida', texto: 'o orçamento da Casa do João', levantamento_id: joao.id, wuzapi_mensagem_id: 'w-joao',
+            criado_em: new Date(Math.max(...estado.db.orcamentista_mensagem.map((m) => Date.parse(String(m.criado_em)))) + 1000).toISOString() })
+        llmResponde({ confirma: true })
+        await chamar('sim')
+        expect(ultimoEnviado()).toBe(conversa.FRASE_RESPOSTA_SEM_PERGUNTA)
+        expect(fotoDoBanco(ALFREDO)).toEqual(alfredo)
+        expect(linhaIa().pop()).toContain('contexto_do_turno=pergunta_fora')
+    })
+
+    it('SEM a 20261118000005 (a coluna do contexto não existe): a montagem nunca captura sem o nome — o "Sim" não alcança a Daiane, e o log diz', async () => {
+        estado.colunasAusentes.add('orcamentista_mensagem.levantamento_id')
+        const { daiane } = await oCasoAteOSim()
+        llmResponde({ confirma: true })
+        await chamar('Sim')
+        expect(fotoDoBanco(DAIANE)).toEqual(daiane)
+        const ia = linhaIa().pop() as string
+        expect(ia).toContain('contexto_do_turno=sem_migracao')
+        expect(ia).not.toContain('rota=MONTAGEM')
+    })
+
+    it('a saída gravada leva o levantamento que o turno tratou', async () => {
+        await oCasoAteOSim()
+        const saidas = (estado.db.orcamentista_mensagem ?? []).filter((m) => m.direcao === 'saida')
+        expect(saidas[saidas.length - 1].levantamento_id).toBe(porNomeDoLevantamento(ALFREDO).id)
+        expect(saidas[0].levantamento_id).toBe(porNomeDoLevantamento(DAIANE).id)
     })
 })

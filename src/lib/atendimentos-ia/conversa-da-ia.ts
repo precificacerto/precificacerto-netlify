@@ -195,7 +195,7 @@ import { agruparIguais,
     CAMPOS_DA_ESQUADRIA, aplicarProposta, familiaDaEsquadria, itemVazio, pendenciasDoLevantamento, perguntaDasPendencias, resolverFamilias,
     type DefinicaoDaTipologia, type ItemDoLevantamento, type Pendencia,
 } from '@/lib/atendimentos-ia/levantamento-em-montagem'
-import { JANELA_EM_VOO_MS, gravarSaida, lerHistorico, marcarEnvio, saidaDaEntrada, type Entrada, type MensagemDoHistorico } from '@/lib/atendimentos-ia/conversa-gravada'
+import { JANELA_EM_VOO_MS, contextoDaConversa, gravarSaida, lerHistorico, marcarEnvio, saidaDaEntrada, type Entrada, type MensagemDoHistorico } from '@/lib/atendimentos-ia/conversa-gravada'
 import { prazo } from '@/lib/atendimentos-ia/prazo'
 import { MAX_TOKENS_DA_PRIMEIRA_CHAMADA, PRAZO_ATE_OS_CABECALHOS_MS, TENTATIVAS_DA_PRIMEIRA_CHAMADA, blocosDoSistema } from '@/lib/atendimentos-ia/pedido-ao-modelo'
 import { lerFluxo } from '@/lib/atendimentos-ia/resposta-em-fluxo'
@@ -335,7 +335,12 @@ type Rastro = {
     /** Itens que o modelo devolveu SEM nenhum campo da esquadria (05/11/2026): foi assim que as esquadrias do Jorge Koss se perderam. */
     itensSemCampos: number
     /** A montagem (05/11/2026): `expirada` (mais de 24 h sem toque, não captura a mensagem), `outro_cliente` ou `novo` (a mensagem saiu dela). */
-    montagem: '-' | 'expirada' | 'outro_cliente' | 'novo'
+    montagem: '-' | 'expirada' | 'outro_cliente' | 'novo' | 'fora_do_contexto'
+    /**
+     * O CONTEXTO DO TURNO (18/11/2026): `sem_migracao` (a 20261118000005 pendente: a montagem só se alcança pelo nome), `pergunta_fora` (a
+     * confirmação guardada cita um levantamento que não é o da última saída, e não vale); '-' quando o contexto foi lido e nada caiu.
+     */
+    contextoDoTurno: '-' | 'sem_migracao' | 'pergunta_fora'
     /** Esquadrias que receberam a cor PREDOMINANTE da base por não ter cor dita (05/11/2026). */
     coresPadrao: number
     /** Esquadrias que receberam a tipologia PADRÃO do código — de correr, 2 folhas, lisa (05/11/2026). */
@@ -369,7 +374,7 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
         + (r.lista === '-' ? '' : ` lista=${r.lista} trechos=${r.trechos}`) + (r.trechosSemCandidata > 0 ? ` trechos_sem_candidata=${r.trechosSemCandidata}` : '')
         + (r.itensSemCampos > 0 ? ` itens_sem_campos=${r.itensSemCampos}` : '')
         // a montagem e os padrões (05/11/2026)
-        + (r.montagem === '-' ? '' : ` montagem=${r.montagem}`) + (r.coresPadrao > 0 ? ` cor_padrao=${r.coresPadrao}` : '') + (r.tipologiasPadrao > 0 ? ` tipologia_padrao=${r.tipologiasPadrao}` : '') + (r.limite === '-' ? '' : ` limite=${r.limite}`) + (r.qualOrcamento === '-' ? '' : ` qual_orcamento=${r.qualOrcamento}`)
+        + (r.montagem === '-' ? '' : ` montagem=${r.montagem}`) + (r.contextoDoTurno === '-' ? '' : ` contexto_do_turno=${r.contextoDoTurno}`) + (r.coresPadrao > 0 ? ` cor_padrao=${r.coresPadrao}` : '') + (r.tipologiasPadrao > 0 ? ` tipologia_padrao=${r.tipologiasPadrao}` : '') + (r.limite === '-' ? '' : ` limite=${r.limite}`) + (r.qualOrcamento === '-' ? '' : ` qual_orcamento=${r.qualOrcamento}`)
         + (r.midia === '-' ? '' : ` midia=${r.midia}`)
     console.error(`${PREFIXO_DO_LOG_DA_IA} levantamento=${r.levantamento} rota=${r.rota} propostos=${r.propostos} descartados=${r.descartados} enviou=${r.enviou ? 'sim' : 'nao'} desfecho=${desfecho}${admin} nome=${r.nome} aberta=${r.aberta}${contexto}${ia}${detalhe ? ` ${detalhe}` : ''}`)
     // as linhas por etapa (06/11/2026), na ordem do turno; a última é a resposta, que todo turno tem
@@ -379,6 +384,11 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
 
 // ── As frases fixas do roteamento ───────────────────────────────────────────────────────────
 /** Sem nome e sem cliente em lugar nenhum: pergunta o CLIENTE, que é o nome do levantamento (03/11/2026). */
+/**
+ * O "SIM" SOLTO (dono do produto, 18/11/2026): a resposta que não tem pergunta à espera dela — nada em aberto no contexto. Nunca escolhe um
+ * levantamento por conta própria (foi assim que o "sim" do Alfredo Soares fechou o levantamento da Daiane Pilger): diz que não entendeu.
+ */
+export const FRASE_RESPOSTA_SEM_PERGUNTA = 'Não entendi a que a sua resposta se refere: não tenho nenhuma pergunta esperando por ela agora. Me diga de qual cliente é e o que você precisa.'
 export const FRASE_SEM_NOME = 'Para eu anotar, me diga o nome do cliente — por exemplo: Cliente João Silva. Se for sobre um levantamento que você já fez, me diga de quem é.'
 /** A mesma pergunta em OUTRAS palavras, quando a resposta não trouxe o cliente: nunca a mesma frase de novo. */
 export const OUTRAS_PERGUNTAS_DO_NOME = [
@@ -1257,7 +1267,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = {
         etapas: { coletar: null, casar: null, montar: null, calcular: null },
         levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null, raciocinio: null, parada: null, cacheLido: null, cacheEscrito: null, cabecalhosMs: null, primeiroTokenMs: null, tentativas: null, requestId: null },
-        midia: '-', contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', coresPadrao: 0, tipologiasPadrao: 0, limite: '-', qualOrcamento: '-',
+        midia: '-', contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', contextoDoTurno: '-', coresPadrao: 0, tipologiasPadrao: 0, limite: '-', qualOrcamento: '-',
     }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
@@ -1269,7 +1279,10 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     /** A saída é GRAVADA depois de enviada, com o id do envio (ou nulo, quando falhou). A gravação nunca derruba a resposta: só o log. */
     const gravar = async (texto: string, idDoEnvio: string | null) => {
         try {
-            rastro.gravacao = (await gravarSaida(c.tenantId, c.conversaId, c.entrada.id, texto, idDoEnvio)) === 'gravada' ? 'sim' : 'sem_migracao'
+            // a saída leva o levantamento que este turno tratou: o contexto do próximo
+            const r = await gravarSaida(c.tenantId, c.conversaId, c.entrada.id, texto, idDoEnvio, rastro.levantamento !== '-' ? rastro.levantamento : null)
+            // sem a coluna do contexto a saída é gravada sem ela ('sem_contexto'); a marca no log vem da leitura do contexto, que falha junto
+            rastro.gravacao = r === 'sem_migracao' ? 'sem_migracao' : 'sim'
         } catch (e) {
             rastro.gravacao = 'falhou'
             console.error(`${PREFIXO_DO_LOG_DA_IA} a saida nao foi gravada: ${e instanceof Error ? e.message : 'erro desconhecido'}`)
@@ -1339,7 +1352,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // a falta de configuração (família, etapa, motor, tabela de preço) volta com a frase que a nomeia (PR D)
         // AS LEITURAS INDEPENDENTES VÃO JUNTAS (dono do produto, 04/11/2026): medido em produção, as 24 leituras em série antes do modelo
         // custavam 5 a 8 s por turno. Primeira onda: o que só depende da conta e da conversa. A ordem das RESPOSTAS continua a de antes.
-        const [tabela, perfil, emMontagemLidos, contexto, lido, instrucoes] = await Promise.all([
+        const [tabela, perfil, emMontagemLidos, contexto, lido, instrucoes, contextoLido] = await Promise.all([
             lerFamiliasDaEmpresa(c.tenantId),
             // as cores do Perfil e a cor PREDOMINANTE da base (05/11/2026): a cor não dita é ela
             lerPerfilDaEmpresa(c.tenantId),
@@ -1350,6 +1363,8 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             lerHistorico(c.tenantId, c.conversaId, c.entrada.id),
             // a instrução de cada categoria preenchida (03/11/2026)
             lerInstrucoesDaEmpresa(c.tenantId),
+            // o levantamento que a última saída tratou: o contexto do turno (18/11/2026)
+            contextoDaConversa(c.tenantId, c.conversaId),
         ] as const)
         if ('frase' in tabela) return await responder(tabela.frase, 'sem-tipologias', `motivo=${tabela.motivo}${tabela.detalhe ? ` ${tabela.detalhe}` : ''}`)
         const doCodigo = familiasDoCodigo(tabela)
@@ -1365,7 +1380,17 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const toque = (l: Levantamento) => Date.parse(l.atualizado_em ?? l.criado_em) || 0
         const montagensVivas = emMontagemLidos.filter((l) => !montagemExpirou(l.atualizado_em, l.criado_em, agora)).sort((a, b) => toque(b) - toque(a))
         if (emMontagemLidos.length > 0 && montagensVivas.length === 0) rastro.montagem = 'expirada'
-        const [emMontagem] = montagensVivas
+        const [candidata] = montagensVivas
+        // O CONTEXTO DO TURNO (dono do produto, 18/11/2026 — o "Sim" que respondia ao levantamento 24, do Alfredo Soares, e fechou o 23, da
+        // Daiane Pilger, em montagem): "Se eu confirmei o Alfredo, tem que vir Alfredo [...] o turno age sobre o levantamento que foi citado,
+        // criado ou confirmado naquele fio — e sobre nenhum outro." A montagem não é escolhida pelo ESTADO nem pela data: ela só captura a
+        // mensagem quando é o levantamento que a ÚLTIMA saída tratou (gravado nela, 20261118000005). Fora do contexto, ela não é lida, não
+        // recebe arquivo e não muda — a mensagem segue pelo nome e pela pergunta em aberto. Sem a migração o contexto é desconhecido: a montagem
+        // nunca captura sem o nome (o vendedor que diz o nome chega a ela pelo caminho do nome)
+        const contextoDoTurno = contextoLido === 'sem_migracao' ? null : contextoLido.levantamentoId
+        if (contextoLido === 'sem_migracao') rastro.contextoDoTurno = 'sem_migracao'
+        const emMontagem = contextoDoTurno === null ? undefined : montagensVivas.find((l) => l.id === contextoDoTurno)
+        if (candidata && !emMontagem) rastro.montagem = 'fora_do_contexto'
         // Segunda onda: o que depende da família ou da montagem. As Variáveis de cada tipologia, POR FAMÍLIA, do motor do LEVANTAMENTO dela
         // (a etapa com GERAR_LEVANTAMENTO), por motor_id; os itens da montagem; e a pergunta em aberto do roteamento pelo nome — só fora da
         // montagem, que guarda a sua no levantamento — com os levantamentos do remetente que ela cita
@@ -1407,7 +1432,13 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const temLinhaLida = lida !== null && lida !== 'ausente'
         const valida = pergunta?.valida ?? null
         const doRemetente: Levantamento[] | null = pergunta?.doRemetente ?? null
-        const abertaLida = valida && doRemetente ? await refazerPergunta(c.tenantId, valida, doRemetente, definicao, detalhe) : null
+        // A CONFIRMAÇÃO que cita UM levantamento (o arquivo do apanhado, o acréscimo) só vale se ele é o contexto: o "sim" responde a ÚLTIMA coisa
+        // que o agente perguntou, e só a ela (18/11/2026). Sem a migração do contexto, vale como antes
+        const citaForaDoContexto = valida !== null && contextoLido !== 'sem_migracao'
+            && (valida.pergunta === 'CONFIRMAR_APANHADO' || (valida.pergunta === 'CONFIRMAR_ACRESCIMO' && valida.nome === null))
+            && valida.levantamentos[0] !== contextoDoTurno
+        if (citaForaDoContexto) rastro.contextoDoTurno = 'pergunta_fora'
+        const abertaLida = valida && doRemetente && !citaForaDoContexto ? await refazerPergunta(c.tenantId, valida, doRemetente, definicao, detalhe) : null
         // NA MONTAGEM a pergunta do roteamento não vale (ela guarda a sua no levantamento) — até a mensagem sair da montagem (abaixo)
         let aberta = emMontagem ? null : abertaLida
         let guardaPergunta = emMontagem ? false : guardaLida
@@ -1693,6 +1724,11 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                         if (guardaPergunta) await gravarPerguntaEmAberto(c.tenantId, c.remetenteId, { pergunta: 'SEM_NOME', nome: null, levantamentos: [], itens: emEspera })
                         return await falar(fraseDoAcrescimoRecusado(citado.nome), 'nao-acrescentou')
                     }
+                }
+                // o "sim" ou o "não" SOLTO: nenhuma pergunta em aberto, nenhum nome, nenhuma esquadria — não há o que confirmar, e não se escolhe um
+                if (lido === null && confirma !== null && aberta === null && emEspera.length === 0) {
+                    rastro.rota = 'SEM_NOME'
+                    return await falar(FRASE_RESPOSTA_SEM_PERGUNTA, 'nao-avancou')
                 }
                 if (lido === null) {
                     rastro.rota = 'SEM_NOME'
