@@ -7225,6 +7225,70 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         expect(linhaIa().pop()).toMatch(/ qual_orcamento=sem_migracao(\s|$)/)
     })
 
+    // O CASO DA DAIANE PILGER (produção, 19/11/2026, 14:34, levantamento 23, request wn66g-1795109663070-dfe133cc12a7): o log disse
+    // `rota=ALTERACAO desfecho=arquivo qual_orcamento=0` — o nome não tinha orçamento, e a conversa devolveu o ARQUIVO DO LEVANTAMENTO com o "Confere?".
+    // Regra do dono do produto: "Quando ele pedir orçamento, não pode devolver o levantamento para confirmar"; sem orçamento, o orçamento sai do
+    // levantamento dele, sem lista e sem pedir confirmação do levantamento
+    const levantamentoDaDaiane = async (comAPerguntaAberta: boolean) => {
+        llmResponde({ nome: 'Daiane Pilger', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Daiane Pilger: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Daiane Pilger')).toBe(true)
+        expect((estado.db.orcamentista_orcamento ?? []) as Linha[]).toEqual([])
+        if (!comAPerguntaAberta) estado.db.orcamentista_pergunta_em_aberto = []
+        return { arquivos: estado.documentos.length, envios: estado.envios.length }
+    }
+    it.each([
+        ['com o "Confere?" do arquivo ainda em aberto', true],
+        ['sem pergunta nenhuma em aberto (outro dia)', false],
+    ])('O CASO DA DAIANE PILGER, %s: "Quero o orcamento daiane pilger" traz o ORÇAMENTO — nunca o arquivo do levantamento com o "Confere?"', async (_c, aberta) => {
+        const antes = await levantamentoDaDaiane(aberta as boolean)
+        llmResponde({ nome: 'daiane pilger' })
+        await chamar('Quero o orcamento daiane pilger')
+        // nenhum arquivo do levantamento e nenhum "Confere?" depois do pedido
+        const depois = estado.envios.slice(antes.envios).map((e) => JSON.stringify(e.corpo))
+        expect(estado.documentos.slice(antes.arquivos).filter((d) => !/^Orcamento/i.test(String(d.corpo.FileName)))).toEqual([])
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        for (const t of depois) expect([t, t.includes((require('@/lib/atendimentos-ia/arquivo-do-levantamento') as typeof import('@/lib/atendimentos-ia/arquivo-do-levantamento')).CONFERE_O_ARQUIVO)]).toEqual([t, false])
+        // o orçamento foi feito do levantamento dela, e o PDF dele foi enviado
+        const orcamentos = (estado.db.orcamentista_orcamento ?? []) as Linha[]
+        expect(orcamentos.map((o) => o.levantamento_id)).toEqual([levantamentos().find((l) => l.nome === 'Daiane Pilger')!.id])
+        expect(estado.documentosDoOrcamento).toHaveLength(1)
+        expect(linhaIa().pop()).toContain(" qual_orcamento=0 ")
+        expect(erros.filter((l) => l.startsWith(conversa.PREFIXO_DO_LOG_DA_ETAPA) && l.includes(" montar]")).pop()).toContain(" orcamento_pedido=sim")
+    })
+    it('com o arquivo de uma alteração esperando o "sim" e o orçamento JÁ FEITO: o pedido traz o orçamento que existe (o último), sem recalcular', async () => {
+        await fecharDp02('Daiane Pilger')
+        expect(estado.documentosDoOrcamento).toHaveLength(1)
+        llmResponde({ nome: 'Daiane Pilger', itens: [{ ...DP02, quantidade: 2 }] })
+        await chamar('Daiane Pilger: a DP-02 1200 x 1000 são 2 unidades, branco, temperado 5mm')
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Daiane Pilger')).toBe(true)
+        const orcamentos = ((estado.db.orcamentista_orcamento ?? []) as Linha[]).length
+        const arquivos = estado.documentos.length
+        llmResponde({ nome: 'daiane pilger' })
+        await chamar('Quero o orcamento daiane pilger')
+        expect(estado.documentosDoOrcamento).toHaveLength(2)
+        expect(((estado.db.orcamentista_orcamento ?? []) as Linha[]).length).toBe(orcamentos)
+        expect(estado.documentos.slice(arquivos).filter((d) => !/^Orcamento/i.test(String(d.corpo.FileName)))).toEqual([])
+        expect(linhaIa().pop()).toMatch(/ rota=ORCAMENTO .*qual_orcamento=1/)
+    })
+    it('o pedido de orçamento que TRAZ ESQUADRIA (muda o levantamento) não vale como o "sim": a mudança vai ao arquivo, para conferir', async () => {
+        const antes = await levantamentoDaDaiane(true)
+        llmResponde({ nome: 'daiane pilger', itens: [{ ...DP02, quantidade: 2 }] })
+        await chamar('Quero o orcamento daiane pilger: a DP-02 1200 x 1000 são 2 unidades, branco, temperado 5mm')
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Daiane Pilger')).toBe(true)
+        expect((estado.db.orcamentista_orcamento ?? []) as Linha[]).toEqual([])
+        expect(estado.documentosDoOrcamento).toHaveLength(0)
+        expect(erros.filter((l) => l.startsWith(conversa.PREFIXO_DO_LOG_DA_ETAPA) && l.includes(" montar]")).pop()).not.toContain("orcamento_pedido=sim")
+        expect(estado.envios.length).toBeGreaterThan(antes.envios)
+    })
+    it('o pedido de orçamento de OUTRO nome não alcança o levantamento da Daiane: ele não é orçado', async () => {
+        await levantamentoDaDaiane(false)
+        llmResponde({ nome: 'Maria Cristina' })
+        await chamar('quero o orçamento da Maria Cristina')
+        expect((estado.db.orcamentista_orcamento ?? []) as Linha[]).toEqual([])
+        expect(estado.documentosDoOrcamento).toHaveLength(0)
+    })
+
     it('NENHUM orçamento com o nome: segue o caminho do levantamento — o novo, com o nome dito', async () => {
         llmResponde({ nome: 'Maria Cristina' })
         await chamar('quero o orçamento da Maria Cristina')
