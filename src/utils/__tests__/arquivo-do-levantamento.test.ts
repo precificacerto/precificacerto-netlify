@@ -30,8 +30,10 @@ const LEV: LevantamentoDoArquivo = {
     comissao_percentual: 5, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: 1, reserva_tecnica_responsavel: null, lucro_projetado_percentual: 10,
     vendedor_nome: 'Cristiano Fernandes', vendedor_employee_id: 'e1',
 }
+// A POLÍTICA DA EMPRESA (20/11/2026), IGUAL ao padrão do motor de antes: a folha diz o mesmo que dizia — agora porque a empresa definiu
+const POLITICA_IGUAL_AO_PADRAO_DE_ANTES = { usa_arremate_interno: true, guarnicao_interna: 'BZ0006', usa_arremate_externo: true, guarnicao_externa: 'BZ0010', medida_arremate_externo: 'MEDIDA DO VAO' }
 const montar = (itens: ItemDoLevantamento[], l: Partial<LevantamentoDoArquivo> = {}) =>
-    montarDadosDaFolha({ empresa: 'Empresa X', levantamento: { ...LEV, ...l }, itens, definicao, detalhe, geradoEm: new Date(Date.UTC(2026, 10, 6, 12)), doVendedor: null })
+    montarDadosDaFolha({ empresa: 'Empresa X', levantamento: { ...LEV, ...l }, itens, definicao, detalhe, geradoEm: new Date(Date.UTC(2026, 10, 6, 12)), doVendedor: null, politica: POLITICA_IGUAL_AO_PADRAO_DE_ANTES })
 
 /** O texto desenhado no PDF (as cadeias dos operadores Tj), para conferir o que a folha mostra. */
 const textoDoPdf = (pdf: Uint8Array) => [...Buffer.from(pdf).toString('latin1').matchAll(/\(((?:\\.|[^\\)])*)\) Tj/g)].map((m) => m[1].replace(/\\([()\\])/g, '$1')).join(' ').replace(/\s+/g, ' ')
@@ -69,8 +71,9 @@ describe('O ARREMATE na folha: O QUE O CÁLCULO USA, com as opções reais do mo
     const GENERICO = { variaveis: [
         { variavel: 'ARI', descricao: 'ARREMATE INTERNO', padrao: '1', condicao: 'sempre', opcoes: '1 = QX4410 - ARREMATE 30MM [12,00]; 2 = KLM77A - ARREMATE 45MM' },
     ] } as unknown as VariaveisDaTipologia
-    const comDefinicao = (v: VariaveisDaTipologia) => (itens: ItemDoLevantamento[]) =>
-        montarDadosDaFolha({ empresa: 'Empresa X', levantamento: LEV, itens, definicao: () => v, detalhe, geradoEm: new Date(Date.UTC(2026, 10, 7, 12)), doVendedor: null })
+    // a política da empresa do genérico é a do código QX4410 (o padrão dele de antes)
+    const comDefinicao = (v: VariaveisDaTipologia, politica: Record<string, string | boolean> = POLITICA_IGUAL_AO_PADRAO_DE_ANTES) => (itens: ItemDoLevantamento[]) =>
+        montarDadosDaFolha({ empresa: 'Empresa X', levantamento: LEV, itens, definicao: () => v, detalhe, geradoEm: new Date(Date.UTC(2026, 10, 7, 12)), doVendedor: null, politica })
     const real = comDefinicao(DP02_REAL)
     const PADRAO_DO_MOTOR = 'arremate interno: 65 mm; arremate externo: 20 mm; medida do arremate externo: medida do vão'
 
@@ -103,8 +106,8 @@ describe('O ARREMATE na folha: O QUE O CÁLCULO USA, com as opções reais do mo
         const casos: Array<[string, ReturnType<typeof real>]> = [
             ['real, igual em todos', real([item(1, { escolhas: { ARI: 2 } }), item(2, { escolhas: { ARI: 2 } })])],
             ['real, variando', real([item(1, { escolhas: { ARI: 2 } }), item(2, { escolhas: { ARI: 3, MAE: 3 } }), item(3, {})])],
-            ['genérico, igual', comDefinicao(GENERICO)([item(1, {}), item(2, {})])],
-            ['genérico, variando', comDefinicao(GENERICO)([item(1, {}), item(2, { escolhas: { ARI: 2 } })])],
+            ['genérico, igual', comDefinicao(GENERICO, { usa_arremate_interno: true, guarnicao_interna: 'QX4410' })([item(1, {}), item(2, {})])],
+            ['genérico, variando', comDefinicao(GENERICO, { usa_arremate_interno: true, guarnicao_interna: 'QX4410' })([item(1, {}), item(2, { escolhas: { ARI: 2 } })])],
         ]
         for (const [nome, d] of casos) {
             const folha = gerarFolhaDoLevantamento(d)

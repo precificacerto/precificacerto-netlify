@@ -105,7 +105,9 @@
 import { descricaoNoPrompt, limitesNoPrompt, numeroOuNulo } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { supabaseAdmin } from '@/supabase/admin'
 import { COLUNAS_LIDAS, COLUNAS_OPCIONAIS, lerTipologia, variaveisDaAba, type AbasDoMotor, type AvisoDoAvaliador, type Tipologia } from '@/lib/atendimentos-ia/avaliador-de-formulas'
-import { descreverArremate, escolhasComPadrao, lerEscolhasGravadas, semAsPecasNaoPedidas, traduzirVocabulario, type VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
+import { escolhasDoCalculo } from '@/lib/atendimentos-ia/fronteira-das-escolhas'
+import { lerPoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa-servidor'
+import { descreverArremate, lerEscolhasGravadas, paraOAgente, semAsPecasNaoPedidas, traduzirVocabulario, type VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import {
     formatarReais, levantarBarras,
     type ItemDaTabela, type RegraDoDePara, type ResultadoDoLevantamento,
@@ -501,13 +503,17 @@ export async function lerTipologiasDoBanco(motorId: string, codigos: readonly st
  * escolhas. Com a tabela ainda ausente no banco, nenhuma definição: a conversa segue sem escolhas, e o levantamento recusa
  * nomeando a aba que falta.
  */
-export async function lerVariaveisDasTipologias(motorId: string): Promise<Record<string, VariaveisDaTipologia>> {
+export async function lerVariaveisDasTipologias(motorId: string, para: 'agente' | 'documento' = 'agente'): Promise<Record<string, VariaveisDaTipologia>> {
     const aba = abaDeclarada('Variáveis')
     const lida = await lerTudo(aba.tabela, motorId, ORDEM_DAS_ABAS)
     if ('ausente' in lida) return {}
     const planilha = abaDoBanco(aba, lida.linhas)
     const codigos = [...new Set(lida.linhas.map((l) => l.tipologia).filter((t): t is string => typeof t === 'string'))]
-    return Object.fromEntries(codigos.map((t) => [t, { variaveis: variaveisDaAba(planilha, t) }]))
+    // A FRONTEIRA (20/11/2026): o AGENTE recebe a aba SEM a coluna Padrão (`paraOAgente`); o documento que mostra o que foi calculado, completa
+    return Object.fromEntries(codigos.map((t) => {
+        const variaveis = { variaveis: variaveisDaAba(planilha, t) }
+        return [t, para === 'agente' ? paraOAgente(variaveis) : variaveis]
+    }))
 }
 
 /**
@@ -1018,12 +1024,22 @@ async function calcularFamilia(
     if (doBanco.faltas.length) codigos.push(`ABAS_DO_MOTOR:${doBanco.faltas.length}`)
     // os valores das variáveis sem padrão (06/11/2026) chegam ao avaliador pela tipologia: sem ela, só as capturadas
     // A PEÇA NÃO PEDIDA (19/11/2026): no item gravado sem a escolha (o item 6 da Daiane, de antes), a opção que não acrescenta a peça, também aqui
-    const escolhas = itensDoGrupo.map((e, k) => {
+    const ditas = itensDoGrupo.map((e, k) => {
         const t = lidas[dg.esquadrias[k].tipologia] ?? null
         const lidasDoItem = lerEscolhasGravadas(e.escolhas, t)
         return t ? { ...semAsPecasNaoPedidas(t, lidasDoItem, null), ...lidasDoItem } : lidasDoItem
     })
-    dg.esquadrias.forEach((e, k) => { if (lidas[e.tipologia]) e.escolhas = descreverArremate(lidas[e.tipologia], escolhas[k]) })
+    // A FRONTEIRA (dono do produto, 20/11/2026): cada variável com opções chega ao motor DECIDIDA — o vendedor, a política da empresa, o padrão do
+    // motor que não acrescenta peça, ou a principal —, e o motor não usa padrão nelas (`semDecidirVariacao`). O que não se decide volta ao agente
+    const politica = await lerPoliticaDaEmpresa(tenantId)
+    const decididas = itensDoGrupo.map((_, k) => {
+        const t = lidas[dg.esquadrias[k].tipologia]
+        return t ? escolhasDoCalculo(t, ditas[k], politica) : { escolhas: ditas[k], origem: {}, voltas: [] }
+    })
+    const escolhas = decididas.map((x) => x.escolhas)
+    dg.esquadrias.forEach((e, k) => { if (lidas[e.tipologia]) e.escolhas = descreverArremate(lidas[e.tipologia], escolhas[k], decididas[k].origem) })
+    const voltas = dg.esquadrias.flatMap((e, k) => decididas[k].voltas.map((v) => faltaComEsquadrias(v.frase, [e.numero], d.esquadrias.length, e.tipologia)))
+    if (voltas.length) { faltas.push(...voltas); codigos.push(`VOLTA_AO_AGENTE:${voltas.length}`) }
     if (faltas.length) return { faltas, rotulos, codigos, caminhos: [] }
 
     // o vidro de cada esquadria, pelo leitor canônico, com as espessuras que os baguetes da tipologia dela aceitam (08/11/2026)
@@ -1050,10 +1066,10 @@ async function calcularFamilia(
 
     const r = levantarBarras({
         cor: cores[0],
-        // o padrão do arremate entra AQUI, pelo ponto único (`padraoDoArremate`), e não pelo avaliador
+        // as escolhas vêm decididas pela fronteira (`escolhasDoCalculo`): o padrão do motor nunca decide variação lá dentro
         esquadrias: dg.esquadrias.map((e, k) => ({
             tipologia: e.tipologia, L_mm: e.largura_mm, H_mm: e.altura_mm, quantidade: e.quantidade,
-            escolhas: lidas[e.tipologia] ? escolhasComPadrao(lidas[e.tipologia], escolhas[k]) : escolhas[k], espessura_vidro_mm: vidros[k].espessura_mm,
+            escolhas: escolhas[k], espessura_vidro_mm: vidros[k].espessura_mm, semDecidirVariacao: lidas[e.tipologia] !== undefined,
         })),
         tipologias: lidas,
         regras,

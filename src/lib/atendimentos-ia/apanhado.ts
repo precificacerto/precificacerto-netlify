@@ -12,7 +12,8 @@
  *
  * Portão: `src/utils/__tests__/apanhado.test.ts`.
  */
-import { escolhasDescritas, lerEscolhasGravadas, nomeDaVariavel, type VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
+import { escolhasDescritas, lerEscolhasGravadas, nomeDaVariavel, paraOAgente, type VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
+import { traduzirPolitica, type PoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa'
 
 
 const minuscula = (t: string) => t.toLocaleLowerCase('pt-BR')
@@ -34,15 +35,35 @@ export function rotuloSemCodigo(rotulo: string, descricao: string): string {
 }
 
 /**
- * O arremate de uma esquadria, como o CÁLCULO o usa: cada variável de arremate que a tipologia pede (as capturadas, nas condições valendo), com a
- * opção EFETIVA — a do vendedor ou o padrão do motor —, por extenso e sem código de fornecedor. Nula quando não há o que dizer: sem a aba Variáveis
- * da tipologia, ou tipologia sem variável de arremate. O valor efetivo que não é uma das opções da aba é dito como tal, nunca adivinhado.
+ * O arremate de uma esquadria, como vai valer: cada variável de arremate que a tipologia pede, com a opção que o VENDEDOR disse ou, sem ela, a da
+ * POLÍTICA DA EMPRESA (20/11/2026: a etapa 1 não lê o Padrão do motor — `paraOAgente`), por extenso e sem código de fornecedor. A política que diz
+ * "não usa" sai como "não usa"; o que nem o vendedor nem a política definem sai como tal — o cálculo não põe peça que ninguém pediu
+ * (`fronteira-das-escolhas.ts`). Nula quando não há o que dizer: sem a aba Variáveis da tipologia, ou tipologia sem variável de arremate.
  */
-export function arremateDaColeta(tipologia: VariaveisDaTipologia | null, escolhas: unknown): string | null {
+export const ARREMATE_NAO_DEFINIDO = 'não definido (o cálculo não põe peça que ninguém pediu)'
+export function arremateDaColeta(tipologia: VariaveisDaTipologia | null, escolhas: unknown, politica: PoliticaDaEmpresa = {}, codigo = ''): string | null {
     if (!tipologia) return null
-    const descritas = escolhasDescritas(tipologia, lerEscolhasGravadas(escolhas))
+    // a aba sem o Padrão, também quando quem chama tem a completa (o documento): o que vai valer nunca é o padrão do motor
+    tipologia = paraOAgente(tipologia)
+    const ditas = lerEscolhasGravadas(escolhas)
+    const daPolitica: Record<string, number> = {}
+    const naoUsa = new Set<string>()
+    for (const v of tipologia.variaveis) {
+        if (ditas[v.variavel] !== undefined) continue
+        const t = traduzirPolitica(codigo, v, politica)
+        if (t && 'valor' in t) daPolitica[v.variavel] = t.valor
+        else if (t && 'semAPeca' in t) naoUsa.add(v.variavel)
+    }
+    // a que depende de uma peça que a política diz que não usa (a medida do arremate externo, sem arremate externo) não entra: não haverá o que medir
+    const condicaoDe = (variavel: string) => (tipologia as VariaveisDaTipologia).variaveis.find((v) => v.variavel === variavel)?.condicao ?? ''
+    const dependeDoQueNaoUsa = (variavel: string) => [...naoUsa].some((n) => new RegExp(`\\b${n}\\b`).test(condicaoDe(variavel)))
+    const descritas = escolhasDescritas(tipologia, { ...daPolitica, ...ditas }).filter((e) => !dependeDoQueNaoUsa(e.variavel))
     if (!descritas.length) return null
     return descritas
-        .map((e) => `${nomeDaVariavel(e.variavel, e.descricao)}: ${e.rotulo ? rotuloSemCodigo(e.rotulo, e.descricao) : 'opção fora da lista do motor'}`)
+        .map((e) => {
+            const temValor = ditas[e.variavel] !== undefined || daPolitica[e.variavel] !== undefined
+            const valor = e.rotulo ? rotuloSemCodigo(e.rotulo, e.descricao) : temValor ? 'opção fora da lista do motor' : naoUsa.has(e.variavel) ? 'não usa' : ARREMATE_NAO_DEFINIDO
+            return `${nomeDaVariavel(e.variavel, e.descricao)}: ${valor}`
+        })
         .join('; ')
 }
