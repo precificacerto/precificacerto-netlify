@@ -37,6 +37,7 @@
 import type { CandidatoDeTipologia } from '@/lib/atendimentos-ia/levantamento-da-conversa'
 import type { ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import { ABERTURA_SEM_PALAVRA, aberturaDaDescricao, cabeNosLimites, linhaDaEsquadria, type Abertura, type TrechoDoAcumulado } from '@/lib/atendimentos-ia/tipologias-candidatas'
+import { posicaoDaLinha, principalDoGrupo } from '@/lib/atendimentos-ia/ordem-das-tipologias'
 
 const semAcento = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
@@ -406,7 +407,7 @@ function decisaoDoPadrao(item: ItemDoLevantamento, abertura_: Abertura | null, t
 
     // A LINHA PADRÃO (19/11/2026): a escolhida fora da EUROPA 60 que tem a mesma tipologia na 60, cabendo a medida, vira a da 60
     const naLinhaPadrao = (d: DecisaoDoPadrao): DecisaoDoPadrao =>
-        ('tipologia' in d ? { tipologia: tipologiaNaLinhaPadrao(d.tipologia, doTipo.map(({ c }) => c), item) ?? d.tipologia } : d)
+        ('tipologia' in d ? { tipologia: tipologiaPrincipal(d.tipologia, comAtributos.map(({ c }) => c), item, texto) ?? d.tipologia } : d)
     // 1) EXATAMENTE os extras ditos — o natural de todos é não ter, e a modulação conta (a maxim-ar lisa é a DP-01, sem rótulo nenhum — e,
     //    pela linha padrão, a DP-128 da EUROPA 60 quando a medida cabe nela)
     const exatas = doTipo.filter(({ a }) => mesmosExtras(a.extras, ditos.extras))
@@ -469,35 +470,15 @@ export function daLinhaDita<C extends Pick<CandidatoDeTipologia, 'linha'>>(candi
 }
 
 /**
- * A LINHA PADRÃO É A EUROPA 60 (dono do produto, 19/11/2026, medido no levantamento 25 do Dirceu): "a maxim-ar 800x600 saiu DP-01, da linha PVC
- * WOLFF DESIGN. A mesma tipologia existe na EUROPA 60 como DP-128, e as duas aceitam a medida; o motor pegou a DESIGN só porque ela vem antes na
- * ordem. Regra do PO: perfil 60. Quando a mesma tipologia existir em mais de uma linha e a medida couber nas duas, prefira a EUROPA 60. Quando não
- * existir na 60, use a que existir, sem perguntar" (janela e porta de correr só existem na EUROPA 42: a DP-02 e a DP-39 da 42 estão certas).
- *
- * A MESMA TIPOLOGIA: a mesma abertura, o mesmo tipo, as mesmas folhas e módulos e os mesmos extras — o rótulo da modulação ("perfil de modulação",
- * "travessa") não conta, como na regra do módulo único (18/11/2026: com um módulo as peças saem idênticas); a modulação que a escolhida TEM, a da 60
- * também tem de ter. UMA da 60 que cabe: ela. MAIS DE UMA (só o rótulo da modulação as separa): só no módulo único SEM outro extra, em que as
- * peças saem idênticas (a regra do módulo único, 18/11/2026), a primeira do motor; com outro extra (a bandeira), a modulação é pergunta (3b) e a
- * escolhida fica como está.
+ * A PRINCIPAL PELA ORDEM DETERMINANTE (dono do produto, 20/11/2026; `ordem-das-tipologias.ts`): FAMÍLIA > LINHA > FORMATO > FOLHAS/MÓDULOS >
+ * VARIAÇÕES. Substitui a regra só da linha da #306 (19/11/2026: "perfil 60"), que fica DENTRO dela: na maxim-ar, a EUROPA 60 continua ganhando
+ * da DESIGN; num empate futuro entre a 42 e a 60, a 42 vem primeiro. E acrescenta a variação: na seção, a de MENOS qualificadores (as partes
+ * entre o primeiro e o último `|` da descrição), empate pelo menor código — salvo os qualificadores que o vendedor pediu no `texto`. Nunca a
+ * ordem do arquivo.
  */
-export const LINHA_PADRAO = 'EUROPA 60'
-const LINHA_PADRAO_RE = /\beuropa\s+60\b/
-export const ehDaLinhaPadrao = (linha: string | null | undefined): boolean => LINHA_PADRAO_RE.test(semAcento(linha ?? ''))
-export function tipologiaNaLinhaPadrao(codigo: string, candidatos: readonly CandidatoDeTipologia[], item: Pick<ItemDoLevantamento, 'largura_mm' | 'altura_mm'>): string | null {
-    const c = candidatos.find((x) => x.tipologia === codigo)
-    if (c === undefined || ehDaLinhaPadrao(c.linha)) return null
-    const a = atributosDaDescricao(c)
-    const modulacaoDela = [...a.extras].filter(ehModulacao)
-    const iguais = candidatos.filter((x) => {
-        if (!ehDaLinhaPadrao(x.linha) || !cabeNosLimites(x, item)) return false
-        const b = atributosDaDescricao(x)
-        return b.abertura === a.abertura && b.tipo === a.tipo && b.folhas === a.folhas && b.modulos === a.modulos
-            && mesmosExtras(semModulacao(b.extras), semModulacao(a.extras)) && modulacaoDela.every((e) => b.extras.has(e))
-    })
-    if (iguais.length === 1) return iguais[0].tipologia
-    // a primeira na ORDEM DA LISTA da conversa (por código, `porCodigoEFamilia`), qualquer que seja a ordem de entrada: a DP-128 antes da DP-132
-    const primeira = [...iguais].sort((x, y) => (x.tipologia < y.tipologia ? -1 : x.tipologia > y.tipologia ? 1 : 0))[0]
-    return iguais.length > 1 && semModulacao(a.extras).size === 0 && (a.modulos === null || a.modulos === 1) ? primeira.tipologia : null
+export function tipologiaPrincipal(codigo: string, candidatos: readonly CandidatoDeTipologia[], item: Pick<ItemDoLevantamento, 'largura_mm' | 'altura_mm'>,
+    texto = ''): string | null {
+    return principalDoGrupo(codigo, candidatos, item, texto)
 }
 
 /** A descrição do motor sem a linha de produto do fim, para mostrar ao vendedor (nunca o código). */
@@ -522,11 +503,13 @@ function decidir(restantes: ReadonlyArray<{ c: CandidatoDeTipologia; a: Atributo
         if (diferem.length === 0 && linhas.size < 2) diferem.push('descrição')
         const codigos = restantes.map(({ c }) => c.tipologia)
         if (diferem.length) return { motivo: 'SEM_NATURAL', atributos: diferem, candidatas: codigos, descricoes: restantes.map(({ c }) => descricaoSemLinha(c)) }
-        // só a linha as distingue (19/11/2026): a medida que cabe numa só decide; cabendo em mais de uma, a EUROPA 60 é a padrão
+        // só a linha as distingue: a medida que cabe numa só decide; cabendo em mais de uma, a ORDEM DAS LINHAS (20/11/2026: 42, 60, DESIGN) —
+        // a linha não se pergunta; só as linhas que a ordem não conhece (nem a 42, nem a 60, nem a DESIGN), empatadas, ficam como falta nomeada
         const cabem = restantes.filter(({ c }) => cabeNosLimites(c, item))
         if (cabem.length === 1) return { tipologia: cabem[0].c.tipologia }
-        const da60 = cabem.filter(({ c }) => ehDaLinhaPadrao(c.linha))
-        if (da60.length === 1) return { tipologia: da60[0].c.tipologia }
+        const melhor = Math.min(...cabem.map(({ c }) => posicaoDaLinha(c.linha)))
+        const naMelhor = cabem.filter(({ c }) => posicaoDaLinha(c.linha) === melhor)
+        if (naMelhor.length === 1) return { tipologia: naMelhor[0].c.tipologia }
         return { motivo: 'LINHA', candidatas: codigos, linhas: [...new Set(restantes.map(({ c }) => c.linha ?? '(sem linha)'))] }
     }
     const [unica] = restantes

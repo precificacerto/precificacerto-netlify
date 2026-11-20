@@ -7,7 +7,7 @@
 import {
     atributosDaDescricao, atributosDitos, daLinhaDita, fraseDaJanelaSemTipo, fraseDosTiposDitos, fraseDoTipoForaDoMotor, fraseDosModulosDitos,
     fraseDaSemCandidata, fraseDoForaDoLimite, fraseDoPedidoDeAutorizacao, limiteNaFrase, FRASE_SEM_ABERTURA, FRASE_DITO_SEM_REPRESENTACAO,
-    atributosNoLog, oQueAEsquadriaE, origemDaTipologiaProposta, padraoDaEsquadria, tipologiaPadrao, fraseDaLinhaSemPadrao, fraseDoPadraoQueFalta, naturalDaQuantidade, tipoCurto, ehDaLinhaPadrao, tipologiaNaLinhaPadrao,
+    atributosNoLog, oQueAEsquadriaE, origemDaTipologiaProposta, padraoDaEsquadria, tipologiaPadrao, fraseDaLinhaSemPadrao, fraseDoPadraoQueFalta, naturalDaQuantidade, tipoCurto, tipologiaPrincipal,
 } from '@/lib/atendimentos-ia/tipologia-padrao'
 import { tiposDitos, trechosDoAcumulado } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import type { CandidatoDeTipologia } from '@/lib/atendimentos-ia/levantamento-da-conversa'
@@ -164,8 +164,10 @@ describe('A REGRA GERAL DA QUANTIDADE (dono do produto, 11/11/2026): CORRER = 2 
         // sintética, sem modulação: prova o módulo isolado da modulação (que, no motor real, não tem natural — ver abaixo)
         const comBandeira: CandidatoDeTipologia = { ...CANDIDATOS.find((c) => c.tipologia === 'DP-01')!, tipologia: 'DP-Z', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS | BANDEIRA FIXA | DESIGN' }
         const com = [...CANDIDATOS, comBandeira]
-        expect(padrao('janela maxim ar com bandeira', 'janela', com)).toEqual({ tipologia: 'DP-Z' })
-        expect(padrao('janela maxim ar com bandeira 1 módulo', 'janela', com)).toEqual({ tipologia: 'DP-Z' })
+        // a DP-Z (DESIGN) é a única com exatamente os extras ditos; pela ordem determinante (20/11/2026), a linha se deduz — a 60 ganha da DESIGN,
+        // e na 60 a bandeira tem a DP-129 e a DP-134, empatadas: o menor código
+        expect(padrao('janela maxim ar com bandeira', 'janela', com)).toEqual({ tipologia: 'DP-129' })
+        expect(padrao('janela maxim ar com bandeira 1 módulo', 'janela', com)).toEqual({ tipologia: 'DP-129' })
         expect(padrao('janela maxim ar com bandeira 2 módulos', 'janela', com)).toEqual({ motivo: 'MODULOS_DITOS' })
         // e na folha: "1 módulo", com bandeira
         expect(oQueAEsquadriaE(CANDIDATOS.find((c) => c.tipologia === 'DP-129')!, 1)).toBe('maxim-ar, 1 módulo · sem persiana · com bandeira · sem peitoril')
@@ -189,10 +191,11 @@ describe('os motivos nomeados — onde NÃO há natural, nunca se adivinha', () 
     })
     it('MODULAÇÃO SEM EXTRA COM UM MÓDULO SÓ (3c, dono do produto, 18/11/2026): as duas dão a MESMA lista de peças — resolve sozinho, nunca pergunta', () => {
         // medido no motor 259035a9: as peças da coluna/tala (DP-128) e da travessa (DP-132) têm quantidade (N-1), e o marco é 2 nas duas —
-        // com N=1 a lista sai idêntica. A escolha é a PRIMEIRA DO MOTOR em que a medida cabe
+        // com N=1 a lista sai idêntica. A escolha é a PRIMEIRA em que a medida cabe — pela ORDEM DETERMINANTE (20/11/2026), o código, nunca a ordem
+        // de entrada (esta fixture traz a DP-132 antes da DP-128; em produção a DP-128 é a ordem 124 e a DP-132 a 128)
         const semDP01 = CANDIDATOS.filter((c) => c.tipologia !== 'DP-01')
-        expect(padrao('janela maxim ar', 'janela', semDP01)).toEqual({ tipologia: 'DP-132' })
-        expect(padrao('janela maxim-ar 1 módulo', 'janela', semDP01)).toEqual({ tipologia: 'DP-132' })
+        expect(padrao('janela maxim ar', 'janela', semDP01)).toEqual({ tipologia: 'DP-128' })
+        expect(padrao('janela maxim-ar 1 módulo', 'janela', semDP01)).toEqual({ tipologia: 'DP-128' })
         // a primeira que NÃO cabe sai da escolha: a altura de 1200 passa do limite da DP-132 (364 a 1164), e a DP-128, sem limite no arquivo, fica
         const comLimite = semDP01.map((c) => (c.tipologia === 'DP-132' ? { ...c, alt_min_mm: 364, alt_max_mm: 1164 } : c))
         expect(padrao('janela maxim ar', 'janela', comLimite, item(700, 1200))).toEqual({ tipologia: 'DP-128' })
@@ -247,41 +250,36 @@ describe('os motivos nomeados — onde NÃO há natural, nunca se adivinha', () 
         const comLimite = CANDIDATOS.map((c) => (c.tipologia === 'DP-39' ? { ...c, alt_min_mm: 1736, alt_max_mm: 3036 } : c))
         expect(padrao('porta de correr', 'porta', comLimite, item(1500, 1500))).toEqual({ motivo: 'LIMITES' })
     })
-    it('duas candidatas que só diferem pela LINHA, nenhuma na EUROPA 60: LINHA, com as linhas — falta nomeada, e a frase as cita', () => {
-        const duasLinhas = [...CANDIDATOS, { ...CANDIDATOS.find((c) => c.tipologia === 'DP-02')!, tipologia: 'XX-02', descricao: 'JANELA DE CORRER 02 FOLHAS MÓVEIS | DESIGN', linha: 'PVC WOLFF DESIGN' }]
-        expect(padrao('janela de correr', 'janela', duasLinhas)).toEqual({ motivo: 'LINHA', candidatas: ['DP-02', 'XX-02'], linhas: ['PVC WOLFF EUROPA 42', 'PVC WOLFF DESIGN'] })
+    it('A LINHA NÃO SE PERGUNTA (20/11/2026): duas candidatas que só diferem pela linha — a ORDEM DAS LINHAS decide (42 > 60 > DESIGN); só a linha que a ordem não conhece fica como falta nomeada', () => {
+        const naDesign = { ...CANDIDATOS.find((c) => c.tipologia === 'DP-02')!, tipologia: 'XX-02', descricao: 'JANELA DE CORRER 02 FOLHAS MÓVEIS | DESIGN', linha: 'PVC WOLFF DESIGN' }
+        expect(padrao('janela de correr', 'janela', [...CANDIDATOS, naDesign])).toEqual({ tipologia: 'DP-02' })
+        // a 42 antes da 60 (substitui a regra só-60 da #306 num empate 42 × 60; na maxim-ar, a 60 continua ganhando da DESIGN)
+        const na60 = { ...naDesign, descricao: 'JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 60', linha: 'PVC WOLFF EUROPA 60' }
+        expect(padrao('janela de correr', 'janela', [...CANDIDATOS, na60])).toEqual({ tipologia: 'DP-02' })
+        // a medida que não cabe na primeira da ordem: a que cabe, sem perguntar
+        const a42Limitada = CANDIDATOS.map((c) => (c.tipologia === 'DP-02' ? { ...c, larg_max_mm: 1000 } : c))
+        expect(padrao('janela de correr 1,50 x 1,20', 'janela', [...a42Limitada, na60], item(1500, 1200))).toEqual({ tipologia: 'XX-02' })
+        // duas linhas que a ordem não conhece (o alumínio de amanhã, sem ordem decidida): a falta nomeada, com as linhas
+        const alu = (t: string, l: string) => ({ ...naDesign, tipologia: t, descricao: `JANELA DE CORRER 02 FOLHAS MÓVEIS | ${l}`, linha: `ALU ${l}` })
+        const soAlu = [...CANDIDATOS.filter((c) => c.tipologia !== 'DP-02'), alu('AL-1', 'SUPREMA'), alu('AL-2', 'GOLD')]
+        expect(padrao('janela de correr', 'janela', soAlu)).toEqual({ motivo: 'LINHA', candidatas: ['AL-1', 'AL-2'], linhas: ['ALU SUPREMA', 'ALU GOLD'] })
         expect(fraseDaLinhaSemPadrao(['PVC WOLFF EUROPA 42', 'PVC WOLFF EUROPA 60'])).toBe('Falta de configuração — a linha de produto padrão da empresa: este item existe nas linhas PVC WOLFF EUROPA 42 e PVC WOLFF EUROPA 60, e a base de conhecimento ainda não diz qual é a da casa. Cadastre a linha padrão na base de conhecimento.')
     })
-    it('A LINHA PADRÃO É A EUROPA 60 (19/11/2026): a mesma tipologia na 42 e na 60, a medida cabendo nas duas — a da 60; cabendo só numa, ela', () => {
-        const na60 = { ...CANDIDATOS.find((c) => c.tipologia === 'DP-02')!, tipologia: 'XX-02', descricao: 'JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 60', linha: 'PVC WOLFF EUROPA 60' }
-        expect(padrao('janela de correr', 'janela', [...CANDIDATOS, na60])).toEqual({ tipologia: 'XX-02' })
-        // a medida que não cabe na 60: a que cabe, sem perguntar
-        const na60Limitada = { ...na60, larg_max_mm: 1000 }
-        expect(padrao('janela de correr 1,50 x 1,20', 'janela', [...CANDIDATOS, na60Limitada], item(1500, 1200))).toEqual({ tipologia: 'DP-02' })
-        // a da 60 que existe sozinha é a escolha; a que só existe na 42 também (a DP-02 e a DP-39 estão certas)
-        expect(padrao('janela de correr', 'janela')).toEqual({ tipologia: 'DP-02' })
-        expect(ehDaLinhaPadrao('PVC WOLFF EUROPA 60')).toBe(true)
-        for (const l of ['PVC WOLFF EUROPA 42', 'PVC WOLFF DESIGN', 'PVC WOLFF EUROPA 600', null]) expect([l, ehDaLinhaPadrao(l)]).toEqual([l, false])
-    })
-    it('tipologiaNaLinhaPadrao: a DP-01 vira a DP-128; a da 60 não muda; a que não tem par na 60 não muda; a 60 que não cabe não conta', () => {
-        expect(tipologiaNaLinhaPadrao('DP-01', CANDIDATOS, item(800, 600))).toBe('DP-128')
-        expect(tipologiaNaLinhaPadrao('DP-128', CANDIDATOS, item(800, 600))).toBeNull()
-        expect(tipologiaNaLinhaPadrao('DP-02', CANDIDATOS, item(1500, 1200))).toBeNull()
-        expect(tipologiaNaLinhaPadrao('XX-99', CANDIDATOS, item(800, 600))).toBeNull()
+    it('tipologiaPrincipal: a DP-01 vira a DP-128; a principal não muda; a que não cabe não conta; a variação NÃO PEDIDA sai; a pedida fica', () => {
+        expect(tipologiaPrincipal('DP-01', CANDIDATOS, item(800, 600))).toBe('DP-128')
+        expect(tipologiaPrincipal('DP-128', CANDIDATOS, item(800, 600))).toBeNull()
+        expect(tipologiaPrincipal('DP-02', CANDIDATOS, item(1500, 1200))).toBeNull()
+        expect(tipologiaPrincipal('XX-99', CANDIDATOS, item(800, 600))).toBeNull()
         const semCaber = CANDIDATOS.map((c) => (/EUROPA 60/.test(c.linha ?? '') ? { ...c, larg_max_mm: 500 } : c))
-        expect(tipologiaNaLinhaPadrao('DP-01', semCaber, item(800, 600))).toBeNull()
-        // com BANDEIRA, a 60 tem a de perfil (DP-129) e a de travessa (DP-134): a divisão é pergunta (3b) — nada muda em silêncio
+        expect(tipologiaPrincipal('DP-01', semCaber, item(800, 600))).toBeNull()
+        // a maxim-ar COM BANDEIRA que o modelo escolheu sem o vendedor pedir: a variação sai, e fica a principal (DP-128)
         const comBandeira: CandidatoDeTipologia = { ...CANDIDATOS.find((c) => c.tipologia === 'DP-01')!, tipologia: 'DP-Z', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS | BANDEIRA FIXA | DESIGN' }
-        expect(tipologiaNaLinhaPadrao('DP-Z', [...CANDIDATOS, comBandeira], item(800, 600))).toBeNull()
-        // a da 60 que difere num EXTRA (persiana) ou nos MÓDULOS (02 verticais, a DP-137 de produção) não é a mesma tipologia: nada muda
-        const semAs = CANDIDATOS.filter((c) => !['DP-128', 'DP-132'].includes(c.tipologia))
-        const comPersiana: CandidatoDeTipologia = { ...CANDIDATOS.find((c) => c.tipologia === 'DP-128')!, tipologia: 'DP-W', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | PERSIANA | PERFIL MODULAÇÃO | EUROPA 60' }
-        const com02: CandidatoDeTipologia = { ...CANDIDATOS.find((c) => c.tipologia === 'DP-128')!, tipologia: 'DP-137', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 02 MÓDULOS VERTICAIS | PERFIL MODULAÇÃO | EUROPA 60' }
-        expect(tipologiaNaLinhaPadrao('DP-01', [...semAs, comPersiana], item(800, 600))).toBeNull()
-        expect(tipologiaNaLinhaPadrao('DP-01', [...semAs, com02], item(800, 600))).toBeNull()
-        // e uma só equivalente na 60, mesmo com extra: ela
-        const umaSo = [...CANDIDATOS.filter((c) => c.tipologia !== 'DP-134'), comBandeira]
-        expect(tipologiaNaLinhaPadrao('DP-Z', umaSo, item(800, 600))).toBe('DP-129')
+        expect(tipologiaPrincipal('DP-Z', [...CANDIDATOS, comBandeira], item(800, 600))).toBe('DP-128')
+        // a bandeira PEDIDA: na 60, a DP-129 (perfil) e a DP-134 (travessa) têm dois qualificadores — o menor código decide (20/11/2026)
+        expect(tipologiaPrincipal('DP-Z', [...CANDIDATOS, comBandeira], item(800, 600), 'maxim-ar com bandeira')).toBe('DP-129')
+        // outra quantidade (02 verticais) não é a seção dela: sem a DP-128 e a DP-132, a DP-01 não vira a DP-137
+        const semAsLisas = CANDIDATOS.filter((c) => !['DP-128', 'DP-132', ...['129', '130', '131', '134', '135', '136'].map((n) => `DP-${n}`)].includes(c.tipologia))
+        expect(tipologiaPrincipal('DP-01', semAsLisas, item(800, 600))).toBeNull()
     })
     it('sem a abertura ou sem trecho dela: sem padrão', () => {
         // a abertura que TODOS os trechos dizem vale (uma só); porta numa linha e janela noutra, sem medida que ligue a esquadria, não decide

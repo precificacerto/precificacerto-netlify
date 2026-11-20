@@ -120,6 +120,12 @@ describe('(4) a política: a EMPRESA sobre o NICHO, campo a campo; a tradução 
         expect(P().politicaEfetiva({ usa_arremate_interno: false, guarnicao_interna: null }, { usa_arremate_interno: true, guarnicao_interna: 'BZ1770' }))
             .toEqual({ usa_arremate_interno: false, guarnicao_interna: 'BZ1770' })
     })
+    it('o FECHAMENTO e o INTERLOCK não são lidos da política (20/11/2026): o texto da De Paula não diz uma opção só — nunca recusa por eles', () => {
+        const mfi = { variavel: 'MFI', opcoes: '1 = CREMONA COM MAÇANETA SEM CHAVE; 2 = CREMONA COM MAÇANETA COM CHAVE' }
+        expect(P().traduzirPolitica('DP-39', mfi, { fechamento_folha_interna: 'CREMONA + MACANETA' })).toBeNull()
+        expect(P().traduzirPolitica('DP-39', { variavel: 'MFE', opcoes: mfi.opcoes }, { fechamento_folha_externa: 'CREMONA COM MAÇANETA' })).toBeNull()
+        expect(P().traduzirPolitica('DP-39', { variavel: 'INT', opcoes: '1 = ÚNICO; 2 = INTERLOCK + CAPA' }, { modelo_interlock: 'ÚNICO' })).toBeNull()
+    })
     it('a política que casa MAIS DE UMA opção é recusa nomeada — nunca a primeira', () => {
         const ari = { variavel: 'ARI', opcoes: '1 = BZ1770 - ARREMATE 70MM; 2 = BZ1770 - ARREMATE 70MM LAMINADO; 3 = SEM ARREMATE INTERNO' }
         const t = P().traduzirPolitica('DP-XX', ari, DE_PAULA)

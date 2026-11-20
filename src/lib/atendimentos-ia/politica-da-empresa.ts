@@ -20,6 +20,11 @@
  * de uma, é recusa nomeada (a tipologia, o campo, o valor e as opções que existem) — nunca "a mais parecida". `usa_arremate_* = false` é "a opção que
  * não acrescenta a peça": quem a acha é a fronteira, pelas peças (`SEM_A_PECA`), não uma palavra do rótulo.
  *
+ * FORA DO MAPA, de propósito (20/11/2026, medido no motor 259035a9): o FECHAMENTO (MFI, MFE) e o INTERLOCK (INT). O fechamento não se diz com UM
+ * texto para todas as tipologias — "CREMONA + MACANETA" não começa nenhuma opção, e "CREMONA COM MAÇANETA" começa DUAS (SEM CHAVE e COM CHAVE) em
+ * 64 tipologias do MFI e 61 do MFE: a tradução estrita recusaria o orçamento. O interlock varia por tipologia e é do motor (natureza CÁLCULO, dono
+ * do produto, 20/11/2026). Os dois voltam pela estrutura da natureza (empresa, família, linha, formato, variável), não por esta lista.
+ *
  * O QUE NÃO É LIDO DAQUI, e é de propósito (dono do produto, 20/11/2026, decisão de 03/11/2026): `cores_perfil`, `cor_perfil_predominante` e `serra_mm`
  * têm homônimos nestas duas tabelas, mas a FONTE ATIVA é `orcamentista_mp_categoria.config` da categoria PERFIL (`cores`, `cor_predominante`,
  * `serra_mm`), de onde o cálculo lê hoje. Os campos daqui ficam MORTOS para esses três. DÍVIDA, a unificar com migração própria: uma fonte só.
@@ -41,9 +46,6 @@ export const MAPA_DA_POLITICA = {
     MAE: { valor: 'medida_arremate_externo' },
     MTE: { valor: 'montagem_arremate_externo' },
     RL: { booleano: 'regiao_litoranea' },
-    INT: { valor: 'modelo_interlock' },
-    MFI: { valor: 'fechamento_folha_interna' },
-    MFE: { valor: 'fechamento_folha_externa' },
 } as const satisfies Record<string, { usa?: string; valor?: string; booleano?: string }>
 export type VariavelDaPolitica = keyof typeof MAPA_DA_POLITICA
 type Entrada = { usa?: string; valor?: string; booleano?: string }
