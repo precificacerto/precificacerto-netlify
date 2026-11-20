@@ -85,6 +85,8 @@ export type EsquadriaDoLevantamento = {
     quantidade: number
     escolhas?: Readonly<Record<string, number>>
     espessura_vidro_mm?: number | null
+    /** A fronteira (20/11/2026): as escolhas já vêm decididas fora do motor, e ele não usa padrão em variável com opções. */
+    semDecidirVariacao?: boolean
 }
 /** Uma linha de `orcamentista_motor_regra`, só com o que a ponte lê — e a descrição, que a resolução de referência compara. */
 export type RegraDoDePara = { codigo: string; codigo_wvetro: string; cor: string | null; descricao?: string | null }
@@ -410,7 +412,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
                 texto: `a tipologia ${e.tipologia} não tem definição (abas do motor) neste levantamento. Falta: a tipologia ${e.tipologia}.`, falta: `a definição da tipologia ${e.tipologia} no motor` })
             return
         }
-        const r = avaliarTipologia({ tipologia, L_mm: e.L_mm, H_mm: e.H_mm, escolhas: e.escolhas, espessura_vidro_mm: e.espessura_vidro_mm })
+        const r = avaliarTipologia({ tipologia, L_mm: e.L_mm, H_mm: e.H_mm, escolhas: e.escolhas, espessura_vidro_mm: e.espessura_vidro_mm, semDecidirVariacao: e.semDecidirVariacao })
         if ('recusas' in r) {
             // A ESPESSURA QUE NÃO FOI DITA, uma falta só (08/11/2026): o avaliador recusa linha a linha da aba Perfis (uma por baguete), e para o
             // vendedor é UMA coisa que falta — a espessura do vidro, com as que os baguetes da tipologia aceitam

@@ -25,7 +25,10 @@ import { BUCKET_DO_CATALOGO } from '@/utils/atendimentos-ia-catalogo'
 import { contextoDaFolhaDaEmpresa } from './conversa-da-ia'
 import { corDoAcessorio, variaveisDitas } from './arquivo-do-levantamento'
 import { desenhoDaTipologia, linhaDosAmbientes, variavelNaFolha } from './folha-do-levantamento'
-import { escolhasDescritas, lerEscolhasDoItem } from './escolhas-da-tipologia'
+import { escolhasDescritas, lerEscolhasDoItem, paraOAgente } from './escolhas-da-tipologia'
+import { ARREMATE_NAO_DEFINIDO } from './apanhado'
+import { traduzirPolitica, type PoliticaDaEmpresa } from './politica-da-empresa'
+import { lerPoliticaDaEmpresa } from './politica-da-empresa-servidor'
 import { valoresDoDesenho } from './desenho-do-catalogo'
 import { lerCamposDasObservacoes, linhasDasCondicoesComerciais, linhasDasObservacoes, SEM_CAMPOS, type CamposDasObservacoes } from './campos-das-observacoes'
 import { comAsFiguras, type CatalogoDeDesenhos, type ItemComDesenho } from './desenho-do-catalogo-servidor'
@@ -60,9 +63,22 @@ export function tipoDoTelefone(telefone: string): 'celular' | 'fixo' {
     return (d.length === 11 && d[2] === '9') || (d.length === 9 && d[0] === '9') ? 'celular' : 'fixo'
 }
 
-/** As definições de instalação e arremate de um item (4.2): a efetiva de cada variável capturada, com "(padrão)" na que o vendedor não disse. */
-export function definicoesDoItem(def: Parameters<typeof escolhasDescritas>[0], escolhas: Parameters<typeof escolhasDescritas>[1]): string[] {
-    return escolhasDescritas(def, escolhas).map((e) => `${e.descricao}: ${e.rotulo ?? 'padrão da tipologia'}${e.doVendedor ? '' : ' (padrão)'}`)
+/**
+ * As definições de instalação e arremate de um item (4.2): a efetiva de cada variável capturada — a do vendedor ou, sem ela, a da POLÍTICA DA
+ * EMPRESA, com "(política da empresa)" (20/11/2026: o padrão do motor nunca é o que se diz que vale; a que ninguém definiu sai como não definida).
+ */
+export function definicoesDoItem(def: Parameters<typeof escolhasDescritas>[0], escolhas: Parameters<typeof escolhasDescritas>[1], politica: PoliticaDaEmpresa = {}, codigo = ''): string[] {
+    const semPadrao = paraOAgente(def)
+    const daPolitica: Record<string, number> = {}
+    const naoUsa = new Set<string>()
+    for (const v of semPadrao.variaveis) {
+        if (escolhas[v.variavel] !== undefined) continue
+        const t = traduzirPolitica(codigo, v, politica)
+        if (t && 'valor' in t) daPolitica[v.variavel] = t.valor
+        else if (t && 'semAPeca' in t) naoUsa.add(v.variavel)
+    }
+    return escolhasDescritas(semPadrao, { ...daPolitica, ...escolhas }).map((e) =>
+        `${e.descricao}: ${e.rotulo ?? (naoUsa.has(e.variavel) ? 'não usa' : ARREMATE_NAO_DEFINIDO)}${e.doVendedor ? (daPolitica[e.variavel] !== undefined ? ' (política da empresa)' : '') : naoUsa.has(e.variavel) ? ' (política da empresa)' : ''}`)
 }
 
 // ── OS ITENS ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -83,7 +99,7 @@ export async function itensDoArquivo(tenantId: string, orcamentoId: string):
             .eq('tenant_id', tenantId).in('id', ids))) ?? []) as Linha[]
         for (const l of doLev) familias.set(String(l.id), texto(l.familia))
     }
-    const contexto = await contextoDaFolhaDaEmpresa(tenantId)
+    const [contexto, politica] = await Promise.all([contextoDaFolhaDaEmpresa(tenantId), lerPoliticaDaEmpresa(tenantId)])
     if ('recusa' in contexto) return { recusa: contexto.recusa }
     const paraODesenho: ItemParaODesenho[] = []
     const itens = linhas.map((l): ItemDoArquivo => {
@@ -95,7 +111,7 @@ export async function itensDoArquivo(tenantId: string, orcamentoId: string):
         const d = tipologia ? contexto.detalhe(tipologia, familia) : null
         // as definições de instalação e arremate (4.2): a efetiva de cada variável capturada, e "(padrão)" na que o vendedor não disse
         const def = tipologia ? contexto.definicao(base) : null
-        const definicoes = def ? definicoesDoItem(def, escolhas ?? {}) : []
+        const definicoes = def ? definicoesDoItem(def, escolhas ?? {}, politica, tipologia ?? '') : []
         const largura = numero(l.largura_mm)
         const altura = numero(l.altura_mm)
         const ambientes = Array.isArray(l.ambientes) && l.ambientes.length ? linhaDosAmbientes({ ambientes: l.ambientes as AmbienteDaFolha[] }) : null

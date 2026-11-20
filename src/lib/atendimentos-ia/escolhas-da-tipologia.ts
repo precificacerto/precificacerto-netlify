@@ -38,6 +38,22 @@ import { avaliarTexto, condicoesDasOpcoesDe, opcoesDaVariavel, type Tipologia } 
 /** O que as escolhas leem da tipologia: só a aba 'Variáveis'. A conversa as carrega sem as outras abas. */
 export type VariaveisDaTipologia = Pick<Tipologia, 'variaveis'>
 
+// ── A ETAPA 1 NÃO VÊ O PADRÃO DO MOTOR (dono do produto, 20/11/2026) ──────────────────────────────────────────────────
+/**
+ * "Na etapa 1 (GERAR_LEVANTAMENTO) a aba de variáveis do motor entra SEM A COLUNA PADRÃO. O agente vê QUAIS escolhas existem, para perguntar ou
+ * aplicar a política da empresa; não vê o que o fornecedor sugere. O padrão do motor só vale na etapa 2 (CALCULAR_BARRAS), e só para o que nem a
+ * empresa nem o vendedor definiu, e nunca quando acrescenta peça."
+ *
+ * A aba lida para o AGENTE (`paraOAgente`) tem `padrao` NULO em toda linha e, no lugar, `tem_padrao`: SE o motor tem padrão para a variável —
+ * o que decide se ela é das "sem padrão" que só o vendedor dá (`variaveisSemPadrao`) —, nunca QUAL. O valor fica no motor, para a etapa 2
+ * (`fronteira-das-escolhas.ts`). A aba completa, com o Padrão, continua sendo a do cálculo e a dos documentos que mostram o que foi calculado.
+ */
+export type VariavelDoAgente = VariaveisDaTipologia['variaveis'][number] & { tem_padrao?: boolean }
+export const temPadraoNoMotor = (v: VariavelDoAgente): boolean => v.tem_padrao ?? (v.padrao ?? '').trim() !== ''
+export function paraOAgente(t: VariaveisDaTipologia): VariaveisDaTipologia {
+    return { variaveis: t.variaveis.map((v): VariavelDoAgente => ({ ...v, padrao: null, tem_padrao: (v.padrao ?? '').trim() !== '' })) }
+}
+
 /** Decisão do dono do produto, 25/10/2026: as três que impediam a DP-02 de fechar. A ordem é a da aba. */
 export const ESCOLHAS_CAPTURADAS = ['ARI', 'ARE', 'MAE'] as const
 
@@ -230,22 +246,46 @@ export type VariavelSemPadrao = { variavel: string; descricao: string; condicao:
 /** As variáveis da aba Variáveis sem Padrão (vazio ou nulo) e sem opções, na ordem da aba. */
 export function variaveisSemPadrao(tipologia: VariaveisDaTipologia): VariavelSemPadrao[] {
     return tipologia.variaveis
-        .filter((v) => (v.padrao ?? '').trim() === '' && !(opcoesDaVariavel(v.opcoes)?.length))
+        .filter((v) => !temPadraoNoMotor(v) && !(opcoesDaVariavel(v.opcoes)?.length))
         .map((v) => ({ variavel: v.variavel, descricao: (v.descricao ?? '').trim() || v.variavel, condicao: v.condicao }))
 }
 
 /**
- * As variáveis sem padrão que FALTAM nesta esquadria e se aplicam: a Condição é avaliada com o Padrão numérico de cada variável da aba e, por
- * cima, o que o vendedor já deu. A que não dá para avaliar é perguntada (como as escolhas: não perguntar por não saber seria assumir).
+ * As variáveis sem padrão que FALTAM nesta esquadria e se aplicam. A Condição é avaliada com o que o vendedor deu e, para as variáveis da Condição
+ * que ninguém deu, com TODAS as opções que a aba lhes dá (20/11/2026: a etapa 1 não lê o Padrão do motor): pergunta-se só quando a Condição vale
+ * em todas as combinações — "(HI=1)" com HI de opção única ("1 = CIENTE") vale, e AF é perguntada; "(AQ=2) and (AV=1)" com AQ em aberto (1 ou 2)
+ * não vale em todas, e AA não é perguntada aqui: se o cálculo precisar dela, o motor a recusa pelo nome e a pergunta volta ao agente. O mesmo com
+ * a variável da aba SEM opções que ninguém deu (o valor dela é o padrão do motor, que o agente não vê). A Condição que não dá para avaliar — um
+ * nome que nenhuma aba define, ou combinações demais — é perguntada, como sempre: não perguntar por não saber seria assumir.
  */
-export function variaveisAPerguntar(tipologia: VariaveisDaTipologia, dadas: Readonly<Record<string, number>>): VariavelSemPadrao[] {
-    const efetivas: Record<string, number> = {}
-    for (const v of tipologia.variaveis) {
-        const p = (v.padrao ?? '').trim()
-        if (/^-?\d+(\.\d+)?$/.test(p)) efetivas[v.variavel] = Number(p)
+const LIMITE_DE_COMBINACOES = 64
+const NAO_SAO_NOMES = new Set(['and', 'or', 'not', 'AND', 'OR', 'NOT'])
+export function condicaoValeEmTodas(condicao: string | null, tipologia: VariaveisDaTipologia, dadas: Readonly<Record<string, number>>): boolean {
+    const c = (condicao ?? '').trim()
+    if (c === '' || c === 'sempre') return true
+    const nomes = [...new Set(c.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? [])].filter((n) => !NAO_SAO_NOMES.has(n) && dadas[n] === undefined)
+    const valoresDe: Array<[string, number[]]> = []
+    for (const n of nomes) {
+        const v = tipologia.variaveis.find((x) => x.variavel === n)
+        const opcoes = v ? opcoesDaVariavel(v.opcoes) : null
+        if (!v) continue
+        // a variável da aba SEM opções que ninguém deu (uma medida, uma quantidade): o agente não sabe o valor — o padrão é do motor —, então a
+        // Condição não vale "em todas": não se pergunta agora; se o cálculo precisar, o motor recusa pelo nome e a pergunta volta ao agente
+        if (!opcoes || opcoes.length === 0) return false
+        valoresDe.push([n, opcoes.map((o) => o.valor)])
     }
-    Object.assign(efetivas, dadas)
-    return variaveisSemPadrao(tipologia).filter((v) => dadas[v.variavel] === undefined && condicaoPede(v.condicao, efetivas))
+    let combinacoes: Array<Record<string, number>> = [{ ...dadas }]
+    for (const [n, vs] of valoresDe) {
+        combinacoes = combinacoes.flatMap((base) => vs.map((x) => ({ ...base, [n]: x })))
+        if (combinacoes.length > LIMITE_DE_COMBINACOES) return true
+    }
+    return combinacoes.every((valores) => {
+        const r = avaliarTexto(c, valores)
+        return 'recusa' in r ? true : r.valor === true
+    })
+}
+export function variaveisAPerguntar(tipologia: VariaveisDaTipologia, dadas: Readonly<Record<string, number>>): VariavelSemPadrao[] {
+    return variaveisSemPadrao(tipologia).filter((v) => dadas[v.variavel] === undefined && condicaoValeEmTodas(v.condicao, tipologia, dadas))
 }
 
 /**
@@ -344,9 +384,14 @@ export function escolhasComPadrao(tipologia: VariaveisDaTipologia, explicitas: E
  * com as escolhas efetivas (as do vendedor, e o Padrão nas outras); a que não dá para avaliar entra.
  * Null quando a tipologia não tem variável capturada.
  */
-export function descreverArremate(tipologia: VariaveisDaTipologia, explicitas: Escolhas): string | null {
+/**
+ * Com a ORIGEM de cada escolha (a fronteira, 20/11/2026: `fronteira-das-escolhas.ts`), a linha diz de onde veio — "como você pediu", "política da
+ * empresa", "padrão do motor" ou "sem a peça, não pedida" (a principal); sem ela, o de antes.
+ */
+const ORIGEM_NA_LINHA: Readonly<Record<string, string>> = { vendedor: 'como você pediu', politica: 'política da empresa', padrao_do_motor: 'padrão do motor', principal: 'sem a peça, não pedida' }
+export function descreverArremate(tipologia: VariaveisDaTipologia, explicitas: Escolhas, origem?: Readonly<Record<string, string>>): string | null {
     const partes = escolhasDescritas(tipologia, explicitas)
-        .map((e) => `${minuscula(e.descricao)}: ${e.rotulo ?? 'padrão da tipologia'} (${e.doVendedor ? 'como você pediu' : 'padrão'})`)
+        .map((e) => `${minuscula(e.descricao)}: ${e.rotulo ?? 'padrão da tipologia'} (${(origem && ORIGEM_NA_LINHA[origem[e.variavel] ?? '']) ?? (e.doVendedor ? 'como você pediu' : 'padrão')})`)
     return partes.length ? partes.join('; ') : null
 }
 

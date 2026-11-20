@@ -41,6 +41,7 @@ const SOBRAS: readonly Sobra[] = [
     { arquivo: 'src/lib/atendimentos-ia/base-de-conhecimento.ts', todo: true, razao: SUPER_ADMIN },
     { arquivo: 'src/pages/api/super-admin/base-de-conhecimento/padrao-nicho.ts', todo: true, razao: SUPER_ADMIN },
     { arquivo: 'src/utils/atendimentos-ia-prompt-base.ts', todo: true, razao: PROMPT },
+    { arquivo: 'src/lib/atendimentos-ia/politica-da-empresa-servidor.ts', contem: 'orcamentista_esquadrias_', razao: `${SUPER_ADMIN} — aqui a leitura da POLÍTICA DA EMPRESA (20/11/2026): o nome das duas tabelas e a mensagem de erro que só vai ao log` },
     { arquivo: 'src/lib/atendimentos-ia/escolhas-da-tipologia.ts', contem: 'Variáveis SEM PADRÃO (USO INTERNO', razao: PROMPT },
     { arquivo: 'src/lib/atendimentos-ia/relatorio-de-corte-servidor.ts', contem: 'quantidade_por_esquadria', razao: 'nome de COLUNA no select das peças do corte (orcamentista_orcamento_item_peca): o vendedor não o vê — a tela diz "Quantidade"' },
     { arquivo: 'src/lib/atendimentos-ia/conversa-da-ia.ts', exato: 'qual-esquadria', razao: CHAVE },
