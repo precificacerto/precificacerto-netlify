@@ -23,6 +23,8 @@
 import { oQueAEsquadriaE, panosDaNatureza } from './tipologia-padrao'
 import { supabaseAdmin } from '@/supabase/admin'
 import { arremateDaColeta, rotuloSemCodigo } from '@/lib/atendimentos-ia/apanhado'
+import type { PoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa'
+import { lerPoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa-servidor'
 import { opcoesDaVariavel } from '@/lib/atendimentos-ia/avaliador-de-formulas'
 import { variaveisSemPadrao } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { gerarFolhaDoLevantamento, type DadosDaFolha, type FolhaGerada, type FolhaRecusada, type ItemDaFolha, type VariavelDita } from '@/lib/atendimentos-ia/folha-do-levantamento'
@@ -199,9 +201,11 @@ export function montarDadosDaFolha(a: {
     doVendedor: PerfilDoVendedor | null
     /** O vidro do padrão da base, com a origem, quando é o da esquadria (`vidroNoConsiderado`, 13/11/2026); ausente, nada é escrito. */
     vidroPadrao?: (item: ItemDoLevantamento) => string | null
+    /** A política da empresa (20/11/2026): o arremate que o vendedor não disse sai pela política, nunca pelo padrão do motor. Ausente, nada definido. */
+    politica?: PoliticaDaEmpresa
 }): DadosDaFolha {
     const ordenados = [...a.itens].sort((x, y) => x.ordem - y.ordem)
-    const arremates = ordenados.map((i) => arremateDaColeta(a.definicao(i), i.escolhas))
+    const arremates = ordenados.map((i) => arremateDaColeta(a.definicao(i), i.escolhas, a.politica ?? {}, i.tipologia ?? ''))
     const arremateComum = unico(arremates)
     const itens: ItemDaFolha[] = ordenados.map((i, k): ItemDaFolha => {
         const d = i.tipologia ? a.detalhe(i.tipologia, i.familia) : null
@@ -302,8 +306,8 @@ export async function gerarArquivoDoLevantamento(a: {
 }): Promise<{ dados: DadosDaFolha | null; folha: FolhaGerada | FolhaRecusada }> {
     const [levantamento, empresa] = await Promise.all([lerLevantamentoDoArquivo(a.tenantId, a.levantamentoId), lerNomeDaEmpresa(a.tenantId)])
     if (!levantamento) return { dados: null, folha: { ok: false, recusas: [FRASE_DO_LEVANTAMENTO_NAO_ACHADO] } }
-    const doVendedor = await lerPerfilDoVendedor(a.tenantId, levantamento.vendedor_employee_id)
-    const dados = montarDadosDaFolha({ empresa: empresa ?? '', levantamento, itens: a.itens, definicao: a.definicao, detalhe: a.detalhe, geradoEm: a.geradoEm ?? new Date(), doVendedor, vidroPadrao: a.vidroPadrao })
+    const [doVendedor, politica] = await Promise.all([lerPerfilDoVendedor(a.tenantId, levantamento.vendedor_employee_id), lerPoliticaDaEmpresa(a.tenantId)])
+    const dados = montarDadosDaFolha({ empresa: empresa ?? '', levantamento, itens: a.itens, definicao: a.definicao, detalhe: a.detalhe, geradoEm: a.geradoEm ?? new Date(), doVendedor, vidroPadrao: a.vidroPadrao, politica })
     // A FIGURA IMPORTADA só na FOLHA, nunca em `dados` (16/11/2026): `dados` é o que vira o RESUMO que o vendedor confere,
     // e pôr a imagem nele mudaria o resumo — e, com ele, o "sim" já dado.
     const paraODesenho = desenhosParaAFolha({ itens: a.itens, definicao: a.definicao, detalhe: a.detalhe })

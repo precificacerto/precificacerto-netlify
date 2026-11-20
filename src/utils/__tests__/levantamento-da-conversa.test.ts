@@ -848,24 +848,51 @@ describe('(5b) as ESCOLHAS gravadas chegam ao avaliador', () => {
         expect(semEtapa(r)).toEqual({ desfecho: 'levantou', texto: TEXTO_QUE_FECHA })
     })
 
-    it('SEM escolhas, o PADRÃO fecha (decisões do dono do produto, 25/10/2026): MAE 1 = 0 mm, e o BZ0012 pela variante única', async () => {
+    // A FRONTEIRA (dono do produto, 20/11/2026): o padrão do motor não decide variação nem acrescenta peça. Substitui "SEM escolhas, o PADRÃO fecha"
+    // (25/10/2026), em que o arremate entrava pelo Padrão da aba Variáveis
+    const SEM_ARREMATE = 'Arremate e guarnição — arremate interno: SEM ARREMATE INTERNO (sem a peça, não pedida); arremate externo: SEM ARREMATE EXTERNO (sem a peça, não pedida).'
+    it('SEM escolhas e SEM política da empresa: o arremate NÃO entra pelo padrão do motor — a principal é a opção sem a peça', async () => {
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev())
         expect(r.desfecho).toBe('levantou')
-        expect(r.texto).toContain('• 10491 (BZ0012/WOLFF): 1 barra(s) de 6 m')
-        expect(r.texto).toContain('• 10501 (BZ0006/WOLFF): 1 barra(s) de 6 m')
-        // a barra inteira, derivada da FONTE: o total da conta à mão (ARI 4, MAE 2: 1.342,0875) mais uma barra
-        // do BZ0006 e uma do BZ0012, pelo valor da tabela — o BZ0010 continua numa barra só
-        const valor = (c: string) => Number((DE_PARA.itens as Linha[]).find((i) => i.codigo === c)?.valor_barra_interno)
-        const barra = Math.round((1342.0875 + valor('10501') + valor('10491')) * 100) / 100
-        expect(r.texto).toContain(`Perfis por barra inteira: ${LB().formatarReais(barra)}.`)
+        expect(r.texto).toContain(SEM_ARREMATE)
+        // nenhuma peça de arremate: nem o BZ0006 (o padrão do motor), nem o BZ0010, nem a base BZ0012
+        for (const c of ['BZ0006/WOLFF', 'BZ0010/WOLFF', 'BZ0012/WOLFF', 'BZ1770/WOLFF']) expect(r.texto).not.toContain(c)
+    })
+
+    it('a POLÍTICA DA EMPRESA vale sem perguntar: a do NICHO (BZ1770, BZ0010, PERIMETRAL, VÃO+50) dá exatamente o mesmo cálculo das escolhas ditas', async () => {
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        const ditas = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 2, ARE: 1, MAE: 2 } }))
+        banco.db.orcamentista_config = [{ tenant_id: TENANT, nicho_id: 'nicho-esq' }]
+        banco.db.orcamentista_esquadrias_padrao = [{ nicho_id: 'nicho-esq', usa_arremate_interno: true, guarnicao_interna: 'BZ1770', usa_arremate_externo: true,
+            guarnicao_externa: 'BZ0010', montagem_arremate_externo: 'PERIMETRAL', medida_arremate_externo: 'VAO+50MM (CORTE 90/90)' }]
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev())
+        expect(r.desfecho).toBe('levantou')
+        expect(r.texto).toContain('arremate interno: BZ1770 - ARREMATE 70MM (política da empresa)')
+        expect(r.texto.replace(/\(política da empresa\)/g, '(como você pediu)')).toBe(ditas.texto)
+        // a EMPRESA sobrepõe o nicho, campo a campo: false é decisão ("não usa"), e vale sobre o true do nicho
+        banco.db.orcamentista_esquadrias_base = [{ tenant_id: TENANT, usa_arremate_externo: false }]
+        const semExterno = await M().mensagemDoLevantamento(TENANT, t, lev())
+        expect(semExterno.texto).toContain('arremate externo: SEM ARREMATE EXTERNO (política da empresa)')
+        expect(semExterno.texto).toContain('arremate interno: BZ1770 - ARREMATE 70MM (política da empresa)')
+    })
+
+    it('a política que não casa NENHUMA opção do motor volta ao agente, nomeada — nunca "a mais parecida"', async () => {
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        banco.db.orcamentista_config = [{ tenant_id: TENANT, nicho_id: 'nicho-esq' }]
+        banco.db.orcamentista_esquadrias_padrao = [{ nicho_id: 'nicho-esq', usa_arremate_interno: true, guarnicao_interna: 'BZ9999' }]
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev())
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto).toContain('a política da empresa diz guarnicao_interna = "BZ9999", e na tipologia DP-02 nenhuma opção')
     })
 
     it('uma chave que não é capturada, no jsonb, não vira escolha: {"MAI": 2} sozinho não muda nada', async () => {
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { MAI: 2 } }))
-        // MAI não é capturada: a linha do arremate é a do padrão, como sem chave nenhuma
-        expect(r.texto).toContain('Arremate e guarnição — arremate interno: BZ0006 - ARREMATE 65MM (padrão)')
+        const sem = await M().mensagemDoLevantamento(TENANT, t, lev())
+        // MAI não é capturada: o levantamento é o mesmo de sem chave nenhuma
+        expect(r.texto).toBe(sem.texto)
+        expect(r.texto).toContain(SEM_ARREMATE)
     })
 })
 

@@ -5,7 +5,9 @@
  * PORTÃO — o APANHADO (`src/lib/atendimentos-ia/apanhado.ts`), as funções puras. O caminho inteiro, pela rota,
  * está em `atendimentos-ia-levantamento-por-nome.test.ts` (17).
  */
-import { arremateDaColeta, rotuloSemCodigo } from '@/lib/atendimentos-ia/apanhado'
+import { ARREMATE_NAO_DEFINIDO, arremateDaColeta, rotuloSemCodigo } from '@/lib/atendimentos-ia/apanhado'
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const ESC = () => require('@/lib/atendimentos-ia/escolhas-da-tipologia') as typeof import('@/lib/atendimentos-ia/escolhas-da-tipologia')
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 
 /** As opções de ARI, ARE e MAE MEDIDAS em produção em 26/10/2026, nas 161 tipologias da Wolff: todos os rótulos distintos. */
@@ -50,19 +52,29 @@ describe('rotuloSemCodigo: o nome por extenso, sem o código de fornecedor', () 
     })
 })
 
-describe('arremateDaColeta: O QUE O CÁLCULO USA — a resposta do vendedor ou o padrão do motor, por extenso (dono do produto, 07/11/2026)', () => {
-    it('nada escolhido → o PADRÃO DO MOTOR por extenso, nunca a palavra "Padrão" (que não diz o que se calcula)', () => {
-        expect(arremateDaColeta(DP02, null)).toBe('arremate interno: 65 mm; arremate externo: 20 mm; medida do arremate externo: medida do vão')
+// A FRONTEIRA (20/11/2026): o que vale é a resposta do vendedor ou a POLÍTICA DA EMPRESA — nunca o padrão do motor. Esta política é IGUAL ao
+// padrão de antes (ARI 1, ARE 1, MAE 1): as frases de antes ficam, e a sem política diz que não está definido
+const POLITICA = { usa_arremate_interno: true, guarnicao_interna: 'BZ0006', usa_arremate_externo: true, guarnicao_externa: 'BZ0010', medida_arremate_externo: 'MEDIDA DO VAO' }
+describe('arremateDaColeta: O QUE VAI VALER — a resposta do vendedor ou a política da empresa, por extenso (07/11/2026; a política, 20/11/2026)', () => {
+    it('nada escolhido → a POLÍTICA DA EMPRESA por extenso, nunca a palavra "Padrão"; sem política, "não definido" — nunca o padrão do motor', () => {
+        expect(arremateDaColeta(DP02, null, POLITICA)).toBe('arremate interno: 65 mm; arremate externo: 20 mm; medida do arremate externo: medida do vão')
+        expect(arremateDaColeta(DP02, null)).toBe(`arremate interno: ${ARREMATE_NAO_DEFINIDO}; arremate externo: ${ARREMATE_NAO_DEFINIDO}; medida do arremate externo: ${ARREMATE_NAO_DEFINIDO}`)
+        // a política que diz "não usa"
+        // (e a medida dele, que dependia dele, sai da linha)
+        expect(arremateDaColeta(DP02, null, { ...POLITICA, usa_arremate_externo: false })).toBe('arremate interno: 65 mm; arremate externo: não usa')
     })
-    it('escolhido → a escolha; o que não foi dito, o padrão do motor; a medida escolhida também', () => {
-        expect(arremateDaColeta(DP02, { ARI: 3, MAE: 2 })).toBe('arremate interno: 20 mm; arremate externo: 20 mm; medida do arremate externo: vão + 50 mm')
-        expect(arremateDaColeta(DP02, { ARI: 2 })).toBe('arremate interno: 70 mm; arremate externo: 20 mm; medida do arremate externo: medida do vão')
+    it('escolhido → a escolha; o que não foi dito, a política; a medida escolhida também', () => {
+        expect(arremateDaColeta(DP02, { ARI: 3, MAE: 2 }, POLITICA)).toBe('arremate interno: 20 mm; arremate externo: 20 mm; medida do arremate externo: vão + 50 mm')
+        expect(arremateDaColeta(DP02, { ARI: 2 }, POLITICA)).toBe('arremate interno: 70 mm; arremate externo: 20 mm; medida do arremate externo: medida do vão')
     })
     it('a medida do arremate externo só entra quando a condição dela vale: sem arremate externo, não há medida', () => {
-        expect(arremateDaColeta(DP02, { ARE: 2 })).toBe('arremate interno: 65 mm; arremate externo: sem arremate externo')
+        expect(arremateDaColeta(DP02, { ARE: 2 }, POLITICA)).toBe('arremate interno: 65 mm; arremate externo: sem arremate externo')
     })
     it('o valor efetivo que não é uma opção da aba é dito como tal, nunca adivinhado', () => {
-        expect(arremateDaColeta(DP02, { ARI: 9 })).toBe('arremate interno: opção fora da lista do motor; arremate externo: 20 mm; medida do arremate externo: medida do vão')
+        expect(arremateDaColeta(DP02, { ARI: 9 }, POLITICA)).toBe('arremate interno: opção fora da lista do motor; arremate externo: 20 mm; medida do arremate externo: medida do vão')
+    })
+    it('a aba COMPLETA, com o Padrão, não muda nada: o padrão do motor nunca é dito como o que vale', () => {
+        expect(arremateDaColeta(DP02, null)).toBe(arremateDaColeta(ESC().paraOAgente(DP02), null))
     })
     it('sem a aba Variáveis, ou tipologia sem variável de arremate → nula (nada a dizer, nunca "Padrão")', () => {
         expect(arremateDaColeta(null, { ARI: 3 })).toBeNull()
@@ -70,7 +82,7 @@ describe('arremateDaColeta: O QUE O CÁLCULO USA — a resposta do vendedor ou o
     })
     it('nenhum código de fornecedor, em nenhuma combinação das opções reais', () => {
         for (const ARI of [1, 2, 3, 4]) for (const ARE of [1, 2]) for (const MAE of [1, 2]) {
-            const t = arremateDaColeta(DP02, { ARI, ARE, MAE }) as string
+            const t = arremateDaColeta(DP02, { ARI, ARE, MAE }, POLITICA) as string
             expect([t, /\b[A-Z]{1,5}\d{2,}[A-Z0-9]*\b/.test(t)]).toEqual([t, false])
         }
     })

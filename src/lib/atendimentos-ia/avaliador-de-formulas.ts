@@ -163,7 +163,7 @@ export type AvisoDoAvaliador =
 export type MotivoDaRecusa =
     | 'NAO_PARSEIA' | 'FUNCAO_DESCONHECIDA' | 'ARGUMENTOS_DA_FUNCAO' | 'TIPO_ERRADO' | 'DIVISAO_POR_ZERO' | 'VARIAVEL_SEM_VALOR' | 'CICLO'
     | 'VARIAVEL_SEM_OPCOES' | 'OPCAO_INEXISTENTE' | 'MEDIDA_DA_OPCAO_AUSENTE' | 'OPCOES_NAO_PARSEIAM' | 'NOME_EM_DUAS_FONTES'
-    | 'ESCOLHA_DESCONHECIDA' | 'ESCOLHA_FORA_DAS_OPCOES' | 'MEDIDA_INVALIDA'
+    | 'ESCOLHA_DESCONHECIDA' | 'ESCOLHA_FORA_DAS_OPCOES' | 'MEDIDA_INVALIDA' | 'VARIAVEL_DE_IDENTIFICACAO'
     | 'QUANTIDADE_NAO_INTEIRA' | 'QUANTIDADE_NEGATIVA' | 'COMPRIMENTO_NAO_POSITIVO'
     | 'ESPESSURA_DO_VIDRO_AUSENTE' | 'ESPESSURAS_NAO_PARSEIAM' | 'NENHUM_BAGUETE_PARA_A_ESPESSURA'
     | 'ABA_AUSENTE' | 'CABECALHO_AUSENTE' | 'TIPOLOGIA_AUSENTE' | 'VALOR_INVALIDO'
@@ -206,6 +206,12 @@ export type EntradaDoAvaliador = {
     H_mm: number
     escolhas?: Readonly<Record<string, number>>
     espessura_vidro_mm?: number | null
+    /**
+     * A FRONTEIRA (dono do produto, 20/11/2026: o motor "NUNCA escolhe tipologia nem decide variação"): com `true`, o padrão do motor só vale em
+     * variável SEM opções (uma medida); a variável COM opções sem escolha é recusa `VARIAVEL_DE_IDENTIFICACAO` — quem decide é o agente, antes
+     * (`fronteira-das-escolhas.ts`). Sem a marca, o de antes (os testes do avaliador e o caminho que ainda não passa pela fronteira).
+     */
+    semDecidirVariacao?: boolean
 }
 
 // ── O racional exato ──────────────────────────────────────────────────────────────────────
@@ -576,6 +582,10 @@ function ambienteDa(ctx: Contexto): Ambiente {
                     `A escolha ${nome} = ${escolha} não vale neste item: ${validas.length ? `as opções que valem são ${validas.join(', ')}` : 'nenhuma opção vale'}.`, { variavel: nome })
             }
             return deNumero(escolha) as Q
+        }
+        if (ctx.entrada.semDecidirVariacao && ctx.opcoes.has(nome)) {
+            throw new ErroDeAvaliacao('VARIAVEL_DE_IDENTIFICACAO',
+                `A variável ${nome} (${variavel.descricao ?? nome}) tem opções e chegou ao motor sem valor: escolher a opção é do agente (o vendedor, a política da empresa ou a principal), não do padrão do motor.`, { variavel: nome })
         }
         const padrao = variavel.padrao?.trim() ?? ''
         if (padrao === '') {

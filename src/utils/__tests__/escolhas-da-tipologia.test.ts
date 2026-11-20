@@ -265,12 +265,27 @@ describe('(V) as variáveis SEM PADRÃO (dono do produto, 06/11/2026): lidas da 
         expect(nomes(E().variaveisSemPadrao(comBandeira()))).toEqual(['AF', 'AA', 'AB'])
     })
 
-    it('a perguntar: a Condição avaliada com o Padrão numérico da aba e, por cima, o que foi dado', () => {
-        expect(nomes(E().variaveisAPerguntar(comBandeira(), {}))).toEqual(['AF', 'AA'])
-        // o vendedor disse 3 quadros: AA sai, AB entra
+    it('a perguntar: a Condição avaliada com o que foi DADO — o Padrão do motor não entra na etapa 1 (20/11/2026)', () => {
+        // AQ (sem opções) não foi dada: o agente não sabe quantos quadros — AA e AB não são perguntadas agora (o motor recusa se precisar)
+        expect(nomes(E().variaveisAPerguntar(comBandeira(), {}))).toEqual(['AF'])
+        // o vendedor disse 3 quadros: AB entra; 2: AA
         expect(nomes(E().variaveisAPerguntar(comBandeira(), { AQ: 3 }))).toEqual(['AF', 'AB'])
+        expect(nomes(E().variaveisAPerguntar(comBandeira(), { AQ: 2 }))).toEqual(['AF', 'AA'])
         // a dada não é perguntada de novo
-        expect(nomes(E().variaveisAPerguntar(comBandeira(), { AF: 400 }))).toEqual(['AA'])
+        expect(nomes(E().variaveisAPerguntar(comBandeira(), { AF: 400, AQ: 2 }))).toEqual(['AA'])
+        // a Condição sobre uma variável COM opções que ninguém deu: pergunta-se só se vale com TODAS as opções
+        const comOpcao = comBandeira([{ variavel: 'AX', descricao: 'ALTURA X', padrao: null, condicao: '(OP=1) or (OP=2)', opcoes: null },
+            { variavel: 'AY', descricao: 'ALTURA Y', padrao: null, condicao: '(OP=2)', opcoes: null }])
+        expect(nomes(E().variaveisAPerguntar(comOpcao, { AF: 1 }))).toEqual(['AX'])
+        expect(nomes(E().variaveisAPerguntar(comOpcao, { AF: 1, OP: 2 }))).toEqual(['AX', 'AY'])
+    })
+    it('a aba do AGENTE não tem o Padrão: `paraOAgente` apaga o valor e guarda só se havia (a variável "sem padrão" continua reconhecida)', () => {
+        const t = E().paraOAgente(comBandeira())
+        expect(t.variaveis.every((v) => v.padrao === null)).toBe(true)
+        expect(nomes(E().variaveisSemPadrao(t))).toEqual(['AF', 'AA', 'AB'])
+        expect(nomes(E().variaveisAPerguntar(t, {}))).toEqual(['AF'])
+        // e o padrão do arremate não existe para o agente
+        expect(E().padraoDoArremate(t, 'ARI')).toBeNull()
     })
 
     it('a Condição que não dá para avaliar (um nome que nenhuma aba define) PERGUNTA', () => {

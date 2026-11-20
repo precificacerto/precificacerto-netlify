@@ -206,10 +206,19 @@ const estado = {
     aoPendurar: null as null | (() => void),
 }
 
+const NICHO_DO_TESTE = 'nicho-esquadrias'
+const POLITICA_IGUAL_AO_PADRAO_DE_ANTES = {
+    nicho_id: NICHO_DO_TESTE, usa_arremate_interno: true, guarnicao_interna: 'BZ0006', usa_arremate_externo: true, guarnicao_externa: 'BZ0010',
+    medida_arremate_externo: 'MEDIDA DO VAO',
+}
 function montar() {
     estado.db = {
         whatsapp_conexao: [{ id: 'c1', tenant_id: TENANT, canal: 'ORCAMENTISTA', wuzapi_token: TOKEN, webhook_segredo: SEGREDO, ativo: true }],
-        orcamentista_config: [{ tenant_id: TENANT, ativo: true, modelo: 'FABRICACAO' }],
+        orcamentista_config: [{ tenant_id: TENANT, ativo: true, modelo: 'FABRICACAO', nicho_id: NICHO_DO_TESTE }],
+        // A POLÍTICA DA EMPRESA (20/11/2026): a do NICHO, IGUAL ao padrão do motor de antes (ARI 1 = BZ0006, ARE 1 = BZ0010, MAE 1 = medida do vão).
+        // É a prova de que a fronteira não muda o cálculo de quem tem a política: o padrão do motor saiu, e os números destas suítes ficam
+        orcamentista_esquadrias_padrao: [POLITICA_IGUAL_AO_PADRAO_DE_ANTES],
+        orcamentista_esquadrias_base: [],
         orcamentista_remetente_autorizado: [
             // MEDIDO em produção (25/10/2026): o remetente de teste TEM employee_id, e o employees.user_id dele é NULO
             { id: VENDEDOR, tenant_id: TENANT, telefone: TELEFONE_GRAVADO, ativo: true, nome: 'Cristiano Fernandes', employee_id: 'e-cristiano' },
@@ -793,10 +802,11 @@ describe('(1) O TESTE QUE VALE: pedidos seguidos do MESMO telefone, todos respon
         expect(ehConfirmacaoDoArquivo(enviados()[0], 'Casa do Pedro')).toBe(true)
         expect(await confirmarApanhado()).toBe('')
         expect(enviados()).toHaveLength(1)
-        // o padrão do arremate, que o vendedor não disse, está NO ARQUIVO, com "(padrão)" (4.2); as barras também
+        // o arremate que o vendedor não disse está NO ARQUIVO pela POLÍTICA DA EMPRESA (20/11/2026: antes, "(padrão)" — o do motor) (4.2)
         const pdf = textoDoOrcamentoEnviado()
-        expect(pdf).toContain('ARREMATE 65MM (padrão)')
-        expect(pdf).toContain('ARREMATE 20MM (padrão)')
+        expect(pdf).toContain('ARREMATE 65MM (política da empresa)')
+        expect(pdf).toContain('ARREMATE 20MM (política da empresa)')
+        expect(pdf).not.toContain('(padrão)')
         // o bloco PARA O VENDEDOR saiu do arquivo em 16/11/2026: as barras não vão mais nele
         expect(pdf).not.toContain('Barras por código:')
         expect(pdf).not.toContain('PARCIAL')
@@ -5867,19 +5877,14 @@ describe('(41) a variável SEM PADRÃO vira pergunta ao vendedor: lida do motor,
         expect(ehConfirmacaoDoArquivo(ultimoEnviado())).toBe(true)
     })
 
-    it.each([['1', 'pergunta'], ['2', 'não pergunta']])('AF com a condição "(HI=1)" e HI = %s: %s — a variável de condição falsa não é perguntada e fica sem valor', async (hi, efeito) => {
+    // A ETAPA 1 NÃO LÊ O PADRÃO DO MOTOR (20/11/2026): a Condição de AF se avalia pelas OPÇÕES de HI ("1 = CIENTE", uma só), não pelo Padrão dele —
+    // com o Padrão 2 (fora das opções), a pergunta continua: antes, o Padrão 2 a calava
+    it.each([['1'], ['2']])('AF com a condição "(HI=1)" e o Padrão de HI = %s: pergunta — o agente lê as opções de HI, nunca o Padrão do motor', async (hi) => {
         comDp04(null, '(HI=1)', hi)
         llmResponde({ nome: 'Obra Bandeira', itens: [{ ...DP04 }], escolhas: ESCOLHAS_QUE_FECHAM })
         await chamar(MSG_DP04)
-        if (efeito === 'pergunta') {
-            expect(levantamentos()[0].estado).toBe('EM_MONTAGEM')
-            expect(ultimoEnviado()).toBe(PERGUNTA_DA_BANDEIRA)
-        } else {
-            expect(levantamentos()[0].estado).toBe('COMPLETO')
-            expect(ehConfirmacaoDoArquivo(ultimoEnviado())).toBe(true)
-            expect(enviados().join('\n')).not.toContain('altura da bandeira')
-            expect(montarDoTurno()).toMatch(/ pendencias=0 .* faltou=-$/)
-        }
+        expect(levantamentos()[0].estado).toBe('EM_MONTAGEM')
+        expect(ultimoEnviado()).toBe(PERGUNTA_DA_BANDEIRA)
         expect(itens()[0].escolhas).toEqual({ ARI: 4, MAE: 2 })
     })
 
@@ -6297,6 +6302,8 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             ['orcamentista_motor_tipologia_detalhe'], ['orcamentista_motor_variavel'], ['orcamentista_motor_formula'], ['orcamentista_motor_perfil'], ['orcamentista_motor_validacao'],
             // AS ABAS OPCIONAIS (12/11/2026, os três caminhos): Insumos e Vidros, lidas em série depois das cinco — duas idas a mais
             ['orcamentista_motor_insumo'], ['orcamentista_motor_vidro'],
+            // A POLÍTICA DA EMPRESA (20/11/2026, a fronteira): a da empresa e a configuração juntas, e a do nicho depois — duas idas a mais
+            ['orcamentista_config', 'orcamentista_esquadrias_base'], ['orcamentista_esquadrias_padrao'],
             ['orcamentista_mp_categoria'], ...Array.from({ length: T }, () => ['orcamentista_motor_regra']),
             // O ESCOPO DA RESOLUÇÃO (12/11/2026): o fornecedor e as famílias do motor e as tabelas vão JUNTO da primeira página de itens — a
             // mesma onda de antes, com três leituras a mais
@@ -6312,8 +6319,8 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             const { ondas, faltas } = await ondasDoCalculo([esquadria(1, 'DP-39', 2500, 2200), esquadria(2, 'DP-01', 600, 600)])
             expect(faltas).toEqual([])
             expect(ondas).toEqual([...ondasFixas(2), ONDA_DA_MAO_DE_OBRA])
-            expect(ondas).toHaveLength(7 + 3 + 2 + 1)
-            expect(ondas.flat()).toHaveLength(12 + 3 + 3)
+            expect(ondas).toHaveLength(7 + 3 + 2 + 1 + 2)
+            expect(ondas.flat()).toHaveLength(12 + 3 + 3 + 3)
         })
 
         it('20 esquadrias, 8 tipologias: 19 idas em série (16 antes dos três caminhos, 12/11/2026; seriam 8 + 8 + 40 = 56), e a mão de obra continua numa onda só', async () => {
@@ -6331,8 +6338,8 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             const { ondas, faltas } = await ondasDoCalculo(itens)
             expect(faltas).toEqual([])
             expect(ondas).toEqual([...ondasFixas(8), ONDA_DA_MAO_DE_OBRA])
-            expect(ondas).toHaveLength(7 + 3 + 8 + 1)
-            expect(ondas.flat()).toHaveLength(7 + 3 + 8 + 3 + 3)
+            expect(ondas).toHaveLength(7 + 3 + 8 + 1 + 2)
+            expect(ondas.flat()).toHaveLength(7 + 3 + 8 + 3 + 3 + 3)
         })
 
         it('a configuração e os tempos lidos UMA vez não mudam a conta: a falta de tempo de uma tipologia ainda sai, nomeada, com as esquadrias dela', async () => {
@@ -6419,7 +6426,9 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
         expect(r.split('\n')[0]).toMatch(/^O orçamento 1 saiu PARCIAL — faltam \d+ valores\. Para completar, preciso de:$/)
         // os OITO perfis com variante de cor — e também o BZ0006 e o BZ0010, de variante única BRANCO: a variante única só serve para a cor que é
         const codigos = r.split('\n').filter((l) => l.startsWith('• ')).map((l) => /^• (\S+)/.exec(l)?.[1]).sort()
-        expect(codigos).toEqual(['2575/WOLFF', 'BZ0006/WOLFF', 'BZ0010/WOLFF', 'GB25/WOLFF', 'HF88/WOLFF', 'IL50/WOLFF', 'SF92/WOLFF', 'SP66/WOLFF'])
+        // (20/11/2026) o 2575 (AMP340, o arremate de piso da DP-39) SAIU: ARRP tem Padrão 1 = SIM no motor, acrescenta a peça, e nem o vendedor nem
+        // a política da empresa o pedem — entra a principal (ARRP = 0, NÃO), a regra da travessa para toda variável
+        expect(codigos).toEqual(['BZ0006/WOLFF', 'BZ0010/WOLFF', 'GB25/WOLFF', 'HF88/WOLFF', 'IL50/WOLFF', 'SF92/WOLFF', 'SP66/WOLFF'])
         // e nenhum código branco no PDF
         for (const branco of ['25751', '10501', '10511', '9801', '9641', '9701', '9691', '9731']) expect(textoDoOrcamentoEnviado()).not.toContain(`• ${branco} (`)
         expect(estado.documentos).toHaveLength(1)
