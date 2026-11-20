@@ -47,6 +47,36 @@ export type EscolhaPendente = { variavel: string; descricao: string; opcoes: Opc
 
 const capturada = (v: string) => (ESCOLHAS_CAPTURADAS as readonly string[]).includes(v)
 
+// ── A PEÇA QUE NINGUÉM PEDIU NÃO ENTRA POR PADRÃO (dono do produto, 19/11/2026) ─────────────────────────────────────────
+/**
+ * O caso: o item 6 do orçamento da Daiane (DP-72, PORTA DE CORRER 04 FOLHAS MÓVEIS, 4750 x 2300) saiu COM TRAVESSA, com as escolhas NULAS — a
+ * variável UT ("USA TRAVESSA?") tem Padrão 1 = SIM no motor (medido em 19/11/2026 no motor 259035a9: 88 tipologias com UT, todas com Padrão 1;
+ * e AT, a altura da travessa, 1050 em 90). A travessa entrava em silêncio, com perfil, reforço e baguete, e partia o vidro em dois panos.
+ *
+ * A regra do dono do produto: "A travessa se torna uma variável. Essa variável não foi solicitada." Quando o vendedor não pediu, o AGENTE usa a
+ * opção que NÃO acrescenta a peça e a grava nas escolhas, para ficar no rastro. O padrão da tabela do motor NÃO muda: o motor é do fornecedor.
+ * A RESSALVA: a tipologia que já é "com travessa" pelo nome tem a peça por ser dela, e ela continua (medido: nenhuma das 88 diz travessa no nome).
+ *
+ * A lista é fechada e só tem o que o dono do produto decidiu; as outras variáveis de padrão SIM que acrescentam peça estão com ele.
+ */
+export const PECAS_QUE_NAO_ENTRAM_POR_PADRAO: Readonly<Record<string, RegExp>> = { UT: /\btravessas?\b/i }
+const semAcento_ = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+/**
+ * As escolhas que o AGENTE acrescenta: a opção "NÃO" de cada peça da lista que a tipologia tem, o vendedor não escolheu e o nome da tipologia não
+ * diz. Devolve só o que acrescenta (vazio quando nada muda). Sem a opção "NÃO" na aba, nada é acrescentado — nunca se inventa o valor.
+ */
+export function semAsPecasNaoPedidas(tipologia: VariaveisDaTipologia, explicitas: Readonly<Record<string, number | null>> | null, descricao: string | null): Record<string, number> {
+    const acrescentadas: Record<string, number> = {}
+    for (const [variavel, nome] of Object.entries(PECAS_QUE_NAO_ENTRAM_POR_PADRAO)) {
+        const v = tipologia.variaveis.find((x) => x.variavel === variavel)
+        if (!v || typeof explicitas?.[variavel] === 'number') continue
+        if (descricao !== null && nome.test(semAcento_(descricao))) continue
+        const nao = (opcoesDaVariavel(v.opcoes) ?? []).find((o) => /^nao\b/i.test(semAcento_(o.rotulo).trim()))
+        if (nao) acrescentadas[variavel] = nao.valor
+    }
+    return acrescentadas
+}
+
 /** A Condição pede a pergunta? Verdadeira, "sempre", vazia ou impossível de avaliar → sim. */
 function condicaoPede(condicao: string | null, escolhas: Escolhas): boolean {
     const c = (condicao ?? '').trim()
@@ -175,7 +205,7 @@ export function lerEscolhasGravadas(valor: unknown, tipologia: VariaveisDaTipolo
     const lidas: Record<string, number> = {}
     for (const [k, v] of Object.entries(valor as Record<string, unknown>)) {
         if (typeof v !== 'number' || !Number.isInteger(v)) continue
-        if (capturada(k) || (deValor.has(k) && v > 0)) lidas[k] = v
+        if (capturada(k) || (deValor.has(k) && v > 0) || (k in PECAS_QUE_NAO_ENTRAM_POR_PADRAO && tipologia?.variaveis.some((x) => x.variavel === k))) lidas[k] = v
     }
     return lidas
 }

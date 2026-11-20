@@ -219,7 +219,7 @@ import { LIMITE_DA_FALA } from '@/utils/atendimentos-ia-contexto'
 import { blocoDasInstrucoes, lerInstrucoesDaEmpresa, type InstrucaoDaCategoria } from '@/lib/atendimentos-ia/instrucoes-da-categoria'
 import { blocoDasInstrucoesDasEtapas, type InstrucaoDaEtapa } from '@/lib/atendimentos-ia/motor-da-familia'
 import { aberturaDita, cabeNosLimites, filtrarPeloAcumulado, filtrarPorAbertura, fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, medidasNaOrdemEscrita, numeroOuNulo, palavrasDeAbertura } from '@/lib/atendimentos-ia/tipologias-candidatas'
-import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, variaveisSemPadraoNoPrompt, variaveisSemPadraoParaOPrompt } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
+import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, semAsPecasNaoPedidas, variaveisSemPadraoNoPrompt, variaveisSemPadraoParaOPrompt } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { permissaoDoRemetente, type Permissao } from '@/lib/atendimentos-ia/permissao-do-remetente'
 import {
     gerarArquivoDoLevantamento, lerLevantamentoDoArquivo, type Funcionario, lerNomeDaEmpresa, lerPerfilDoVendedor, lerVendedorDoRemetente, funcionariosPeloNome,
@@ -357,6 +357,8 @@ type Rastro = {
     tipologiasPadrao: number
     /** A LINHA PADRÃO (19/11/2026): quantas tipologias do modelo viraram a mesma da EUROPA 60. */
     linhaPadrao: number
+    /** A PEÇA NÃO PEDIDA (19/11/2026): quantos itens ganharam a opção que não acrescenta a peça (UT = NÃO). */
+    pecasNaoPedidas: number
     /**
      * A autorização da medida fora do limite (18/11/2026): `pediu:e1,autorizou:e2,negou:e3,limpou:e4`, ou `sem_migracao` (a 20261118000001 não
      * aplicada: a conversa pede a medida certa, como antes); '-' sem nada.
@@ -393,7 +395,7 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
         + (r.lista === '-' ? '' : ` lista=${r.lista} trechos=${r.trechos}`) + (r.trechosSemCandidata > 0 ? ` trechos_sem_candidata=${r.trechosSemCandidata}` : '')
         + (r.itensSemCampos > 0 ? ` itens_sem_campos=${r.itensSemCampos}` : '')
         // a montagem e os padrões (05/11/2026)
-        + (r.montagem === '-' ? '' : ` montagem=${r.montagem}`) + (r.contextoDoTurno === '-' ? '' : ` contexto_do_turno=${r.contextoDoTurno}`) + (r.coresPadrao > 0 ? ` cor_padrao=${r.coresPadrao}` : '') + (r.tipologiasPadrao > 0 ? ` tipologia_padrao=${r.tipologiasPadrao}` : '') + (r.linhaPadrao > 0 ? ` linha_padrao=${r.linhaPadrao}` : '') + (r.limite === '-' ? '' : ` limite=${r.limite}`) + (r.qualOrcamento === '-' ? '' : ` qual_orcamento=${r.qualOrcamento}`) + (r.daImagem === '-' ? '' : ` da_imagem=${r.daImagem}`) + (r.medidasNaOrdem > 0 ? ` medidas_na_ordem=${r.medidasNaOrdem}` : '')
+        + (r.montagem === '-' ? '' : ` montagem=${r.montagem}`) + (r.contextoDoTurno === '-' ? '' : ` contexto_do_turno=${r.contextoDoTurno}`) + (r.coresPadrao > 0 ? ` cor_padrao=${r.coresPadrao}` : '') + (r.tipologiasPadrao > 0 ? ` tipologia_padrao=${r.tipologiasPadrao}` : '') + (r.linhaPadrao > 0 ? ` linha_padrao=${r.linhaPadrao}` : '') + (r.pecasNaoPedidas > 0 ? ` sem_peca_nao_pedida=${r.pecasNaoPedidas}` : '') + (r.limite === '-' ? '' : ` limite=${r.limite}`) + (r.qualOrcamento === '-' ? '' : ` qual_orcamento=${r.qualOrcamento}`) + (r.daImagem === '-' ? '' : ` da_imagem=${r.daImagem}`) + (r.medidasNaOrdem > 0 ? ` medidas_na_ordem=${r.medidasNaOrdem}` : '')
         + (r.midia === '-' ? '' : ` midia=${r.midia}`)
     console.error(`${PREFIXO_DO_LOG_DA_IA} levantamento=${r.levantamento} rota=${r.rota} propostos=${r.propostos} descartados=${r.descartados} enviou=${r.enviou ? 'sim' : 'nao'} desfecho=${desfecho}${admin} nome=${r.nome} aberta=${r.aberta}${contexto}${ia}${detalhe ? ` ${detalhe}` : ''}`)
     // as linhas por etapa (06/11/2026), na ordem do turno; a última é a resposta, que todo turno tem
@@ -1298,7 +1300,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = {
         etapas: { coletar: null, casar: null, montar: null, calcular: null },
         levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null, raciocinio: null, parada: null, cacheLido: null, cacheEscrito: null, cabecalhosMs: null, primeiroTokenMs: null, tentativas: null, requestId: null },
-        midia: '-', contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', contextoDoTurno: '-', coresPadrao: 0, tipologiasPadrao: 0, linhaPadrao: 0, limite: '-', qualOrcamento: '-', daImagem: '-', medidasNaOrdem: 0,
+        midia: '-', contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', contextoDoTurno: '-', coresPadrao: 0, tipologiasPadrao: 0, linhaPadrao: 0, pecasNaoPedidas: 0, limite: '-', qualOrcamento: '-', daImagem: '-', medidasNaOrdem: 0,
     }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
@@ -2047,7 +2049,18 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // (03/11/2026): os itens completos e iguais viram um, com as unidades somadas
         // A QUANTIDADE DITA SUBSTITUI, NUNCA SOMA (06/11/2026): a esquadria da mensagem igual a uma GRAVADA é ela mesma — o agrupamento sabe quais já
         // estavam gravadas e quais levam o 1 do padrão, e diz o caminho de cada uma no log
-        const agrupamento = agruparIguais(resolverFamilias(proposta_.itens, doCodigo), {
+        // A PEÇA QUE NINGUÉM PEDIU (dono do produto, 19/11/2026): a travessa não entra pelo padrão do motor — a opção que não a acrescenta é
+        // gravada nas escolhas do item, e fica no rastro; a tipologia que já diz travessa no nome fica com ela
+        const resolvidos = resolverFamilias(proposta_.itens, doCodigo).map((item) => {
+            const def = item.tipologia !== null ? definicao(item) : null
+            if (!def || item.tipologia === null) return item
+            const acrescentadas = semAsPecasNaoPedidas(def, item.escolhas, detalhe(item.tipologia, item.familia ?? null)?.descricao ?? null)
+            if (Object.keys(acrescentadas).length === 0) return item
+            rastro.pecasNaoPedidas += 1
+            assumir(item.ordem, Object.entries(acrescentadas).map(([atributo, valor]) => ({ atributo, valor: String(valor), origem: 'padrao_da_tipologia' as const })))
+            return { ...item, escolhas: { ...(item.escolhas ?? {}), ...acrescentadas } }
+        })
+        const agrupamento = agruparIguais(resolvidos, {
             gravadas: new Set(alvo ? alvo.itens.map((i) => i.ordem) : []), quantidadePadrao: new Set(proposta_.quantidadesPadrao),
         })
         const aplicada = { ...proposta_, itens: agrupamento.itens }
