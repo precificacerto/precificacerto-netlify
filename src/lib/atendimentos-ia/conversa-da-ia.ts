@@ -180,6 +180,12 @@ import { comOTextoDaImagem, fraseDaImagemRecusada, fraseDeConfirmarDaImagem, fra
 import { criteriosQueSeparam, fraseDeQualOrcamento, fraseDeQualOrcamentoEmOutrasPalavras, type CriterioDoDesempate, fraseDoOrcamentoSemArquivo, lerOrcamentosDosLevantamentos, ordemDoOrcamento, pedidoDoResgate, type OpcaoDoOrcamento } from '@/lib/atendimentos-ia/resgate-do-orcamento'
 /** A saída gravada quando depois do "sim" só o arquivo foi enviado (12/11/2026, 4.3): o texto não sai ao vendedor, é a marca da resposta. */
 export const SAIDA_SO_O_ARQUIVO = '[o arquivo do orçamento foi enviado, sem texto]'
+/**
+ * O ORÇAMENTO PEDIDO COM UMA ALTERAÇÃO ESPERANDO O "SIM" (dono do produto, 19/11/2026): "o agente ENTREGA o orçamento existente, porque foi isso
+ * que o vendedor pediu, e avisa em UMA linha que há uma alteração aguardando confirmação e que ela não está nesse orçamento. Secretária traz o
+ * que foi pedido e avisa o que ficou pendente; não troca uma coisa pela outra nem trava." A confirmação pendente FICA em aberto.
+ */
+export const FRASE_ALTERACAO_FORA_DO_ORCAMENTO = 'Há uma alteração no levantamento aguardando a sua confirmação, e ela não está neste orçamento.'
 /** O levantamento que levantou SEM a confirmação gravada (a migração da pergunta em aberto pendente): sem o "sim" registrado não há orçamento. */
 export const FRASE_DO_ARQUIVO_SEM_A_CONFIRMACAO = 'O arquivo do orçamento não chegou a você: a confirmação do levantamento não pôde ser registrada, e sem ela o orçamento não é gerado. Avise o responsável pela conta: falta uma atualização do sistema.'
 /** O id gravado quando o canal aceitou o arquivo sem devolver id: a saída está enviada, e o reenvio não a manda de novo. */
@@ -1676,21 +1682,24 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         }
         // O ARQUIVO DO ORÇAMENTO PEDIDO (18/11/2026): o que existe, mandado de novo pelo MESMO caminho do "sim" sem mudança (`reenviarOArquivo`) —
         // ao dono do levantamento; chegando a quem pediu, a conversa cala (só o arquivo). Sem arquivo gerado, a frase diz, com o número
-        const mandarOrcamento = async (o: OpcaoDoOrcamento): Promise<DesfechoDaIa> => {
+        const mandarOrcamento = async (o: OpcaoDoOrcamento, alteracaoPendente = false): Promise<DesfechoDaIa> => {
             rastro.rota = 'ORCAMENTO'
             rastro.levantamento = o.levantamentoId
-            if (temLinha) await apagarPerguntaEmAberto(c.tenantId, c.remetenteId)
+            // a alteração que espera o "sim" não se perde: a pergunta dela fica em aberto (19/11/2026)
+            if (temLinha && !alteracaoPendente) await apagarPerguntaEmAberto(c.tenantId, c.remetenteId)
             const deps = dependenciasDoServidor((telefone, nomeDoArquivo, pdf) =>
                 enviarAoPrimeiroQueAceitar(destinosDoWhatsApp(telefone, c.telefone), (destino) => enviarDocumento(c.wuzapiToken, destino, nomeDoArquivo, pdf)))
             const r = await reenviarOArquivo(c.tenantId, { id: o.orcamentoId, numero: o.numero, nome: o.nome }, deps)
             rastro.etapas.calcular = `orcamento=${o.numero} ${r.rastro}`
             if (r.semArquivo) return await falar(fraseDoOrcamentoSemArquivo(o.numero, o.nome), 'orcamento-sem-arquivo')
             if (r.enviadoPara && telefonesCasam(r.enviadoPara, c.telefone)) {
+                if (alteracaoPendente) return await responder(FRASE_ALTERACAO_FORA_DO_ORCAMENTO, 'orcamento-reenviado', 'alteracao_pendente=sim', false)
                 await gravar(SAIDA_SO_O_ARQUIVO, r.idDoEnvio ?? SEM_ID_DO_ARQUIVO)
                 rastro.enviou = true
                 return fim('orcamento-reenviado', 'so_arquivo=sim')
             }
-            return await responder(r.paraOVendedor ?? fraseDoOrcamentoSemArquivo(o.numero, o.nome), 'orcamento-reenviado')
+            const texto = r.paraOVendedor ?? fraseDoOrcamentoSemArquivo(o.numero, o.nome)
+            return await responder(alteracaoPendente ? `${texto}\n\n${FRASE_ALTERACAO_FORA_DO_ORCAMENTO}` : texto, 'orcamento-reenviado', alteracaoPendente ? 'alteracao_pendente=sim' : '')
         }
 
         // ── a rota ──
@@ -1732,7 +1741,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 if (lido !== null && proposta.novo !== true && emEspera.length === 0 && pedidoDoResgate(c.texto) === 'orcamento') {
                     const orcamentos = ordemDoOrcamento(await lerOrcamentosDosLevantamentos(c.tenantId, [doApanhado]))
                     rastro.qualOrcamento = String(orcamentos.length)
-                    if (orcamentos.length > 0) return await mandarOrcamento(orcamentos[0])
+                    if (orcamentos.length > 0) return await mandarOrcamento(orcamentos[0], true)
                     pedidoDoOrcamento = new Set([doApanhado.id])
                 }
                 alvo = { id: doApanhado.id, nome: doApanhado.nome, estado: doApanhado.estado, donoId: doApanhado.remetente_id, vendedor, itens: await lerItens(c.tenantId, doApanhado.id) }
