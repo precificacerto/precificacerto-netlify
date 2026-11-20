@@ -94,6 +94,15 @@ describe('a PRINCIPAL: na seção, a de MENOS qualificadores; empate, o MENOR c�
         expect(principal('DP-129', 'maxim-ar com bandeira e travessa')).toBe('DP-134')
         expect(principal('DP-134', 'maxim-ar com bandeira, perfil de modulação')).toBe('DP-129')
     })
+    it('os desempates com pedido: o total de qualificadores, e depois as palavras que sobram no qualificador que toca no pedido — antes do código', () => {
+        const sint = (t: string, meio: string): CandidatoDeTipologia => ({ ...de('DP-09'), tipologia: t, descricao: `JANELA DE CORRER 05 FOLHAS MÓVEIS | ${meio} | EUROPA 42` })
+        // os dois tocam no pedido; a de UM qualificador vence a de dois, mesmo com o código maior
+        const dois = [sint('DP-901', 'VENEZIANA | TRILHO ALUMÍNIO'), sint('DP-902', 'VENEZIANA TRILHO ALUMÍNIO')]
+        expect(principalDoGrupo('DP-901', dois, item(1500, 1200), 'com veneziana e trilho de alumínio')).toBe('DP-902')
+        // um qualificador cada; a que não traz palavra a mais vence, mesmo com o código maior
+        const sobra = [sint('DP-903', 'VENEZIANA VENTILADA'), sint('DP-904', 'VENEZIANA')]
+        expect(principalDoGrupo('DP-903', sobra, item(1500, 1200), 'com veneziana')).toBe('DP-904')
+    })
     it('a porta de correr 02 folhas: DP-39 é a principal; DP-40 a DP-47 viram ela sem pedido; com o pedido, a pedida', () => {
         for (const t of ['DP-40', 'DP-41', 'DP-42', 'DP-43', 'DP-44', 'DP-45', 'DP-46', 'DP-47']) expect([t, principal(t)]).toEqual([t, 'DP-39'])
         expect(principal('DP-39', 'trilho de alumínio')).toBe('DP-41')
@@ -141,6 +150,10 @@ describe('a PRINCIPAL: na seção, a de MENOS qualificadores; empate, o MENOR c�
     it('duas linhas que a ordem não conhece, empatadas: a linha não se adivinha', () => {
         const alu = (t: string, l: string): CandidatoDeTipologia => ({ ...de('DP-09'), tipologia: t, familia: 'ALUMINIO', linha: `ALU ${l}`, descricao: `JANELA DE CORRER | TELA | ${l}` })
         expect(principalDoGrupo('AL-2', [alu('AL-1', 'SUPREMA'), alu('AL-2', 'GOLD'), { ...alu('AL-3', 'GOLD'), descricao: 'JANELA DE CORRER | GOLD' }], item(1500, 1200), '')).toBeNull()
+        // e o empate na posição da 42 (duas linhas "EUROPA 42") não passa à 60 de trás: a linha não se adivinha, nem se pula
+        const pvc = (t: string, l: string, meio = ''): CandidatoDeTipologia => ({ ...de('DP-09'), tipologia: t, linha: l, descricao: `JANELA DE CORRER 07 FOLHAS MÓVEIS |${meio ? ` ${meio} |` : ''} ${l}` })
+        const empate42 = [pvc('XX-1', 'PVC A EUROPA 42'), pvc('XX-2', 'PVC B EUROPA 42'), pvc('XX-3', 'PVC WOLFF EUROPA 60', 'VENEZIANA')]
+        expect(principalDoGrupo('XX-1', empate42, item(1500, 1200), '')).toBeNull()
     })
 })
 
