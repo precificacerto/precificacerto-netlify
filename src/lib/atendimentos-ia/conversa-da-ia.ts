@@ -212,13 +212,13 @@ import { vidroPodado } from '@/lib/atendimentos-ia/vidro'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { compararNome, formaComparavel, nomeDaMensagem, nomeDitoOuRetomado, nomeDoCliente, nomeSemPrefixo, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 import { fraseDaCorForaDaLista, perguntasDaTipologia, type JaDito } from '@/lib/atendimentos-ia/pre-definicao'
-import { atributosNoLog, fraseDoForaDoLimite, fraseDoPedidoDeAutorizacao, origemDaTipologiaProposta, padraoDaEsquadria, tipologiaNaLinhaPadrao, type AtributoAssumido } from '@/lib/atendimentos-ia/tipologia-padrao'
+import { atributosNoLog, fraseDoForaDoLimite, fraseDoPedidoDeAutorizacao, atributosDitos, origemDaTipologiaProposta, padraoDaEsquadria, tipologiaPrincipal, type AtributoAssumido } from '@/lib/atendimentos-ia/tipologia-padrao'
 import { autorizacaoVale, gravarLimites, lerLimites, limitesDisponiveis, limiteVencido, pedidoEmAberto, type LimiteDoItem, type MudancaDoLimite } from '@/lib/atendimentos-ia/autorizacao-do-limite'
 import { PROMPT_BASE } from '@/utils/atendimentos-ia-prompt-base'
 import { LIMITE_DA_FALA } from '@/utils/atendimentos-ia-contexto'
 import { blocoDasInstrucoes, lerInstrucoesDaEmpresa, type InstrucaoDaCategoria } from '@/lib/atendimentos-ia/instrucoes-da-categoria'
 import { blocoDasInstrucoesDasEtapas, type InstrucaoDaEtapa } from '@/lib/atendimentos-ia/motor-da-familia'
-import { aberturaDita, cabeNosLimites, filtrarPeloAcumulado, filtrarPorAbertura, fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, medidasNaOrdemEscrita, numeroOuNulo, palavrasDeAbertura } from '@/lib/atendimentos-ia/tipologias-candidatas'
+import { aberturaDita, cabeNosLimites, filtrarPeloAcumulado, filtrarPorAbertura, fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, linhaDaEsquadria, medidasNaOrdemEscrita, numeroOuNulo, palavrasDeAbertura } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, semAsPecasNaoPedidas, variaveisSemPadraoNoPrompt, variaveisSemPadraoParaOPrompt } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { permissaoDoRemetente, type Permissao } from '@/lib/atendimentos-ia/permissao-do-remetente'
 import {
@@ -355,7 +355,7 @@ type Rastro = {
     coresPadrao: number
     /** Esquadrias que receberam a tipologia PADRÃO do código — de correr, 2 folhas, lisa (05/11/2026). */
     tipologiasPadrao: number
-    /** A LINHA PADRÃO (19/11/2026): quantas tipologias do modelo viraram a mesma da EUROPA 60. */
+    /** A ORDEM DETERMINANTE (20/11/2026; a linha padrão de 19/11 dentro dela): quantas tipologias do modelo viraram a PRINCIPAL do grupo. */
     linhaPadrao: number
     /** A PEÇA NÃO PEDIDA (19/11/2026): quantos itens ganharam a opção que não acrescenta a peça (UT = NÃO). */
     pecasNaoPedidas: number
@@ -395,7 +395,7 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
         + (r.lista === '-' ? '' : ` lista=${r.lista} trechos=${r.trechos}`) + (r.trechosSemCandidata > 0 ? ` trechos_sem_candidata=${r.trechosSemCandidata}` : '')
         + (r.itensSemCampos > 0 ? ` itens_sem_campos=${r.itensSemCampos}` : '')
         // a montagem e os padrões (05/11/2026)
-        + (r.montagem === '-' ? '' : ` montagem=${r.montagem}`) + (r.contextoDoTurno === '-' ? '' : ` contexto_do_turno=${r.contextoDoTurno}`) + (r.coresPadrao > 0 ? ` cor_padrao=${r.coresPadrao}` : '') + (r.tipologiasPadrao > 0 ? ` tipologia_padrao=${r.tipologiasPadrao}` : '') + (r.linhaPadrao > 0 ? ` linha_padrao=${r.linhaPadrao}` : '') + (r.pecasNaoPedidas > 0 ? ` sem_peca_nao_pedida=${r.pecasNaoPedidas}` : '') + (r.limite === '-' ? '' : ` limite=${r.limite}`) + (r.qualOrcamento === '-' ? '' : ` qual_orcamento=${r.qualOrcamento}`) + (r.daImagem === '-' ? '' : ` da_imagem=${r.daImagem}`) + (r.medidasNaOrdem > 0 ? ` medidas_na_ordem=${r.medidasNaOrdem}` : '')
+        + (r.montagem === '-' ? '' : ` montagem=${r.montagem}`) + (r.contextoDoTurno === '-' ? '' : ` contexto_do_turno=${r.contextoDoTurno}`) + (r.coresPadrao > 0 ? ` cor_padrao=${r.coresPadrao}` : '') + (r.tipologiasPadrao > 0 ? ` tipologia_padrao=${r.tipologiasPadrao}` : '') + (r.linhaPadrao > 0 ? ` principal=${r.linhaPadrao}` : '') + (r.pecasNaoPedidas > 0 ? ` sem_peca_nao_pedida=${r.pecasNaoPedidas}` : '') + (r.limite === '-' ? '' : ` limite=${r.limite}`) + (r.qualOrcamento === '-' ? '' : ` qual_orcamento=${r.qualOrcamento}`) + (r.daImagem === '-' ? '' : ` da_imagem=${r.daImagem}`) + (r.medidasNaOrdem > 0 ? ` medidas_na_ordem=${r.medidasNaOrdem}` : '')
         + (r.midia === '-' ? '' : ` midia=${r.midia}`)
     console.error(`${PREFIXO_DO_LOG_DA_IA} levantamento=${r.levantamento} rota=${r.rota} propostos=${r.propostos} descartados=${r.descartados} enviou=${r.enviou ? 'sim' : 'nao'} desfecho=${desfecho}${admin} nome=${r.nome} aberta=${r.aberta}${contexto}${ia}${detalhe ? ` ${detalhe}` : ''}`)
     // as linhas por etapa (06/11/2026), na ordem do turno; a última é a resposta, que todo turno tem
@@ -711,8 +711,8 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
         '- tipologia: o CÓDIGO (ex.: DP-02) de UMA das tipologias da lista abaixo, escolhida pela descrição. NUNCA invente código nem preencha com as palavras do vendedor. HAVENDO NATURAL, APLIQUE E NÃO PERGUNTE: o vendedor fala só quando foge do padrão, e o silêncio é a forma natural — o que ele não disse depois do tipo vale o natural (correr, janela ou porta = 2 folhas; todo o resto = 1 folha ou 1 módulo, e mais de um só se dito; sem persiana, sem bandeira, sem peitoril, sem motor, salvo se dito). Escolha a tipologia que tem exatamente o que ele disse e, no resto, o natural. Só se ainda couber em mais de uma, NÃO preencha: em `pergunta`, pergunte qual é, citando a descrição INTEIRA de cada uma, sem o código. Se não dá para concluir, NÃO preencha: em `pergunta`, pergunte em linguagem de obra o que falta (janela ou porta, como abre) — nunca "qual a tipologia".',
         '- abertura: a PALAVRA que o vendedor usou para a esquadria — "porta" (também "porta-janela" e "porta janela") ou "janela". Só se ele a escreveu; senão, omita. Porta NUNCA vira tipologia cuja descrição começa com JANELA, e janela NUNCA vira PORTA; maxim-ar e fixo servem às duas.',
         '- Os limites de cada tipologia estão na lista (largura e altura): a medida dita fora da faixa DESCARTA a tipologia; a medida que a lista não limita (sem L ou sem A) não descarta. Se nenhuma cabe, NÃO escolha a mais próxima: deixe a tipologia vazia e diga em `pergunta` que nenhuma cabe.',
-        // A LINHA PADRÃO (dono do produto, 19/11/2026: "perfil 60"): a DP-01 (DESIGN) saía para a maxim-ar só por vir antes na lista
-        '- LINHA PADRÃO É A EUROPA 60: quando a mesma tipologia existe em mais de uma linha da lista e a medida cabe nas duas, escolha a da EUROPA 60. Quando ela não existe na EUROPA 60 (a janela e a porta de correr só existem na EUROPA 42), escolha a que existe, sem perguntar.',
+        // A ORDEM DETERMINANTE (dono do produto, 20/11/2026): família > linha > formato > folhas > variações — a principal, e a linha deduzida do formato
+        '- A ORDEM DAS TIPOLOGIAS é família > linha > formato > folhas/módulos > variações. Dentro do formato (porta de correr, janela de correr, com persiana, maxim-ar, giro, oscilo-batente, pivotante, fixo) e das folhas pedidas, escolha a PRINCIPAL: a que não tem nada além disso no nome (sem trilho, veneziana, bandeira, peitoril, tela, fechamento central, modulação), salvo o que o vendedor pediu com todas as letras ("com veneziana", "trilho de alumínio", "com bandeira"). NUNCA escolha pela ordem da lista. A LINHA NÃO SE PERGUNTA: o formato a determina; quando o mesmo formato existe em mais de uma linha, EUROPA 42, depois EUROPA 60, depois DESIGN.',
         '- quantidade: só a dita. Não dita é 1 — NUNCA pergunte quantas.',
         '- ARREMATE e GUARNIÇÃO: NÃO pergunte. O padrão da tipologia já vale sem ninguém dizer. NUNCA escolha sozinho: em `escolhas`, só o arremate que o vendedor DISSE, em palavras, com o código da variável e o número da opção que corresponde (lista abaixo). Se ele pedir para ver as opções, ou quiser trocar sem dizer por qual, ponha o código da variável em `opcoes_de`.',
         ...(c.variasFamilias ? ['- familia e fornecedor: a mesma tipologia pode estar no motor de mais de uma família da empresa. SÓ o que o vendedor disse — a família, o fornecedor, ou os dois —, escrito EXATAMENTE como está na lista. NUNCA escolha sozinho.'] : []),
@@ -1951,10 +1951,14 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             const atual = ordem !== null ? atuais.find((i) => i.ordem === ordem) : undefined
             if (atual && tipologiaGravada.get(atual.ordem) === r.tipologia) return raw
             const medidas = { largura_mm: numeroOuNulo(r.largura_mm) ?? atual?.largura_mm ?? null, altura_mm: numeroOuNulo(r.altura_mm) ?? atual?.altura_mm ?? null }
-            const da60 = tipologiaNaLinhaPadrao(r.tipologia, tabela.candidatos, medidas)
-            if (da60 === null) return raw
+            // A ORDEM DETERMINANTE (20/11/2026): o texto em que o vendedor PEDIU as variações para esta esquadria — as da linha dela (ligada pela medida); sem a
+            // linha, as da mensagem inteira (um conjunto MAIOR: só sai a variação que ninguém citou em lugar nenhum)
+            const daEsquadria = filtro.lidos.filter((t) => linhaDaEsquadria(t, medidas))
+            const pedidas = daEsquadria.length ? daEsquadria.map((t) => t.texto).join(' ') : c.texto
+            const principal = tipologiaPrincipal(r.tipologia, tabela.candidatos, medidas, pedidas)
+            if (principal === null) return raw
             rastro.linhaPadrao += 1
-            return { ...r, tipologia: da60 }
+            return { ...r, tipologia: principal }
         })
         const proposta_ = aplicarProposta(atuais, { ...efetiva, itens: naLinhaPadrao }, {
             candidatos: tabela.candidatos, aberturaDaMensagem, aberturasDitas: palavrasDeAbertura(c.texto), cores, mensagem: c.texto, ordemPadrao, definicao, familiasDoCodigo: doCodigo,
