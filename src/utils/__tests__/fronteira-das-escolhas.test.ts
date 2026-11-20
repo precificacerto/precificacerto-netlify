@@ -69,7 +69,7 @@ describe('(2) o padrão do motor só vale quando NÃO acrescenta peça — senã
         return {
             ...t,
             variaveis: [{ variavel: 'X', descricao: 'PEÇA X', padrao, condicao: 'sempre', opcoes: '1 = UM; 2 = DOIS; 3 = TRÊS', condicao_opcoes: null }],
-            perfis: condicoes.map((condicao, i) => ({ perfil: `P${i}`, descricao: `P${i}`, corte: '90/90', qtd: '1', medida: 'L', posicao: 'Largura', esp_vidro: null, condicao })),
+            perfis: condicoes.map((condicao, i) => ({ perfil: `P${i}`, descricao: `P${i}`, corte: '90/90', qtd: '1', medida: 'L', posicao: 'Largura', esp_vidro: null as string | null, condicao })),
             insumos: [], vidros: [],
         }
     }
@@ -88,7 +88,7 @@ describe('(2) o padrão do motor só vale quando NÃO acrescenta peça — senã
         expect([r2.escolhas.X, r2.origem.X]).toEqual([2, 'principal'])
     })
     it('a RESSALVA DA TRAVESSA (19/11/2026): a tipologia que diz "travessa" no nome fica com a peça do padrão', () => {
-        const t = { ...sintetica('1', ['(UT=1)', 'sempre']), variaveis: [{ variavel: 'UT', descricao: 'USA TRAVESSA?', padrao: '1', condicao: 'sempre', opcoes: '1 = SIM; 2 = NÃO', condicao_opcoes: null }] }
+        const t = { ...sintetica('1', ['(UT=1)', 'sempre']), variaveis: [{ variavel: 'UT', descricao: 'USA TRAVESSA?', padrao: '1', condicao: 'sempre', opcoes: '1 = SIM; 2 = NÃO', condicao_opcoes: null as string | null }] }
         expect(F().escolhasDoCalculo(t, {}, {}).escolhas.UT).toBe(2)
         expect(F().escolhasDoCalculo(t, {}, {}, 'PORTA DE CORRER COM TRAVESSA | EUROPA 42').escolhas.UT).toBe(1)
     })
@@ -105,7 +105,7 @@ describe('(3) a TRAVA no motor: com as escolhas vindas da fronteira, o padrão n
         const t = dp02()
         const com = A().avaliarTipologia({ tipologia: t, L_mm: 1200, H_mm: 1000, escolhas: {}, espessura_vidro_mm: 5, semDecidirVariacao: true })
         expect(com.ok).toBe(false)
-        if (!com.ok) expect(com.recusas.some((x) => x.motivo === 'VARIAVEL_DE_IDENTIFICACAO')).toBe(true)
+        expect(!com.ok && com.recusas.some((x: { motivo: string }) => x.motivo === 'VARIAVEL_DE_IDENTIFICACAO')).toBe(true)
         const sem = A().avaliarTipologia({ tipologia: t, L_mm: 1200, H_mm: 1000, escolhas: {}, espessura_vidro_mm: 5 })
         expect(sem.ok).toBe(true)
         // com as escolhas da fronteira, a avaliação fecha com a marca
@@ -119,6 +119,11 @@ describe('(4) a política: a EMPRESA sobre o NICHO, campo a campo; a tradução 
         expect(P().politicaEfetiva(null, { usa_arremate_interno: true, guarnicao_interna: 'BZ1770' })).toEqual({ usa_arremate_interno: true, guarnicao_interna: 'BZ1770' })
         expect(P().politicaEfetiva({ usa_arremate_interno: false, guarnicao_interna: null }, { usa_arremate_interno: true, guarnicao_interna: 'BZ1770' }))
             .toEqual({ usa_arremate_interno: false, guarnicao_interna: 'BZ1770' })
+    })
+    it('a política que casa MAIS DE UMA opção é recusa nomeada — nunca a primeira', () => {
+        const ari = { variavel: 'ARI', opcoes: '1 = BZ1770 - ARREMATE 70MM; 2 = BZ1770 - ARREMATE 70MM LAMINADO; 3 = SEM ARREMATE INTERNO' }
+        const t = P().traduzirPolitica('DP-XX', ari, DE_PAULA)
+        expect(t && 'recusa' in t ? t.recusa : null).toContain('mais de uma opção de ARI')
     })
     it('cores, cor predominante e serra NÃO são lidas daqui (a fonte é mp_categoria.config, decisão de 03/11/2026)', () => {
         const p = P().politicaEfetiva({ cores_perfil: ['BRANCO'], cor_perfil_predominante: 'BRANCO', serra_mm: 5, barra_mm: 6000, solda: 'SPVCAL 6MM' }, null)

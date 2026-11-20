@@ -1,7 +1,12 @@
 """Mutações da FRONTEIRA (dono do produto, 20/11/2026): a etapa 1 sem o Padrão do motor; na 2, o vendedor, a política da empresa, o padrão que não
 acrescenta peça ou a principal — e a trava no avaliador.
 Uso: python3 scripts/mutacoes/fronteira-das-escolhas.py <worktree>. Roda numa worktree, nunca na árvore de trabalho.
-Cada trecho tem de aparecer UMA vez, ou a bateria aborta (código 3) antes de rodar suíte."""
+Cada trecho tem de aparecer UMA vez, ou a bateria aborta (código 3) antes de rodar suíte.
+
+EQUIVALENTE, fora da bateria: tratar a linha cuja Condição não se avalia como AUSENTE em vez de presente. O avaliador não faz curto-circuito, então
+uma Condição que não se avalia não se avalia com NENHUMA opção da variável — ela entra (ou sai) de todos os conjuntos, e nenhuma relação de
+contenção muda. Medido ao rodar a bateria em 20/11/2026.
+"""
 import pathlib
 import subprocess
 import sys
@@ -20,14 +25,13 @@ M = [
     ('M4 contido em vez de estritamente', F, "o !== padrao && estritamenteContido(", "o !== padrao && contido("),
     ('M5 a principal é a de mais', F, "conjuntos.every((x) => contido(c.linhas, x.linhas))", "conjuntos.every((x) => contido(x.linhas, c.linhas))"),
     ('M6 sem principal, o padrão', F, "        if (principal === null) {\n            const lista", "        if (principal === null) { escolhas[v.variavel] = padrao; continue }\n        if (principal === null) {\n            const lista"),
-    ('M7 a condição que não se avalia não entra', F, "        if ('recusa' in r || r.valor === true) entram.add(i)", "        if (!('recusa' in r) && r.valor === true) entram.add(i)"),
     ('M8 a ressalva da travessa some', F, "(doNome && descricao !== null && doNome.test(semAcento(descricao)))", "false"),
     ('M9 usa=não vira o padrão', F, "        const sem = principalDe(v.variavel, opcoes)\n", "        const sem = numeroDoPadrao(v.padrao)\n"),
     ('M10 o vendedor não vence', F, "        if (escolhas[v.variavel] !== undefined || voltas.some", "        if (voltas.some"),
     ('M11 a política vira "contém"', P, "forma(o.rotulo).startsWith(forma(texto))", "forma(o.rotulo).includes(forma(texto).slice(0, 4))"),
     ('M12 o nicho não herda', P, "    const efetivo = efetivoDasEsquadrias(empresa, nicho)", "    const efetivo = efetivoDasEsquadrias(empresa, null)"),
     ('M13 mais de uma opção casa e vale', P, "return achadas.length === 1 ? { valor: achadas[0].valor, campo } : recusa(campo, texto, achadas.length)", "return achadas.length >= 1 ? { valor: achadas[0].valor, campo } : recusa(campo, texto, achadas.length)"),
-    ('M14 a cor passa a ser lida da política', P, "    RL: { booleano: 'regiao_litoranea' },", "    RL: { booleano: 'regiao_litoranea' },\n    CORES: { valor: 'cores_perfil' },"),
+    ('M14 a cor passa a ser lida da política', P, "    RL: { booleano: 'regiao_litoranea' },", "    RL: { booleano: 'regiao_litoranea' },\n    COR: { valor: 'cor_perfil_predominante' },"),
     ('M15 o agente vê o Padrão', E, "    return { variaveis: t.variaveis.map((v): VariavelDoAgente => ({ ...v, padrao: null, tem_padrao: (v.padrao ?? '').trim() !== '' })) }", "    return t"),
     ('M16 a condição pergunta quando vale em alguma', E, "    return combinacoes.every((valores) => {", "    return combinacoes.some((valores) => {"),
     ('M17 a variável sem opções faz perguntar', E, "        if (!opcoes || opcoes.length === 0) return false\n", "        if (!opcoes || opcoes.length === 0) return true\n"),

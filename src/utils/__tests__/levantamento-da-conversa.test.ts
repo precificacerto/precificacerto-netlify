@@ -886,6 +886,14 @@ describe('(5b) as ESCOLHAS gravadas chegam ao avaliador', () => {
         expect(r.texto).toContain('a política da empresa diz guarnicao_interna = "BZ9999", e na tipologia DP-02 nenhuma opção')
     })
 
+    it('a variável com opções SEM padrão e sem política: o motor não a decide — a recusa diz que escolher é do agente (a trava VARIAVEL_DE_IDENTIFICACAO)', async () => {
+        for (const v of banco.db.orcamentista_motor_variavel ?? []) if (v.variavel === 'ARI') v.padrao = null
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev())
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto).toContain('escolher a opção é do agente')
+    })
+
     it('uma chave que não é capturada, no jsonb, não vira escolha: {"MAI": 2} sozinho não muda nada', async () => {
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { MAI: 2 } }))
