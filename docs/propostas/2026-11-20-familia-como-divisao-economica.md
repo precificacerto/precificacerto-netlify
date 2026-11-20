@@ -97,8 +97,39 @@ Escrita e NÃO aplicada; o PR traz caminho, md5 e número de linhas, e o harness
 5. **A tabela `products` entra só como vocabulário** (o enum), ou a política padrão de uma família deve vir dos produtos do mesmo tipo (as médias que
    você mediu: PRODUZIDO 9,44/1,93/1,04; REVENDA 6,33/4,79/0,36)? O desenho NÃO lê `products`: a política vem do perfil do vendedor por família.
 
-## O que fica aberto, de propósito (o display da porta interna)
+## Quantidade ou ambiente: o agente ESPELHA o que recebeu (complemento do dono do produto, 20/11/2026)
+
+> "a distinção de ser um quantitativo para tudo ou individual vai depender do formato que o agente vai receber a informação."
+
+Não é configuração da família nem pergunta ao vendedor: é consequência do que chega, **item a item**, e os dois modos convivem no mesmo levantamento.
+
+- **"10 portas internas 80x210"** → UM item, `quantidade = 10`, `ambientes` nulo.
+- **Uma imagem ou um texto com os ambientes discriminados** ("suíte 80x210, banheiro 70x210…") → UM item POR AMBIENTE, cada um com a sua medida,
+  `quantidade` do que foi dito para aquele ambiente (1 se não dito, a regra de 03/11), e `ambientes` preenchido com o ambiente daquele item.
+- **O agente NÃO pergunta** qual dos dois modos o vendedor quer, e não converte um no outro: o quantitativo não vira N itens, e os itens por ambiente
+  não se fundem num quantitativo — **o agrupamento de iguais (`agruparIguais`, 03/11) passa a ter o ambiente como critério**, como o comentário dele já
+  previa ("o ambiente entra nessa lista quando existir"): duas portas iguais em ambientes diferentes são dois itens.
+
+**Medido (pelo dono do produto, 20/11/2026):** `orcamentista_levantamento_item` já tem `quantidade` e `ambientes`; `ambientes` está vazio nos 63 itens
+(o caminho existe e está morto), `quantidade` é usada (17 itens com 2, máximo 2). **Não há migração**: é o agente começar a gravar o ambiente.
+
+O que muda no código, para a PR deste pedaço:
+1. a ferramenta do modelo ganha o ambiente por item (texto curto, copiado do que o vendedor ou a imagem disse — nunca inventado, conferido no texto
+   como o nome e o vidro);
+2. `aplicarProposta` grava `ambientes` no item; o agrupamento inclui o ambiente nos critérios; a equivalência das retidas (`esquadriasEquivalentes`)
+   trata ambientes diferentes como esquadrias diferentes;
+3. a folha do levantamento e o orçamento mostram o ambiente quando houver (o orçamento já copia `ambientes` do levantamento: a coluna existe em
+   `orcamentista_orcamento_item`);
+4. **a forma do `ambientes` já está decidida pelos leitores** (medido no código, 20/11/2026): é a lista `[{ "ambiente": "Suíte", "quantidade": 1 }]` —
+   `arquivo-do-levantamento.ts:223/275` a lê assim, e o PDF do orçamento a imprime em "*LOCAL/AMBIENTE:" (`arquivo-do-orcamento.ts:298`). O agente grava
+   nessa forma, sem inventar outra. A forma admite também um item com a quantidade repartida entre ambientes ("2 na suíte, 1 no banheiro" de uma porta
+   igual) — **pergunta para o PO**: nesse caso é um item com dois ambientes, ou dois itens? A proposta é espelhar: se o vendedor disse as medidas
+   iguais e repartiu por ambiente, um item com a lista; se disse uma medida por ambiente, um item por ambiente.
+
+Vale para TODA família, não só para a porta interna: uma janela por ambiente da planta é o mesmo caso.
+
+## O display da porta interna (o que antes ficava aberto)
 
 "Levantar por quantidade total e também descer na medida de cada uma, individualmente." O desenho não fecha isso: o item de levantamento e o de
-orçamento já aceitam `quantidade` > 1 com medidas, e a família REVENDA não exige medida para precificar (preço por unidade). Descer na medida de cada
-uma é dividir o item em N itens de quantidade 1 — sem estrutura nova; a tela é que decide quando.
+orçamento já aceitam `quantidade` > 1 com medidas, e a família REVENDA não exige medida para precificar (preço por unidade). Com o complemento acima,
+ele deixa de ser decisão de tela: o levantamento já chega num dos dois modos, e a tela mostra o que chegou.
