@@ -105,7 +105,7 @@ describe('(3) a TRAVA no motor: com as escolhas vindas da fronteira, o padrão n
         const t = dp02()
         const com = A().avaliarTipologia({ tipologia: t, L_mm: 1200, H_mm: 1000, escolhas: {}, espessura_vidro_mm: 5, semDecidirVariacao: true })
         expect(com.ok).toBe(false)
-        expect(!com.ok && com.recusas.some((x: { motivo: string }) => x.motivo === 'VARIAVEL_DE_IDENTIFICACAO')).toBe(true)
+        expect('recusas' in com && com.recusas.some((x) => x.motivo === 'VARIAVEL_DE_IDENTIFICACAO')).toBe(true)
         const sem = A().avaliarTipologia({ tipologia: t, L_mm: 1200, H_mm: 1000, escolhas: {}, espessura_vidro_mm: 5 })
         expect(sem.ok).toBe(true)
         // com as escolhas da fronteira, a avaliação fecha com a marca
