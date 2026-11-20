@@ -44,12 +44,12 @@ export function aberturaDita(texto: string): Abertura | null {
 }
 
 /**
- * A ALTURA DECIDE ENTRE JANELA E PORTA (dono do produto, 19/11/2026, o teste do Dirceu Gonzalez): "altura >= 2,00 m é porta-janela; abaixo de
- * 2,00 m é janela. O agente NÃO pergunta mais 'é janela ou porta?' quando a medida já foi dada. A descrição escrita pelo vendedor tem
- * precedência: se ele escreveu 'porta', é porta mesmo com altura menor; a regra da altura só vale quando a descrição não diz qual é."
+ * A PALAVRA DECIDE ENTRE JANELA E PORTA (dono do produto, 20/11/2026 — REVOGA a regra da altura de 19/11/2026, "altura >= 2,00 m é porta-janela"):
+ * "QUEM CLASSIFICA É A PALAVRA DO VENDEDOR: se ele escreve PORTA antes da medida, é porta-janela; se escreve JANELA, ou não escreve nem uma coisa
+ * nem outra, é janela. Esse é o padrão: sem palavra, janela." A altura NÃO decide tipo de esquadria; o limite de medida da tipologia só VALIDA
+ * (a autorização da medida fora do limite), nunca classifica. Escopo: Wolff/PVC.
  */
-export const ALTURA_DA_PORTA_MM = 2000
-export const aberturaPelaAltura = (alturaMm: number): Abertura => (alturaMm >= ALTURA_DA_PORTA_MM ? 'porta' : 'janela')
+export const ABERTURA_SEM_PALAVRA: Abertura = 'janela'
 
 /** A abertura que a DESCRIÇÃO da tipologia declara: a PRIMEIRA palavra. MAXIM-AR, FIXO e o resto não declaram (null). */
 export function aberturaDaDescricao(descricao: string | null): Abertura | null {
@@ -239,9 +239,8 @@ export function vocabularioDaObra(linha: string, tipos: readonly string[]): stri
     if (!DIZ_PERSIANA.test(t) || SEM_PERSIANA.test(t)) return linha
     if (!tipos.some((tipo) => palavrasDoTipo(tipo).includes('correr'))) return linha
     const acrescimo: string[] = []
-    // a abertura que a linha não diz: a da ALTURA, quando a linha traz uma medida só (19/11/2026); sem medida, a janela de antes
-    const medidas = medidasDaLinha(linha)
-    if (palavrasDeAbertura(linha).size === 0) acrescimo.push(medidas.length === 1 ? aberturaPelaAltura(medidas[0].altura_mm as number) : 'janela')
+    // a abertura que a linha não diz: JANELA (20/11/2026, a palavra decide; sem palavra, janela — a altura não decide)
+    if (palavrasDeAbertura(linha).size === 0) acrescimo.push(ABERTURA_SEM_PALAVRA)
     if (tiposDitos(linha, tipos).size === 0) acrescimo.push('de correr')
     return acrescimo.length === 0 ? linha : `${linha} [${acrescimo.join(' ')} com persiana]`
 }
@@ -304,6 +303,11 @@ export function trechosDoAcumulado(textos: readonly string[], tipos: readonly st
     for (const texto of textos) {
         for (const bloco of blocosDaFicha(texto)) {
             for (const crua of bloco.linhas) {
+                // A PALAVRA ANTES DA MEDIDA (dono do produto, 20/11/2026: "se ele escreve PORTA antes da medida, é porta-janela. A palavra vem antes
+                // da medida e é o único sinal que conta"): a linha que diz porta E janela e traz medidas vira um trecho por medida, cada um com a
+                // palavra que vem antes dela ("porta 2500 x 2200; e outra janela 800 x 600" são uma porta e uma janela, nunca "é janela ou porta?")
+                const porMedida = trechosPelaPalavraAntesDaMedida(crua, tipos)
+                if (porMedida) { trechos.push(...porMedida); continue }
                 const linha = vocabularioDaObra(crua, tipos)
                 const dita = aberturaDita(linha)
                 const ditos = tiposDitos(linha, tipos)
@@ -313,14 +317,35 @@ export function trechosDoAcumulado(textos: readonly string[], tipos: readonly st
                 // a FICHA (18/11/2026): a linha de abertura ou tipo ganha a medida rotulada do bloco dela, e o bloco inteiro
                 const daFicha = bloco.medida !== null && !medidas.some((x) => x.largura_mm === bloco.medida?.largura_mm && x.altura_mm === bloco.medida?.altura_mm)
                 const todas = daFicha ? [...medidas, bloco.medida as Medidas] : medidas
-                // A ALTURA DECIDE (19/11/2026): a linha que não diz porta nem janela e traz UMA medida tem a abertura da altura; a palavra escrita
-                // vence sempre. Com duas medidas diferentes na linha, nenhuma decide (a linha não é de uma esquadria só)
-                const abertura = dita ?? (todas.length === 1 ? aberturaPelaAltura(todas[0].altura_mm as number) : null)
+                // A PALAVRA DECIDE (20/11/2026): a linha que não diz porta nem janela é JANELA — com uma medida, com duas, sem nenhuma; a altura não
+                // decide. A linha que diz as duas (fora de "porta janela") fica sem abertura, como antes
+                const abertura = dita ?? (palavrasDeAbertura(linha).size === 0 ? ABERTURA_SEM_PALAVRA : null)
                 trechos.push({ abertura, tipos: ditos, texto: linha, medidas: todas, ...(bloco.medida !== null ? { bloco: bloco.texto } : {}) })
             }
         }
     }
     return trechos
+}
+
+/** A última palavra de abertura no texto: "porta janela"/"porta-janela" e "porta" são porta; "janela" é janela; nenhuma, null. */
+function ultimaAbertura(texto: string): Abertura | null {
+    let ultima: Abertura | null = null
+    for (const m of semAcento(texto).matchAll(/\bporta[\s-]+janelas?\b|\bportas?\b|\bjanelas?\b/g)) ultima = m[0].startsWith('porta') ? 'porta' : 'janela'
+    return ultima
+}
+/** A linha com as DUAS palavras e com medida: um trecho por medida, com a palavra que vem antes dela. Null quando a regra não se aplica. */
+function trechosPelaPalavraAntesDaMedida(crua: string, tipos: readonly string[]): TrechoDoAcumulado[] | null {
+    if (palavrasDeAbertura(crua).size < 2) return null
+    const pares = [...crua.matchAll(PAR_DE_MEDIDAS)]
+    if (pares.length === 0) return null
+    let inicio = 0
+    return pares.map((m) => {
+        const fim = (m.index ?? 0) + m[0].length
+        const trecho = crua.slice(inicio, fim)
+        inicio = fim
+        const medidas = medidasDaLinha(m[0])
+        return { abertura: ultimaAbertura(crua.slice(0, m.index ?? 0)) ?? ABERTURA_SEM_PALAVRA, tipos: tiposDitos(trecho, tipos), texto: trecho, medidas }
+    })
 }
 
 export type ListaFiltrada<C> = {

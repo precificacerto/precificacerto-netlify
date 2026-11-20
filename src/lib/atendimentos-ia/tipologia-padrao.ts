@@ -12,7 +12,7 @@
  * A REGRA, por esquadria sem tipologia depois da proposta do modelo:
  *   - a ABERTURA (porta/janela) é a palavra do vendedor para a esquadria; sem ela não há padrão (é outro produto);
  *   - o TIPO é SEMPRE dito (dono do produto: "o tipo não se adivinha"): o tipo do motor que o trecho diz (`tiposDitos`). A porta sem tipo é
- *     de correr (o padrão da porta, 05/11/2026); a janela sem tipo não tem padrão. Dois tipos ditos, ou um tipo que o motor não tem
+ *     de correr (o padrão da porta, 05/11/2026), e a janela sem tipo também (20/11/2026). Dois tipos ditos, ou um tipo que o motor não tem
  *     (basculante, guilhotina, camarão…), também não;
  *   - os ATRIBUTOS de cada candidata saem da DESCRIÇÃO do motor (`atributosDaDescricao`); os ditos, do trecho (`atributosDitos`), pelas
  *     mesmas palavras. A candidata vale quando, atributo por atributo, bate com o dito — e, no que não foi dito, com o NATURAL:
@@ -36,7 +36,7 @@
  */
 import type { CandidatoDeTipologia } from '@/lib/atendimentos-ia/levantamento-da-conversa'
 import type { ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
-import { aberturaDaDescricao, cabeNosLimites, linhaDaEsquadria, type Abertura, type TrechoDoAcumulado } from '@/lib/atendimentos-ia/tipologias-candidatas'
+import { ABERTURA_SEM_PALAVRA, aberturaDaDescricao, cabeNosLimites, linhaDaEsquadria, type Abertura, type TrechoDoAcumulado } from '@/lib/atendimentos-ia/tipologias-candidatas'
 
 const semAcento = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
@@ -325,7 +325,10 @@ function decisaoDoPadrao(item: ItemDoLevantamento, abertura_: Abertura | null, t
     const doItem = trechos.filter((t) => linhaDaEsquadria(t, item))
     // a abertura: a do item; sem ela, a que a linha da esquadria afirma (uma só) — "persiana" afirma janela pelo vocabulário da obra
     const daLinha = new Set(doItem.map((t) => t.abertura).filter((a): a is Abertura => a !== null))
-    const abertura = abertura_ ?? (daLinha.size === 1 ? [...daLinha][0] : null)
+    // sem a linha da esquadria: a abertura que TODOS os trechos dizem (uma só); nenhum dizendo, JANELA (20/11/2026: "sem palavra, janela"); porta
+    // numa linha e janela noutra, sem a medida que ligue a esquadria a uma delas, continua sem abertura
+    const deTodos = new Set(trechos.map((t) => t.abertura).filter((a): a is Abertura => a !== null))
+    const abertura = abertura_ ?? (daLinha.size === 1 ? [...daLinha][0] : doItem.length === 0 && deTodos.size === 1 ? [...deTodos][0] : doItem.length === 0 && deTodos.size === 0 && trechos.length > 0 ? ABERTURA_SEM_PALAVRA : null)
     if (abertura === null) return falta({ motivo: 'SEM_ABERTURA' }, FRASE_SEM_ABERTURA)
     const dela = (doItem.length > 0 ? doItem : trechos).filter((t) => t.abertura === abertura)
     if (dela.length === 0) return falta({ motivo: 'SEM_TRECHO' }, FRASE_SEM_TRECHO)
@@ -337,14 +340,14 @@ function decisaoDoPadrao(item: ItemDoLevantamento, abertura_: Abertura | null, t
     if ([...tiposDoMotor].some((t) => tipoCurto(t) === 'fixo') && !/\bfix[oa]s?\b/.test(semAcento(texto).replace(FIXO_DE_ATRIBUTO, ' '))) {
         for (const t of [...tiposDoMotor]) if (tipoCurto(t) === 'fixo') tiposDoMotor.delete(t)
     }
-    // o tipo é SEMPRE dito; a porta sem tipo é de correr (o padrão da porta); a janela sem tipo não tem padrão
+    // o tipo dito vale; sem tipo dito, DE CORRER — a porta (05/11/2026) e também a janela (dono do produto, 20/11/2026: "O FORMATO padrão é DE
+    // CORRER. Giro/abrir só quando ele disser; se ele não disser, não pergunte")
     let tipo: string | null
     let tipoDito = true
     if (tiposDoMotor.size > 1) return falta({ motivo: 'TIPOS_DITOS' }, fraseDosTiposDitos([...tiposDoMotor]))
     if (tiposDoMotor.size === 1) tipo = tipoCurto([...tiposDoMotor][0])
     else if (PALAVRA_DE_TIPO.test(semAcento(texto).replace(FIXO_DE_ATRIBUTO, ' '))) return falta({ motivo: 'TIPO_FORA_DO_MOTOR' }, fraseDoTipoForaDoMotor(tiposDaEmpresa))
-    else if (abertura === 'porta') { tipo = 'correr'; tipoDito = false }
-    else return falta({ motivo: 'JANELA_SEM_TIPO' }, fraseDaJanelaSemTipo(tiposDaEmpresa))
+    else { tipo = 'correr'; tipoDito = false }
     if (ditos.semRepresentacao) return falta({ motivo: 'DITO_SEM_REPRESENTACAO' }, FRASE_DITO_SEM_REPRESENTACAO)
     if (tipo === null) return falta({ motivo: 'JANELA_SEM_TIPO' }, fraseDaJanelaSemTipo(tiposDaEmpresa))
     // fora do correr, o natural é UM; outro número de módulos dito não tem padrão (o modelo decide)
