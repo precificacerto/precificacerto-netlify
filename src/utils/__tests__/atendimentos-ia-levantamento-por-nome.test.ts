@@ -7600,3 +7600,78 @@ describe('(44) O CONTEXTO DO TURNO (dono do produto, 18/11/2026): o turno só al
         expect(saidas[0].levantamento_id).toBe(porNomeDoLevantamento(DAIANE).id)
     })
 })
+
+describe('(45) TAREFA 0016 — o nome do cliente já resolvido no fio não se pergunta de novo (o laço do João Silva, 15/11/2026)', () => {
+    /**
+     * O caso, 19:03 a 19:04 de 15/11/2026: "Recalcular esse orçamento, Item 2 é mini boreal 4" → "De qual cliente?" → "João silva" → o agente
+     * abre o levantamento do João Silva e pergunta se é o item 2 → "esse 2" → "Ainda falta o nome do cliente". Medido em 21/11/2026: desde
+     * 19/11 16:26 (o contexto do turno, 20261118000005, gravando o levantamento da saída) a pergunta do nome não saiu nenhuma vez em
+     * produção. Este bloco é o portão que fica vermelho se a pergunta do nome reabrir com um levantamento já aberto no fio.
+     */
+    const JOAO = 'João Silva'
+    const doJoao = () => levantamentos().find((l) => l.nome === JOAO) as Linha
+    const perguntaONome = (t: string) => /nome do cliente|de qual cliente|de quem (é|e)\b/i.test(t)
+
+    it('O CASO replayado: logo depois do levantamento do João, a alteração SEM o nome vai nele — sem perguntar o cliente — e "esse 1" também', async () => {
+        await fecharDp02(JOAO)
+        // 1. "Recalcular esse orçamento, item 1 é ...": a última saída tratou o João; o cliente está resolvido no fio
+        llmResponde({ alteracao: true, itens: [{ ordem: 1, vidro: 'Temperado 8mm' }] })
+        await chamar('Recalcular esse orçamento, item 1 é temperado 8mm')
+        let ia = linhaIa().pop() as string
+        expect(ia).toContain(`levantamento=${doJoao().id}`)
+        expect(ia).toContain('nome=do_contexto')
+        expect(ia).not.toContain('rota=SEM_NOME')
+        expect(perguntaONome(ultimoEnviado())).toBe(false)
+        expect(itensDe(doJoao().id)[0].vidro).toBe('Temperado 8mm')
+        // 2. "esse 1", de novo sem o nome: continua no João
+        llmResponde({ alteracao: true, itens: [{ ordem: 1, vidro: 'Temperado 10mm' }] })
+        await chamar('esse 1, temperado 10mm')
+        ia = linhaIa().pop() as string
+        expect(ia).toContain(`levantamento=${doJoao().id}`)
+        expect(ia).not.toContain('rota=SEM_NOME')
+        expect(perguntaONome(ultimoEnviado())).toBe(false)
+        expect(itensDe(doJoao().id)[0].vidro).toBe('Temperado 10mm')
+    })
+
+    it('sem levantamento no fio (conversa nova), a alteração sem o nome continua perguntando o cliente — uma vez', async () => {
+        await fecharDp02(JOAO)
+        // a conversa nova: nenhuma saída gravou levantamento
+        for (const m of estado.db.orcamentista_mensagem ?? []) m.levantamento_id = null
+        llmResponde({ alteracao: true, itens: [{ ordem: 1, vidro: 'Temperado 8mm' }] })
+        await chamar('Recalcular esse orçamento, item 1 é temperado 8mm')
+        expect(linhaIa().pop()).toContain('rota=SEM_NOME')
+        expect(itensDe(doJoao().id)[0].vidro).toBe('Temperado 5mm')
+    })
+
+    it('o "novo" (outro cliente) não cai no levantamento do fio, mesmo como alteração', async () => {
+        await fecharDp02(JOAO)
+        llmResponde({ novo: true, alteracao: true, itens: [{ ordem: 1, vidro: 'Temperado 8mm' }] })
+        await chamar('é outro cliente, item 1 temperado 8mm')
+        const ia = linhaIa().pop() as string
+        expect(ia).not.toContain(`levantamento=${doJoao().id}`)
+        expect(ia).not.toContain('nome=do_contexto')
+        expect(itensDe(doJoao().id)[0].vidro).toBe('Temperado 5mm')
+    })
+
+    it('o que NÃO é alteração (esquadria nova, sem nome) não cai no levantamento do fio: pergunta o cliente', async () => {
+        await fecharDp02(JOAO)
+        llmResponde({ itens: [{ ...DP02, vidro: 'Temperado 8mm' }] })
+        await chamar('DP-02 1200 x 1000 temperado 8mm')
+        const ia = linhaIa().pop() as string
+        expect(ia).not.toContain('nome=do_contexto')
+        expect(ia).toContain('rota=SEM_NOME')
+        expect(itensDe(doJoao().id)).toHaveLength(1)
+    })
+
+    it('mudar de cliente no meio do fio continua perguntando: a alteração que fala de OUTRO cliente sem o nome dele não vai no João', async () => {
+        await fecharDp02(JOAO)
+        llmResponde({ nome: 'João silva', alteracao: true, itens: [{ ordem: 1, vidro: 'Temperado 8mm' }] })
+        await chamar('João silva: item 1 é temperado 8mm')
+        expect(linhaIa().pop()).toContain(`levantamento=${doJoao().id}`)
+        // o vendedor fala de outro cliente, que não existe: a conversa não o confunde com o João
+        llmResponde({ nome: 'Maria Souza', alteracao: true, itens: [{ ordem: 1, vidro: 'Temperado 10mm' }] })
+        await chamar('Maria Souza: item 1 é temperado 10mm')
+        expect(linhaIa().pop()).not.toContain(`levantamento=${doJoao().id}`)
+        expect(itensDe(doJoao().id)[0].vidro).toBe('Temperado 8mm')
+    })
+})
