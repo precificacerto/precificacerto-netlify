@@ -295,7 +295,8 @@ function montar() {
     estado.storage = new Map()
     estado.documentoDoOrcamentoStatus = null
     estado.documentosDoOrcamento = []
-    estado.ausentes = new Set()
+    // a natureza da variável (20261121000001) não existe neste mundo: a política e o vidro padrão vêm das tabelas de antes, como os casos as montam
+    estado.ausentes = new Set(['orcamentista_natureza_da_variavel'])
     estado.leiturasQueFalham = new Set()
     estado.colunasAusentes = new Set()
     estado.respostaPeloPrompt = null
@@ -6343,8 +6344,9 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             ['orcamentista_motor_tipologia_detalhe'], ['orcamentista_motor_variavel'], ['orcamentista_motor_formula'], ['orcamentista_motor_perfil'], ['orcamentista_motor_validacao'],
             // AS ABAS OPCIONAIS (12/11/2026, os três caminhos): Insumos e Vidros, lidas em série depois das cinco — duas idas a mais
             ['orcamentista_motor_insumo'], ['orcamentista_motor_vidro'],
-            // A POLÍTICA DA EMPRESA (20/11/2026, a fronteira): a da empresa e a configuração juntas, e a do nicho depois — duas idas a mais
-            ['orcamentista_config', 'orcamentista_esquadrias_base'], ['orcamentista_esquadrias_padrao'],
+            // A POLÍTICA DA EMPRESA (20/11/2026, a fronteira): a da empresa e a configuração juntas, e a do nicho depois — duas idas a mais; a
+            // NATUREZA DA VARIÁVEL (20261121000001) vai na MESMA onda da empresa — uma leitura a mais, nenhuma ida a mais (aqui ela não existe: o nicho segue)
+            ['orcamentista_config', 'orcamentista_esquadrias_base', 'orcamentista_natureza_da_variavel'], ['orcamentista_esquadrias_padrao'],
             ['orcamentista_mp_categoria'], ...Array.from({ length: T }, () => ['orcamentista_motor_regra']),
             // O ESCOPO DA RESOLUÇÃO (12/11/2026): o fornecedor e as famílias do motor e as tabelas vão JUNTO da primeira página de itens — a
             // mesma onda de antes, com três leituras a mais
@@ -6361,7 +6363,7 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             expect(faltas).toEqual([])
             expect(ondas).toEqual([...ondasFixas(2), ONDA_DA_MAO_DE_OBRA])
             expect(ondas).toHaveLength(7 + 3 + 2 + 1 + 2)
-            expect(ondas.flat()).toHaveLength(12 + 3 + 3 + 3)
+            expect(ondas.flat()).toHaveLength(12 + 3 + 3 + 3 + 1) // + 1: a natureza da variável, na onda da empresa (20261121000001)
         })
 
         it('20 esquadrias, 8 tipologias: 19 idas em série (16 antes dos três caminhos, 12/11/2026; seriam 8 + 8 + 40 = 56), e a mão de obra continua numa onda só', async () => {
@@ -6380,7 +6382,7 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             expect(faltas).toEqual([])
             expect(ondas).toEqual([...ondasFixas(8), ONDA_DA_MAO_DE_OBRA])
             expect(ondas).toHaveLength(7 + 3 + 8 + 1 + 2)
-            expect(ondas.flat()).toHaveLength(7 + 3 + 8 + 3 + 3 + 3)
+            expect(ondas.flat()).toHaveLength(7 + 3 + 8 + 3 + 3 + 3 + 1) // + 1: a natureza da variável (20261121000001)
         })
 
         it('a configuração e os tempos lidos UMA vez não mudam a conta: a falta de tempo de uma tipologia ainda sai, nomeada, com as esquadrias dela', async () => {

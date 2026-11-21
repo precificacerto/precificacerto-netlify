@@ -87,6 +87,35 @@ describe('(2) o padrão do motor só vale quando NÃO acrescenta peça — senã
         const r2 = F().escolhasDoCalculo(sintetica('1', ['(X=1) or (X=2) or (X=3)', '(X=1)', '(X=1) or (X=3)']), {}, {})
         expect([r2.escolhas.X, r2.origem.X]).toEqual([2, 'principal'])
     })
+    // A NATUREZA DA VARIÁVEL (20261121000001)
+    it('natureza CALCULO: o motor resolve com o padrão — mesmo o que ACRESCENTA peça —, e nunca volta ao agente', () => {
+        const t = sintetica('1', ['(X=1) or (X=2)', '(X=1)', '(X=1) or (X=3)'])
+        const calc = { porVariavel: { X: { natureza: 'CALCULO' as const, opcao: null as string | null } } }
+        const r = F().escolhasDoCalculo(t, {}, calc)
+        expect([r.escolhas.X, r.origem.X, r.voltas]).toEqual([1, 'calculo', []])
+        // o vendedor continua vencendo
+        expect(F().escolhasDoCalculo(t, { X: 3 }, calc).escolhas.X).toBe(3)
+    })
+    it('natureza ITEM: a fronteira de sempre (o padrão que acrescenta peça sem principal volta ao agente)', () => {
+        const t = sintetica('1', ['(X=1) or (X=2)', '(X=1)', '(X=1) or (X=3)'])
+        const r = F().escolhasDoCalculo(t, {}, { porVariavel: { X: { natureza: 'ITEM' as const, opcao: null as string | null } } })
+        expect(r.voltas.map((v) => v.variavel)).toEqual(['X'])
+    })
+    it('natureza POLITICA de QUALQUER variável (não só as do mapa): a opção pelo começo do rótulo; SIM/NÃO pelo rótulo inteiro', () => {
+        const t = sintetica('1', ['(X=1)', '(X=2)', '(X=3)'])
+        expect(F().escolhasDoCalculo(t, {}, { porVariavel: { X: { natureza: 'POLITICA' as const, opcao: 'dois' } } }).escolhas.X).toBe(2)
+        const ut = { ...sintetica('1', ['(UT=1)', 'sempre']), variaveis: [{ variavel: 'UT', descricao: 'USA TRAVESSA?', padrao: '1', condicao: 'sempre', opcoes: '1 = SIM; 2 = NÃO; 3 = NÃO SEI', condicao_opcoes: null as string | null }] }
+        const r = F().escolhasDoCalculo(ut, {}, { porVariavel: { UT: { natureza: 'POLITICA' as const, opcao: 'NAO' } } })
+        expect([r.escolhas.UT, r.origem.UT]).toEqual([2, 'politica'])
+        // mais de uma opção começando pelo texto: volta ao agente, nomeada
+        const amb = F().escolhasDoCalculo(ut, {}, { porVariavel: { UT: { natureza: 'POLITICA' as const, opcao: 'N' } } })
+        expect(amb.voltas[0].frase).toContain('a política da empresa diz UT = "N", e na tipologia')
+    })
+    it('a natureza vazia NÃO cai nos campos de antes: com porVariavel, o mapa não é lido', () => {
+        const ari = { variavel: 'ARI', opcoes: '1 = BZ0006 - ARREMATE 65MM; 2 = BZ1770 - ARREMATE 70MM; 4 = SEM ARREMATE INTERNO' }
+        expect(P().traduzirPolitica('DP-02', ari, { usa_arremate_interno: true, guarnicao_interna: 'BZ1770', porVariavel: {} })).toBeNull()
+        expect(P().traduzirPolitica('DP-02', ari, { usa_arremate_interno: true, guarnicao_interna: 'BZ1770' })).toEqual({ valor: 2, campo: 'guarnicao_interna' })
+    })
     it('a RESSALVA DA TRAVESSA (19/11/2026): a tipologia que diz "travessa" no nome fica com a peça do padrão', () => {
         const t = { ...sintetica('1', ['(UT=1)', 'sempre']), variaveis: [{ variavel: 'UT', descricao: 'USA TRAVESSA?', padrao: '1', condicao: 'sempre', opcoes: '1 = SIM; 2 = NÃO', condicao_opcoes: null as string | null }] }
         expect(F().escolhasDoCalculo(t, {}, {}).escolhas.UT).toBe(2)
@@ -122,9 +151,9 @@ describe('(4) a política: a EMPRESA sobre o NICHO, campo a campo; a tradução 
     })
     it('o FECHAMENTO e o INTERLOCK não são lidos da política (20/11/2026): o texto da De Paula não diz uma opção só — nunca recusa por eles', () => {
         const mfi = { variavel: 'MFI', opcoes: '1 = CREMONA COM MAÇANETA SEM CHAVE; 2 = CREMONA COM MAÇANETA COM CHAVE' }
-        expect(P().traduzirPolitica('DP-39', mfi, { fechamento_folha_interna: 'CREMONA + MACANETA' })).toBeNull()
-        expect(P().traduzirPolitica('DP-39', { variavel: 'MFE', opcoes: mfi.opcoes }, { fechamento_folha_externa: 'CREMONA COM MAÇANETA' })).toBeNull()
-        expect(P().traduzirPolitica('DP-39', { variavel: 'INT', opcoes: '1 = ÚNICO; 2 = INTERLOCK + CAPA' }, { modelo_interlock: 'ÚNICO' })).toBeNull()
+        expect(P().traduzirPolitica('DP-39', mfi, { fechamento_folha_interna: 'CREMONA + MACANETA' } as never)).toBeNull()
+        expect(P().traduzirPolitica('DP-39', { variavel: 'MFE', opcoes: mfi.opcoes }, { fechamento_folha_externa: 'CREMONA COM MAÇANETA' } as never)).toBeNull()
+        expect(P().traduzirPolitica('DP-39', { variavel: 'INT', opcoes: '1 = ÚNICO; 2 = INTERLOCK + CAPA' }, { modelo_interlock: 'ÚNICO' } as never)).toBeNull()
     })
     it('a política que casa MAIS DE UMA opção é recusa nomeada — nunca a primeira', () => {
         const ari = { variavel: 'ARI', opcoes: '1 = BZ1770 - ARREMATE 70MM; 2 = BZ1770 - ARREMATE 70MM LAMINADO; 3 = SEM ARREMATE INTERNO' }

@@ -23,6 +23,7 @@ import { supabaseAdmin } from '@/supabase/admin'
 import { atributosDaDescricao } from '@/lib/atendimentos-ia/tipologia-padrao'
 import { derivarTabelasDaConta, principaisDaConta } from '@/lib/atendimentos-ia/tabelas-da-conta'
 import type { Abertura } from '@/lib/atendimentos-ia/tipologias-candidatas'
+import { grupoDoFormato, TABELA_DA_NATUREZA, type LinhaDaNatureza } from '@/lib/atendimentos-ia/natureza-da-variavel'
 
 export const TABELA_DO_VIDRO_PADRAO = 'orcamentista_vidro_padrao'
 
@@ -77,8 +78,29 @@ export type VidrosPadraoDaConta =
 const db = () => supabaseAdmin as any
 const semTabela = (codigo: string | undefined) => codigo === '42P01' || codigo === 'PGRST205'
 
+/**
+ * O vidro padrão pela NATUREZA DA VARIÁVEL (20261121000001; tarefas 0007 e 0008, fechadas por absorção em 21/11/2026): a variável VIDRO, natureza
+ * POLITICA, por família e formato ("janela correr", "maxim-ar"), com o código do item na opção. A linha de natureza ITEM não dá padrão (o vendedor
+ * diz; sem ele, o agente pergunta). Existindo a tabela, é ELA que vale — também vazia; `orcamentista_vidro_padrao` fica só para antes da migração.
+ * Null quando a tabela não existe.
+ */
+async function lerVidrosDaNatureza(tenantId: string): Promise<Map<string, LinhaDoVidroPadrao[]> | { falhou: string } | null> {
+    const r = await db().from(TABELA_DA_NATUREZA).select('familia, linha, formato, variavel, natureza, opcao_padrao').eq('tenant_id', tenantId).eq('variavel', 'VIDRO')
+    if (r.error) return semTabela(r.error.code) ? null : { falhou: `${TABELA_DA_NATUREZA}: ${r.error.code ?? r.error.message}` }
+    const porFamilia = new Map<string, LinhaDoVidroPadrao[]>()
+    for (const l of (r.data ?? []) as LinhaDaNatureza[]) {
+        if (l.natureza !== 'POLITICA' || l.opcao_padrao === null || l.formato === null) continue
+        const g = grupoDoFormato(l.formato)
+        porFamilia.set(l.familia, [...(porFamilia.get(l.familia) ?? []), { materia_prima_id: '', abertura: g.abertura, tipo: g.tipo, tipologia: null, item_codigo: l.opcao_padrao }])
+    }
+    return porFamilia
+}
+
 /** A leitura, pelo `service_role` (a RLS da tabela é só de super admin): as linhas da conta, as famílias delas e as descrições dos códigos. */
 export async function lerVidrosPadraoDaConta(tenantId: string): Promise<VidrosPadraoDaConta> {
+    const daNatureza = await lerVidrosDaNatureza(tenantId)
+    if (daNatureza !== null && 'falhou' in daNatureza) return { ok: false, motivo: 'falhou', detalhe: daNatureza.falhou as string }
+    if (daNatureza !== null) return comDescricoes(tenantId, daNatureza as Map<string, LinhaDoVidroPadrao[]>)
     const [r, mps] = await Promise.all([
         db().from(TABELA_DO_VIDRO_PADRAO).select('materia_prima_id, abertura, tipo, tipologia, item_codigo').eq('tenant_id', tenantId),
         db().from('orcamentista_materia_prima').select('id, familia').eq('tenant_id', tenantId),
@@ -92,6 +114,11 @@ export async function lerVidrosPadraoDaConta(tenantId: string): Promise<VidrosPa
         if (!familia) continue // matéria-prima sem família: o padrão dela não tem tipologia a que servir
         porFamilia.set(familia, [...(porFamilia.get(familia) ?? []), l])
     }
+    return comDescricoes(tenantId, porFamilia)
+}
+
+/** Os padrões por família com a descrição de cada código na tabela VIDRO do fornecedor principal. */
+async function comDescricoes(tenantId: string, porFamilia: Map<string, LinhaDoVidroPadrao[]>): Promise<VidrosPadraoDaConta> {
     const codigos = [...new Set([...porFamilia.values()].flat().map((l) => l.item_codigo))]
     let descricaoDo = new Map<string, string>()
     if (codigos.length > 0) {

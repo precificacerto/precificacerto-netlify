@@ -388,7 +388,7 @@ export function escolhasComPadrao(tipologia: VariaveisDaTipologia, explicitas: E
  * Com a ORIGEM de cada escolha (a fronteira, 20/11/2026: `fronteira-das-escolhas.ts`), a linha diz de onde veio — "como você pediu", "política da
  * empresa", "padrão do motor" ou "sem a peça, não pedida" (a principal); sem ela, o de antes.
  */
-const ORIGEM_NA_LINHA: Readonly<Record<string, string>> = { vendedor: 'como você pediu', politica: 'política da empresa', padrao_do_motor: 'padrão do motor', principal: 'sem a peça, não pedida' }
+const ORIGEM_NA_LINHA: Readonly<Record<string, string>> = { vendedor: 'como você pediu', politica: 'política da empresa', calculo: 'cálculo do motor', padrao_do_motor: 'padrão do motor', principal: 'sem a peça, não pedida' }
 export function descreverArremate(tipologia: VariaveisDaTipologia, explicitas: Escolhas, origem?: Readonly<Record<string, string>>): string | null {
     const partes = escolhasDescritas(tipologia, explicitas)
         .map((e) => `${minuscula(e.descricao)}: ${e.rotulo ?? 'padrão da tipologia'} (${(origem && ORIGEM_NA_LINHA[origem[e.variavel] ?? '']) ?? (e.doVendedor ? 'como você pediu' : 'padrão')})`)
