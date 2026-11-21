@@ -1866,10 +1866,10 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
     })
 
     it('"é o mesmo" resolve o nome e PERGUNTA antes de acrescentar; "sim" acrescenta, e a pergunta é apagada', async () => {
-        const casa = await preparar((m, sistema) => (m === 'sim' && fala(sistema, 'Confirma?') ? { confirma: true } : null))
+        const casa = await preparar((m, sistema) => (m === 'sim' && fala(sistema, 'para acrescentar, ou altera') ? { confirma: true } : null))
         await chamar(MSG_1)
         await chamar('é o mesmo')
-        expect(ultimoEnviado()).toBe(conversa.fraseDeConfirmarAcrescimo('Casa do João', 1, [{ ...DP02 }]))
+        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar('Casa do João', 1, [{ ...DP02 }]))
         expect(itensDe(casa.id)).toHaveLength(1)
         expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'CONFIRMAR_ACRESCIMO', nome: null, levantamentos: [casa.id], itens: [{ ...DP02 }] })])
         await chamar('sim')
@@ -1886,7 +1886,7 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
 
     it('"não" à confirmação: nada é acrescentado, a resposta pede o levantamento, e a esquadria vai para o nome seguinte', async () => {
         const casa = await preparar((m, sistema) => {
-            if (m === 'não' && fala(sistema, 'Confirma?')) return { confirma: false }
+            if (m === 'não' && fala(sistema, 'para acrescentar, ou altera')) return { confirma: false }
             if (m === 'Obra Nova') return fala(sistema, 'Pergunta em aberto:') ? { nome: 'Obra Nova' } : {}
             return null
         })
@@ -1903,13 +1903,13 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
     })
 
     it('o "sim" vale só para o levantamento que a confirmação citou: "sim" com o nome de OUTRO pergunta de novo, por ele', async () => {
-        const casa = await preparar((m, sistema) => (m === 'sim, no Obra Centro' && fala(sistema, 'Confirma?') ? { nome: 'Obra Centro', confirma: true } : null))
+        const casa = await preparar((m, sistema) => (m === 'sim, no Obra Centro' && fala(sistema, 'para acrescentar, ou altera') ? { nome: 'Obra Centro', confirma: true } : null))
         await fecharDp02('Obra Centro')
         const obra = levantamentos().find((l) => l.nome === 'Obra Centro')
         await chamar(MSG_1)
         await chamar('é o mesmo')
         await chamar('sim, no Obra Centro')
-        expect(ultimoEnviado()).toBe(conversa.fraseDeConfirmarAcrescimo('Obra Centro', 1, [{ ...DP02 }]))
+        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar('Obra Centro', 1, [{ ...DP02 }]))
         expect(itensDe(obra?.id)).toHaveLength(1)
         expect(itensDe(casa.id)).toHaveLength(1)
     })
@@ -3141,14 +3141,18 @@ describe('(25) o resgate do levantamento antigo e o contexto que não se perde (
         await chamar('Cliente: Geronimo. Janela de correr 1,50x1,20 vidro 4mm')
     }
 
-    it('DECISÃO 1 — o caso real: "Cliente: Geronimo Silva" com o "Geronimo Silva" já gravado é IGUAL, não parecido: as esquadrias entram nele, sem pergunta de nome', async () => {
+    it('DECISÃO 1 — o caso real: "Cliente: Geronimo Silva" com o "Geronimo Silva" já gravado é IGUAL, não parecido — sem pergunta de NOME; e, pela regra de 21/11/2026, a frase que não diz se é para alterar ou acrescentar PERGUNTA antes de gravar', async () => {
         await fecharDp02('Geronimo Silva')
         llmResponde({ cliente: 'Geronimo Silva', itens: [{ ...JANELA, abertura: 'janela' }, { ...PORTA, abertura: 'porta' }] })
         await chamar(MSG_GERONIMO)
         expect(levantamentos().map((l) => l.nome)).toEqual(['Geronimo Silva'])
-        expect(itensDe(levantamentos()[0].id)).toHaveLength(3)
         expect(enviados().some((e) => e.includes('pode ser'))).toBe(false)
         expect(linhaIa().pop()).toMatch(/ rota=ALTERACAO .* nome=do_cliente /)
+        expect(itensDe(levantamentos()[0].id)).toHaveLength(1)
+        expect(ultimoEnviado()).toContain('são novos, para acrescentar, ou alteram')
+        llmResponde({ alteracao: 'acrescentar' })
+        await chamar('acrescenta as duas')
+        expect(itensDe(levantamentos()[0].id)).toHaveLength(3)
     })
 
     it('DECISÃO 1 — o levantamento de antes, gravado COM o prefixo, é IGUAL ao nome do cliente sem ele; e nenhum nome novo ganha o prefixo', async () => {
@@ -3345,7 +3349,8 @@ describe('(25) o resgate do levantamento antigo e o contexto que não se perde (
         await abrirAListaDoResgate()
         llmResponde({ nome: 'Geronimo Lima' })
         await chamar('Geronimo Lima')
-        expect(ultimoEnviado()).toBe(conversa.fraseDeConfirmarAcrescimo('Geronimo Lima', 1, [{ ...JANELA }]))
+        // a confirmação de antes presumia o acréscimo; pela regra de 21/11/2026, a frase que não diz qual dos dois PERGUNTA
+        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar('Geronimo Lima', 1, [{ ...JANELA }]))
     })
 
     it('"é o do Lima" grava a confirmação com o ESCOLHIDO primeiro e os outros depois — é o que a confirmação relê', async () => {
@@ -3384,7 +3389,7 @@ describe('(25) o resgate do levantamento antigo e o contexto que não se perde (
         expect(ultimoEnviado()).toBe(conversa.fraseDoNomeParecido('Casa do João 2', opcoesDe('Levantamento Casa do João')))
         llmResponde({ nome: 'Casa do João' })
         await chamar('é o mesmo')
-        expect(ultimoEnviado()).toBe(conversa.fraseDeConfirmarAcrescimo('Levantamento Casa do João', 1, [{ ...DP02 }]))
+        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar('Levantamento Casa do João', 1, [{ ...DP02 }]))
         expect(linhaIa().pop()).toContain(' nome=da_pergunta ')
     })
 
@@ -3829,8 +3834,8 @@ describe('(29) o vidro copiado, a forma canônica e a dedupe por equivalência (
         await chamar('geronimo silva é o nome da obra\n2 uni - DP - 02\n1 uni - DP - 100')
         expect(perguntas()[0].itens).toEqual([{ ...JANELA, quantidade: 2 }, { ...PORTA, quantidade: 1 }])
         // a confirmação fala de DUAS esquadrias (não de 8), com as quantidades e o vidro como o vendedor o disse
-        expect(ultimoEnviado()).toBe(conversa.fraseDeConfirmarAcrescimo('Geronimo Silva', 1, [{ ...JANELA, quantidade: 2 }, { ...PORTA, quantidade: 1 }]))
-        expect(ultimoEnviado()).toContain('estes 2 itens')
+        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar('Geronimo Silva', 1, [{ ...JANELA, quantidade: 2 }, { ...PORTA, quantidade: 1 }]))
+        expect(ultimoEnviado()).toContain('Estes 2 itens')
         expect(ultimoEnviado()).toContain('2 unidade(s), vidro 4mm')
         expect(ultimoEnviado()).not.toContain('comum')
         // 5. tudo de novo, com o vidro escrito de outro jeito ("vidro 4 mm"): continuam 2, e a mesma confirmação volta em outras palavras (R2)
@@ -3838,7 +3843,7 @@ describe('(29) o vidro copiado, a forma canônica e a dedupe por equivalência (
         await chamar('Cliente Geronimo Silva\nDP-02, 1.500 x 1.200 mm, vidro 4 mm\nDP-100, 2.500 x 2.400 mm, vidro 8 mm')
         expect(perguntas()[0].itens).toEqual([{ ...JANELA, quantidade: 2 }, { ...PORTA, quantidade: 1 }])
         expect(linhaIa().pop()).toMatch(/ reenviadas=2(\s|$)/)
-        expect(ultimoEnviado()).toBe(conversa.fraseDeConfirmarAcrescimoEmOutrasPalavras('Geronimo Silva'))
+        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentarEmOutrasPalavras('Geronimo Silva'))
     })
 
     it('VIDRO COPIADO, NUNCA COMPLETADO — "pode, não derrube": "Vidro comum 4 mm" sobre "vidro 4mm" fica "vidro 4 mm", gravado; o vendedor não é perguntado pelo vidro que já disse', async () => {
@@ -4485,7 +4490,7 @@ describe('(35) a pergunta em aberto expira em 24 h na leitura, como o histórico
         await perguntaComIdade(23 * H)
         await chamar('é o mesmo')
         expect(sistemaDe(estado.chamadasDaLlm.length - 1)).toContain('Pergunta em aberto:')
-        expect(ultimoEnviado()).toBe(conversa.fraseDeConfirmarAcrescimo('Casa do João', 1, [{ ...DP02 }]))
+        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar('Casa do João', 1, [{ ...DP02 }]))
         expect(ultimaLinhaIa()).toContain(' aberta=NOME_PARECIDO ')
     })
 
@@ -5802,8 +5807,9 @@ describe('(40) o reenvio da mesma esquadria: a quantidade dita substitui, nunca 
         await chamar(MARIA)
         expect(linhaIa().pop()).toMatch(/ caminhos=e1:GRAVADA_NOVA,e2:GRAVADA_NOVA(\s|$)/)
         estado.db.orcamentista_pergunta_em_aberto = []
-        llmResponde({ cliente: 'Maria Cristina', itens: [{ ...JANELA, largura_mm: 800, altura_mm: 800 }] })
-        await chamar('1 janela maxim ar, mini boreal 80 x 80\nCliente: Maria Cristina')
+        // a frase dita acrescenta (21/11/2026: sem dizer, a conversa pergunta)
+        llmResponde({ cliente: 'Maria Cristina', alteracao: 'acrescentar', itens: [{ ...JANELA, largura_mm: 800, altura_mm: 800 }] })
+        await chamar('acrescenta 1 janela maxim ar, mini boreal 80 x 80\nCliente: Maria Cristina')
         expect(quantidades()).toEqual([['DP-39', 1], ['DP-01', 1], ['DP-01', 1]])
         expect(linhaIa().pop()).toMatch(/ caminhos=e3:GRAVADA_NOVA(\s|$)/)
     })
@@ -7745,5 +7751,74 @@ describe('(46) a descrição da etapa corrente e os textos do caminho ativo no s
         estado.ausentes.add('orcamentista_texto_do_caminho')
         expect(await pedir()).not.toContain(CABECALHO_DOS_TEXTOS_DO_CAMINHO)
         expect(linhaIa()[0]).toContain(' textos_caminho=sem_migracao ')
+    })
+})
+
+/*
+ * (47) ALTERAR OU ACRESCENTAR (dono do produto, 21/11/2026): "alteração no levantamento pode ser a alteração do que já existe, do item existente, OU
+ * adicionar outro item [...] o defeito é o sistema decidir sozinho. Quando o vendedor disser alterar um item, altera; quando disser acrescentar,
+ * acrescenta; e se a frase não disser qual dos dois, PERGUNTE em vez de escolher." O achado da 0016 é o caso (a).
+ */
+describe('(47) alterar ou acrescentar: a intenção dita manda; sem ela, a conversa pergunta', () => {
+    const JOAO = 'João Silva'
+    const doJoao = () => levantamentos().find((l) => l.nome === JOAO) as Linha
+    const semFio = () => { for (const m of estado.db.orcamentista_mensagem ?? []) m.levantamento_id = null }
+    const perguntas = () => estado.db.orcamentista_pergunta_em_aberto ?? []
+
+    it('(a) O ACHADO DA 0016: a alteração retida para perguntar o nome volta como ALTERAÇÃO do item dito — nunca como acréscimo, nem com a confirmação dele', async () => {
+        await fecharDp02(JOAO)
+        semFio()
+        llmResponde({ alteracao: 'alterar', itens: [{ ordem: 1, vidro: 'Temperado 8mm' }] })
+        await chamar('item 1 é temperado 8mm')
+        expect(linhaIa().pop()).toContain('rota=SEM_NOME')
+        expect(perguntas()[0]).toEqual(expect.objectContaining({ pergunta: 'SEM_NOME', itens: [{ vidro: 'Temperado 8mm', intencao: 'alterar', ordem: 1 }] }))
+        llmResponde({ nome: JOAO })
+        await chamar(JOAO)
+        expect(itensDe(doJoao().id)).toHaveLength(1)
+        expect(itensDe(doJoao().id)[0].vidro).toBe('Temperado 8mm')
+        expect(enviados().some((e) => e.includes('Vou acrescentar'))).toBe(false)
+        expect(linhaIa().pop()).toContain(' intencao=alterar')
+    })
+    it('(b) "acrescenta": a esquadria vira um item NOVO, mesmo no levantamento de um item só (que antes a recebia por cima)', async () => {
+        await fecharDp02(JOAO)
+        llmResponde({ nome: JOAO, alteracao: 'acrescentar', itens: [{ largura_mm: 900, altura_mm: 900 }] })
+        await chamar(`${JOAO}: acrescenta uma de 900 x 900`)
+        expect(itensDe(doJoao().id).map((i) => [i.ordem, i.largura_mm])).toEqual([[1, 1200], [2, 900]])
+        expect(linhaIa().pop()).toContain(' intencao=acrescentar')
+    })
+    it('(c) "altera": a esquadria muda o item dito; com um item só, ele', async () => {
+        await fecharDp02(JOAO)
+        llmResponde({ nome: JOAO, alteracao: 'alterar', itens: [{ largura_mm: 900, altura_mm: 900 }] })
+        await chamar(`${JOAO}: muda para 900 x 900`)
+        expect(itensDe(doJoao().id).map((i) => [i.ordem, i.largura_mm])).toEqual([[1, 900]])
+    })
+    it('(d) a frase que NÃO diz: a conversa PERGUNTA, nada é gravado; "acrescenta" responde, e a esquadria entra como nova', async () => {
+        await fecharDp02(JOAO)
+        llmResponde({ nome: JOAO, itens: [{ largura_mm: 900, altura_mm: 900 }] })
+        await chamar(`${JOAO}: 900 x 900`)
+        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar(JOAO, 1, [{ largura_mm: 900, altura_mm: 900 }]))
+        expect(itensDe(doJoao().id).map((i) => i.largura_mm)).toEqual([1200])
+        expect(linhaIa().pop()).toContain(' intencao=perguntou')
+        llmResponde({ alteracao: 'acrescentar' })
+        await chamar('é nova, acrescenta')
+        expect(itensDe(doJoao().id).map((i) => [i.ordem, i.largura_mm])).toEqual([[1, 1200], [2, 900]])
+    })
+    it('(e) a resposta "altera o item 1" à pergunta: a esquadria retida muda o item 1', async () => {
+        await fecharDp02(JOAO)
+        llmResponde({ nome: JOAO, itens: [{ largura_mm: 900, altura_mm: 900 }] })
+        await chamar(`${JOAO}: 900 x 900`)
+        llmResponde({ alteracao: 'alterar', itens: [{ ordem: 1 }] })
+        await chamar('altera o item 1')
+        expect(itensDe(doJoao().id).map((i) => [i.ordem, i.largura_mm])).toEqual([[1, 900]])
+    })
+    it('(f) o que JÁ diz que é alteração não pergunta: o número de um item que existe, e a correção de campo de uma esquadria que não está inteira', async () => {
+        await fecharDp02(JOAO)
+        llmResponde({ nome: JOAO, itens: [{ ordem: 1, quantidade: 3 }] })
+        await chamar(`${JOAO}: o 1 são 3 unidades`)
+        expect(itensDe(doJoao().id).map((i) => i.quantidade)).toEqual([3])
+        llmResponde({ nome: JOAO, itens: [{ vidro: 'Temperado 8mm' }] })
+        await chamar(`${JOAO}: temperado 8mm`)
+        expect(itensDe(doJoao().id).map((i) => i.vidro)).toEqual(['Temperado 8mm'])
+        expect(enviados().some((e) => e.includes('para acrescentar, ou altera'))).toBe(false)
     })
 })

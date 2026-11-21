@@ -233,7 +233,7 @@ import {
     type CondicoesDoLevantamento,
 } from '@/lib/atendimentos-ia/dados-do-levantamento'
 import {
-    apagarPerguntaEmAberto, confirmacaoVale, esquadriasDaProposta, gravarPerguntaEmAberto, juntarEsquadrias, lerPerguntaEmAberto, marcaDaConfirmacao, montagemExpirou,
+    apagarPerguntaEmAberto, confirmacaoVale, esquadriasDaProposta, esquadriasEquivalentes, gravarPerguntaEmAberto, juntarEsquadrias, lerPerguntaEmAberto, marcaDaConfirmacao, montagemExpirou,
     type CodigoDaPergunta, type EsquadriaProposta, type PerguntaEmAberto,
 } from '@/lib/atendimentos-ia/pergunta-em-aberto'
 import { lerVidrosPadraoDaConta, vidroCodigoDaEsquadria, vidroNoConsiderado, vidroPadraoDaEsquadria, type VidrosPadraoDaConta } from '@/lib/atendimentos-ia/vidro-padrao'
@@ -252,6 +252,8 @@ export type DesfechoDaIa =
     /** A 1ª chamada ao modelo não voltou no prazo (04/11/2026): a linha sai no instante do estouro E no fim do turno. */
     | 'prazo-esgotado'
     | 'sem-nome' | 'nome-parecido' | 'nome-existe' | 'qual-esquadria' | 'nao-encontrado' | 'qual-vendedor' | 'alteracao-incompleta'
+    /** A frase não disse se é para alterar um item do levantamento que já existe ou acrescentar outro: a conversa pergunta (21/11/2026). */
+    | 'alterar-ou-acrescentar'
     | 'nao-avancou' | 'confirmar-acrescimo' | 'confirmar-resgate' | 'nao-acrescentou' | 'nao-confirmou'
     /** O ARQUIVO do levantamento enviado para conferir (06/11/2026); recusado pelo gerador; não enviado; o vendedor dito que não está no cadastro. */
     | 'arquivo' | 'arquivo-recusado' | 'arquivo-nao-enviado' | 'vendedor-nao-achado'
@@ -264,6 +266,23 @@ export type DesfechoDaIa =
     | 'qual-orcamento' | 'orcamento-reenviado' | 'orcamento-sem-arquivo'
     /** O NOME (e a cidade, e o vidro) lido SÓ da foto ou do PDF espera um "sim" curto antes de gravar (18/11/2026). */
     | 'confirmar-da-imagem'
+
+/** O que o vendedor disse sobre o levantamento que já existe (21/11/2026): mudar um item dele, ou pôr um item novo. */
+export type IntencaoNoLevantamento = 'alterar' | 'acrescentar'
+/**
+ * A PERGUNTA, quando a frase não diz (dono do produto, 21/11/2026): "se a frase não disser qual dos dois, PERGUNTE em vez de escolher". As
+ * esquadrias ficam retidas; a resposta "acrescenta" (ou o "sim") acrescenta, e "altera o item N" altera aquele item.
+ */
+export const fraseDeAlterarOuAcrescentar = (nome: string, nExistentes: number, esquadrias: Array<Record<string, unknown>>) =>
+    `O levantamento “${nome}” já tem ${nExistentes} item(ns). ${esquadrias.length > 1 ? `Estes ${esquadrias.length} itens` : 'Este item'} — `
+    + `${esquadrias.map(esquadriaPorExtenso).join('; ')} — ${esquadrias.length > 1 ? 'são novos, para acrescentar, ou alteram' : 'é novo, para acrescentar, ou altera'} `
+    + `um item que já está lá? Se for alteração, diga qual item.`
+
+/** A mesma pergunta em outras palavras (R2). */
+export const fraseDeAlterarOuAcrescentarEmOutrasPalavras = (nome: string) =>
+    `Preciso saber, para o “${nome}”: é um item novo, para acrescentar, ou é para alterar um item que já está lá (e qual)?`
+/** As retidas dizem todas "acrescentar": a confirmação de antes (o levantamento), não a pergunta de qual das duas. */
+const soAcrescentar = (itens: ReadonlyArray<Record<string, unknown>>) => itens.length > 0 && itens.every((i) => i.intencao === 'acrescentar')
 
 export type Rota = 'MONTAGEM' | 'NOVO' | 'ALTERACAO' | 'ALTERACAO_ADMIN' | 'SEM_NOME' | 'PARECIDO' | 'RESGATE' | 'NOME_EXISTE' | 'NAO_ENCONTRADO' | 'QUAL_VENDEDOR' | 'ORCAMENTO' | 'QUAL_ORCAMENTO' | 'DA_IMAGEM' | '-'
 /**
@@ -319,6 +338,8 @@ type Rastro = {
     textosDoCaminho: string
     /** As instruções escritas em etapas que não falam com o modelo, `numero:ACAO:caracteres` separadas por vírgula; '' quando não há. */
     instrucoesSemEfeito: string
+    /** A intenção sobre o levantamento que já existe (21/11/2026): alterar, acrescentar, ou a pergunta feita por não ter sido dita. */
+    intencao: IntencaoNoLevantamento | 'perguntou' | '-'
     /** Quantos itens iguais se fundiram nesta mensagem (03/11/2026). */
     fundidos: number
     /**
@@ -392,7 +413,7 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
     // o contexto e a fala: o ESTADO, nunca o texto
     const contexto = (r.contexto === '-' ? '' : ` contexto=${r.contexto}${r.fala === '-' ? '' : ` fala=${FALA_NO_LOG[r.fala]}`}`)
         + (r.instrucoes === '-' ? '' : ` instrucoes=${r.instrucoes}`) + (r.instrucoesDasEtapas === '-' ? '' : ` instrucao_etapa=${r.instrucoesDasEtapas}`)
-        + (r.descricoesDasEtapas === '-' ? '' : ` descricao_etapa=${r.descricoesDasEtapas}`) + (r.textosDoCaminho === '-' ? '' : ` textos_caminho=${r.textosDoCaminho}`)
+        + (r.descricoesDasEtapas === '-' ? '' : ` descricao_etapa=${r.descricoesDasEtapas}`) + (r.intencao === '-' ? '' : ` intencao=${r.intencao}`) + (r.textosDoCaminho === '-' ? '' : ` textos_caminho=${r.textosDoCaminho}`)
         + (r.instrucoesSemEfeito === '' ? '' : ` instrucao_sem_efeito=${r.instrucoesSemEfeito}`)
         + (r.fundidos > 0 ? ` agrupados=${r.fundidos}` : '') + (r.caminhos.length > 0 ? ` caminhos=${r.caminhos.join(',')}` : '') + (r.reenviadas > 0 ? ` reenviadas=${r.reenviadas}` : '')
         + (r.historico === '-' ? '' : ` historico=${r.historico}`) + (r.gravacao === '-' ? '' : ` gravacao=${r.gravacao}`) + (r.redacao === '-' ? '' : ` redacao=${r.redacao}`)
@@ -572,7 +593,7 @@ export const FERRAMENTA = {
             cliente: { ...texto, description: 'O nome do CLIENTE, copiado como o vendedor o escreveu NESTA mensagem (ou na foto ou no PDF dela) (ex.: "Cliente: Geronimo Silva" → Geronimo Silva). O nome do levantamento é o nome do cliente, puro. Omita se ele não escreveu.' },
             novo: { type: 'boolean', description: 'true SÓ quando o vendedor disse explicitamente que é um levantamento novo.' },
             opcao: { ...inteiro, description: 'Quando a pergunta em aberto lista levantamentos ou orçamentos numerados e o vendedor escolheu um deles — pelo número ("o 2"), pela ordem ("o primeiro", "o último"), pelo nome ("é o do Geronimo") ou pela data ("o de ontem") —, o número dele na lista. Senão, omita.' },
-            alteracao: { type: 'boolean', description: 'true quando o vendedor pede para MUDAR um levantamento que já existe (troca, muda, altera, corrige).' },
+            alteracao: { type: 'string', enum: ['alterar', 'acrescentar'], description: 'O que o vendedor DISSE sobre um levantamento que já existe: "alterar" quando pede para MUDAR um item que já está lá (troca, muda, altera, corrige); "acrescentar" quando pede para pôr um item NOVO (acrescenta, adiciona, inclui, mais uma). Se ele não disse qual dos dois, omita.' },
             vendedor: { ...texto, description: 'O nome do VENDEDOR dono do levantamento, copiado como foi escrito NESTA mensagem. Omita se não foi escrito.' },
             vendedor_opcao: { ...inteiro, description: 'Quando a pergunta em aberto lista FUNCIONÁRIOS, numerados, e o vendedor escolheu um deles — pelo número, pelo nome completo ou pela data do cadastro —, o número dele na lista. Senão, omita.' },
             vendedor_do_levantamento: { ...texto, description: 'Quando quem escreve LANÇA o levantamento PARA outro vendedor, dizendo isso sobre o VENDEDOR ("é do Cristiano", "é para o Cristiano", "o vendedor é o Cristiano", "vendedor: Cristiano", "lança para o Cristiano"): o nome dele, copiado como foi escrito NESTA mensagem. NUNCA o nome do CLIENTE, nem um nome solto ("levantamento do João" é o cliente João). Omita se não foi dito.' },
@@ -713,7 +734,7 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
         '- Com a pergunta do nome em aberto (o nome do cliente, ou a lista de levantamentos parecidos), o vendedor responde do jeito dele, e o nome vem de qualquer forma: "Geison Silva novo", "é o Geison Silva", "novo: Geison Silva" → nome Geison Silva (e novo: true quando ele disse novo). Nunca espere uma forma fixa.',
         '- opcao: quando a pergunta em aberto lista levantamentos ou orçamentos numerados e ele escolheu um — "o 2", "o primeiro", "o último", "é o do Geronimo", "o de ontem" (compare com as datas da lista e com a data de hoje) —, o número dele na lista. Senão, omita.',
         '- novo: true SÓ quando o vendedor disse que é um levantamento novo ("novo ..."). Senão, omita.',
-        '- alteracao: true quando ele pede para MUDAR um levantamento que já existe ("troca a altura", "muda a cor", "corrige"). Senão, omita.',
+        '- alteracao: "alterar" quando ele pede para MUDAR um item de um levantamento que já existe ("troca a altura", "muda a cor", "corrige"); "acrescentar" quando pede para pôr um item NOVO nele ("acrescenta", "adiciona", "inclui mais uma janela"). Se ele não disse qual dos dois, omita: o código pergunta — nunca escolha por ele.',
         '- vendedor: só quando a mensagem diz de qual VENDEDOR é o levantamento; copie o nome como foi escrito. Senão, omita.',
         '- Pergunta em aberto (quando houver, no fim): a mensagem pode ser a RESPOSTA a ela. Se o vendedor responde com um levantamento que a pergunta cita ("é o mesmo", "é esse"), ponha em `nome` o nome dele escrito como na pergunta. Se a mensagem é só o nome de um levantamento, é o nome do levantamento.',
         '- confirma: só quando a pergunta em aberto pede confirmação ou AUTORIZAÇÃO (a medida fora do limite) — true se ele confirmou ou autorizou ("sim", "pode", "confirmo", "autorizo", "pode fabricar"), false se negou. Senão, omita.',
@@ -1260,7 +1281,9 @@ async function refazerPergunta(
     if (citados.length === 0) return null
     if (p.itens.length === 0) return null
     const nExistentes = (await lerItens(tenantId, citados[0].id)).length
-    return { p, citados: [citados[0]], texto: fraseDeConfirmarAcrescimo(citados[0].nome, nExistentes, p.itens) }
+    // a pergunta guardada diz de qual das duas é pela intenção que as retidas levam (21/11/2026): "acrescentar" dito é a confirmação de antes; sem
+    // intenção, a pergunta "alterar ou acrescentar"
+    return { p, citados: [citados[0]], texto: soAcrescentar(p.itens) ? fraseDeConfirmarAcrescimo(citados[0].nome, nExistentes, p.itens) : fraseDeAlterarOuAcrescentar(citados[0].nome, nExistentes, p.itens) }
 }
 
 /**
@@ -1317,7 +1340,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = {
         etapas: { coletar: null, casar: null, montar: null, calcular: null },
         levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null, raciocinio: null, parada: null, cacheLido: null, cacheEscrito: null, cabecalhosMs: null, primeiroTokenMs: null, tentativas: null, requestId: null },
-        midia: '-', contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', descricoesDasEtapas: '-', textosDoCaminho: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', contextoDoTurno: '-', coresPadrao: 0, tipologiasPadrao: 0, linhaPadrao: 0, pecasNaoPedidas: 0, limite: '-', qualOrcamento: '-', daImagem: '-', medidasNaOrdem: 0,
+        midia: '-', contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', intencao: '-', descricoesDasEtapas: '-', textosDoCaminho: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', contextoDoTurno: '-', coresPadrao: 0, tipologiasPadrao: 0, linhaPadrao: 0, pecasNaoPedidas: 0, limite: '-', qualOrcamento: '-', daImagem: '-', medidasNaOrdem: 0,
     }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
@@ -1640,6 +1663,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         rastro.fala = fala.motivo
         abertura = fala.fala
         const confirma = proposta.confirma === true ? true : proposta.confirma === false ? false : null
+        // A INTENÇÃO SOBRE O LEVANTAMENTO QUE JÁ EXISTE (dono do produto, 21/11/2026): "alteração no levantamento pode ser a alteração do item
+        // existente OU adicionar outro item [...] o defeito é o sistema decidir sozinho". O `true` de antes vale como "alterar"
+        const intencaoDita: IntencaoNoLevantamento | null = proposta.alteracao === true || proposta.alteracao === 'alterar' ? 'alterar' : proposta.alteracao === 'acrescentar' ? 'acrescentar' : null
         // o fornecedor e a família que o vendedor NÃO disse saem da proposta: a pergunta de qual família não se responde pela IA.
         // O VIDRO também (04/11/2026): "copiado, nunca completado" — a palavra que não está na mensagem veio da instrução e cai; o que está fica
         // ("pode, não derrube": "incolor temperado 8 mm" sobre "vidro 8mm" vira "8 mm"); cai inteiro só quando NADA do vidro está na mensagem
@@ -1661,7 +1687,13 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const daMensagemBrutas = semFornecedorInventado(dadosDaMensagem.proposta.itens)
         // o item que o modelo devolve SEM nenhum campo da esquadria (05/11/2026) não entra em lugar nenhum — e a linha [IA] passa a dizer quantos
         rastro.itensSemCampos = Array.isArray(daMensagemBrutas) ? daMensagemBrutas.filter((i) => !!i && typeof i === 'object' && esquadriasDaProposta({ itens: [i] }).length === 0).length : 0
-        const juncao = juntarEsquadrias(retidas, Array.isArray(daMensagemBrutas) ? daMensagemBrutas : [])
+        // a intenção dita viaja com as esquadrias desta mensagem, para o caso de elas ficarem retidas (o achado da 0016)
+        const daMensagemMarcadas = Array.isArray(daMensagemBrutas) && intencaoDita !== null
+            ? daMensagemBrutas.map((i) => (i && typeof i === 'object' ? { ...(i as Record<string, unknown>), intencao: intencaoDita } : i)) : daMensagemBrutas
+        const juncao = juntarEsquadrias(retidas, Array.isArray(daMensagemMarcadas) ? daMensagemMarcadas : [])
+        // a intenção EFETIVA: a desta mensagem; senão a das retidas, quando todas dizem a mesma
+        const intencaoDasRetidas = retidas.length > 0 && retidas.every((r) => r.intencao === retidas[0].intencao) ? (retidas[0].intencao as IntencaoNoLevantamento | undefined) ?? null : null
+        let intencao: IntencaoNoLevantamento | null = intencaoDita ?? intencaoDasRetidas
         rastro.reenviadas = juncao.reenviadas
         const daPergunta = retidas.length > 0
         const emEspera: EsquadriaProposta[] = esquadriasDaProposta({ itens: juncao.itens })
@@ -1701,7 +1733,8 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             if (p.pergunta === 'CONFIRMAR_DA_IMAGEM' && p.nome) return await falar(fraseDeConfirmarDaImagemEmOutrasPalavras(p.nome, p.dadosDaImagem ?? {}), 'nao-avancou')
             if (p.pergunta === 'QUAL_ORCAMENTO' && p.nome && aberta?.orcamentos) return await falar(fraseDeQualOrcamentoEmOutrasPalavras(p.nome, aberta.orcamentos), 'nao-avancou')
             if (p.pergunta === 'CONFIRMAR_ACRESCIMO' && aberta?.citados[0]) {
-                return await falar(p.nome !== null ? fraseDeConfirmarResgateEmOutrasPalavras(aberta.citados[0]) : fraseDeConfirmarAcrescimoEmOutrasPalavras(aberta.citados[0].nome), 'nao-avancou')
+                return await falar(p.nome !== null ? fraseDeConfirmarResgateEmOutrasPalavras(aberta.citados[0])
+                    : soAcrescentar(p.itens) ? fraseDeConfirmarAcrescimoEmOutrasPalavras(aberta.citados[0].nome) : fraseDeAlterarOuAcrescentarEmOutrasPalavras(aberta.citados[0].nome), 'nao-avancou')
             }
             return await falar(fraseDeNaoRegistrei(textoDaPergunta), 'nao-avancou')
         }
@@ -1891,6 +1924,8 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                     }
                 }
                 // "sim" ou "não" à confirmação do acréscimo, sem nome: é sobre o levantamento que ela citou
+                // a resposta à pergunta "alterar ou acrescentar" (21/11/2026) — "acrescenta", "altera o item 2" — é sobre o levantamento citado, como o "sim"
+                if (lido === null && aberta?.p.pergunta === 'CONFIRMAR_ACRESCIMO' && aberta.p.nome === null && intencaoDita !== null) lido = aberta.citados[0].nome
                 if (lido === null && aberta?.p.pergunta === 'CONFIRMAR_ACRESCIMO' && aberta.p.nome === null && confirma !== null) {
                     const citado = aberta.citados[0]
                     if (confirma) lido = citado.nome
@@ -1909,7 +1944,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 // FALTA"): a ALTERAÇÃO sem nome, logo depois de a conversa ter tratado um levantamento do remetente (a última saída o gravou — o
                 // contexto do turno, 20261118000005), é sobre ELE. O cliente não se pergunta de novo; só o "novo" (outro cliente) ou um nome dito mudam
                 // o alvo. O contexto vale só para o levantamento do PRÓPRIO remetente, e nunca acha um que a conversa não tratou (o caso Alfredo × Daiane)
-                if (lido === null && proposta.alteracao === true && proposta.novo !== true && contextoDoTurno !== null) {
+                if (lido === null && intencao !== null && proposta.novo !== true && contextoDoTurno !== null) {
                     const doContexto = (doRemetente ?? await lerLevantamentos(c.tenantId, c.remetenteId, false)).find((l) => l.id === contextoDoTurno)
                     if (doContexto) { lido = doContexto.nome; rastro.nome = 'do_contexto' }
                 }
@@ -1933,7 +1968,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                         { pergunta: 'NOME_PARECIDO', nome: lido, levantamentos: opcoes.map((l) => l.id), itens: emEspera },
                         fraseDoNomeParecido(lido, opcoes), 'nome-parecido',
                     )
-                } else if (proposta.alteracao === true && !novo) {
+                } else if (intencao !== null && !novo) {
                     // pedido de alteração de um nome que não é do remetente: só o admin vai além
                     rastro.admin = await permissaoDoRemetente(c.tenantId, c.remetenteId)
                     if ('motivo' in rastro.admin) { rastro.rota = 'NAO_ENCONTRADO'; return await falar(fraseDeNaoEncontrei(lido), 'nao-encontrado') }
@@ -1961,6 +1996,37 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             }
         }
         if (alvo) rastro.levantamento = alvo.id
+
+        // ── ALTERAR OU ACRESCENTAR (dono do produto, 21/11/2026): num levantamento que JÁ EXISTE e não está em montagem, a esquadria da proposta só
+        // entra com a intenção dita — "alterar" (o item dito, ou o único) ou "acrescentar" (sempre um item novo). O "sim" à confirmação do
+        // acréscimo é "acrescentar". Sem intenção, a conversa PERGUNTA, com as esquadrias retidas — nunca decide sozinha
+        const confirmouAcrescimo = confirma === true && aberta?.p.pergunta === 'CONFIRMAR_ACRESCIMO' && alvo !== null && alvo.id === aberta.citados[0]?.id
+        if (intencao === null && confirmouAcrescimo) intencao = 'acrescentar'
+        // "altera o item 2", em resposta à pergunta: o número dito sem esquadria vai para a única retida
+        if (intencaoDita === 'alterar' && retidas.length === 1 && Array.isArray(daMensagemBrutas)) {
+            const numero = daMensagemBrutas.map((i) => (i && typeof i === 'object' ? (i as Record<string, unknown>).ordem : undefined)).find((o): o is number => typeof o === 'number' && Number.isInteger(o) && o > 0)
+            const k = juncao.itens.findIndex((i) => !!i && typeof i === 'object' && esquadriasDaProposta({ itens: [i] }).length > 0)
+            if (numero !== undefined && k >= 0) juncao.itens[k] = { ...(juncao.itens[k] as Record<string, unknown>), ordem: numero, intencao: 'alterar' }
+        }
+        // a esquadria IGUAL a uma gravada (a mesma, reenviada: a regra de 06/11/2026 — a quantidade dita substitui, nunca soma) não tem o que decidir
+        // O que JÁ DIZ que é alteração, sem perguntar: o número de um item que existe ("o 1: são 2 unidades") e a correção de campo de uma esquadria
+        // que não está inteira ("a largura é 1500", "muda a cor"). Só a esquadria INTEIRA (a tipologia, ou as duas medidas), sem número e diferente das
+        // gravadas, pode ser outra — e é dela que a frase precisa dizer se é nova
+        const ordensDitas = new Set((Array.isArray(daMensagemBrutas) ? daMensagemBrutas : []).map((i) => (i && typeof i === 'object' ? (i as Record<string, unknown>).ordem : undefined)).filter((o): o is number => typeof o === 'number'))
+        const inteira = (e: EsquadriaProposta) => (typeof e.tipologia === 'string' && e.tipologia !== '') || (e.largura_mm != null && e.altura_mm != null)
+        const algumaNova = alvo !== null && !(alvo.itens.some((i) => ordensDitas.has(i.ordem)))
+            && emEspera.some((e) => inteira(e) && !alvo!.itens.some((i) => esquadriasEquivalentes(e, i as unknown as EsquadriaProposta)))
+        // em MONTAGEM, a mensagem completa a esquadria que está sendo montada (a regra de sempre); a esquadria RETIDA, que esperava o levantamento,
+        // pergunta também ali
+        if (alvo !== null && (alvo.estado !== EM_MONTAGEM || daPergunta) && alvo.itens.length > 0 && intencao === null && algumaNova) {
+            rastro.intencao = 'perguntou'
+            return await perguntar(
+                { pergunta: 'CONFIRMAR_ACRESCIMO', nome: null, levantamentos: [alvo.id], itens: emEspera },
+                fraseDeAlterarOuAcrescentar(alvo.nome, alvo.itens.length, emEspera), 'alterar-ou-acrescentar',
+            )
+        }
+        if (intencao !== null) rastro.intencao = intencao
+        const acrescentar = alvo !== null && intencao === 'acrescentar'
 
         // ── a proposta, validada ──
         const atuais = alvo ? alvo.itens : [itemVazio(1)]
@@ -1994,7 +2060,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             return { ...r, tipologia: principal }
         })
         const proposta_ = aplicarProposta(atuais, { ...efetiva, itens: naLinhaPadrao }, {
-            candidatos: tabela.candidatos, aberturaDaMensagem, aberturasDitas: palavrasDeAbertura(c.texto), cores, mensagem: c.texto, ordemPadrao, definicao, familiasDoCodigo: doCodigo,
+            candidatos: tabela.candidatos, aberturaDaMensagem, aberturasDitas: palavrasDeAbertura(c.texto), cores, mensagem: c.texto, ordemPadrao, definicao, familiasDoCodigo: doCodigo, acrescentar,
             limiteAutorizado: (i) => autorizacaoVale(limiteDe(i.ordem), i),
         })
         // OS PADRÕES DO CÓDIGO (dono do produto, 05/11/2026), na esquadria que diz alguma coisa: a TIPOLOGIA padrão — de correr, 2 folhas, lisa —
@@ -2162,10 +2228,13 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // "Confirma antes" (dono do produto, 26/10/2026): a esquadria que esperava o vendedor dizer o levantamento
         // só entra num que JÁ EXISTE com o "sim" dele à pergunta que citou aquele levantamento
         const confirmado = confirma === true && aberta?.p.pergunta === 'CONFIRMAR_ACRESCIMO' && alvo?.id === aberta.citados[0]?.id
-        if (daPergunta && alvo && !nadaMudou && !confirmado) {
+        // a resposta à pergunta "alterar ou acrescentar" (a intenção dita, sobre o levantamento que ela citou) já é a confirmação
+        const respondeuAPergunta = intencaoDita !== null && aberta?.p.pergunta === 'CONFIRMAR_ACRESCIMO' && alvo?.id === aberta.citados[0]?.id
+        if (daPergunta && alvo && !nadaMudou && !confirmado && !respondeuAPergunta && intencao !== 'alterar') {
             return await perguntar(
                 { pergunta: 'CONFIRMAR_ACRESCIMO', nome: null, levantamentos: [alvo.id], itens: emEspera },
-                fraseDeConfirmarAcrescimo(alvo.nome, alvo.itens.length, emEspera), 'confirmar-acrescimo',
+                soAcrescentar(emEspera) ? fraseDeConfirmarAcrescimo(alvo.nome, alvo.itens.length, emEspera) : fraseDeAlterarOuAcrescentar(alvo.nome, alvo.itens.length, emEspera),
+                soAcrescentar(emEspera) ? 'confirmar-acrescimo' : 'alterar-ou-acrescentar',
             )
         }
         // A COR DITA E FORA DA LISTA que não mudou nada (08/11/2026): a resposta à pergunta da cor, ou "muda para roxo" num levantamento já
