@@ -174,3 +174,65 @@ describe('(4) a política: a EMPRESA sobre o NICHO, campo a campo; a tradução 
         expect(t && 'recusa' in t ? t.recusa : null).toContain('na tipologia DP-90 nenhuma opção de MAE')
     })
 })
+
+/*
+ * (9) O ARREMATE EXTERNO SEM O "VÃO+50" (dono do produto, 21/11/2026): onde a variação não oferece a opção da política, entra a de AJUSTE EM OBRA
+ * dela (a de menor acréscimo), e só sem nenhuma a opção 1 — nunca calado. As opções são as medidas no motor da Wolff em 21/11/2026.
+ */
+describe('(9) a MAE sem a opção da política: o ajuste em obra que a variação oferece', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const P = () => require('@/lib/atendimentos-ia/politica-da-empresa') as typeof import('@/lib/atendimentos-ia/politica-da-empresa')
+    const POLITICA = { porVariavel: { MAE: { natureza: 'POLITICA' as const, opcao: 'VAO+50MM (CORTE 90/90)' } } }
+    const MEDIDAS = {
+        'DP-113': '1 = MEDIDA DO VÃO (CORTE 45); 2 = VÃO+40MM (CORTE 90/90) - PARA AJUSTE EM OBRA [40,00]',
+        'DP-49': '1 = MEDIDA DO VÃO (CORTE 45/45); 2 = VÃO+100MM (CORTE 90/90) - PARA AJUSTE EM OBRA [100,00]',
+        'DP-90': '1 = MEDIDA DO VÃO (CORTE 45/45); 2 = VÃO+90MM (CORTE 90/90) - PARA AJUSTE EM OBRA [90,00]',
+        'DP-02': '1 = MEDIDA DO VÃO (CORTE 45/45); 2 = VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA [50,00]',
+    }
+    const traduz = (codigo: string, opcoes: string) => P().traduzirPolitica(codigo, { variavel: 'MAE', opcoes }, POLITICA)
+    it('a variação COM VÃO+50: casa pelo texto, sem ajuste', () => {
+        expect(traduz('DP-02', MEDIDAS['DP-02'])).toEqual({ valor: 2, campo: 'MAE' })
+    })
+    it('as cinco que travavam: entra a de ajuste em obra que a variação oferece, com o motivo nas palavras do motor', () => {
+        expect(traduz('DP-113', MEDIDAS['DP-113'])).toEqual({ valor: 2, campo: 'MAE', ajuste:
+            'a política diz MAE = "VAO+50MM (CORTE 90/90)", que a tipologia DP-113 não oferece; entrou a opção 2 = VÃO+40MM (CORTE 90/90) - PARA AJUSTE EM OBRA (ajuste em obra de menor acréscimo)' })
+        expect(traduz('DP-49', MEDIDAS['DP-49'])).toMatchObject({ valor: 2, ajuste: expect.stringContaining('VÃO+100MM (CORTE 90/90) - PARA AJUSTE EM OBRA') })
+        expect(traduz('DP-90', MEDIDAS['DP-90'])).toMatchObject({ valor: 2, ajuste: expect.stringContaining('VÃO+90MM') })
+    })
+    it('mais de uma de ajuste: a de MENOR acréscimo, nunca a primeira da lista', () => {
+        expect(traduz('X', '1 = MEDIDA DO VÃO; 2 = VÃO+90MM (CORTE 90/90) - PARA AJUSTE EM OBRA; 3 = VÃO+40MM (CORTE 90/90) - PARA AJUSTE EM OBRA'))
+            .toMatchObject({ valor: 3, ajuste: expect.stringContaining('VÃO+40MM') })
+    })
+    it('o ajuste exige as palavras do motor: CORTE 90/90 E AJUSTE EM OBRA — sem elas, a opção 1', () => {
+        expect(traduz('X', '1 = MEDIDA DO VÃO (CORTE 45); 2 = VÃO+40MM (CORTE 45/45) - PARA AJUSTE EM OBRA'))
+            .toMatchObject({ valor: 1, ajuste: expect.stringContaining('sem opção de ajuste em obra: a opção 1 do motor') })
+        expect(traduz('X', '1 = MEDIDA DO VÃO (CORTE 45); 2 = VÃO+40MM (CORTE 90/90)')).toMatchObject({ valor: 1 })
+    })
+    it('nenhuma de ajuste e nenhuma opção 1: recusa nomeada, nunca uma opção inventada', () => {
+        expect(traduz('X', '2 = MEDIDA DO VÃO (CORTE 45)')).toMatchObject({ recusa: expect.stringContaining('nenhuma opção de MAE') })
+    })
+    it('mais de uma casando pelo texto continua RECUSA (a ambiguidade não é a falta)', () => {
+        expect(traduz('X', '1 = VAO+50MM (CORTE 90/90) A; 2 = VAO+50MM (CORTE 90/90) B; 3 = VÃO+40MM (CORTE 90/90) - PARA AJUSTE EM OBRA'))
+            .toMatchObject({ recusa: expect.stringContaining('mais de uma opção') })
+    })
+    it('a regra é SÓ da MAE: outra variável sem a opção continua recusa', () => {
+        expect(P().traduzirPolitica('DP-113', { variavel: 'ARE', opcoes: MEDIDAS['DP-113'] }, { porVariavel: { ARE: { natureza: 'POLITICA' as const, opcao: 'VAO+50' } } }))
+            .toMatchObject({ recusa: expect.any(String) })
+    })
+    it('na fronteira: a origem é politica_ajuste_em_obra e o ajuste vai em `ajustes`; com a opção existente, origem politica e nada em ajustes', () => {
+        const t = (opcoes: string): Tipologia => ({ ...dp02(), variaveis: [{ variavel: 'MAE', descricao: 'MEDIDA DO ARREMATE EXTERNO', padrao: '1', condicao: 'sempre', opcoes, condicao_opcoes: null }], perfis: [], insumos: [], vidros: [] })
+        const r = F().escolhasDoCalculo(t(MEDIDAS['DP-113']), {}, POLITICA)
+        expect([r.escolhas.MAE, r.origem.MAE, r.ajustes.map((a) => a.variavel)]).toEqual([2, 'politica_ajuste_em_obra', ['MAE']])
+        const ok = F().escolhasDoCalculo(t(MEDIDAS['DP-02']), {}, POLITICA)
+        expect([ok.escolhas.MAE, ok.origem.MAE, ok.ajustes]).toEqual([2, 'politica', []])
+        // o vendedor que disse vence a política (a hierarquia de sempre)
+        expect(F().escolhasDoCalculo(t(MEDIDAS['DP-113']), { MAE: 1 }, POLITICA).ajustes).toEqual([])
+    })
+    it('a linha do documento diz de onde veio, com o rótulo do motor', () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const E = require('@/lib/atendimentos-ia/escolhas-da-tipologia') as typeof import('@/lib/atendimentos-ia/escolhas-da-tipologia')
+        const tip = { variaveis: [{ variavel: 'MAE', descricao: 'MEDIDA DO ARREMATE EXTERNO', padrao: '1', condicao: 'sempre', opcoes: MEDIDAS['DP-113'], condicao_opcoes: null }] }
+        expect(E.descreverArremate(tip, { MAE: 2 }, { MAE: 'politica_ajuste_em_obra' }))
+            .toBe('medida do arremate externo: VÃO+40MM (CORTE 90/90) - PARA AJUSTE EM OBRA (a opção da política não existe nesta tipologia: ajuste em obra)')
+    })
+})
