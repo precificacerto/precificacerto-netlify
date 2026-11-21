@@ -229,3 +229,31 @@ describe('o código-base que a ponte afirma, no degrau da cor (dono do produto, 
         expect(como(r)).toBe('cor:13171')
     })
 })
+
+describe('o ponto nunca se dissolve no degrau da cor (tarefa 0014; medido na conferência do motor 259035a9 em 21/11/2026)', () => {
+    // a ponte do BZ4556/WOLFF como está em produção: 1027.1 (PVC) e 10271 (ALUMÍNIO) em BRANCO, e as laminadas
+    const BZ4556 = [{ codigo: '1027.1', cor: 'BRANCO' }, { codigo: '10271', cor: 'BRANCO' }, { codigo: '102720', cor: 'PRETO TEXTURADO' }, { codigo: '102730', cor: 'LAMINADO BRONZE' }]
+    const refDe = (codigoDaPonte: string): ReferenciaProcurada =>
+        ({ codigoDoMotor: 'BZ4556/WOLFF', codigoDaPonte, ponteDoCodigo: BZ4556, descricaoDoMotor: 'BZ4556 - TRILHO CENTRAL DE PERSIANA - PVC - BRANCO', corPedida: 'BRANCO' })
+    // a tabela da empresa tem só o de alumínio (o caso de produção): o 1027.1 pedido NÃO pode cair no 10271
+    const TABELA = [item('10271', 'BZ4556 - TRILHO CENTRAL DE PERSIANA - ALUMÍNIO - BRANCO'), item('102720', 'BZ4556 - TRILHO CENTRAL DE PERSIANA - PRETO TEXTURADO')]
+
+    it('o 1027.1 (PVC) pedido não cai no 10271 (alumínio): a cor procura 10271.1, que não está, e a falta é nomeada', () => {
+        expect(candidatasDoDegrau('cor', refDe('1027.1'), TABELA, PERFIL).candidatas.map((i) => i.codigo)).toEqual([])
+        expect(como(resolverReferencia(refDe('1027.1'), TABELA, PERFIL))).toBe('NAO_ACHADA')
+    })
+    it('com o 10271.1 cadastrado, é ele que a cor acha', () => {
+        const comPvc = [...TABELA, item('10271.1', 'BZ4556 - TRILHO CENTRAL DE PERSIANA - PVC - BRANCO')]
+        expect(candidatasDoDegrau('cor', refDe('1027.1'), comPvc, PERFIL).candidatas.map((i) => i.codigo)).toEqual(['10271.1'])
+    })
+    it('o nome técnico também não troca o ponto: o 10271 (sem ponto) não serve ao 1027.1, e o 10271.1 serve', () => {
+        expect(candidatasDoDegrau('nome_tecnico', refDe('1027.1'), TABELA, PERFIL).candidatas).toEqual([])
+        const soPvc = [item('10271.1', 'BZ4556 - TRILHO CENTRAL DE PERSIANA - PVC - BRANCO')]
+        expect(candidatasDoDegrau('nome_tecnico', refDe('1027.1'), soPvc, PERFIL).candidatas.map((i) => i.codigo)).toEqual(['10271.1'])
+        // e o pedido sem ponto não cai no item com ponto
+        expect(candidatasDoDegrau('nome_tecnico', refDe('10271'), soPvc, PERFIL).candidatas).toEqual([])
+    })
+    it('o 10271 pedido (sem ponto) continua achando o 10271 pela ponte', () => {
+        expect(como(resolverReferencia(refDe('10271'), TABELA, PERFIL))).toBe('ponte:10271')
+    })
+})
