@@ -688,10 +688,12 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
         '',
         'Os campos de cada esquadria: tipologia; largura_mm; altura_mm; quantidade; cor_perfil; vidro.',
         'Medidas em milímetros, inteiras: se o vendedor disser em metros ou centímetros, converta.',
-        // AS TRÊS REGRAS DO TESTE DO DIRCEU GONZALEZ (dono do produto, 19/11/2026): a ordem das medidas, a altura que decide e a persiana de correr
+        // AS REGRAS DO TESTE DO DIRCEU GONZALEZ (dono do produto, 19/11/2026): a ordem das medidas e a persiana de correr; e (20/11/2026) a PALAVRA que
+        // decide entre janela e porta — a regra da altura (2,00 m) foi REVOGADA —, e o formato padrão de correr
         'A ALTURA É SEMPRE A SEGUNDA MEDIDA: em "1,50 x 1,20" a largura é 1,50 e a altura é 1,20 — no texto, na foto e no áudio.',
-        'A ALTURA DECIDE ENTRE JANELA E PORTA quando a descrição não diz qual é: altura de 2,00 m ou mais é porta-janela; abaixo de 2,00 m é janela. Com a medida dada, NUNCA pergunte "é janela ou porta?". O que o vendedor escreveu vence: "porta" é porta mesmo com altura menor.',
-        'PERSIANA É SEMPRE DE CORRER: o item descrito como persiana já é de correr (janela ou porta pela altura) — não pergunte como abre. Nele, só o vidro pode faltar.',
+        'A PALAVRA DECIDE ENTRE JANELA E PORTA: "porta" escrita antes da medida é porta-janela; "janela", ou nenhuma das duas palavras, é janela. A ALTURA NÃO DECIDE: uma janela de 2,20 m de altura continua janela. NUNCA pergunte "é janela ou porta?".',
+        'O FORMATO PADRÃO É DE CORRER: giro, abrir, maxim-ar, oscilo-batente ou pivotante só quando o vendedor disser. Se ele não disse, é de correr — NUNCA pergunte como abre.',
+        'PERSIANA É SEMPRE DE CORRER: o item descrito como persiana já é de correr (janela, salvo se ele escreveu porta) — não pergunte como abre. Nele, só o vidro pode faltar.',
         '',
         'Regras:',
         '- nome: copie o nome do levantamento INTEIRO, como o vendedor escreveu nesta mensagem. Não complete, não corrija, não encurte. Se ele não escreveu um nome, omita.',

@@ -209,8 +209,8 @@ describe('os motivos nomeados — onde NÃO há natural, nunca se adivinha', () 
         const semDP01 = CANDIDATOS.filter((c) => c.tipologia !== 'DP-01')
         expect(padrao('janela maxim ar 2 módulos', 'janela', semDP01)).toEqual({ motivo: 'MODULOS_DITOS' })
     })
-    it('a janela sem tipo, dois tipos, um tipo que o motor não tem: sem padrão', () => {
-        expect(padrao('janela 1200 x 1000', 'janela')).toEqual({ motivo: 'JANELA_SEM_TIPO' })
+    it('a janela sem tipo É DE CORRER (20/11/2026: "O FORMATO padrão é DE CORRER"); dois tipos, um tipo que o motor não tem: sem padrão', () => {
+        expect(padrao('janela 1200 x 1000', 'janela')).toEqual({ tipologia: 'DP-02' })
         expect(padrao('janela maxim ar de correr', 'janela')).toEqual({ motivo: 'TIPOS_DITOS' })
         expect(padrao('porta camarão', 'porta')).toEqual({ motivo: 'TIPO_FORA_DO_MOTOR' })
         expect(padrao('janela basculante', 'janela')).toEqual({ motivo: 'TIPO_FORA_DO_MOTOR' })
@@ -282,7 +282,11 @@ describe('os motivos nomeados — onde NÃO há natural, nunca se adivinha', () 
         expect(tipologiaPrincipal('DP-01', semAsLisas, item(800, 600))).toBeNull()
     })
     it('sem a abertura ou sem trecho dela: sem padrão', () => {
-        expect(tipologiaPadrao(item(), null, [trecho('porta de correr', 'porta')], CANDIDATOS)).toEqual({ motivo: 'SEM_ABERTURA' })
+        // a abertura que TODOS os trechos dizem vale (uma só); porta numa linha e janela noutra, sem medida que ligue a esquadria, não decide
+        expect(tipologiaPadrao(item(), null, [trecho('porta de correr', 'porta')], CANDIDATOS)).toEqual({ tipologia: 'DP-39' })
+        expect(tipologiaPadrao(item(), null, [trecho('porta de correr', 'porta'), trecho('janela de correr', 'janela')], CANDIDATOS)).toEqual({ motivo: 'SEM_ABERTURA' })
+        // nada dito: sem trecho, sem abertura
+        expect(tipologiaPadrao(item(), null, [], CANDIDATOS)).toEqual({ motivo: 'SEM_ABERTURA' })
         expect(tipologiaPadrao(item(), 'porta', [trecho('janela de correr', 'janela')], CANDIDATOS)).toEqual({ motivo: 'SEM_TRECHO' })
     })
 })
@@ -358,8 +362,9 @@ describe('O RASTRO DOS ATRIBUTOS (dono do produto, 12/11/2026): cada atributo da
         expect(so('janela fixa', 'janela')['modulação de travessa']).toBe('com/padrao_da_tipologia')
     })
     it('sem tipologia (um motivo), nenhum atributo: o rastro não afirma o que não foi decidido', () => {
-        // e o que impede o item vem DITO (18/11/2026): a janela sem tipo pergunta como abre, com os tipos que o motor tem
-        expect(rastro('janela 1200 x 1000', 'janela')).toEqual({ decisao: { motivo: 'JANELA_SEM_TIPO' }, atributos: [], impedimento: fraseDaJanelaSemTipo([...new Set(CANDIDATOS.map((c) => c.tipo as string))]), paraAutorizar: null })
+        // e o que impede o item vem DITO (18/11/2026): o tipo que o motor não tem (a janela sem tipo não impede mais: é de correr, 20/11/2026)
+        const fora = rastro('janela basculante', 'janela')
+        expect([fora.decisao, fora.atributos, typeof fora.impedimento, fora.paraAutorizar]).toEqual([{ motivo: 'TIPO_FORA_DO_MOTOR' }, [], 'string', null])
         const lacuna = rastro('porta de giro', 'porta')
         expect(lacuna.decisao).toMatchObject({ motivo: 'LACUNA' })
         expect(lacuna.atributos).toEqual([])
@@ -452,7 +457,8 @@ describe('O QUE IMPEDE O ITEM, DITO (dono do produto, 18/11/2026, decisão 2): n
     })
     it('a falta de informação também se diz: sem abertura, a janela sem tipo, o dito sem representação', () => {
         expect(impede('1200 x 1000', null).impedimento).toBe(FRASE_SEM_ABERTURA)
-        expect(impede('janela 1200 x 1000', 'janela').impedimento).toBe(fraseDaJanelaSemTipo(TIPOS))
+        // a janela sem tipo não impede mais (20/11/2026: é de correr); a frase continua, para quando o motor não tiver o correr
+        expect(impede('janela 1200 x 1000', 'janela').impedimento).toBeNull()
         expect(fraseDaJanelaSemTipo(['Correr', 'Fixo'])).toBe('Esta janela abre como: de correr ou fixa?')
         expect(impede('janela de correr motorizada', 'janela').impedimento).toBe(FRASE_DITO_SEM_REPRESENTACAO)
     })
@@ -468,7 +474,7 @@ describe('O QUE IMPEDE O ITEM, DITO (dono do produto, 18/11/2026, decisão 2): n
  * abaixo, janela) quando a descrição não diz qual é, e a palavra escrita vence; a PERSIANA É SEMPRE DE CORRER. As linhas pelo MESMO leitor da
  * conversa (`trechosDoAcumulado`), e a abertura do item NULA: é a linha que decide.
  */
-describe('O CASO DO DIRCEU GONZALEZ (19/11/2026): a altura decide entre janela e porta, e persiana é de correr', () => {
+describe('O CASO DO DIRCEU GONZALEZ (19/11/2026), com a PALAVRA que decide (20/11/2026: a altura de 2,00 m foi revogada) e a persiana de correr', () => {
     const lidos = (texto: string) => trechosDoAcumulado([texto], tiposDoMotor)
     const semAbertura = (texto: string, i: ItemDoLevantamento) => tipologiaPadrao(i, null, lidos(texto), CANDIDATOS)
     const FOTO = 'janela de correr 2 folhas - 1,50 x 1,20\njanela maxim ar - 0,80 x 0,60\nPOrta janela de correr - 2,20 x 2,40\nPersiana - 1,80 x 1,40\n\nDirceu Gonzalez\nGaivota - SC'
@@ -476,11 +482,12 @@ describe('O CASO DO DIRCEU GONZALEZ (19/11/2026): a altura decide entre janela e
     it('"Persiana - 1,80 x 1,40": janela de correr com persiana (DP-07) — não pergunta janela ou porta, nem como abre', () => {
         expect(semAbertura('Persiana - 1,80 x 1,40', item(1800, 1400))).toEqual({ tipologia: 'DP-07' })
     })
-    it('"Persiana - 2,20 x 2,40": porta de correr com persiana (DP-48) — a altura de 2,40 é porta', () => {
-        expect(semAbertura('Persiana - 2,20 x 2,40', item(2200, 2400))).toEqual({ tipologia: 'DP-48' })
+    it('"Persiana - 2,20 x 2,40": JANELA de correr com persiana (DP-07) — sem a palavra "porta", janela, qualquer que seja a altura', () => {
+        expect(semAbertura('Persiana - 2,20 x 2,40', item(2200, 2400))).toEqual({ tipologia: 'DP-07' })
+        expect(semAbertura('Porta com persiana - 2,20 x 2,40', item(2200, 2400))).toEqual({ tipologia: 'DP-48' })
     })
-    it('a fronteira é 2,00 m: 2,00 é porta, 1,99 é janela', () => {
-        expect(semAbertura('correr 1,50 x 2,00', item(1500, 2000))).toEqual({ tipologia: 'DP-39' })
+    it('NÃO HÁ fronteira de altura: 2,00 e 1,99 sem palavra são janela', () => {
+        expect(semAbertura('correr 1,50 x 2,00', item(1500, 2000))).toEqual({ tipologia: 'DP-02' })
         expect(semAbertura('correr 1,50 x 1,99', item(1500, 1990))).toEqual({ tipologia: 'DP-02' })
     })
     it('a PALAVRA vence a altura: "Porta de correr 1,80 x 1,40" é porta; "janela de correr 2,10 x 2,20" é janela', () => {
@@ -493,12 +500,12 @@ describe('O CASO DO DIRCEU GONZALEZ (19/11/2026): a altura decide entre janela e
         expect(tipologiaPadrao(item(2200, 2400), null, linhas, CANDIDATOS)).toEqual({ tipologia: 'DP-39' })
         expect(tipologiaPadrao(item(1800, 1400), null, linhas, CANDIDATOS)).toEqual({ tipologia: 'DP-07' })
     })
-    it('sem palavra e SEM medida, nada decide: a pergunta de antes continua (a regra nunca inventa a altura)', () => {
-        expect(lidos('correr')).toEqual([expect.objectContaining({ abertura: null })])
-        expect(semAbertura('correr', item(null as unknown as number, null as unknown as number))).toEqual({ motivo: 'SEM_ABERTURA' })
+    it('sem palavra e SEM medida: janela, também (sem palavra, janela) — nenhuma pergunta de abertura', () => {
+        expect(lidos('correr')).toEqual([expect.objectContaining({ abertura: 'janela' })])
+        expect(semAbertura('correr', item(null as unknown as number, null as unknown as number))).toEqual({ tipologia: 'DP-02' })
     })
-    it('a linha com DUAS medidas diferentes não é de uma esquadria só: a altura não decide por ela', () => {
-        expect(lidos('correr 1,50 x 1,20 e 2,20 x 2,40')[0].abertura).toBeNull()
+    it('a linha com DUAS medidas: janela, como toda linha sem palavra', () => {
+        expect(lidos('correr 1,50 x 1,20 e 2,20 x 2,40')[0].abertura).toBe('janela')
     })
     it('"sem persiana" não é persiana: a linha não ganha o correr do apelido', () => {
         expect(lidos('janela sem persiana 1,50 x 1,20')[0].tipos.size).toBe(0)

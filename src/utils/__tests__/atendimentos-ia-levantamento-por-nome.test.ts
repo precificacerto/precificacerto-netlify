@@ -1167,13 +1167,13 @@ describe('(4) a lista: a tipologia e a cor só da lista, exatas', () => {
         expect(linhaIa()[0]).toContain('descartados=0')
     })
 
-    it('sem a palavra "correr" nem o padrão: "janela 1200 x 1000" com a tipologia inválida fica sem tipologia, e a pergunta é a de obra SEM o "janela ou porta" (já dito) — e a cor vai JUNTO', async () => {
+    it('sem a palavra "correr": "janela 1200 x 1000" com a tipologia inválida é DE CORRER pelo padrão (20/11/2026: o formato padrão é de correr) — a DP-02; só a cor é perguntada', async () => {
         llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, tipologia: 'Janela', cor_perfil: undefined }] })
         await chamar('Levantamento Casa do João: janela 1200 x 1000 temperado 5mm')
         const item = itensDe(levantamentos()[0].id)[0]
-        expect([item.tipologia, item.cor_perfil]).toEqual([null, null])
-        expect(ultimoEnviado()).toBe(`${COM_ABERTURA_DITA[0]} E me diga a cor do perfil.`)
-        expect(ultimoEnviado()).not.toContain('É janela ou porta?')
+        expect([item.tipologia, item.cor_perfil]).toEqual(['DP-02', null])
+        expect(ultimoEnviado()).not.toContain('janela ou porta')
+        expect(ultimoEnviado()).not.toContain('abre')
     })
 
     it('SEM LISTA de tipologias (a tabela não carregada): a conversa diz o que falta, sem chamar a LLM', async () => {
@@ -2566,7 +2566,12 @@ describe('(21) o PROMPT BASE abre o sistema de toda empresa, e o contexto da emp
  */
 describe('(22) a tipologia se pergunta em linguagem de obra, e a resposta que não coube não vira laço', () => {
     const MSG = 'Levantamento Casa do Pedro: janela 1200 x 1000, 1 unidade, branco, temperado 5mm'
+    // (20/11/2026) a janela sem tipo é DE CORRER: para a pergunta de obra existir, a empresa deste caso não tem a janela de correr no motor
+    const semJanelaDeCorrer = () => {
+        estado.db.orcamentista_motor_tipologia_detalhe = estado.db.orcamentista_motor_tipologia_detalhe.filter((d) => !/^JANELA DE CORRER/.test(String(d.descricao)))
+    }
     const abrirSemTipologia = async () => {
+        semJanelaDeCorrer()
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02, tipologia: undefined }] })
         await chamar(MSG)
     }
@@ -2580,12 +2585,14 @@ describe('(22) a tipologia se pergunta em linguagem de obra, e a resposta que n�
 
     it('a esquadria sem tipologia: a pergunta é a de obra, e a da IA (em obra) vale quando vem', async () => {
         await abrirSemTipologia()
-        // a mensagem diz "janela" (05/11/2026): a pergunta fixa não repete isso
-        expect(ultimoEnviado()).toBe(COM_ABERTURA_DITA[0])
+        // (20/11/2026) a janela sem tipo é de correr: num motor sem ela, a falta é NOMEADA — nunca "é janela ou porta?" nem "como ela abre?"
+        expect(ultimoEnviado()).toBe('Falta no motor — não há tipologia de janela de correr de 2 folhas. Me diga como ele é na obra; se for mesmo assim, a tipologia precisa ser cadastrada no motor.')
         montar()
+        // a falta do motor é do CÓDIGO, nomeada: a pergunta da IA não a substitui
+        semJanelaDeCorrer()
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02, tipologia: undefined }], pergunta: { campo: 'tipologia', texto: 'Ela tem persiana integrada?' } })
         await chamar(MSG)
-        expect(ultimoEnviado()).toBe('Ela tem persiana integrada?')
+        expect(ultimoEnviado()).toContain('Falta no motor — não há tipologia de janela de correr de 2 folhas.')
     })
 
     it('a resposta que não coube, sem pergunta da IA: OUTRA forma de obra — nunca a mesma pergunta, nunca o "Não consegui registrar"', async () => {
@@ -2607,13 +2614,16 @@ describe('(22) a tipologia se pergunta em linguagem de obra, e a resposta que n�
         expect(ultimoEnviado()).toBe('Ela corre ou abre girando?')
     })
 
-    it('a pergunta da IA que diz "qual a tipologia" com dinheiro cai como antes; com duas esquadrias, a outra forma diz de qual', async () => {
-        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }, { ...DP02, ordem: 2, tipologia: undefined }] })
-        await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 un, branco, temperado 5mm; e outra janela 800 x 600, 1 un, branco, temperado 5mm')
-        expect(ultimoEnviado()).toBe(`Item 2: ${COM_ABERTURA_DITA[0]}`)
-        llmResponde({ itens: [], pergunta: { campo: 'tipologia', texto: 'Custa R$ 900, qual é?' } })
-        await chamar('não sei')
-        expect(COM_ABERTURA_DITA.slice(1).map((t) => `Item 2: ${t}`)).toContain(ultimoEnviado())
+    it('duas esquadrias na mesma linha, "porta" antes de uma medida e "janela" antes da outra: cada uma é o que a palavra diz (20/11/2026)', async () => {
+        // o item 1 é uma porta dita pelo código (DP-39); a janela do item 2, sem tipo, não tem janela de correr no motor deste caso
+        semJanelaDeCorrer()
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02, tipologia: 'DP-39', largura_mm: 2500, altura_mm: 2200 }, { ...DP02, ordem: 2, tipologia: undefined, largura_mm: 800, altura_mm: 600 }] })
+        await chamar('Levantamento Casa do Pedro: porta DP-39 2500 x 2200, 1 un, branco, temperado 5mm; e outra janela 800 x 600, 1 un, branco, temperado 5mm')
+        // A PALAVRA ANTES DA MEDIDA (20/11/2026): a mesma linha diz "porta" e "janela", e cada medida leva a sua — o item 1 é porta, o 2 é janela,
+        // e nenhum pergunta "é janela ou porta?"
+        expect(ultimoEnviado()).toBe('Item 1: Falta no motor — não há tipologia de porta de correr de 2 folhas. Me diga como ele é na obra; se for mesmo assim, a tipologia precisa ser cadastrada no motor.\n'
+            + 'Item 2: Falta no motor — não há tipologia de janela de correr de 2 folhas. Me diga como ele é na obra; se for mesmo assim, a tipologia precisa ser cadastrada no motor.')
+        expect(ultimoEnviado()).not.toContain('janela ou porta')
     })
 
     it('as outras formas não repetem a de sempre, e a forma escolhida depende da mensagem', () => {
@@ -2805,16 +2815,18 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
         ['porta janela (duas palavras)', 'Cliente: Ana. porta janela 2500 x 2400', [LINHA_DP100, LINHA_DP01], [LINHA_DP02]],
         // pelo ACUMULADO (05/11/2026) o TIPO do motor também filtra: "janela de correr" é janela ∧ Correr, e a maxim-ar sai
         ['janela', 'Cliente: Ana. Janela de correr 1500 x 1200', [LINHA_DP02], [LINHA_DP100, LINHA_DP01]],
-        ['as duas palavras (fora de "porta janela") e "correr"', GERONIMO, [LINHA_DP02, LINHA_DP100], [LINHA_DP01]],
-        // A ALTURA DECIDE (dono do produto, 19/11/2026): sem porta nem janela escrita, 1,20 m de altura é janela — a porta sai da lista;
-        // 2,40 m é porta-janela — a janela de correr sai
+        // A PALAVRA ANTES DA MEDIDA (20/11/2026): a janela de correr e a porta janela, cada medida com a sua palavra — a porta janela não diz o
+        // tipo, e a maxim-ar fica para ela
+        ['as duas palavras (fora de "porta janela") e "correr"', GERONIMO, [LINHA_DP02, LINHA_DP100, LINHA_DP01], []],
+        // A PALAVRA DECIDE (dono do produto, 20/11/2026; a altura de 2,00 m foi REVOGADA): sem porta nem janela escrita é JANELA, a 1,20 ou a 2,40
+        // de altura — a porta sai da lista
         ['nenhuma das palavras, mas "correr", 1,20 de altura', 'Cliente: Ana. Esquadria de correr 1500 x 1200', [LINHA_DP02], [LINHA_DP01, LINHA_DP100]],
-        ['nenhuma das palavras, mas "correr", 2,40 de altura', 'Cliente: Ana. Esquadria de correr 2500 x 2400', [LINHA_DP100], [LINHA_DP01, LINHA_DP02]],
+        ['nenhuma das palavras, mas "correr", 2,40 de altura', 'Cliente: Ana. Esquadria de correr 2500 x 2400', [LINHA_DP02], [LINHA_DP01, LINHA_DP100]],
         ['nenhuma palavra e nenhum tipo, 1,20 de altura', 'Cliente: Ana. Item 1500 x 1200', [LINHA_DP02, LINHA_DP01], [LINHA_DP100]],
-        ['nenhuma palavra e nenhum tipo, 2,40 de altura', 'Cliente: Ana. Item 2500 x 2400', [LINHA_DP100, LINHA_DP01], [LINHA_DP02]],
-        // a palavra escrita vence a altura: "porta" com 1,40 de altura é porta
-        ['"porta" com altura abaixo de 2,00', 'Cliente: Ana. Porta de correr 1800 x 1400', [LINHA_DP100], [LINHA_DP02]],
-    ])('a mensagem com %s: a lista já vai filtrada — a maxim-ar fica quando nenhum tipo é dito, e sem a palavra a altura decide', async (_caso, mensagem, ficam, saem) => {
+        ['nenhuma palavra e nenhum tipo, 2,40 de altura', 'Cliente: Ana. Item 2500 x 2400', [LINHA_DP02, LINHA_DP01], [LINHA_DP100]],
+        // a palavra escrita decide, qualquer que seja a altura: "porta" com 1,40 de altura é porta
+        ['"porta" com 1,40 de altura', 'Cliente: Ana. Porta de correr 1800 x 1400', [LINHA_DP100], [LINHA_DP02]],
+    ])('a mensagem com %s: a lista já vai filtrada — a maxim-ar fica quando nenhum tipo é dito, e sem a palavra é janela', async (_caso, mensagem, ficam, saem) => {
         await chamar(mensagem)
         for (const l of ficam) expect(sistemaDe()).toContain(l)
         for (const l of saem) expect(sistemaDe()).not.toContain(l)
@@ -5388,13 +5400,13 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
             expect(itens('Ivo')[0].tipologia).toBeNull()
         })
 
-        it('janela de correr lisa é a DP-02; janela SEM o tipo não tem padrão (pode ser maxim-ar, de abrir…)', async () => {
+        it('janela de correr lisa é a DP-02; janela SEM o tipo também (20/11/2026: o formato padrão é de correr — giro ou abrir só quando dito)', async () => {
             llmResponde({ cliente: 'Ana', itens: [{ abertura: 'janela', largura_mm: 1200, altura_mm: 1000, quantidade: 1, vidro: 'temperado 5mm' }] })
             await chamar('Cliente: Ana. janela de correr 1200 x 1000, temperado 5mm')
             expect(itens('Ana')[0].tipologia).toBe('DP-02')
             llmResponde({ cliente: 'Bia', itens: [{ abertura: 'janela', largura_mm: 1200, altura_mm: 1000, quantidade: 1, vidro: 'temperado 5mm' }] })
             await chamar('Cliente: Bia. janela 1200 x 1000, temperado 5mm', { senderAlt: TELEFONE_DO_OUTRO })
-            expect(itens('Bia')[0].tipologia).toBeNull()
+            expect(itens('Bia')[0].tipologia).toBe('DP-02')
         })
 
         it('sem a candidata lisa no motor (só a de 6 folhas com trilho), a porta não ganha padrão nenhum; duas lisas (duas linhas): a ordem das linhas decide (20/11/2026)', async () => {
@@ -5422,8 +5434,8 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
             expect(ultimoEnviado()).toContain('cor do perfil')
         })
 
-        it('o que tira o padrão da maxim-ar: bandeira, peitoril, módulos, travessa, persiana, 2 folhas, outro tipo junto — e a janela sem tipo continua sem padrão', async () => {
-            const casos = ['janela maxim ar com bandeira fixa 600 x 600', 'janela maxim ar com peitoril 600 x 600', 'janela maxim ar 2 módulos 600 x 600', 'janela maxim ar com travessa 600 x 600', 'janela maxim ar com persiana 600 x 600', 'janela maxim ar 2 folhas 600 x 600', 'janela maxim ar de correr 600 x 600', 'janela 600 x 600']
+        it('o que tira o padrão da maxim-ar: bandeira, peitoril, módulos, travessa, persiana, 2 folhas, outro tipo junto (a janela sem tipo é de correr desde 20/11/2026)', async () => {
+            const casos = ['janela maxim ar com bandeira fixa 600 x 600', 'janela maxim ar com peitoril 600 x 600', 'janela maxim ar 2 módulos 600 x 600', 'janela maxim ar com travessa 600 x 600', 'janela maxim ar com persiana 600 x 600', 'janela maxim ar 2 folhas 600 x 600', 'janela maxim ar de correr 600 x 600']
             for (const [k, texto] of casos.entries()) {
                 montar()
                 const nome = `Cliente ${k + 1}`
@@ -5538,9 +5550,11 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
             // O DEFEITO CENTRAL corrigido: dizer persiana responde a PERSIANA — as folhas continuam no natural, e a porta é a DP-48
             expect(tipologiaPadrao(item, 'porta', [trecho('porta de correr com persiana', 'porta', ['Correr'])], candidatos)).toEqual({ tipologia: 'DP-48' })
             expect(tipologiaPadrao(item, 'porta', [trecho('porta de correr trilho embutido', 'porta', ['Correr'])], candidatos)).toEqual({ tipologia: 'DP-40' })
-            expect(tipologiaPadrao(item, null, [trecho('porta', 'porta', [])], candidatos)).toEqual({ motivo: 'SEM_ABERTURA' })
+            // a abertura do único trecho vale (20/11/2026); porta e janela em trechos que a medida não liga, não
+            expect(tipologiaPadrao(item, null, [trecho('porta', 'porta', [])], candidatos)).toEqual({ tipologia: 'DP-39' })
+            expect(tipologiaPadrao(item, null, [trecho('porta', 'porta', []), trecho('janela', 'janela', [])], candidatos)).toEqual({ motivo: 'SEM_ABERTURA' })
             expect(tipologiaPadrao(item, 'porta', [trecho('janela maxim ar', 'janela', ['Maxim-ar'])], candidatos)).toEqual({ motivo: 'SEM_TRECHO' })
-            expect(tipologiaPadrao(item, 'janela', [trecho('janela 1200 x 1000', 'janela', [])], candidatos)).toEqual({ motivo: 'JANELA_SEM_TIPO' })
+            expect(tipologiaPadrao(item, 'janela', [trecho('janela 1200 x 1000', 'janela', [])], candidatos)).toEqual({ tipologia: 'DP-02' })
             // dito o que não existe no motor: nenhuma candidata — o modelo decide, como antes; nunca uma das outras
             expect(tipologiaPadrao(item, 'porta', [trecho('porta de correr 3 folhas', 'porta', ['Correr'])], candidatos)).toEqual({ motivo: 'SEM_CANDIDATA' })
             expect(tipologiaPadrao(item, 'porta', [trecho('porta de correr com veneziana', 'porta', ['Correr'])], candidatos)).toEqual({ motivo: 'SEM_CANDIDATA' })
