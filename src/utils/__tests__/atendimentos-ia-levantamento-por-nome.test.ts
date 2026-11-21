@@ -4221,7 +4221,9 @@ describe('(32) as leituras antes do modelo vão em ondas: o que não depende de 
     /** As cinco primeiras ondas de toda mensagem: a conta e a conversa; o catálogo da família; os itens e os motores das etapas; a contagem e o fornecedor; a lista de tipologias. */
     // + uma leitura de orcamentista_mensagem na PRIMEIRA onda (18/11/2026): o contexto do turno (o levantamento da última saída) — nenhuma onda a mais
     const ONDAS_DA_FAMILIA = [
-        ['orcamentista_contexto_do_atendimento', 'orcamentista_levantamento', 'orcamentista_materia_prima', 'orcamentista_mensagem', 'orcamentista_mensagem', 'orcamentista_mp_categoria', 'orcamentista_mp_categoria', 'orcamentista_mp_categoria', 'orcamentista_mp_categoria_fornecedor'],
+        ['orcamentista_contexto_do_atendimento', 'orcamentista_levantamento', 'orcamentista_materia_prima', 'orcamentista_mensagem', 'orcamentista_mensagem', 'orcamentista_mp_categoria', 'orcamentista_mp_categoria', 'orcamentista_mp_categoria', 'orcamentista_mp_categoria_fornecedor',
+            // os textos da empresa por família e fornecedor (20261121000003), na primeira onda: nada escrito, uma leitura só
+            'orcamentista_texto_do_caminho'],
         ['orcamentista_familia_catalogo', 'orcamentista_familia_catalogo', 'orcamentista_familia_etapa', 'orcamentista_fornecedor', 'orcamentista_tabela'],
         ['orcamentista_etapa_catalogo', 'orcamentista_motor'],
         ['orcamentista_fornecedor', 'orcamentista_motor_tipologia_detalhe'],
@@ -7675,5 +7677,73 @@ describe('(45) TAREFA 0016 — o nome do cliente já resolvido no fio não se pe
         await chamar('Maria Souza: item 1 é temperado 10mm')
         expect(linhaIa().pop()).not.toContain(`levantamento=${doJoao().id}`)
         expect(itensDe(doJoao().id)[0].vidro).toBe('Temperado 8mm')
+    })
+})
+
+/*
+ * (46) ITEM (4) DA ORDEM DE 20/11/2026 — a DESCRIÇÃO da etapa corrente (do catálogo, 20261120000001) e os TEXTOS da empresa por família e por
+ * fornecedor (20261121000003) vão ao sistema só quando escritos, e os textos só os do CAMINHO ATIVO.
+ */
+describe('(46) a descrição da etapa corrente e os textos do caminho ativo no sistema', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { CABECALHO_DA_DESCRICAO_DA_ETAPA } = require('@/lib/atendimentos-ia/motor-da-familia') as typeof import('@/lib/atendimentos-ia/motor-da-familia')
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { CABECALHO_DOS_TEXTOS_DO_CAMINHO } = require('@/lib/atendimentos-ia/textos-do-caminho') as typeof import('@/lib/atendimentos-ia/textos-do-caminho')
+    const pedir = async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        return textoDoSistema(estado.chamadasDaLlm[0].corpo.system)
+    }
+    const db = () => estado.db as unknown as Record<string, Array<Record<string, unknown>>>
+    const textos = (...ls: Array<Record<string, unknown>>) => { db().orcamentista_texto_do_caminho = ls.map((l) => ({ tenant_id: TENANT, familia: null as string | null, fornecedor_id: null as string | null, ...l })) }
+    const comCaminho = () => { for (const c of db().orcamentista_mp_categoria) c.materia_prima_id = 'mp-pvc' }
+
+    it('a descrição do item de LEVANTAMENTO vai, depois da instrução; a do item de CÁLCULO não; a linha [IA] diz descricao_etapa=1', async () => {
+        for (const c of db().orcamentista_etapa_catalogo) c.descricao = c.acao === 'GERAR_LEVANTAMENTO' ? 'Entrega o levantamento; NAO calcula peca nem preco.' : 'Calcula as barras.'
+        const sistema = await pedir()
+        expect(sistema).toContain(`\n\n${CABECALHO_DA_DESCRICAO_DA_ETAPA}\n[Etapa 1 — Apanhado e levantamento de esquadrias]\nEntrega o levantamento; NAO calcula peca nem preco.`)
+        expect(sistema).not.toContain('Calcula as barras.')
+        expect(linhaIa()[0]).toContain(' descricao_etapa=1 ')
+    })
+    it('sem descrição escrita, nenhuma seção, e descricao_etapa=0', async () => {
+        const sistema = await pedir()
+        expect(sistema).not.toContain(CABECALHO_DA_DESCRICAO_DA_ETAPA)
+        expect(linhaIa()[0]).toContain(' descricao_etapa=0 ')
+    })
+    it('sem a coluna da descrição (a migração pendente), a conversa segue sem a seção — nunca para', async () => {
+        for (const c of db().orcamentista_etapa_catalogo) c.descricao = 'escrita, mas a coluna não existe no banco'
+        estado.colunasAusentes.add('orcamentista_etapa_catalogo.descricao')
+        const sistema = await pedir()
+        expect(sistema).not.toContain(CABECALHO_DA_DESCRICAO_DA_ETAPA)
+        expect(estado.chamadasDaLlm).toHaveLength(1)
+        expect(linhaIa()[0]).toContain(' descricao_etapa=0 ')
+    })
+    it('os textos da FAMÍLIA e dos FORNECEDORES do caminho vão, nessa ordem; o de fornecedor fora do caminho e o de outra família não', async () => {
+        comCaminho()
+        textos({ familia: 'PVC', texto: 'Linha Wolf, perfil branco.' }, { fornecedor_id: 'f-estrela', texto: 'Vidro cotado por m2.' },
+            { fornecedor_id: 'f-wolff', texto: 'Tabela rev2 de 17/11.' }, { fornecedor_id: 'f-fora', texto: 'NAO DEVE IR' },
+            { familia: 'ALUMINIO', texto: 'NAO DEVE IR TAMBEM' }, { familia: null, fornecedor_id: 'f-wolff', texto: null, tenant_id: 'outra' })
+        const sistema = await pedir()
+        expect(sistema).toContain(`\n\n${CABECALHO_DOS_TEXTOS_DO_CAMINHO}\n[Família PVC]\nLinha Wolf, perfil branco.\n`
+            + '[Fornecedor INDUSTRIA DE VIDROS TEMPERADOS ESTRELA LTDA]\nVidro cotado por m2.\n[Fornecedor Wolff Perfis]\nTabela rev2 de 17/11.')
+        expect(sistema).not.toContain('NAO DEVE IR')
+        expect(linhaIa()[0]).toContain(' textos_caminho=3 ')
+    })
+    it('o fornecedor do MOTOR que a etapa aponta está no caminho mesmo sem vínculo de categoria', async () => {
+        // as categorias da fixture não dizem a matéria-prima: nenhum vínculo leva à família — só o motor da etapa
+        textos({ fornecedor_id: 'f-wolff', texto: 'Motor da Wolf.' }, { fornecedor_id: 'f-estrela', texto: 'NAO DEVE IR: so vinculo, sem caminho' })
+        const sistema = await pedir()
+        expect(sistema).toContain(`${CABECALHO_DOS_TEXTOS_DO_CAMINHO}\n[Fornecedor Wolff Perfis]\nMotor da Wolf.`)
+        expect(sistema).not.toContain('NAO DEVE IR')
+    })
+    it('nada escrito: nenhuma seção, textos_caminho=0; sem a tabela: textos_caminho=sem_migracao, e a conversa segue', async () => {
+        textos({ familia: 'PVC', texto: null })
+        expect(await pedir()).not.toContain(CABECALHO_DOS_TEXTOS_DO_CAMINHO)
+        expect(linhaIa()[0]).toContain(' textos_caminho=0 ')
+    })
+    it('sem a tabela dos textos (a migração pendente): sem seção, e a linha [IA] diz textos_caminho=sem_migracao', async () => {
+        estado.ausentes.add('orcamentista_texto_do_caminho')
+        expect(await pedir()).not.toContain(CABECALHO_DOS_TEXTOS_DO_CAMINHO)
+        expect(linhaIa()[0]).toContain(' textos_caminho=sem_migracao ')
     })
 })

@@ -8,15 +8,69 @@
  *   - A configuração que falta (família, etapa, motor) aparece com a frase da conferência das etapas, nunca como tela vazia.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { Alert, AutoComplete, Button, Card, Select, Space, Table, Tag, Typography } from 'antd'
+import { Alert, AutoComplete, Button, Card, Input, Select, Space, Table, Tag, Typography } from 'antd'
 import { chamarRota } from '@/page-parts/atendimentos-ia/api'
 import { ROUTES } from '@/constants/routes'
 import { NATUREZAS, type Natureza } from '@/lib/atendimentos-ia/natureza-da-variavel'
 import { AVISO_SEM_REMOCAO, ROTULO_DA_NATUREZA, type VariavelResumida } from '@/lib/atendimentos-ia/tela-da-natureza'
 import type { FamiliaDaTela, LinhaGravada, TelaDaNatureza } from '@/lib/atendimentos-ia/tela-da-natureza-servidor'
+import { LIMITE_DO_TEXTO_DO_CAMINHO, type TextosDaFamilia } from '@/lib/atendimentos-ia/textos-do-caminho'
 
 export const rotaDaApiDaNatureza = (tenantId: string) => `/api/super-admin/base-de-conhecimento/natureza?tenant=${tenantId}`
 export const rotaDaTelaDaNatureza = (tenantId: string) => `${ROUTES.SUPER_ADMIN_IA_CONTAS}/${tenantId}/natureza`
+export const rotaDaApiDosTextos = (tenantId: string) => `/api/super-admin/base-de-conhecimento/textos-do-caminho?tenant=${tenantId}`
+export const AJUDA_DOS_TEXTOS =
+    'Textos livres da empresa para esta família e para cada fornecedor do caminho dela. O agente os consulta quando tem dúvida; '
+    + 'só entram no prompt os da família que está sendo levantada e dos fornecedores dela. Não mandam em número.'
+export const SEM_A_TABELA_DOS_TEXTOS = 'Os textos por família e por fornecedor ainda não podem ser escritos: falta aplicar a migração 20261121000003.'
+
+/** Um texto (da família ou de um fornecedor), editado no lugar e salvo sozinho; limpar grava "não escrito", nunca apaga. */
+function EditorDoTexto({ tenantId, alvo, titulo, inicial, aoSalvar }: {
+    tenantId: string; alvo: { familia: string } | { fornecedor_id: string }; titulo: string; inicial: string | null; aoSalvar: () => void
+}) {
+    const [texto, setTexto] = useState(inicial ?? '')
+    const [erro, setErro] = useState<string | null>(null)
+    const [salvando, setSalvando] = useState(false)
+    const caracteres = [...texto.trim()].length
+    const acima = caracteres > LIMITE_DO_TEXTO_DO_CAMINHO
+    const mudou = (texto.trim() === '' ? null : texto.trim()) !== (inicial ?? null)
+    async function salvar() {
+        setSalvando(true); setErro(null)
+        try {
+            await chamarRota(rotaDaApiDosTextos(tenantId), 'PUT', { ...alvo, texto: texto.trim() === '' ? null : texto.trim() })
+            aoSalvar()
+        } catch (e) {
+            setErro((e as Error).message)
+        } finally {
+            setSalvando(false)
+        }
+    }
+    return (
+        <Space direction="vertical" size={4} style={{ width: '100%' }} data-texto-do-caminho={'familia' in alvo ? `familia:${alvo.familia}` : `fornecedor:${alvo.fornecedor_id}`}>
+            <Typography.Text strong>{titulo}</Typography.Text>
+            <Input.TextArea value={texto} onChange={(e) => setTexto(e.target.value)} autoSize={{ minRows: 2, maxRows: 8 }} />
+            <Space wrap>
+                <Typography.Text type={acima ? 'danger' : 'secondary'} style={{ fontSize: 12 }}>{caracteres} / {LIMITE_DO_TEXTO_DO_CAMINHO.toLocaleString('pt-BR')}</Typography.Text>
+                <Button size="small" type="primary" disabled={!mudou || acima} loading={salvando} onClick={salvar}>Salvar</Button>
+            </Space>
+            {erro && <Alert type="error" showIcon message={erro} />}
+        </Space>
+    )
+}
+
+/** Os textos de uma família: o dela e o de cada fornecedor do caminho. Sem a tabela, a frase da migração. */
+export function TextosDaFamiliaNaTela({ tenantId, familia, rotulo, textos, aoSalvar }: { tenantId: string; familia: string; rotulo: string; textos: TextosDaFamilia | null; aoSalvar: () => void }) {
+    if (textos === null) return <Alert type="warning" showIcon message={SEM_A_TABELA_DOS_TEXTOS} data-sem-tabela-dos-textos />
+    return (
+        <Space direction="vertical" size={12} style={{ width: '100%' }} data-textos-da-familia={familia}>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>{AJUDA_DOS_TEXTOS}</Typography.Text>
+            <EditorDoTexto key={`f:${textos.familia ?? ''}`} tenantId={tenantId} alvo={{ familia }} titulo={`Família ${rotulo}`} inicial={textos.familia} aoSalvar={aoSalvar} />
+            {textos.fornecedores.map((f) => (
+                <EditorDoTexto key={`${f.id}:${f.texto ?? ''}`} tenantId={tenantId} alvo={{ fornecedor_id: f.id }} titulo={`Fornecedor ${f.nome}`} inicial={f.texto} aoSalvar={aoSalvar} />
+            ))}
+        </Space>
+    )
+}
 
 type Linha = { chave: string; variavel: string; formato: string | null; titulo: string; detalhe: string | null; opcoes: string[]; gravada: LinhaGravada | null }
 
@@ -95,6 +149,9 @@ export function NaturezaDaVariavel({ tenantId }: { tenantId: string }) {
             <Alert type="info" showIcon message={AVISO_SEM_REMOCAO} />
             {familias.map((f) => (
                 <Card key={f.familia} title={<Space wrap><span>{f.rotulo}</span><Tag>{f.familia}</Tag><Typography.Text type="secondary">motor {f.motor.nome}</Typography.Text></Space>} data-familia={f.familia}>
+                    <Card size="small" type="inner" title="Textos da família e dos fornecedores" style={{ marginBottom: 12 }}>
+                        <TextosDaFamiliaNaTela tenantId={tenantId} familia={f.familia} rotulo={f.rotulo} textos={f.textos} aoSalvar={carregar} />
+                    </Card>
                     <Table<Linha> rowKey="chave" pagination={false} size="small" dataSource={linhasDaFamilia(f)} columns={[
                         { title: 'Variável', key: 'v', width: '35%', render: (_, l) => (<Space direction="vertical" size={0}>
                             <Typography.Text strong>{l.titulo}</Typography.Text>

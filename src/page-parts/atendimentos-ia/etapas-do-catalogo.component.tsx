@@ -18,8 +18,8 @@ import { PlusOutlined } from '@ant-design/icons'
 import { chamarRota } from '@/page-parts/atendimentos-ia/api'
 import { RemocaoDoCatalogo, type AlvoDaRemocao } from '@/page-parts/atendimentos-ia/remocao-do-catalogo.component'
 import {
-    ABAS_DA_ETAPA, ACOES_DA_ETAPA, LIMITE_DO_NOME_DA_ETAPA, ROTULO_DA_ABA, ROTULO_DA_ACAO, abasEmOrdem, etapaDoCatalogoMudou, rotaDaEtapaDoCatalogo,
-    rotaDoCatalogoDeEtapas, type AcaoDaEtapa, type EtapaDoCatalogo,
+    ABAS_DA_ETAPA, ACOES_DA_ETAPA, LIMITE_DA_DESCRICAO_DA_ETAPA, LIMITE_DO_NOME_DA_ETAPA, ROTULO_DA_ABA, ROTULO_DA_ACAO, abasEmOrdem,
+    etapaDoCatalogoMudou, rotaDaDescricaoDaEtapa, rotaDaEtapaDoCatalogo, rotaDoCatalogoDeEtapas, type AcaoDaEtapa, type EtapaDoCatalogo,
 } from '@/utils/atendimentos-ia-etapas'
 
 export const TITULO_DO_CATALOGO_DE_ETAPAS = 'Etapas'
@@ -32,6 +32,47 @@ export const AVISO_DA_EDICAO_COM_USO = (n: number) =>
 export const usoNaLista = (u: EtapaDoCatalogo['usos'][number]) => `${u.empresa} · ${u.familia} · etapa ${u.numero}`
 
 type Edicao = { modo: 'criar' } | { modo: 'editar'; item: EtapaDoCatalogo }
+
+export const SEM_A_COLUNA_DA_DESCRICAO = 'A descrição ainda não pode ser escrita: falta aplicar a migração 20261120000001.'
+export const AJUDA_DA_DESCRICAO =
+    'O que a etapa entrega e o que NÃO é dela. Vale para toda conta que usa o item e entra no prompt quando a etapa é a corrente (a de levantamento).'
+
+/**
+ * A DESCRIÇÃO do item (dono do produto, 20/11/2026; migração 20261120000001): editada no lugar, salva sozinha (PUT). Sem a coluna no banco
+ * (`descricao` ausente no item), diz que falta a migração em vez de mostrar um campo que não grava.
+ */
+export function DescricaoDaEtapa({ item, aoSalvar }: { item: EtapaDoCatalogo; aoSalvar: () => void }) {
+    const [texto, setTexto] = useState(item.descricao ?? '')
+    const [erro, setErro] = useState<string | null>(null)
+    const [salvando, setSalvando] = useState(false)
+    if (!('descricao' in item)) return <Typography.Text type="secondary" data-sem-coluna-da-descricao>{SEM_A_COLUNA_DA_DESCRICAO}</Typography.Text>
+    const caracteres = [...texto.trim()].length
+    const acima = caracteres > LIMITE_DA_DESCRICAO_DA_ETAPA
+    const mudou = (texto.trim() === '' ? null : texto.trim()) !== (item.descricao ?? null)
+    async function salvar() {
+        setSalvando(true)
+        setErro(null)
+        try {
+            await chamarRota(rotaDaDescricaoDaEtapa(item.id), 'PUT', { descricao: texto.trim() === '' ? null : texto.trim() })
+            message.success('Descrição da etapa gravada')
+            aoSalvar()
+        } catch (e) {
+            setErro((e as Error).message)
+        } finally {
+            setSalvando(false)
+        }
+    }
+    return (
+        <Space direction="vertical" size={4} style={{ width: '100%', minWidth: 260 }} data-descricao-da-etapa={item.id}>
+            <Input.TextArea value={texto} onChange={(e) => setTexto(e.target.value)} autoSize={{ minRows: 2, maxRows: 8 }} placeholder={AJUDA_DA_DESCRICAO} />
+            <Space wrap>
+                <Typography.Text type={acima ? 'danger' : 'secondary'} style={{ fontSize: 12 }} data-contador-da-descricao>{caracteres} / {LIMITE_DA_DESCRICAO_DA_ETAPA.toLocaleString('pt-BR')}</Typography.Text>
+                <Button size="small" type="primary" disabled={!mudou || acima} loading={salvando} onClick={salvar} data-salvar-descricao>Salvar descrição</Button>
+            </Space>
+            {erro && <Alert type="error" showIcon message={erro} />}
+        </Space>
+    )
+}
 
 export function EtapasDoCatalogo() {
     const [itens, setItens] = useState<EtapaDoCatalogo[] | null>(null)
@@ -106,6 +147,7 @@ export function EtapasDoCatalogo() {
                                 ? <Typography.Text type="secondary" data-sem-abas>nenhuma</Typography.Text>
                                 : <span data-abas-do-item>{c.abas.map((a) => <Tag key={a}>{ROTULO_DA_ABA[a]}</Tag>)}</span>),
                         },
+                        { title: 'O que entrega (e o que não é dela)', render: (_, c) => <DescricaoDaEtapa key={`${c.id}:${c.descricao ?? ''}`} item={c} aoSalvar={carregar} /> },
                         {
                             title: 'Quem usa',
                             render: (_, c) => (c.usos.length === 0

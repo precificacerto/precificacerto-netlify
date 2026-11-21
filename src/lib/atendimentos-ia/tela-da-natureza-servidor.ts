@@ -9,13 +9,19 @@ import { lerMotoresDaConta } from '@/lib/atendimentos-ia/motor-da-familia'
 import { lerVariaveisDasTipologias } from '@/lib/atendimentos-ia/levantamento-da-conversa'
 import { grupoDaTipologia } from '@/lib/atendimentos-ia/vidro-padrao'
 import { formatoDoGrupo, TABELA_DA_NATUREZA, type LinhaDaNatureza } from '@/lib/atendimentos-ia/natureza-da-variavel'
+import { lerTextosDoCaminho } from '@/lib/atendimentos-ia/textos-do-caminho-servidor'
+import { textosDaFamiliaNaTela, type TextosDaFamilia } from '@/lib/atendimentos-ia/textos-do-caminho'
 import { conferirOpcao, fraseDaConferencia, resumoDasVariaveis, type VariavelResumida } from '@/lib/atendimentos-ia/tela-da-natureza'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- as tabelas da base são lidas como linha solta
 const db = () => supabaseAdmin as any
 
 export type LinhaGravada = LinhaDaNatureza & { atualizado_em: string | null; conferencia: string | null }
-export type FamiliaDaTela = { familia: string; rotulo: string; motor: { id: string; nome: string }; variaveis: VariavelResumida[]; formatos: string[]; linhas: LinhaGravada[] }
+export type FamiliaDaTela = {
+    familia: string; rotulo: string; motor: { id: string; nome: string }; variaveis: VariavelResumida[]; formatos: string[]; linhas: LinhaGravada[]
+    /** Os textos da família e dos fornecedores do caminho dela (20261121000003); null = a tabela ainda não existe (a migração pendente). */
+    textos: TextosDaFamilia | null
+}
 export type TelaDaNatureza = { ok: true; familias: FamiliaDaTela[] } | { ok: false; frase: string; linhas: LinhaGravada[] }
 
 async function linhasDaConta(tenantId: string): Promise<LinhaDaNatureza[] & { atualizado_em?: string }[]> {
@@ -28,7 +34,7 @@ const ordem = (a: LinhaDaNatureza, b: LinhaDaNatureza) => a.variavel.localeCompa
 const semConferencia = (l: LinhaDaNatureza & { atualizado_em?: string }): LinhaGravada => ({ ...l, atualizado_em: l.atualizado_em ?? null, conferencia: null })
 
 export async function lerTelaDaNatureza(tenantId: string): Promise<TelaDaNatureza> {
-    const [motores, linhas] = await Promise.all([lerMotoresDaConta(tenantId), linhasDaConta(tenantId)])
+    const [motores, linhas, textos] = await Promise.all([lerMotoresDaConta(tenantId), linhasDaConta(tenantId), lerTextosDoCaminho(tenantId, { sempreOCaminho: true })])
     if (motores.ok === false) return { ok: false, frase: motores.frase, linhas: [...linhas].sort(ordem).map(semConferencia) }
     const familias = await Promise.all(motores.familias.map(async (f): Promise<FamiliaDaTela> => {
         const [porTipologia, detalhe] = await Promise.all([
@@ -43,7 +49,7 @@ export async function lerTelaDaNatureza(tenantId: string): Promise<TelaDaNaturez
             if (l.natureza !== 'POLITICA' || l.opcao_padrao === null || l.variavel === 'VIDRO') return base
             return { ...base, conferencia: fraseDaConferencia(l.variavel, l.opcao_padrao, conferirOpcao(l.variavel, l.opcao_padrao, porTipologia)) }
         })
-        return { familia: f.familia, rotulo: f.rotulo, motor: f.levantamento, variaveis: resumoDasVariaveis(porTipologia), formatos, linhas: daFamilia }
+        return { familia: f.familia, rotulo: f.rotulo, motor: f.levantamento, variaveis: resumoDasVariaveis(porTipologia), formatos, linhas: daFamilia, textos: textosDaFamiliaNaTela(textos, f.familia) }
     }))
     return { ok: true, familias }
 }
