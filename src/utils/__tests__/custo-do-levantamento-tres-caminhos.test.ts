@@ -11,13 +11,24 @@ jest.mock('@/lib/atendimentos-ia/levantamento-da-conversa', () => ({
     calcularOLevantamento: async (): Promise<unknown> => calculo.valor,
     mensagemDoCalculo: () => ({ texto: '', desfecho: 'levantou' }),
 }))
-const padroes = { codigos: [] as string[] }
+// o padrão por GRUPO, como em produção (21/11/2026): janela de correr → VIN05; maxim-ar → VBO3,4. `codigos` é o padrão do grupo da DP-02
+// (janela de correr); `daMaximAr`, o da maxim-ar. O resto do módulo é o de verdade (o desempate por esquadria é dele)
+const padroes = { codigos: [] as string[], daMaximAr: [] as string[] }
 jest.mock('@/lib/atendimentos-ia/vidro-padrao', () => ({
+    ...jest.requireActual('@/lib/atendimentos-ia/vidro-padrao'),
     lerVidrosPadraoDaConta: async (): Promise<unknown> => ({
         ok: true, descricaoDo: new Map(),
-        porFamilia: new Map([['PVC', padroes.codigos.map((c) => ({ materia_prima_id: 'mp', abertura: null as string | null, tipo: 'correr', tipologia: null as string | null, item_codigo: c }))]]),
+        porFamilia: new Map([['PVC', [
+            ...padroes.codigos.map((c) => ({ materia_prima_id: 'mp', abertura: 'janela', tipo: 'correr', tipologia: null as string | null, item_codigo: c })),
+            ...padroes.daMaximAr.map((c) => ({ materia_prima_id: 'mp', abertura: null as string | null, tipo: 'maxim-ar', tipologia: null as string | null, item_codigo: c })),
+        ]]]),
     }),
 }))
+// as tipologias da família, como a lista do motor as traz: a DP-02 é janela de correr, a DP-01 é maxim-ar
+const FONTE = { ok: true, familias: [] as unknown[], candidatos: [
+    { tipologia: 'DP-02', descricao: 'JANELA DE CORRER 02 FOLHAS MÓVEIS', tipo: 'CORRER', familia: 'PVC', rotulo: 'PVC', fornecedor: 'Wolf', linha: 'EUROPA 42' },
+    { tipologia: 'DP-01', descricao: 'MAXIM-AR', tipo: 'MAXIM-AR', familia: 'PVC', rotulo: 'PVC', fornecedor: 'Wolf', linha: 'EUROPA 60' },
+] }
 jest.mock('@/lib/atendimentos-ia/tabelas-da-conta', () => ({
     principaisDaConta: async (): Promise<unknown> => ({ principais: new Map([['FERRAGENS', 'detoni'], ['VIDRO', 'estrela']]), ambiguas: [], seguintes: new Map() }),
 }))
@@ -32,7 +43,7 @@ const ITENS = [
 ]
 function montar() {
     calculo.valor = {
-        lev: { nome: 'Teste', itens: [{ vidro: 'incolor 4 mm', vidro_codigo: N }] },
+        lev: { nome: 'Teste', itens: [{ tipologia: 'DP-02', familia: 'PVC', vidro: 'incolor 4 mm', vidro_codigo: N }] },
         grupos: [{ familia: { rotulo: 'PVC' }, indices: [0] }],
         calculos: [{
             d: { cor: 'BRANCO', esquadrias: [{ numero: 1, tipologia: 'DP-02' }] },
@@ -51,10 +62,10 @@ function montar() {
         }],
     }
 }
-beforeEach(() => { montar(); padroes.codigos = [] })
+beforeEach(() => { montar(); padroes.codigos = []; padroes.daMaximAr = [] })
 const ok = async () => {
     // o levantamento que chega ao servidor é o mesmo que o cálculo leu: o vidro e o vidro escolhido vêm dele
-    const r = await S().custoDoLevantamento('t', { ok: true } as never, (calculo.valor as { lev: never }).lev)
+    const r = await S().custoDoLevantamento('t', FONTE as never, (calculo.valor as { lev: never }).lev)
     if ('recusas' in r) throw new Error(r.recusas.join(' | '))
     return r
 }
@@ -131,6 +142,26 @@ describe('o custo pelos três caminhos, no servidor', () => {
         const l = r.itens[0].materiais.find((m) => m.caminho === 'vidro')!
         expect([l.codigo, l.resolucao]).toEqual(['VIN06', 'vidro_padrao'])
         expect(r.faltas.some((f) => f.caminho === 'vidro')).toBe(false)
+    })
+    // TAREFA 0015, saída 1 (dono do produto, 21/11/2026): o padrão de OUTRO grupo não desempata. Em produção o "mini boreal" de uma janela de
+    // correr caía calado no VBO3,4 — o padrão da MAXIM-AR. Agora volta a ser falta nomeada (e o agente pergunta); na maxim-ar segue VBO3,4
+    it('o padrão da MAXIM-AR não desempata o vidro de uma JANELA DE CORRER: continua falta nomeada (AMBÍGUO)', async () => {
+        comDoisIncolores()
+        padroes.daMaximAr = ['VIN06']
+        const r = await ok()
+        expect(r.faltas.filter((f) => f.caminho === 'vidro').map((f) => f.motivo)).toEqual(['VIDRO_AMBIGUO'])
+        expect(r.itens[0].materiais.some((m) => m.caminho === 'vidro')).toBe(false)
+    })
+    it('na MAXIM-AR, o padrão dela desempata (o mesmo vidro, a mesma tabela)', async () => {
+        comDoisIncolores()
+        const c = calculo.valor as { lev: { itens: Array<Record<string, unknown>> }; calculos: Array<{ d: { esquadrias: Array<Record<string, unknown>> }; r: { esquadrias: Array<Record<string, unknown>> } }> }
+        c.lev.itens[0].tipologia = 'DP-01'
+        c.calculos[0].d.esquadrias[0].tipologia = 'DP-01'
+        c.calculos[0].r.esquadrias[0].tipologia = 'DP-01'
+        padroes.daMaximAr = ['VIN06']
+        const r = await ok()
+        const l = r.itens[0].materiais.find((m) => m.caminho === 'vidro')!
+        expect([l.codigo, l.resolucao]).toEqual(['VIN06', 'vidro_padrao'])
     })
     it('sem padrão cadastrado, o mesmo vidro continua falta nomeada (AMBÍGUO), e o custo não escolhe nenhum', async () => {
         comDoisIncolores()
