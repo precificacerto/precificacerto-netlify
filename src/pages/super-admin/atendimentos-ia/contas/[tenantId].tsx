@@ -74,6 +74,7 @@ import { chamarRota } from '@/page-parts/atendimentos-ia/api'
 import { NichoSelect } from '@/page-parts/atendimentos-ia/nicho-select.component'
 import { PromptDeAtendimento } from '@/page-parts/atendimentos-ia/prompt-de-atendimento.component'
 import { rotaDaTelaDaBase } from '@/page-parts/atendimentos-ia/base-de-conhecimento/formulario'
+import { rotaDaTelaDaNatureza } from '@/page-parts/atendimentos-ia/natureza/natureza-da-variavel.component'
 
 const SEM_MODELO = '__sem_modelo__'
 
@@ -222,7 +223,11 @@ export default function ConfiguracaoDaConta() {
                         Perfil, vidro, acessórios, produção, vendedores e adicionais desta conta. As tabelas da conta são as
                         dos fornecedores vinculados aqui.
                     </Typography.Paragraph>
-                    <Button onClick={() => router.push(rotaDaTelaDaBase(conta.tenant_id))}>Base de conhecimento</Button>
+                    <Space wrap>
+                        <Button onClick={() => router.push(rotaDaTelaDaBase(conta.tenant_id))}>Base de conhecimento</Button>
+                        {/* a natureza de cada variável do motor e a opção padrão, sem SQL (item (3) da ordem, 21/11/2026) */}
+                        <Button onClick={() => router.push(rotaDaTelaDaNatureza(conta.tenant_id))}>Natureza das variáveis</Button>
+                    </Space>
                 </div>
             </Card>
             <Card style={{ marginTop: 16 }} data-bloco="prompt-de-atendimento">
