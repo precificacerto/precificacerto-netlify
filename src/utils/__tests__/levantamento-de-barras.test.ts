@@ -275,7 +275,7 @@ describe('(4) o código do item: um valor por código', () => {
         // a ponte para quem quer só o código diz o mesmo
         const peca = L().codigoDaPeca('BZ4556/WOLFF', 'BRANCO', comDescricao, ITENS)
         expect(peca.ok).toBe(false)
-        if (!peca.ok) expect(peca.recusa.mensagem).toContain('"BZ4556 - TRILHO CENTRAL DE PERSIANA - PVC - BRANCO"')
+        expect('recusa' in peca && peca.recusa.mensagem).toContain('"BZ4556 - TRILHO CENTRAL DE PERSIANA - PVC - BRANCO"')
     })
     it('a descrição do motor na ponte: a do código, do perfil e da cor; duas redações ou nenhuma é ausente (não se inventa)', () => {
         const rs = [
