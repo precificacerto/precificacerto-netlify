@@ -1,24 +1,24 @@
--- ╔══════════════════════════════════════════════════════════════════════════════════════════════════════════╗
--- ║ 20261120000001 — A DESCRIÇÃO DA ETAPA NO CATÁLOGO: o que a etapa entrega e o que NÃO é dela                  ║
--- ║                                                                                                              ║
--- ║ PENDENTE até o dono do produto aplicar. NÃO grava dado de conta nem de catálogo: só a coluna (nula em        ║
--- ║ toda linha) e a função que a grava. Nenhuma função de antes muda.                                            ║
--- ╚══════════════════════════════════════════════════════════════════════════════════════════════════════════╝
+-- --------------------------------------------------------------------------------------------------------------
+-- 20261120000001 - A DESCRICAO DA ETAPA NO CATALOGO: o que a etapa entrega e o que NAO e dela
 --
--- Dono do produto, 20/11/2026 (as fronteiras dos quatro estágios, item 3): "A DESCRICAO DA ETAPA no catalogo: um campo de texto em
+-- PENDENTE ate o dono do produto aplicar. NAO grava dado de conta nem de catalogo: so a coluna (nula em
+-- toda linha) e a funcao que a grava. Nenhuma funcao de antes muda.
+-- --------------------------------------------------------------------------------------------------------------
+--
+-- Dono do produto, 20/11/2026 (as fronteiras dos quatro estagios, item 3): "A DESCRICAO DA ETAPA no catalogo: um campo de texto em
 -- orcamentista_etapa_catalogo dizendo o que a etapa entrega e o que NAO e dela, que aparece na tela e entra no prompt da etapa corrente."
 --
 -- O QUE FAZ:
---   1. `orcamentista_etapa_catalogo.descricao text NULL` — nula = não escrita (`ausente-vs-falso.md`); CHECK de forma: sem espaço nas pontas,
---      de 1 a 1.500 caracteres (o mesmo teto da instrução da categoria, 20261103000002). Vazio não existe: é NULL.
---   2. `superadmin_gravar_descricao_da_etapa(p_por, p_id, p_descricao)`: super admin; o item tem de existir; apara; vazio ou só espaço limpa
---      (NULL); acima de 1.500 recusa nomeando o número; a mesma descrição não grava nem loga; a mudança loga antes e depois
---      (`superadmin_alteracao_log`, tenant nulo: o catálogo é global). SECURITY DEFINER, `search_path` fixo, só `service_role`.
---   POR QUE UMA FUNÇÃO NOVA, e não um parâmetro nas de criar e editar: mudar a assinatura delas é DROP + CREATE, e o corpo delas em produção tem
---   `\r` (aplicadas pelo SQL Editor). A função nova deixa as duas como estão — nada a conferir por md5 nelas.
+--   1. `orcamentista_etapa_catalogo.descricao text NULL` - nula = nao escrita (`ausente-vs-falso.md`); CHECK de forma: sem espaco nas pontas,
+--      de 1 a 1.500 caracteres (o mesmo teto da instrucao da categoria, 20261103000002). Vazio nao existe: e NULL.
+--   2. `superadmin_gravar_descricao_da_etapa(p_por, p_id, p_descricao)`: super admin; o item tem de existir; apara; vazio ou so espaco limpa
+--      (NULL); acima de 1.500 recusa nomeando o numero; a mesma descricao nao grava nem loga; a mudanca loga antes e depois
+--      (`superadmin_alteracao_log`, tenant nulo: o catalogo e global). SECURITY DEFINER, `search_path` fixo, so `service_role`.
+--   POR QUE UMA FUNCAO NOVA, e nao um parametro nas de criar e editar: mudar a assinatura delas e DROP + CREATE, e o corpo delas em producao tem
+--   `\r` (aplicadas pelo SQL Editor). A funcao nova deixa as duas como estao - nada a conferir por md5 nelas.
 --
--- PRESSUPÕE: `orcamentista_etapa_catalogo` (20261031000002) e `superadmin_alteracao_log`. A guarda aborta, nomeando o banco, se faltar.
--- Os comentários DENTRO do corpo `$fn$` são ASCII (o `prosrc` é o artefato; a colagem pelo navegador reescreve o que não é ASCII).
+-- PRESSUPOE: `orcamentista_etapa_catalogo` (20261031000002) e `superadmin_alteracao_log`. A guarda aborta, nomeando o banco, se faltar.
+-- Os comentarios DENTRO do corpo `$fn$` sao ASCII (o `prosrc` e o artefato; a colagem pelo navegador reescreve o que nao e ASCII).
 
 DO $guarda$
 BEGIN
