@@ -1031,7 +1031,7 @@ async function calcularFamilia(
     })
     // A FRONTEIRA (dono do produto, 20/11/2026): cada variável com opções chega ao motor DECIDIDA — o vendedor, a política da empresa, o padrão do
     // motor que não acrescenta peça, ou a principal —, e o motor não usa padrão nelas (`semDecidirVariacao`). O que não se decide volta ao agente
-    const politica = await lerPoliticaDaEmpresa(tenantId)
+    const politica = await lerPoliticaDaEmpresa(tenantId, familia.familia)
     const decididas = itensDoGrupo.map((_, k) => {
         const t = lidas[dg.esquadrias[k].tipologia]
         return t ? escolhasDoCalculo(t, ditas[k], politica) : { escolhas: ditas[k], origem: {}, voltas: [] }

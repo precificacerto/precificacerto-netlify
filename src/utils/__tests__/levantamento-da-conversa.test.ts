@@ -861,6 +861,8 @@ describe('(5b) as ESCOLHAS gravadas chegam ao avaliador', () => {
     })
 
     it('a POLÍTICA DA EMPRESA vale sem perguntar: a do NICHO (BZ1770, BZ0010, PERIMETRAL, VÃO+50) dá exatamente o mesmo cálculo das escolhas ditas', async () => {
+        // o caminho de antes da natureza da variável (20261121000001): a tabela dela não existe
+        banco.ausentes.add('orcamentista_natureza_da_variavel')
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const ditas = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 2, ARE: 1, MAE: 2 } }))
         banco.db.orcamentista_config = [{ tenant_id: TENANT, nicho_id: 'nicho-esq' }]
@@ -878,12 +880,54 @@ describe('(5b) as ESCOLHAS gravadas chegam ao avaliador', () => {
     })
 
     it('a política que não casa NENHUMA opção do motor volta ao agente, nomeada — nunca "a mais parecida"', async () => {
+        banco.ausentes.add('orcamentista_natureza_da_variavel')
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         banco.db.orcamentista_config = [{ tenant_id: TENANT, nicho_id: 'nicho-esq' }]
         banco.db.orcamentista_esquadrias_padrao = [{ nicho_id: 'nicho-esq', usa_arremate_interno: true, guarnicao_interna: 'BZ9999' }]
         const r = await M().mensagemDoLevantamento(TENANT, t, lev())
         expect(r.desfecho).toBe('recusou')
         expect(r.texto).toContain('a política da empresa diz guarnicao_interna = "BZ9999", e na tipologia DP-02 nenhuma opção')
+    })
+
+    // A NATUREZA DA VARIÁVEL (20261121000001): as 12 linhas da política da De Paula, como a migração as grava, dão o MESMO cálculo da política de
+    // antes — e a natureza manda: os campos de antes, existindo a tabela, não valem
+    const NATUREZA_DE_PAULA = [
+        ['ARI', 'BZ1770'], ['ARE', 'BZ0010'], ['MAE', 'VAO+50MM (CORTE 90/90)'], ['MTE', 'PERIMETRAL'], ['RL', 'SIM'], ['SOLDA', 'SPVCAL 6MM'], ['BARRA_MM', '6000'],
+    ].map(([variavel, opcao]) => ({ tenant_id: TENANT, familia: 'PVC', linha: null as string | null, formato: null as string | null, variavel, natureza: 'POLITICA', opcao_padrao: opcao }))
+    it('a NATUREZA POLITICA (a migrada da De Paula) dá exatamente o mesmo cálculo das escolhas ditas', async () => {
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        const ditas = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 2, ARE: 1, MAE: 2 } }))
+        banco.db.orcamentista_natureza_da_variavel = NATUREZA_DE_PAULA.map((l) => ({ ...l }))
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev())
+        expect(r.desfecho).toBe('levantou')
+        expect(r.texto).toContain('arremate interno: BZ1770 - ARREMATE 70MM (política da empresa)')
+        expect(r.texto.replace(/\(política da empresa\)/g, '(como você pediu)')).toBe(ditas.texto)
+    })
+    it('a natureza manda: com a tabela, os campos de antes (esquadrias_padrao) não valem — e a opção SEM, em texto, tira a peça', async () => {
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        banco.db.orcamentista_config = [{ tenant_id: TENANT, nicho_id: 'nicho-esq' }]
+        banco.db.orcamentista_esquadrias_padrao = [{ nicho_id: 'nicho-esq', usa_arremate_interno: true, guarnicao_interna: 'BZ9999' }]
+        banco.db.orcamentista_natureza_da_variavel = NATUREZA_DE_PAULA.map((l) => (l.variavel === 'ARE' ? { ...l, opcao_padrao: 'SEM ARREMATE EXTERNO' } : { ...l }))
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev())
+        expect(r.desfecho).toBe('levantou')
+        expect(r.texto).toContain('arremate interno: BZ1770 - ARREMATE 70MM (política da empresa)')
+        expect(r.texto).toContain('arremate externo: SEM ARREMATE EXTERNO (política da empresa)')
+        expect(r.texto).not.toContain('BZ9999')
+    })
+    it('a natureza POLITICA que não casa nenhuma opção volta ao agente, nomeada pela VARIÁVEL', async () => {
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        banco.db.orcamentista_natureza_da_variavel = NATUREZA_DE_PAULA.map((l) => (l.variavel === 'ARI' ? { ...l, opcao_padrao: 'BZ9999' } : { ...l }))
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev())
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto).toContain('a política da empresa diz ARI = "BZ9999", e na tipologia DP-02 nenhuma opção')
+    })
+    it('a natureza de OUTRA família não vale para a esquadria PVC', async () => {
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        const semPolitica = await M().mensagemDoLevantamento(TENANT, t, lev())
+        banco.db.orcamentista_natureza_da_variavel = NATUREZA_DE_PAULA.map((l) => ({ ...l, familia: 'ALUMINIO' }))
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev())
+        expect(r.texto).toBe(semPolitica.texto)
+        expect(r.texto).not.toContain('(política da empresa)')
     })
 
     it('a variável com opções SEM padrão e sem política: o motor não a decide — a recusa diz que escolher é do agente (a trava VARIAVEL_DE_IDENTIFICACAO)', async () => {

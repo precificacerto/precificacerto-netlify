@@ -117,7 +117,11 @@ describe('A ESQUADRIA: o texto da tabela do principal, o código gravado e o CON
 })
 
 describe('QUEM LÊ: o service_role, em servidor (a RLS só deixa passar is_super_admin — com o JWT de um usuário a leitura voltaria VAZIA)', () => {
-    beforeEach(() => { chamadas.length = 0; for (const k of Object.keys(respostas)) delete respostas[k] })
+    // estes casos são o caminho de ANTES da natureza da variável (20261121000001): a tabela dela não existe
+    beforeEach(() => {
+        chamadas.length = 0; for (const k of Object.keys(respostas)) delete respostas[k]
+        respostas.orcamentista_natureza_da_variavel = { data: null, error: { code: '42P01', message: 'relation does not exist' } }
+    })
     it('o módulo lê pelo supabaseAdmin, e por nenhum outro cliente', () => {
         const fonte = readFileSync(join(process.cwd(), 'src/lib/atendimentos-ia/vidro-padrao.ts'), 'utf-8')
         expect(fonte).toMatch(/import \{ supabaseAdmin \} from '@\/supabase\/admin'/)
@@ -186,5 +190,41 @@ describe('QUEM LÊ: o service_role, em servidor (a RLS só deixa passar is_super
         if (!('descricaoDo' in r)) throw new Error('leitura falhou')
         expect(chamadas.find((x) => x.tabela === 'orcamentista_tabela_item')!.filtros).toContainEqual(['in', 'tabela_id', ['tab-vidro']])
         expect(r.descricaoDo.has('VIN05')).toBe(false)
+    })
+})
+
+describe('A NATUREZA DA VARIÁVEL (20261121000001; 0007 e 0008 por absorção): existindo a tabela, o vidro padrão vem DELA', () => {
+    beforeEach(() => { chamadas.length = 0; for (const k of Object.keys(respostas)) delete respostas[k] })
+    const linha = (formato: string | null, natureza: string, opcao: string | null, familia = 'PVC') => ({ familia, linha: null as string | null, formato, variavel: 'VIDRO', natureza, opcao_padrao: opcao })
+    it('a VIDRO de natureza POLITICA, por formato, vira o padrão do grupo — e a tabela de antes nem é lida', async () => {
+        respostas.orcamentista_natureza_da_variavel = { data: [linha('janela correr', 'POLITICA', 'VIN05'), linha('maxim-ar', 'POLITICA', 'VBO3,4')], error: null }
+        respostas.orcamentista_vidro_padrao = { data: [{ materia_prima_id: 'mp', abertura: 'janela', tipo: 'correr', tipologia: null, item_codigo: 'VIN04' }], error: null }
+        const r = await lerVidrosPadraoDaConta('t1')
+        if (!('porFamilia' in r)) throw new Error('leitura falhou')
+        expect(r.porFamilia.get('PVC')!.map((l) => [l.abertura, l.tipo, l.item_codigo])).toEqual([['janela', 'correr', 'VIN05'], [null, 'maxim-ar', 'VBO3,4']])
+        expect(chamadas.some((x) => x.tabela === 'orcamentista_vidro_padrao')).toBe(false)
+        const daNatureza = chamadas.find((x) => x.tabela === 'orcamentista_natureza_da_variavel')!
+        expect(daNatureza.filtros).toEqual(expect.arrayContaining([['eq', 'tenant_id', 't1'], ['eq', 'variavel', 'VIDRO']]))
+        // e o padrão vale na esquadria do grupo, como antes
+        expect(vidroPadraoDaEsquadria(r, { tipologia: 'DP-02', familia: 'PVC' }, [DP02])?.codigo).toBe('VIN05')
+        expect(vidroPadraoDaEsquadria(r, { tipologia: 'DP-01', familia: 'PVC' }, [DP01])?.codigo).toBe('VBO3,4')
+    })
+    it('a VIDRO de natureza ITEM não dá padrão (o vendedor diz; sem ele, o agente pergunta)', async () => {
+        respostas.orcamentista_natureza_da_variavel = { data: [linha('janela correr', 'ITEM', null)], error: null }
+        const r = await lerVidrosPadraoDaConta('t1')
+        if (!('porFamilia' in r)) throw new Error('leitura falhou')
+        expect(vidroPadraoDaEsquadria(r, { tipologia: 'DP-02', familia: 'PVC' }, [DP02])).toBeNull()
+    })
+    it('a natureza vazia para a empresa é "nenhum padrão" — nunca completada pela tabela de antes', async () => {
+        respostas.orcamentista_natureza_da_variavel = { data: [], error: null }
+        respostas.orcamentista_vidro_padrao = { data: [{ materia_prima_id: 'mp', abertura: 'janela', tipo: 'correr', tipologia: null, item_codigo: 'VIN05' }], error: null }
+        respostas.orcamentista_materia_prima = { data: [{ id: 'mp', familia: 'PVC' }], error: null }
+        const r = await lerVidrosPadraoDaConta('t1')
+        if (!('porFamilia' in r)) throw new Error('leitura falhou')
+        expect(r.porFamilia.size).toBe(0)
+    })
+    it('outro erro na natureza é falhou, nunca a tabela de antes em silêncio', async () => {
+        respostas.orcamentista_natureza_da_variavel = { data: null, error: { code: '42501', message: 'x' } }
+        expect(await lerVidrosPadraoDaConta('t1')).toMatchObject({ ok: false, motivo: 'falhou' })
     })
 })

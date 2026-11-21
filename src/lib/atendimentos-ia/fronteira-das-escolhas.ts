@@ -12,7 +12,8 @@
  * Este módulo é a PORTA do estágio 1 para o 2: antes de o motor avaliar uma esquadria, cada variável COM OPÇÕES da tipologia recebe o seu valor, e
  * a origem dele, nesta ordem:
  *   1. o que o VENDEDOR disse;
- *   2. a POLÍTICA DA EMPRESA (`politica-da-empresa.ts`): o campo definido vale, sem perguntar;
+ *   2. a POLÍTICA DA EMPRESA (`politica-da-empresa.ts`): o campo definido vale, sem perguntar; e, com a NATUREZA da variável (20261121000001),
+ *      a de natureza CALCULO fica com o padrão do motor, mesmo que acrescente peça (o motor resolve; o agente nem vê);
  *   3. o PADRÃO DO MOTOR, só quando ele NÃO acrescenta peça;
  *   4. quando o padrão acrescenta peça: a PRINCIPAL — a opção com o MENOR conjunto de linhas (perfis, insumos, vidros) que entram, se ela existe e é
  *      única (a regra da travessa, de 19/11/2026, para toda variável);
@@ -29,9 +30,9 @@
  */
 import { avaliarTexto, opcoesDaVariavel, type Tipologia } from '@/lib/atendimentos-ia/avaliador-de-formulas'
 import { PECAS_QUE_NAO_ENTRAM_POR_PADRAO } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
-import { traduzirPolitica, type PoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa'
+import { naturezaNaPolitica, traduzirPolitica, type PoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa'
 
-export type OrigemDaEscolha = 'vendedor' | 'politica' | 'padrao_do_motor' | 'principal'
+export type OrigemDaEscolha = 'vendedor' | 'politica' | 'calculo' | 'padrao_do_motor' | 'principal'
 export type VoltaAoAgente = { variavel: string; descricao: string; frase: string }
 export type EscolhasDoCalculo = { escolhas: Record<string, number>; origem: Record<string, OrigemDaEscolha>; voltas: VoltaAoAgente[] }
 
@@ -108,6 +109,12 @@ export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<s
         if (!ativa(v.condicao, valores())) continue
         const padrao = numeroDoPadrao(v.padrao)
         if (padrao === null) continue // sem padrão: o avaliador recusa pelo nome, como sempre
+        // A NATUREZA CALCULO (20261121000001): o motor resolve com o padrão dele — mesmo que acrescente peça —, e o agente nem vê (nunca volta)
+        if (naturezaNaPolitica(politica, v.variavel)?.natureza === 'CALCULO') {
+            escolhas[v.variavel] = padrao
+            origem[v.variavel] = 'calculo'
+            continue
+        }
         const opcoes = (opcoesDaVariavel(v.opcoes) ?? []).map((o) => o.valor)
         const doPadrao = linhasQueEntram(condicoes, { ...valores(), [v.variavel]: padrao })
         const acrescenta = opcoes.some((o) => o !== padrao && estritamenteContido(linhasQueEntram(condicoes, { ...valores(), [v.variavel]: o }), doPadrao))

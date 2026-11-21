@@ -32,9 +32,17 @@
  */
 import { opcoesDaVariavel, type VariavelDaTipologia } from '@/lib/atendimentos-ia/avaliador-de-formulas'
 import { efetivoDasEsquadrias } from '@/lib/atendimentos-ia/base-de-conhecimento'
+import type { NaturezaResolvida } from '@/lib/atendimentos-ia/natureza-da-variavel'
 
-/** Os valores efetivos da política (empresa sobre nicho), só os campos que o mapa lê. Ausente = a política não define. */
-export type PoliticaDaEmpresa = Readonly<Partial<Record<CampoDaPolitica, string | boolean>>>
+/**
+ * A política da empresa. Duas fontes, e a NATUREZA manda quando existe (`natureza-da-variavel.ts`, migração `20261121000001`):
+ *   - `porVariavel` — a natureza de cada variável do motor para a família da esquadria (POLITICA com a opção em texto; ITEM; CALCULO). Presente,
+ *     é ela que vale, para QUALQUER variável, não só as cinco do mapa;
+ *   - os CAMPOS de `orcamentista_esquadrias_base`/`_padrao` pelo mapa de 20/11/2026 — o caminho de antes, que vale enquanto a migração da
+ *     natureza não está aplicada (a tabela não existe).
+ * Ausente = a política não define.
+ */
+export type PoliticaDaEmpresa = Readonly<Partial<Record<CampoDaPolitica, string | boolean>>> & { readonly porVariavel?: Readonly<Record<string, NaturezaResolvida>> }
 
 /**
  * O MAPA, fechado: a variável do motor e os campos da política que a decidem. `usa` é o booleano que liga ou desliga a peça; `valor` é o texto
@@ -49,8 +57,10 @@ export const MAPA_DA_POLITICA = {
 } as const satisfies Record<string, { usa?: string; valor?: string; booleano?: string }>
 export type VariavelDaPolitica = keyof typeof MAPA_DA_POLITICA
 type Entrada = { usa?: string; valor?: string; booleano?: string }
-const CAMPOS = [...new Set(Object.values(MAPA_DA_POLITICA as Record<string, Entrada>).flatMap((m) => [m.usa, m.valor, m.booleano]).filter((c): c is string => !!c))]
-export type CampoDaPolitica = (typeof CAMPOS)[number]
+const CAMPOS = [...new Set(Object.values(MAPA_DA_POLITICA as Record<string, Entrada>).flatMap((m) => [m.usa, m.valor, m.booleano]).filter((c): c is string => !!c))] as CampoDaPolitica[]
+/** Os campos que o mapa lê, por extenso: uma união literal, para não colidir com a chave `porVariavel`. */
+export type CampoDaPolitica = 'usa_arremate_interno' | 'guarnicao_interna' | 'usa_arremate_externo' | 'guarnicao_externa' | 'medida_arremate_externo'
+    | 'montagem_arremate_externo' | 'regiao_litoranea'
 
 /** A política efetiva, das duas linhas (a da empresa e a do nicho), só com os campos do mapa e só os definidos. */
 export function politicaEfetiva(empresa: Record<string, unknown> | null, nicho: Record<string, unknown> | null): PoliticaDaEmpresa {
@@ -79,6 +89,7 @@ const listaDasOpcoes = (opcoes: ReadonlyArray<{ valor: number; rotulo: string }>
  * A opção que a política escolhe para a variável desta tipologia. Null quando a variável não é da política, ou a política não a define (cai na (c)).
  */
 export function traduzirPolitica(tipologia: string, v: Pick<VariavelDaTipologia, 'variavel' | 'opcoes'>, politica: PoliticaDaEmpresa): TraducaoDaPolitica {
+    if (politica.porVariavel !== undefined) return traduzirPelaNatureza(tipologia, v, politica.porVariavel[v.variavel])
     const mapa = (MAPA_DA_POLITICA as Record<string, Entrada>)[v.variavel]
     if (!mapa) return null
     const opcoes = opcoesDaVariavel(v.opcoes) ?? []
@@ -107,4 +118,27 @@ export function traduzirPolitica(tipologia: string, v: Pick<VariavelDaTipologia,
     }
     const achadas = casam(texto)
     return achadas.length === 1 ? { valor: achadas[0].valor, campo } : recusa(campo, texto, achadas.length)
+}
+
+/** A natureza da variável na política, quando a política vem da estrutura da natureza; senão null (o caminho de antes não tem natureza). */
+export function naturezaNaPolitica(politica: PoliticaDaEmpresa, variavel: string): NaturezaResolvida | null {
+    return politica.porVariavel?.[variavel] ?? null
+}
+
+/**
+ * A opção que a NATUREZA POLITICA escolhe: o texto guardado tem de ser o COMEÇO do rótulo de exatamente UMA opção (sem acento, sem espaço, sem
+ * caixa); SIM e NÃO casam o rótulo inteiro. Nenhuma ou mais de uma é recusa nomeada, como no caminho de antes. ITEM, CALCULO ou sem linha: null —
+ * não é política (a fronteira trata).
+ */
+function traduzirPelaNatureza(tipologia: string, v: Pick<VariavelDaTipologia, 'variavel' | 'opcoes'>, n: NaturezaResolvida | undefined): TraducaoDaPolitica {
+    if (!n || n.natureza !== 'POLITICA' || n.opcao === null) return null
+    const opcoes = opcoesDaVariavel(v.opcoes) ?? []
+    const texto = forma(n.opcao)
+    const booleano = texto === 'SIM' || texto === 'NAO'
+    const achadas = opcoes.filter((o) => (booleano ? forma(o.rotulo) === texto : forma(o.rotulo).startsWith(texto)))
+    if (achadas.length === 1) return { valor: achadas[0].valor, campo: v.variavel }
+    return {
+        campo: v.variavel,
+        recusa: `a política da empresa diz ${v.variavel} = "${n.opcao}", e na tipologia ${tipologia} ${achadas.length === 0 ? 'nenhuma opção' : 'mais de uma opção'} de ${v.variavel} começa assim (${listaDasOpcoes(opcoes)}): corrija a política ou o motor`,
+    }
 }
