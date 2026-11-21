@@ -25,7 +25,9 @@ caso 'nenhuma linha gravada pela migracao' "$(q $D 'select count(*) from orcamen
 caso 'familia da empresa: cria, aparado' "$(q $D "$(g '{"familia":"PVC","texto":"  Linha Wolf; perfil branco.  "}')"; echo -n ' '; q $D "select texto from orcamentista_texto_do_caminho where familia='PVC'")" 'criada Linha Wolf; perfil branco.'
 caso '... logou com antes nulo, o tenant e a funcao' "$(q $D "select count(*) from superadmin_alteracao_log where antes is null and tenant_id=$T and depois->>'funcao'='superadmin_gravar_texto_do_caminho'")" '1'
 caso 'o mesmo texto: igual, sem logar' "$(q $D "$(g '{"familia":"PVC","texto":"Linha Wolf; perfil branco."}')"; echo -n ' '; q $D "$LOG")" 'igual 1'
+$P -d $D -c "update orcamentista_texto_do_caminho set atualizado_por = null where familia='PVC'" >/dev/null
 caso 'troca o texto da familia, com antes e depois' "$(q $D "$(g '{"familia":"PVC","texto":"Novo"}')"; echo -n ' '; q $D "select antes->>'texto'||'>'||(depois->>'texto') from superadmin_alteracao_log where antes is not null")" 'trocada Linha Wolf; perfil branco.>Novo'
+caso '... a troca grava quem trocou' "$(q $D "select atualizado_por from orcamentista_texto_do_caminho where familia='PVC'")" '44444444-4444-4444-4444-444444444444'
 caso 'fornecedor vinculado (Wolf, PERFIL): cria' "$(q $D "$(g '{"fornecedor_id":"'$WOLF'","texto":"Tabela Wolf rev2"}')")" 'criada'
 caso 'fornecedor vinculado (Estrela, VIDRO): cria' "$(q $D "$(g '{"fornecedor_id":"'$ESTRELA'","texto":"Vidro em m2"}')")" 'criada'
 caso 'fornecedor do motor que a etapa aponta: cria' "$(q $D "$(g '{"fornecedor_id":"'$PROPRIO'","texto":"x"}')")" 'criada'

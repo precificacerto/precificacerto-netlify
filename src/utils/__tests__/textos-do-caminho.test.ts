@@ -125,16 +125,30 @@ describe('o leitor', () => {
             orcamentista_texto_do_caminho: [
                 { tenant_id: T, familia: 'PVC', fornecedor_id: null, texto: 'texto PVC' },
                 { tenant_id: T, familia: null, fornecedor_id: 'f-wolf', texto: 'texto Wolf' },
-                { tenant_id: T, familia: null, fornecedor_id: 'f-estrela', texto: null },
+                { tenant_id: T, familia: null, fornecedor_id: 'f-estrela', texto: '   ' },
                 { tenant_id: 'outra', familia: 'PVC', fornecedor_id: null, texto: 'DE OUTRA EMPRESA' },
             ],
             orcamentista_materia_prima: [{ id: 'mp-1', tenant_id: T, familia: 'PVC' }, { id: 'mp-x', tenant_id: 'outra', familia: 'PVC' }],
             orcamentista_mp_categoria: [{ id: 'c-1', tenant_id: T, materia_prima_id: 'mp-1' }, { id: 'c-x', tenant_id: 'outra', materia_prima_id: 'mp-x' }],
-            orcamentista_mp_categoria_fornecedor: [{ tenant_id: T, mp_categoria_id: 'c-1', fornecedor_id: 'f-estrela' }, { tenant_id: 'outra', mp_categoria_id: 'c-x', fornecedor_id: 'f-alheio' }],
+            orcamentista_mp_categoria_fornecedor: [{ tenant_id: T, mp_categoria_id: 'c-1', fornecedor_id: 'f-estrela' }, { tenant_id: 'outra', mp_categoria_id: 'c-x', fornecedor_id: 'f-alheio' },
+                // a linha de OUTRA empresa que cita a categoria desta (só a defesa por empresa a barra)
+                { tenant_id: 'outra', mp_categoria_id: 'c-1', fornecedor_id: 'f-alheio' }],
             orcamentista_familia_etapa: [{ tenant_id: T, materia_prima_id: 'mp-1', motor_id: 'm-1' }, { tenant_id: T, materia_prima_id: 'mp-1', motor_id: null }],
             orcamentista_motor: [{ id: 'm-1', fornecedor_id: 'f-wolf' }],
             orcamentista_fornecedor: [{ id: 'f-wolf', nome: 'Wolf' }, { id: 'f-estrela', nome: '  ' }, { id: 'f-alheio', nome: 'Alheio' }],
         }
+    })
+    it('o texto só de espaço não conta como escrito', async () => {
+        const r = await leitor().lerTextosDoCaminho(T)
+        if (r.estado !== 'sim') throw new Error(r.estado)
+        expect(r.doFornecedor.has('f-estrela')).toBe(false)
+    })
+    it('o bloco da descrição da etapa: nenhuma linha sem descrição', () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { blocoDasDescricoesDasEtapas, CABECALHO_DA_DESCRICAO_DA_ETAPA } = require('@/lib/atendimentos-ia/motor-da-familia') as typeof import('@/lib/atendimentos-ia/motor-da-familia')
+        expect(blocoDasDescricoesDasEtapas([], false)).toEqual([])
+        expect(blocoDasDescricoesDasEtapas([{ numero: 1, rotulo: 'Apanhado', texto: 'a', familia: 'PVC Wolf' }], true))
+            .toEqual([CABECALHO_DA_DESCRICAO_DA_ETAPA, '[Etapa 1 — Apanhado — família PVC Wolf]', 'a'])
     })
     it('os escritos da empresa e o caminho de cada família (o vínculo e o motor da etapa); o de outra empresa não', async () => {
         const r = await leitor().lerTextosDoCaminho(T)
