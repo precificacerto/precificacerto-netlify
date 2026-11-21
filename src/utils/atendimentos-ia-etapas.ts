@@ -126,6 +126,28 @@ export interface EtapaDoCatalogo {
     ordem: number
     criado_em: string
     usos: UsoDaEtapaDoCatalogo[]
+    /**
+     * O que a etapa entrega e o que NÃO é dela (dono do produto, 20/11/2026; migração 20261120000001). `null` = não escrita; AUSENTE = a coluna
+     * ainda não existe no banco (a migração pendente) — a tela não oferece o campo, em vez de mostrar "não escrita".
+     */
+    descricao?: string | null
+}
+
+/** O teto da descrição da etapa: o da CHECK `orcamentista_etapa_catalogo_descricao_forma` (contado como o banco conta, `char_length`). */
+export const LIMITE_DA_DESCRICAO_DA_ETAPA = 1500
+/** PUT `{ descricao }` (texto, ou null para limpar): `superadmin_gravar_descricao_da_etapa`. */
+export const rotaDaDescricaoDaEtapa = (id: string) => `/api/super-admin/atendimentos-ia/etapas/${encodeURIComponent(id)}/descricao`
+/** O corpo do PUT da descrição: texto (aparado; vazio limpa) ou null. Acima do teto é recusa nomeada, antes da função. */
+export function lerCorpoDaDescricaoDaEtapa(corpo: unknown): { ok: true; descricao: string | null } | { ok: false; erro: string } {
+    if (corpo === null || typeof corpo !== 'object' || Array.isArray(corpo) || !('descricao' in corpo)) return { ok: false, erro: 'O corpo precisa de "descricao": texto ou null.' }
+    const extra = Object.keys(corpo).filter((k) => k !== 'descricao')
+    if (extra.length > 0) return { ok: false, erro: `Chave desconhecida: "${extra[0]}".` }
+    const d = (corpo as { descricao: unknown }).descricao
+    if (d !== null && typeof d !== 'string') return { ok: false, erro: 'A descrição é texto (ou null para limpar).' }
+    const aparada = typeof d === 'string' && d.trim() !== '' ? d.trim() : null
+    const n = aparada === null ? 0 : [...aparada].length
+    if (n > LIMITE_DA_DESCRICAO_DA_ETAPA) return { ok: false, erro: `A descrição tem ${n} caracteres; o limite é ${LIMITE_DA_DESCRICAO_DA_ETAPA}.` }
+    return { ok: true, descricao: aparada }
 }
 
 /** GET (a lista) e POST (`{ nome, acao, abas }`) em `rotaDoCatalogoDeEtapas`; PATCH e DELETE em `rotaDaEtapaDoCatalogo(id)`. */

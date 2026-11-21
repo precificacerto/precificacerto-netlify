@@ -217,7 +217,9 @@ import { autorizacaoVale, gravarLimites, lerLimites, limitesDisponiveis, limiteV
 import { PROMPT_BASE } from '@/utils/atendimentos-ia-prompt-base'
 import { LIMITE_DA_FALA } from '@/utils/atendimentos-ia-contexto'
 import { blocoDasInstrucoes, lerInstrucoesDaEmpresa, type InstrucaoDaCategoria } from '@/lib/atendimentos-ia/instrucoes-da-categoria'
-import { blocoDasInstrucoesDasEtapas, type InstrucaoDaEtapa } from '@/lib/atendimentos-ia/motor-da-familia'
+import { blocoDosTextosDoCaminho, familiasDoCaminhoAtivo, textosDoCaminhoAtivo, type TextoDoCaminho } from '@/lib/atendimentos-ia/textos-do-caminho'
+import { lerTextosDoCaminho } from '@/lib/atendimentos-ia/textos-do-caminho-servidor'
+import { blocoDasDescricoesDasEtapas, blocoDasInstrucoesDasEtapas, type InstrucaoDaEtapa } from '@/lib/atendimentos-ia/motor-da-familia'
 import { aberturaDita, cabeNosLimites, filtrarPeloAcumulado, filtrarPorAbertura, fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, linhaDaEsquadria, medidasNaOrdemEscrita, numeroOuNulo, palavrasDeAbertura } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { lerPoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa-servidor'
 import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, semAsPecasNaoPedidas, variaveisSemPadraoNoPrompt, variaveisSemPadraoParaOPrompt } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
@@ -313,6 +315,8 @@ type Rastro = {
     instrucoes: string
     /** Quantas instruções de etapa (a corrente, por família) foram ao sistema (04/11/2026); '-' sem chamada. */
     instrucoesDasEtapas: number | '-'
+    descricoesDasEtapas: number | '-'
+    textosDoCaminho: string
     /** As instruções escritas em etapas que não falam com o modelo, `numero:ACAO:caracteres` separadas por vírgula; '' quando não há. */
     instrucoesSemEfeito: string
     /** Quantos itens iguais se fundiram nesta mensagem (03/11/2026). */
@@ -388,6 +392,7 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
     // o contexto e a fala: o ESTADO, nunca o texto
     const contexto = (r.contexto === '-' ? '' : ` contexto=${r.contexto}${r.fala === '-' ? '' : ` fala=${FALA_NO_LOG[r.fala]}`}`)
         + (r.instrucoes === '-' ? '' : ` instrucoes=${r.instrucoes}`) + (r.instrucoesDasEtapas === '-' ? '' : ` instrucao_etapa=${r.instrucoesDasEtapas}`)
+        + (r.descricoesDasEtapas === '-' ? '' : ` descricao_etapa=${r.descricoesDasEtapas}`) + (r.textosDoCaminho === '-' ? '' : ` textos_caminho=${r.textosDoCaminho}`)
         + (r.instrucoesSemEfeito === '' ? '' : ` instrucao_sem_efeito=${r.instrucoesSemEfeito}`)
         + (r.fundidos > 0 ? ` agrupados=${r.fundidos}` : '') + (r.caminhos.length > 0 ? ` caminhos=${r.caminhos.join(',')}` : '') + (r.reenviadas > 0 ? ` reenviadas=${r.reenviadas}` : '')
         + (r.historico === '-' ? '' : ` historico=${r.historico}`) + (r.gravacao === '-' ? '' : ` gravacao=${r.gravacao}`) + (r.redacao === '-' ? '' : ` redacao=${r.redacao}`)
@@ -666,6 +671,10 @@ type ContextoDoPrompt = {
     instrucoes: readonly InstrucaoDaCategoria[]
     /** A instrução da etapa CORRENTE de cada família (a de GERAR_LEVANTAMENTO), só as preenchidas (04/11/2026); vazia, nenhuma seção. */
     instrucoesDasEtapas: readonly InstrucaoDaEtapa[]
+    /** A DESCRIÇÃO da etapa corrente, do catálogo (20261120000001), só as escritas; vazia, nenhuma seção. */
+    descricoesDasEtapas: readonly InstrucaoDaEtapa[]
+    /** Os textos da empresa do CAMINHO ATIVO, por família e por fornecedor (20261121000003), só os escritos; vazia, nenhuma seção. */
+    textosDoCaminho: readonly TextoDoCaminho[]
 }
 
 /** Como o modelo lê os limites compactos da lista (05/11/2026): a sigla, a faixa, os unilaterais, e o que a ausência quer dizer. */
@@ -740,6 +749,10 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
         ...(c.instrucoes.length ? ['', ...blocoDasInstrucoes(c.instrucoes)] : []),
         // a instrução da etapa corrente (04/11/2026): só a da etapa que fala com o modelo, só quando preenchida — nenhuma linha quando não há
         ...(c.instrucoesDasEtapas.length ? ['', ...blocoDasInstrucoesDasEtapas(c.instrucoesDasEtapas, c.variasFamilias)] : []),
+        // a descrição da etapa corrente, do catálogo (20261120000001): só quando escrita — nenhuma linha quando não há
+        ...(c.descricoesDasEtapas.length ? ['', ...blocoDasDescricoesDasEtapas(c.descricoesDasEtapas, c.variasFamilias)] : []),
+        // os textos da empresa do CAMINHO ATIVO (por família e por fornecedor, 20261121000003): só os escritos — nenhuma linha quando não há
+        ...(c.textosDoCaminho.length ? ['', ...blocoDosTextosDoCaminho(c.textosDoCaminho)] : []),
     ].join('\n')
     // o contexto da empresa vai no FIM do estável, DEPOIS do base: o que vem antes é o mesmo para toda empresa
     const estavel = c.contexto === null ? doProduto : `${doProduto}\n\n${blocoDoContexto(c.contexto).join('\n')}`
@@ -1304,7 +1317,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = {
         etapas: { coletar: null, casar: null, montar: null, calcular: null },
         levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null, raciocinio: null, parada: null, cacheLido: null, cacheEscrito: null, cabecalhosMs: null, primeiroTokenMs: null, tentativas: null, requestId: null },
-        midia: '-', contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', contextoDoTurno: '-', coresPadrao: 0, tipologiasPadrao: 0, linhaPadrao: 0, pecasNaoPedidas: 0, limite: '-', qualOrcamento: '-', daImagem: '-', medidasNaOrdem: 0,
+        midia: '-', contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', descricoesDasEtapas: '-', textosDoCaminho: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', contextoDoTurno: '-', coresPadrao: 0, tipologiasPadrao: 0, linhaPadrao: 0, pecasNaoPedidas: 0, limite: '-', qualOrcamento: '-', daImagem: '-', medidasNaOrdem: 0,
     }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
@@ -1404,7 +1417,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // a falta de configuração (família, etapa, motor, tabela de preço) volta com a frase que a nomeia (PR D)
         // AS LEITURAS INDEPENDENTES VÃO JUNTAS (dono do produto, 04/11/2026): medido em produção, as 24 leituras em série antes do modelo
         // custavam 5 a 8 s por turno. Primeira onda: o que só depende da conta e da conversa. A ordem das RESPOSTAS continua a de antes.
-        const [tabela, perfil, emMontagemLidos, contexto, lido, instrucoes, contextoLido] = await Promise.all([
+        const [tabela, perfil, emMontagemLidos, contexto, lido, instrucoes, contextoLido, textosLidos] = await Promise.all([
             lerFamiliasDaEmpresa(c.tenantId),
             // as cores do Perfil e a cor PREDOMINANTE da base (05/11/2026): a cor não dita é ela
             lerPerfilDaEmpresa(c.tenantId),
@@ -1417,6 +1430,8 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             lerInstrucoesDaEmpresa(c.tenantId),
             // o levantamento que a última saída tratou: o contexto do turno (18/11/2026)
             contextoDaConversa(c.tenantId, c.conversaId),
+            // os textos da empresa por família e por fornecedor (20261121000003); o filtro do caminho ativo vem depois, com a montagem lida
+            lerTextosDoCaminho(c.tenantId),
         ] as const)
         if ('frase' in tabela) return await responder(tabela.frase, 'sem-tipologias', `motivo=${tabela.motivo}${tabela.detalhe ? ` ${tabela.detalhe}` : ''}`)
         const doCodigo = familiasDoCodigo(tabela)
@@ -1528,6 +1543,12 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // a instrução da etapa corrente de cada família (04/11/2026): só a de GERAR_LEVANTAMENTO, só preenchida
         const instrucoesDasEtapas = tabela.familias.flatMap((f) => (f.instrucaoDoLevantamento ? [f.instrucaoDoLevantamento] : []))
         rastro.instrucoesDasEtapas = instrucoesDasEtapas.length
+        // a descrição da etapa corrente, do catálogo (20261120000001): só a escrita
+        const descricoesDasEtapas = tabela.familias.flatMap((f) => (f.descricaoDoLevantamento ? [f.descricaoDoLevantamento] : []))
+        rastro.descricoesDasEtapas = descricoesDasEtapas.length
+        // O CAMINHO ATIVO (20261121000003): a família das esquadrias em montagem que já a têm; sem nenhuma, as famílias que a conversa oferece
+        const textosDoCaminho = textosDoCaminhoAtivo(textosLidos, familiasDoCaminhoAtivo(itensDaMontagem, tabela.familias))
+        rastro.textosDoCaminho = textosLidos.estado === 'sem_migracao' ? 'sem_migracao' : String(textosDoCaminho.length)
         // o pedido gravado que ainda vale para o item, dito de novo: a medida e o limite da tipologia pedida (a primeira linha do motor com o código)
         const fraseDoPedidoGravado = (l: LimiteDoItem | undefined, i: ItemDoLevantamento): string | null => {
             if (!l || !pedidoEmAberto(l, i)) return null
@@ -1540,7 +1561,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             return frase === null ? [] : [itensDaMontagem.length > 1 ? `Item ${i.ordem}: ${frase}` : frase]
         })
         const resposta = await chamarLlm(chave, c.texto, {
-            contexto: contexto.texto, instrucoes: instrucoes.instrucoes, instrucoesDasEtapas,
+            contexto: contexto.texto, instrucoes: instrucoes.instrucoes, instrucoesDasEtapas, descricoesDasEtapas, textosDoCaminho,
             candidatos: candidatosDoPrompt, variasFamilias, cores, escolhasPorTipologia, variaveisSemPadraoPorTipologia,
             montagem: emMontagem ? { nome: emMontagem.nome, itens: itensDaMontagem.map(camposParaOPrompt) } : null,
             perguntaEmAberto: pendenciaAberta ? [...pedidosDaMontagem, perguntaDasPendencias(pendenciasAbertas, itensDaMontagem.length, null, filtro.jaDito)].join('\n')

@@ -151,3 +151,35 @@ describe('a rota', () => {
         expect(chamadas).toEqual([])
     })
 })
+
+// ── a rota dos textos por família e fornecedor (20261121000003) ──
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const rotaDosTextos = require('@/pages/api/super-admin/base-de-conhecimento/textos-do-caminho').default
+async function chamarTextos(method: string, body: unknown = undefined) {
+    let status = 0; let json: unknown = null
+    const res = { status(n: number) { status = n; return this }, json(b: unknown) { json = b; return this }, setHeader() { return this } }
+    await rotaDosTextos({ method, query: { tenant: T }, body } as unknown as NextApiRequest, res as unknown as NextApiResponse)
+    return { status, json: json as Record<string, unknown> }
+}
+describe('a rota dos textos do caminho', () => {
+    beforeEach(() => { chamadas.length = 0; superAdmin = { user_id: 'sessao-1' } })
+    it('PUT: o alvo lido vai à função com o autor da SESSÃO e o tenant do pedido', async () => {
+        expect((await chamarTextos('PUT', { fornecedor_id: '44c5c0fe-a0d3-4aab-802d-20a6eff3f654', texto: ' Tabela rev2 ' })).status).toBe(200)
+        expect(chamadas).toEqual([{ funcao: 'superadmin_gravar_texto_do_caminho', args: { p_tenant: T, p_por: 'sessao-1',
+            p_alvo: { fornecedor_id: '44c5c0fe-a0d3-4aab-802d-20a6eff3f654', texto: 'Tabela rev2' } } }])
+    })
+    it('PUT recusado antes da função (os dois alvos): 400 com a frase, nada chamado', async () => {
+        const r = await chamarTextos('PUT', { familia: 'PVC', fornecedor_id: '44c5c0fe-a0d3-4aab-802d-20a6eff3f654', texto: 'a' })
+        expect(r.status).toBe(400)
+        expect(r.json.erros).toEqual(['Diga a família OU o fornecedor, um só.'])
+        expect(chamadas).toEqual([])
+    })
+    it('quem não é super admin: 404, nada chamado; GET e DELETE: 405', async () => {
+        superAdmin = null
+        expect((await chamarTextos('PUT', { familia: 'PVC', texto: 'a' })).status).toBe(404)
+        superAdmin = { user_id: 'sessao-1' }
+        expect((await chamarTextos('GET')).status).toBe(405)
+        expect((await chamarTextos('DELETE')).status).toBe(405)
+        expect(chamadas).toEqual([])
+    })
+})

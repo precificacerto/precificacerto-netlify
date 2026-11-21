@@ -88,6 +88,11 @@ export type FonteDaFamilia = {
     calculo: MotorDaEtapa | null
     /** A instrução da etapa que fala com o modelo, só quando preenchida. */
     instrucaoDoLevantamento: InstrucaoDaEtapa | null
+    /**
+     * A DESCRIÇÃO do item do catálogo da etapa que fala com o modelo (GERAR_LEVANTAMENTO; migração 20261120000001): o que ela entrega e o que
+     * NÃO é dela. Só quando escrita; sem a coluna no banco, null.
+     */
+    descricaoDoLevantamento: InstrucaoDaEtapa | null
     /** As instruções sem efeito (escritas em etapas cujo executor não usa o modelo). */
     instrucoesSemEfeito: InstrucaoSemEfeito[]
 }
@@ -123,6 +128,27 @@ export function blocoDasInstrucoesDasEtapas(instrucoes: readonly InstrucaoDaEtap
 }
 
 /**
+ * Os itens do catálogo de etapas COM a descrição (20261120000001), numa leitura só; sem a coluna (a migração pendente: 42703/PGRST204), a
+ * leitura de antes — a conversa segue sem a descrição, nunca para por ela.
+ */
+async function lerItensComDescricao(ids: readonly string[]): Promise<Linha[]> {
+    const r = await db().from('orcamentista_etapa_catalogo').select('id, nome, acao, abas, descricao').in('id', ids)
+    if (r.error && (r.error.code === '42703' || r.error.code === 'PGRST204')) {
+        return ler('orcamentista_etapa_catalogo', db().from('orcamentista_etapa_catalogo').select('id, nome, acao, abas').in('id', ids))
+    }
+    return ler('orcamentista_etapa_catalogo', Promise.resolve(r))
+}
+
+/** O bloco da DESCRIÇÃO da etapa corrente (20261120000001): escrita no catálogo, vale para toda conta; nenhuma linha sem descrição. */
+export const CABECALHO_DA_DESCRICAO_DA_ETAPA =
+    'O QUE ESTA ETAPA ENTREGA E O QUE NÃO É DELA — escrito no catálogo de etapas da plataforma. Fique dentro dela: o que ela diz que não é '
+    + 'desta etapa, não faça nem prometa.'
+export function blocoDasDescricoesDasEtapas(descricoes: readonly InstrucaoDaEtapa[], variasFamilias: boolean): string[] {
+    if (descricoes.length === 0) return []
+    return [CABECALHO_DA_DESCRICAO_DA_ETAPA, ...descricoes.flatMap((d) => [`[Etapa ${d.numero} — ${d.rotulo}${variasFamilias ? ` — família ${d.familia}` : ''}]`, d.texto])]
+}
+
+/**
  * As famílias da conta, cada uma com as etapas declaradas conferidas e o motor de cada papel. Lê só dados da conta (`tenant_id`) e o catálogo
  * global (famílias, itens de etapa, motores). A primeira falta encontrada é a resposta, na ordem: família → a conferência das etapas
  * (`conferirEtapasParaExecutar`, família-instância por família-instância, pelo nome) → as instâncias da mesma família divergentes → o motor de
@@ -151,7 +177,7 @@ export async function lerMotoresDaConta(tenantId: string): Promise<MotoresDaCont
     const idsDosItens = [...new Set(linhas.map((l) => String(l.etapa_catalogo_id)))]
     const idsDosMotores = [...new Set(linhas.map((l) => l.motor_id).filter((id): id is string => typeof id === 'string' && id !== ''))]
     const [itensLidos, motores] = await Promise.all([
-        idsDosItens.length > 0 ? ler('orcamentista_etapa_catalogo', db().from('orcamentista_etapa_catalogo').select('id, nome, acao, abas').in('id', idsDosItens)) : Promise.resolve([] as Linha[]),
+        idsDosItens.length > 0 ? lerItensComDescricao(idsDosItens) : Promise.resolve([] as Linha[]),
         idsDosMotores.length > 0 ? ler('orcamentista_motor', db().from('orcamentista_motor').select('id, nome, fornecedor_id, arquivado_em').in('id', idsDosMotores)) : Promise.resolve([] as Linha[]),
     ])
     const itens = new Map<string, Linha>(itensLidos.map((c) => [String(c.id), c]))
@@ -223,12 +249,19 @@ export async function lerMotoresDaConta(tenantId: string): Promise<MotoresDaCont
         const doLevantamento = etapas.find((e) => e.executor === 'levantamento')!
         const doCalculo = etapas.find((e) => e.executor === 'calculo') ?? null
         const comInstrucao = etapas.filter((e) => e.instrucao !== '')
+        // a descrição do item do catálogo da etapa que fala com o modelo, quando escrita
+        const descricaoDa = (e: EtapaExecutavel): InstrucaoDaEtapa | null => {
+            const itemId = conferidas.get(String(m.id))!.find((x) => x.numero === e.numero)?.etapa_catalogo_id
+            const d = itemId === undefined ? undefined : itens.get(String(itemId))?.descricao
+            return typeof d === 'string' && d.trim() !== '' ? { numero: e.numero, rotulo: e.rotulo, texto: d.trim(), familia: rotulo(chave) } : null
+        }
         const corrente = comInstrucao.find((e) => e.acao === ACAO_QUE_USA_O_MODELO) ?? null
         return {
             familia: chave, rotulo: rotulo(chave),
             fornecedor: nomeDoFornecedor.get(String(motorDe.get(doLevantamento.motor.id)!.fornecedor_id ?? '')) || '(fornecedor sem nome)',
             etapas, levantamento: doLevantamento.motor, calculo: doCalculo === null ? null : doCalculo.motor,
             instrucaoDoLevantamento: corrente === null ? null : { numero: corrente.numero, rotulo: corrente.rotulo, texto: corrente.instrucao, familia: rotulo(chave) },
+            descricaoDoLevantamento: descricaoDa(doLevantamento),
             instrucoesSemEfeito: comInstrucao.filter((e) => e.acao !== ACAO_QUE_USA_O_MODELO).map((e) => ({ numero: e.numero, rotulo: e.rotulo, acao: e.acao, caracteres: [...e.instrucao].length })),
         }
     }).sort((a, b) => porTexto(a.rotulo, b.rotulo))

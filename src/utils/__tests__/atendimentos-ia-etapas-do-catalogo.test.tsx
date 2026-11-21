@@ -58,12 +58,15 @@ const estado = {
     leituras: [] as string[],
     rpcs: [] as Array<{ funcao: string; args: Linha }>,
     rpcResposta: (): { data: unknown; error: { code?: string; message: string } | null } => ({ data: { ok: true }, error: null }),
+    /** a 20261120000001 não aplicada: pedir a coluna `descricao` é 42703, como no PostgREST */
+    semColunaDescricao: false,
 }
 function montarBanco() {
     estado.usuario = SUPER
     estado.leituras = []
     estado.rpcs = []
     estado.rpcResposta = () => ({ data: { ok: true }, error: null })
+    estado.semColunaDescricao = false
     estado.db = {
         users: [SUPER, ADMIN],
         tenants: [{ id: T, name: 'Esquadrias De Paula Ltda' }, { id: T2, name: 'Alfa Esquadrias' }],
@@ -102,7 +105,11 @@ jest.mock('@/supabase/admin', () => ({
                 return ls.map((l) => (pedidas ? Object.fromEntries(pedidas.map((c) => [c, l[c]])) : l))
             }
             q.single = async (): Promise<any> => ({ data: linhas()[0] ?? null, error: null })
-            q.then = (ok: (v: unknown) => unknown) => { estado.leituras.push(tabela); return Promise.resolve({ data: linhas(), error: null }).then(ok) }
+            q.then = (ok: (v: unknown) => unknown) => {
+                estado.leituras.push(tabela)
+                if (estado.semColunaDescricao && (pedidas ?? []).includes('descricao')) return Promise.resolve({ data: null, error: { code: '42703', message: 'column descricao does not exist' } }).then(ok)
+                return Promise.resolve({ data: linhas(), error: null }).then(ok)
+            }
             for (const escrita of ['insert', 'update', 'upsert', 'delete']) q[escrita] = () => { throw new Error(`o catálogo de etapas não escreve direto: ${escrita} ${tabela}`) }
             return q
         },
@@ -115,6 +122,7 @@ type Rota = (q: NextApiRequest, s: NextApiResponse) => Promise<unknown>
 const ROTAS: Record<string, () => Rota> = {
     lista: () => require('@/pages/api/super-admin/atendimentos-ia/etapas/index').default,
     item: () => require('@/pages/api/super-admin/atendimentos-ia/etapas/[id]').default,
+    descricao: () => require('@/pages/api/super-admin/atendimentos-ia/etapas/[id]/descricao').default,
 }
 const lib = () => require('@/lib/atendimentos-ia/etapas-da-familia') as typeof import('@/lib/atendimentos-ia/etapas-da-familia')
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -434,3 +442,104 @@ describe('(7) a página do nicho tem a quarta aba', () => {
         expect(rotaDoNicho('n-1', 'etapas')).toBe('/super-admin/atendimentos-ia/catalogo/n-1?aba=etapas')
     })
 })
+
+/*
+ * (8) A DESCRIÇÃO DA ETAPA (dono do produto, 20/11/2026: "o que a etapa entrega e o que NAO e dela, que aparece na tela e entra no prompt da etapa
+ * corrente"; migração 20261120000001). A gravação (a mesma não loga, o autor super admin, o log) está no Postgres real: scripts/harness/descricao-da-etapa/.
+ */
+describe('(8) a descrição da etapa', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const U = () => require('@/utils/atendimentos-ia-etapas') as typeof import('@/utils/atendimentos-ia-etapas')
+    it('o corpo: aparada; vazio e null limpam; acima de 1.500 recusa dizendo quantos (contados como o banco conta); campo a mais e não-texto recusam', () => {
+        expect(U().lerCorpoDaDescricaoDaEtapa({ descricao: '  Entrega o levantamento.  ' })).toEqual({ ok: true, descricao: 'Entrega o levantamento.' })
+        expect(U().lerCorpoDaDescricaoDaEtapa({ descricao: '   ' })).toEqual({ ok: true, descricao: null })
+        expect(U().lerCorpoDaDescricaoDaEtapa({ descricao: null })).toEqual({ ok: true, descricao: null })
+        expect(U().lerCorpoDaDescricaoDaEtapa({ descricao: 'é'.repeat(1500) })).toEqual({ ok: true, descricao: 'é'.repeat(1500) })
+        expect(U().lerCorpoDaDescricaoDaEtapa({ descricao: 'x'.repeat(1501) })).toEqual({ ok: false, erro: 'A descrição tem 1501 caracteres; o limite é 1500.' })
+        expect(U().lerCorpoDaDescricaoDaEtapa({ descricao: 'x', por: 'outro' })).toEqual({ ok: false, erro: 'Chave desconhecida: "por".' })
+        expect(U().lerCorpoDaDescricaoDaEtapa({ descricao: 5 })).toEqual({ ok: false, erro: 'A descrição é texto (ou null para limpar).' })
+        expect(U().lerCorpoDaDescricaoDaEtapa({})).toEqual({ ok: false, erro: 'O corpo precisa de "descricao": texto ou null.' })
+    })
+    it('a leitura do catálogo traz a descrição na MESMA leitura: a escrita aparada, a não escrita null', async () => {
+        estado.db.orcamentista_etapa_catalogo[1].descricao = '  Entrega o levantamento.  '
+        const itens = await lib().lerCatalogoDeEtapas({ usos: false })
+        expect(itens.map((c) => c.descricao)).toEqual(['Entrega o levantamento.', null, null])
+        expect(estado.leituras).toEqual(['orcamentista_etapa_catalogo'])
+    })
+    it('sem a coluna (a migração pendente): o catálogo é lido do jeito de antes e o item sai SEM a chave descricao', async () => {
+        estado.semColunaDescricao = true
+        const itens = await lib().lerCatalogoDeEtapas({ usos: false })
+        expect(itens).toHaveLength(3)
+        expect(itens.every((c) => !('descricao' in c))).toBe(true)
+    })
+    it('PUT: a função recebe o autor da SESSÃO, o id da URL e a descrição aparada', async () => {
+        const r = await chamar('descricao', 'PUT', { id: C1 }, { descricao: '  O que entrega.  ' })
+        expect(r.status).toBe(200)
+        expect(estado.rpcs).toEqual([{ funcao: 'superadmin_gravar_descricao_da_etapa', args: { p_por: SUPER.id, p_id: C1, p_descricao: 'O que entrega.' } }])
+    })
+    it('PUT recusado antes da função: corpo inválido 400, id que não é uuid 404, outro método 405 — nada chamado', async () => {
+        expect((await chamar('descricao', 'PUT', { id: C1 }, { descricao: 'x'.repeat(1501) })).status).toBe(400)
+        expect((await chamar('descricao', 'PUT', { id: 'nao-e-uuid' }, { descricao: 'x' })).status).toBe(404)
+        expect((await chamar('descricao', 'PATCH', { id: C1 }, { descricao: 'x' })).status).toBe(405)
+        expect(estado.rpcs).toEqual([])
+    })
+    it('PUT de quem não é super admin: nada chamado', async () => {
+        estado.usuario = ADMIN
+        const r = await chamar('descricao', 'PUT', { id: C1 }, { descricao: 'x' })
+        expect(r.status).toBeGreaterThanOrEqual(401)
+        expect(estado.rpcs).toEqual([])
+    })
+    it('a recusa da função: 22023 vai com a frase dela; P0002 é 404; a função ausente (a migração pendente) é 409 com a frase da migração', async () => {
+        estado.rpcResposta = () => ({ data: null, error: { code: '22023', message: 'a descricao da etapa tem 1600 caracteres; o limite e 1500. Nada foi gravado.' } })
+        expect(await chamar('descricao', 'PUT', { id: C1 }, { descricao: 'x' })).toEqual({ status: 400, json: { error: 'a descricao da etapa tem 1600 caracteres; o limite e 1500. Nada foi gravado.' } })
+        estado.rpcResposta = () => ({ data: null, error: { code: 'P0002', message: 'x' } })
+        expect((await chamar('descricao', 'PUT', { id: C1 }, { descricao: 'x' })).status).toBe(404)
+        estado.rpcResposta = () => ({ data: null, error: { code: 'PGRST202', message: 'x' } })
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { FRASE_SEM_A_MIGRACAO_DA_DESCRICAO } = require('@/pages/api/super-admin/atendimentos-ia/etapas/[id]/descricao')
+        expect(await chamar('descricao', 'PUT', { id: C1 }, { descricao: 'x' })).toEqual({ status: 409, json: { error: FRASE_SEM_A_MIGRACAO_DA_DESCRICAO } })
+    })
+})
+
+describe('(9) a descrição na tela do catálogo', () => {
+    beforeEach(montarFetch)
+    async function escrever(el: Element | null, valor: string) {
+        expect(el).toBeTruthy()
+        await act(async () => {
+            Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(el, valor)
+            el!.dispatchEvent(new Event('input', { bubbles: true }))
+        })
+        await assentar()
+    }
+    it('sem a coluna (o item sem a chave): a frase da migração, sem campo', async () => {
+        const host = await montar()
+        expect(host.querySelector(`[data-etapa-do-catalogo="${C1}"] [data-sem-coluna-da-descricao]`)?.textContent).toBe(Componente().SEM_A_COLUNA_DA_DESCRICAO)
+        expect(host.querySelector('[data-descricao-da-etapa]')).toBeNull()
+    })
+    it('com a coluna: o texto gravado no campo; salvar só liga quando muda; o PUT leva o texto aparado e a lista é relida', async () => {
+        respostas[`GET ${rotaDoCatalogoDeEtapas}`] = { status: 200, body: (ITENS as EtapaDoCatalogo[]).map((c) => ({ ...c, descricao: c.id === C1 ? 'Entrega o levantamento.' : null })) }
+        respostas[`PUT ${U8().rotaDaDescricaoDaEtapa(C1)}`] = { status: 200, body: {} }
+        const host = await montar()
+        const bloco = host.querySelector(`[data-descricao-da-etapa="${C1}"]`)!
+        const campo = bloco.querySelector('textarea')!
+        expect(campo.value).toBe('Entrega o levantamento.')
+        const salvar = bloco.querySelector('[data-salvar-descricao]') as HTMLButtonElement
+        expect(salvar.disabled).toBe(true)
+        await escrever(campo, '  Entrega o levantamento; NAO calcula.  ')
+        expect((bloco.querySelector('[data-salvar-descricao]') as HTMLButtonElement).disabled).toBe(false)
+        const lidas = pedidos.filter((p) => p.chave === `GET ${rotaDoCatalogoDeEtapas}`).length
+        await clicar(bloco.querySelector('[data-salvar-descricao]'))
+        expect(pedidos.filter((p) => p.chave.startsWith('PUT '))).toEqual([{ chave: `PUT ${U8().rotaDaDescricaoDaEtapa(C1)}`, corpo: { descricao: 'Entrega o levantamento; NAO calcula.' } }])
+        expect(pedidos.filter((p) => p.chave === `GET ${rotaDoCatalogoDeEtapas}`).length).toBe(lidas + 1)
+    })
+    it('acima de 1.500 caracteres: o contador em vermelho e salvar desligado', async () => {
+        respostas[`GET ${rotaDoCatalogoDeEtapas}`] = { status: 200, body: (ITENS as EtapaDoCatalogo[]).map((c) => ({ ...c, descricao: null as string | null })) }
+        const host = await montar()
+        const bloco = host.querySelector(`[data-descricao-da-etapa="${C2}"]`)!
+        await escrever(bloco.querySelector('textarea'), 'x'.repeat(1501))
+        expect(bloco.querySelector('[data-contador-da-descricao]')?.textContent).toBe('1501 / 1.500')
+        expect((bloco.querySelector('[data-salvar-descricao]') as HTMLButtonElement).disabled).toBe(true)
+    })
+})
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const U8 = () => require('@/utils/atendimentos-ia-etapas') as typeof import('@/utils/atendimentos-ia-etapas')

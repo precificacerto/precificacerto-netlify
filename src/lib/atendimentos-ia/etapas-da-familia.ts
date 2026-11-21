@@ -85,7 +85,12 @@ function itemDoCatalogo(c: Linha): { id: string; nome: string; acao: AcaoDaEtapa
  * `usos: false` deixa de fora quem usa (o combo da base de conhecimento só precisa dos itens).
  */
 export async function lerCatalogoDeEtapas(o: { usos?: boolean } = {}): Promise<EtapaDoCatalogo[]> {
-    const itens = ((await ler('orcamentista_etapa_catalogo', db().from('orcamentista_etapa_catalogo').select('id, nome, acao, abas, ordem, criado_em').order('ordem', { ascending: true }))) ?? []) as Linha[]
+    // a descrição (20261120000001) vem na MESMA leitura; sem a coluna (a migração pendente), a leitura de antes, e o item sai sem `descricao`
+    const comDescricao = await db().from('orcamentista_etapa_catalogo').select('id, nome, acao, abas, ordem, criado_em, descricao').order('ordem', { ascending: true })
+    const semColuna = comDescricao.error !== null && colunaAusente(comDescricao.error)
+    const itens = ((semColuna
+        ? await ler('orcamentista_etapa_catalogo', db().from('orcamentista_etapa_catalogo').select('id, nome, acao, abas, ordem, criado_em').order('ordem', { ascending: true }))
+        : await ler('orcamentista_etapa_catalogo', Promise.resolve(comDescricao))) ?? []) as Linha[]
     if (itens.length === 0) return []
     const usos = new Map<string, UsoDaEtapaDoCatalogo[]>()
     if (o.usos !== false) {
@@ -103,7 +108,20 @@ export async function lerCatalogoDeEtapas(o: { usos?: boolean } = {}): Promise<E
         }
     }
     const porUso = (a: UsoDaEtapaDoCatalogo, b: UsoDaEtapaDoCatalogo) => a.empresa.localeCompare(b.empresa, 'pt-BR') || a.familia.localeCompare(b.familia, 'pt-BR') || a.numero - b.numero
-    return itens.map((c) => ({ ...itemDoCatalogo(c), ordem: Number(c.ordem), criado_em: String(c.criado_em), usos: [...(usos.get(String(c.id)) ?? [])].sort(porUso) }))
+    return itens.map((c) => ({
+        ...itemDoCatalogo(c), ordem: Number(c.ordem), criado_em: String(c.criado_em), usos: [...(usos.get(String(c.id)) ?? [])].sort(porUso),
+        ...(semColuna ? {} : { descricao: typeof c.descricao === 'string' && c.descricao.trim() !== '' ? c.descricao.trim() : null }),
+    }))
+}
+
+/** A coluna ainda não existe (a 20261120000001 pendente): o PostgREST diz 42703 ou PGRST204. */
+const colunaAusente = (e: { code?: string }) => e.code === '42703' || e.code === 'PGRST204'
+
+/** `superadmin_gravar_descricao_da_etapa` (20261120000001): apara, vazio limpa, a mesma não loga. Falha LANÇA `ErroDaFuncao` com o código. */
+export async function gravarDescricaoDaEtapa(a: { por: string; id: string; descricao: string | null }): Promise<Record<string, unknown>> {
+    const { data, error } = await db().rpc('superadmin_gravar_descricao_da_etapa', { p_por: a.por, p_id: a.id, p_descricao: a.descricao })
+    if (error) throw new ErroDaFuncao(error)
+    return data as Record<string, unknown>
 }
 
 /** `superadmin_criar_etapa_do_catalogo` (20261031000002): o item vai ao fim, com o autor e o log. Falha LANÇA `ErroDaFuncao` com o código. */

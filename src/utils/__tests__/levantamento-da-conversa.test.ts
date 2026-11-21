@@ -211,7 +211,7 @@ describe('(1) a família da conta, o motor dela e as tipologias candidatas (PR D
             { numero: 1, rotulo: 'Apanhado e levantamento de esquadrias', acao: 'GERAR_LEVANTAMENTO', executor: 'levantamento', instrucao: '', motor: WOLF },
             { numero: 2, rotulo: 'Relação de barras, materiais e tempo', acao: 'CALCULAR_BARRAS', executor: 'calculo', instrucao: '', motor: WOLF },
         ],
-        levantamento: WOLF, calculo: WOLF, instrucaoDoLevantamento: null as unknown, instrucoesSemEfeito: [] as unknown[], tabelasDePreco: [TABELA],
+        levantamento: WOLF, calculo: WOLF, instrucaoDoLevantamento: null as unknown, descricaoDoLevantamento: null as unknown, instrucoesSemEfeito: [] as unknown[], tabelasDePreco: [TABELA],
     }
 
     it('DE PAULA — 1 família: é ela, sem perguntar; a lista vem do motor da etapa 1, POR motor_id, em ordem de código', async () => {
