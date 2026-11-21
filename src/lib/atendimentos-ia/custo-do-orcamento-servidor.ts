@@ -30,7 +30,7 @@ import { custoDoOrcamento, valorDoMinuto, chaveDoMaterial, PERCENTUAIS, type Cam
 import type { ItemDaTabela } from './levantamento-de-barras'
 import { resolverReferencia, GRUPO_DE_COR, type ContextoDaResolucao, type ReferenciaProcurada, type ResolucaoDeReferencia } from './resolucao-de-referencia'
 import { traduzirVidro } from './vidro-da-tabela'
-import { lerVidrosPadraoDaConta } from './vidro-padrao'
+import { lerVidrosPadraoDaConta, vidroPadraoDaEsquadria } from './vidro-padrao'
 import { principaisDaConta, type PrincipaisDaConta } from './tabelas-da-conta'
 
 /** O valor do minuto e a configuração da empresa de onde ele saiu — o mesmo par que a precificação final usa. */
@@ -136,9 +136,18 @@ export async function custoDoLevantamento(tenantId: string, fonte: FamiliasDaEmp
     const mensagem = mensagemDoCalculo(c)
     if (mensagem.desfecho !== 'levantou') return { ok: false, recusas: [mensagem.texto] }
     const principais = await principaisDaConta(tenantId)
-    // os CÓDIGOS que a empresa cadastrou como vidro padrão: desempatam o texto que bate com vários itens (nunca completam nem escolhem o mais barato)
+    // o vidro padrão que a empresa cadastrou desempata o texto que bate com vários itens (nunca completa nem escolhe o mais barato) — e SÓ o padrão
+    // da PRÓPRIA esquadria: o do grupo dela (abertura + tipo) ou a exceção da tipologia dela, nunca o de outro grupo. Tarefa 0015 (dono do produto,
+    // 21/11/2026, saída 1): antes os códigos de TODOS os grupos desempatavam, e o "mini boreal" de uma janela de correr caía calado no VBO3,4 — o
+    // padrão da maxim-ar. Agora ele volta a ser falta nomeada na janela de correr, e segue VBO3,4 na maxim-ar
     const padroes = await lerVidrosPadraoDaConta(tenantId)
-    const codigosDoPadrao = padroes.ok ? [...new Set([...padroes.porFamilia.values()].flat().map((l) => l.item_codigo))] : []
+    const candidatosDoPadrao = fonte.ok ? fonte.candidatos : []
+    const codigosDoPadraoDa = (gravada: EsquadriaGravada | undefined): string[] => {
+        const tipologia = textoOuNulo(gravada?.tipologia)
+        if (!gravada || tipologia === null) return []
+        const aplicado = vidroPadraoDaEsquadria(padroes, { tipologia, familia: textoOuNulo(gravada.familia) }, candidatosDoPadrao)
+        return aplicado === null ? [] : [aplicado.codigo]
+    }
 
     const porItem: Array<CustoDoItem | undefined> = new Array(lev.itens.length)
     const pecasPorItem: PecaDoCorte[][] = lev.itens.map((): PecaDoCorte[] => [])
@@ -195,7 +204,7 @@ export async function custoDoLevantamento(tenantId: string, fonte: FamiliasDaEmp
                 faltar(j0 + 1, { caminho: 'vidro', codigo_do_motor: texto ?? 'VIDRO', descricao_do_motor: texto, motivo: 'VIDRO_PRINCIPAL_AMBIGUO', frase: fraseDaCategoriaSemPrincipal('VIDRO'), candidatas: [] })
                 return null
             }
-            const t = traduzirVidro(texto, textoOuNulo(gravada?.vidro_codigo), vidros, codigosDoPadrao)
+            const t = traduzirVidro(texto, textoOuNulo(gravada?.vidro_codigo), vidros, codigosDoPadraoDa(gravada))
             if (!('item' in t)) {
                 faltar(j0 + 1, { caminho: 'vidro', codigo_do_motor: textoOuNulo(gravada?.vidro_codigo) ?? texto ?? 'VIDRO', descricao_do_motor: texto, motivo: t.motivo, frase: t.frase,
                     candidatas: t.candidatos.map((x) => ({ codigo: x.codigo, descricao: x.descricao ?? null })) })
