@@ -293,15 +293,29 @@ function ponte(perfil: string, cor: string, regras: readonly RegraDoDePara[]): {
         falta: `o código do perfil ${perfil} na cor ${cor} (o fornecedor tem: ${variantes.join(', ')})` } }
 }
 
-/** Os candidatos com descrição e valores, e a frase que nomeia os dois códigos e os dois valores. */
-function completarDoisCodigos(r: RecusaDaPonte, itens: readonly ItemDaTabela[]): RecusaDaPonte {
+/**
+ * A descrição que o MOTOR dá a cada código da ponte (tarefa 0014, dono do produto, 15/11/2026): com dois códigos cadastrados, a frase tem de dizer
+ * O QUE OS SEPARA — no BZ4556 em BRANCO, "ALUMÍNIO" num e "PVC" no outro —, não só "dois códigos". É a descrição das linhas da ponte daquele código,
+ * daquele perfil e daquela cor; mais de uma redação, ou nenhuma, é ausente (`ausente-vs-falso.md`): a frase não a inventa.
+ */
+export function descricaoDoMotorNaPonte(perfil: string, cor: string, codigo: string, regras: readonly RegraDoDePara[]): string | null {
+    const ds = distintos(regras.filter((r) => r.codigo_wvetro === perfil && r.codigo === codigo && mesmaCor(r.cor, cor))
+        .map((r) => (r.descricao ?? '').trim()).filter((d) => d !== ''))
+    return ds.length === 1 ? ds[0] : null
+}
+
+/** Os candidatos com descrição e valores, e a frase que nomeia os códigos, o que os separa (a descrição do motor) e os valores. */
+function completarDoisCodigos(r: RecusaDaPonte, itens: readonly ItemDaTabela[], regras: readonly RegraDoDePara[]): RecusaDaPonte {
     const candidatos = (r.candidatos ?? []).map((c) => {
         // o candidato pelo degrau da PONTE da mesma resolução do cálculo (nunca uma segunda busca à parte); só para mostrar os valores
         const achados = candidatasDoDegrau('ponte', { codigoDoMotor: r.perfil ?? c.codigo, codigoDaPonte: c.codigo, ponteDoCodigo: [], descricaoDoMotor: null, corPedida: null }, itens, { cores: [], grupoDeCor: GRUPO_DE_COR.perfil }).candidatas
         const it = achados.length === 1 ? achados[0] : undefined
         return { codigo: c.codigo, descricao: it?.descricao ?? null, valor_barra_interno: it?.valor_barra_interno ?? null, valor_metro_interno: it?.valor_metro_interno ?? null }
     })
-    const lista = candidatos.map((c) => `${c.codigo} (${formatarReais(c.valor_barra_interno)} a barra)`)
+    const lista = candidatos.map((c) => {
+        const doMotor = descricaoDoMotorNaPonte(r.perfil ?? '', r.cor ?? '', c.codigo, regras)
+        return `${c.codigo} (${doMotor === null ? '' : `"${doMotor}", `}${formatarReais(c.valor_barra_interno)} a barra)`
+    })
     const juntos = lista.length > 1 ? `${lista.slice(0, -1).join(', ')} e ${lista[lista.length - 1]}` : lista.join('')
     return { ...r, candidatos,
         texto: `o perfil ${r.perfil} em ${r.cor} tem ${candidatos.length} códigos na tabela do fornecedor: ${juntos}. Um valor por código: falta dizer qual deles é a peça.`,
@@ -353,7 +367,7 @@ export function codigoDaPeca(perfil: string, cor: string, regras: readonly Regra
         const d = desempatarPelaTabela(p.recusa, itens)
         if (d.desfecho === 'um') return { ok: true, codigo: d.codigo, origem: 'COR' }
         if (d.desfecho === 'varios') {
-            const c = completarDoisCodigos(d.recusa, itens)
+            const c = completarDoisCodigos(d.recusa, itens, regras)
             const { texto, ...resto } = c
             return { ok: false, recusa: { ...resto, esquadrias: [], mensagem: maiuscula(texto) } }
         }
@@ -467,7 +481,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
             const d = desempatarPelaTabela(p.recusa, entrada.itens)
             if (d.desfecho === 'um') codigoDaPonte = d.codigo
             else if (d.desfecho === 'varios') {
-                const r = completarDoisCodigos(d.recusa, entrada.itens)
+                const r = completarDoisCodigos(d.recusa, entrada.itens, entrada.regras)
                 faltar('PONTE_AMBIGUA', r.texto, (r.candidatos ?? []).map((c) => ({ codigo: c.codigo, descricao: c.descricao })))
                 continue
             }

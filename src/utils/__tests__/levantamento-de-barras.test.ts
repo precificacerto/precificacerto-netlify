@@ -263,6 +263,41 @@ describe('(4) o código do item: um valor por código', () => {
         expect(r.faltas[0].candidatas.map((c) => c.codigo)).toEqual(['1027.1', '10271'])
     })
 
+    // tarefa 0014 (15/11/2026): com os dois cadastrados, a frase diz O QUE OS SEPARA — a descrição que o motor dá a cada um, como está no
+    // motor 259035a9 em produção (medido em 21/11/2026) —, nunca só "dois códigos"
+    it('com os DOIS cadastrados, a frase nomeia o que os separa: a descrição do motor de cada código (PVC × ALUMÍNIO)', () => {
+        const comDescricao = REGRAS.map((r) => r.codigo_wvetro !== 'BZ4556/WOLFF' || r.cor !== 'BRANCO' ? r
+            : { ...r, descricao: r.codigo === '1027.1' ? 'BZ4556 - TRILHO CENTRAL DE PERSIANA - PVC - BRANCO' : 'BZ4556 - TRILHO CENTRAL DE PERSIANA - ALUMÍNIO - BRANCO' })
+        const r = ok([esquadria({ tipologia: 'T-BZ4556', escolhas: {} })], { regras: comDescricao, tipologias: { 'T-BZ4556': tipologiaDeUmPerfil('T-BZ4556', 'BZ4556/WOLFF') } })
+        expect(faltasDe(r)).toEqual([['PONTE_AMBIGUA', 'BZ4556/WOLFF', 1]])
+        expect(r.faltas[0].frase).toContain('1027.1 ("BZ4556 - TRILHO CENTRAL DE PERSIANA - PVC - BRANCO", ')
+        expect(r.faltas[0].frase).toContain('10271 ("BZ4556 - TRILHO CENTRAL DE PERSIANA - ALUMÍNIO - BRANCO", ')
+        // a ponte para quem quer só o código diz o mesmo
+        const peca = L().codigoDaPeca('BZ4556/WOLFF', 'BRANCO', comDescricao, ITENS)
+        expect(peca.ok).toBe(false)
+        expect('recusa' in peca && peca.recusa.mensagem).toContain('"BZ4556 - TRILHO CENTRAL DE PERSIANA - PVC - BRANCO"')
+    })
+    it('a descrição do motor na ponte: a do código, do perfil e da cor; duas redações ou nenhuma é ausente (não se inventa)', () => {
+        const rs = [
+            { codigo: 'A', codigo_wvetro: 'P/W', cor: 'BRANCO', descricao: 'P - PVC' },
+            { codigo: 'A', codigo_wvetro: 'P/W', cor: 'branco', descricao: 'P - PVC' },
+            { codigo: 'A', codigo_wvetro: 'P/W', cor: 'PRETO', descricao: 'P - PVC - PRETO' },
+            { codigo: 'A', codigo_wvetro: 'Q/W', cor: 'BRANCO', descricao: 'Q - OUTRO' },
+            { codigo: 'B', codigo_wvetro: 'P/W', cor: 'BRANCO', descricao: 'P - UM' },
+            { codigo: 'B', codigo_wvetro: 'P/W', cor: 'BRANCO', descricao: 'P - DOIS' },
+            { codigo: 'C', codigo_wvetro: 'P/W', cor: 'BRANCO', descricao: '  ' },
+        ]
+        expect(L().descricaoDoMotorNaPonte('P/W', 'BRANCO', 'A', rs)).toBe('P - PVC')
+        expect(L().descricaoDoMotorNaPonte('P/W', 'BRANCO', 'B', rs)).toBeNull()
+        expect(L().descricaoDoMotorNaPonte('P/W', 'BRANCO', 'C', rs)).toBeNull()
+        expect(L().descricaoDoMotorNaPonte('P/W', 'BRANCO', 'Z', rs)).toBeNull()
+    })
+    it('sem a descrição do motor, a frase fica como era: o código e o valor, sem aspas vazias', () => {
+        const r = ok([esquadria({ tipologia: 'T-BZ4556', escolhas: {} })], { tipologias: { 'T-BZ4556': tipologiaDeUmPerfil('T-BZ4556', 'BZ4556/WOLFF') } })
+        expect(r.faltas[0].frase).toMatch(/1027\.1 \(R\$ [\d.,]+ a barra\)/)
+        expect(r.faltas[0].frase).not.toContain('""')
+    })
+
     it('DOIS CÓDIGOS COM O MESMO PREÇO também é falta: nenhum dos dois entra', () => {
         const regras = [...REGRAS, { codigo: '10511-B', codigo_wvetro: 'BZ0010/WOLFF', cor: 'BRANCO' }]
         const itens = [...ITENS, { ...ITENS.find((i) => i.codigo === '10511')!, codigo: '10511-B' }]

@@ -266,14 +266,22 @@ export function candidatasDoDegrau<I extends ItemResolvivel>(como: ComoAchou, re
         const cor = doGrupo(ctx).find((c) => descricaoNormalizada(c.nome) === pedida)
         if (!cor) return { como, candidatas: [], pulado: 'COR_FORA_DA_TABELA' }
         // o código do motor + a cor (1317 + 1 = 13171) e, quando a ponte afirma outro código-base, ele + a cor (GB8 é o 983: 983 + 20 = 98320)
+        // O PONTO NUNCA SE DISSOLVE (tarefa 0014, 15/11/2026; `codigo-do-motor-nao-se-normaliza.md`): a base da família vem sem o ".1"
+        // (`baseDaFamilia`), e o código pedido com ".1" (1027.1, o trilho de PVC) continua com ".1" depois da cor — 1027 + 1 + ".1" = 10271.1,
+        // nunca 10271 (o de alumínio). Medido em 21/11/2026 na conferência do motor 259035a9: sem isto, o 1027.1 caía no 10271.
+        const comPonto = (ref.codigoDaPonte ?? base).endsWith('.1')
         const daPonte = baseDaPonte(ref.ponteDoCodigo, doGrupo(ctx))
-        const procurados = [...new Set([codigoComCor(base, cor.codigo), ...(daPonte !== '' && daPonte !== base ? [codigoComCor(daPonte, cor.codigo)] : [])])]
+        const baseDaPonteComPonto = daPonte !== '' && comPonto && !daPonte.endsWith('.1') ? `${daPonte}.1` : daPonte
+        const procurados = [...new Set([codigoComCor(base, cor.codigo), ...(daPonte !== '' && baseDaPonteComPonto !== base ? [codigoComCor(baseDaPonteComPonto, cor.codigo)] : [])])]
         return { como, candidatas: [...new Set(procurados.flatMap((c) => peloCodigo(c, sufixo, itens)))] }
     }
     // o nome técnico: só nome com letra (código só de números é código), delimitado na descrição; e só com a tabela de cores, que o guarda da cor lê
     if (!/[A-Za-z]/.test(base)) return { como, candidatas: [] }
     if (doGrupo(ctx).length === 0) return { como, candidatas: [], pulado: 'SEM_TABELA_DE_CORES' }
-    return { como, candidatas: itens.filter((i) => nomeTecnicoNaDescricao(base, i.descricao).casou) }
+    // o ponto também não se dissolve aqui (tarefa 0014): o pedido com ".1" só casa item com ".1", e o pedido sem ".1" só casa item sem ele — o
+    // nome técnico na descrição ("BZ4556 - ... - ALUMÍNIO") não troca o 1027.1 (PVC) pelo 10271 (alumínio)
+    const pedidoComPonto = (ref.codigoDaPonte ?? base).endsWith('.1')
+    return { como, candidatas: itens.filter((i) => nomeTecnicoNaDescricao(base, i.descricao).casou && semOSufixo(i.codigo, sufixoDoFornecedor(i.codigo)).endsWith('.1') === pedidoComPonto) }
 }
 
 /** A resolução de UMA referência, no escopo já filtrado. */
