@@ -270,7 +270,7 @@ export type Rota = 'MONTAGEM' | 'NOVO' | 'ALTERACAO' | 'ALTERACAO_ADMIN' | 'SEM_
  * `da_pergunta` (não está no texto, mas é um dos que a pergunta em aberto citou), `do_cliente` (o nome saiu do
  * cliente que está no texto, 03/11/2026).
  */
-type MarcaDoNome = '-' | 'veio' | 'faltou' | 'fora_do_texto' | 'da_pergunta' | 'da_conversa' | 'do_cliente' | 'da_imagem'
+type MarcaDoNome = '-' | 'veio' | 'faltou' | 'fora_do_texto' | 'da_pergunta' | 'da_conversa' | 'do_cliente' | 'da_imagem' | 'do_contexto'
 /**
  * A chamada à IA, medida (dono do produto, 26/10/2026): o tempo, do envio do pedido à resposta lida, e os tokens de
  * entrada e de saída que a própria API devolve em `usage`. SÓ NÚMERO — nunca o texto do pedido nem o da resposta.
@@ -1883,6 +1883,14 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 if (lido === null && confirma !== null && aberta === null && emEspera.length === 0) {
                     rastro.rota = 'SEM_NOME'
                     return await falar(FRASE_RESPOSTA_SEM_PERGUNTA, 'nao-avancou')
+                }
+                // O NOME JÁ RESOLVIDO NO FIO (tarefa 0016, dono do produto, 15/11/2026: "LEIA A CONVERSA INTEIRA [...] PERGUNTE UMA VEZ SÓ, E SÓ O QUE
+                // FALTA"): a ALTERAÇÃO sem nome, logo depois de a conversa ter tratado um levantamento do remetente (a última saída o gravou — o
+                // contexto do turno, 20261118000005), é sobre ELE. O cliente não se pergunta de novo; só o "novo" (outro cliente) ou um nome dito mudam
+                // o alvo. O contexto vale só para o levantamento do PRÓPRIO remetente, e nunca acha um que a conversa não tratou (o caso Alfredo × Daiane)
+                if (lido === null && proposta.alteracao === true && proposta.novo !== true && contextoDoTurno !== null) {
+                    const doContexto = (doRemetente ?? await lerLevantamentos(c.tenantId, c.remetenteId, false)).find((l) => l.id === contextoDoTurno)
+                    if (doContexto) { lido = doContexto.nome; rastro.nome = 'do_contexto' }
                 }
                 if (lido === null) {
                     rastro.rota = 'SEM_NOME'
