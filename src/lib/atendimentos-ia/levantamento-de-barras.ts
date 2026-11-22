@@ -72,7 +72,7 @@
  * Portão: `src/utils/__tests__/levantamento-de-barras.test.ts`. Mutações:
  * `scripts/harness/levantamento-de-barras/`.
  */
-import { avaliarTipologia, faltaDoVidroSemBaguete, type AvisoDoAvaliador, type FaltaDoAvaliador, type InsumoAvaliado, type Tipologia, type VidroAvaliado } from './avaliador-de-formulas'
+import { avaliarTipologia, faltaDoVidroSemBaguete, type AvisoDoAvaliador, type FaltaDoAvaliador, type InsumoAvaliado, type OrigemNoMotor, type Tipologia, type VidroAvaliado } from './avaliador-de-formulas'
 import { agruparEmBarras, milimetrosDaBarra, type BarraDoCodigo, type ResultadoDoCodigo, type TotalDoLevantamento } from './agrupador-de-barras'
 import { GRUPO_DE_COR, candidatasDoDegrau, resolverReferencia, type ComoAchou, type CorDoFornecedor } from './resolucao-de-referencia'
 
@@ -137,7 +137,7 @@ export type PecaDaEsquadria = {
     /** O CORTE e a POSIÇÃO da peça, como a aba Perfis do motor os escreve ("45S/45S", "90/90"; "Largura", "Altura"): o relatório de corte. */
     corte: string
     posicao: string
-}
+} & OrigemNoMotor
 export type EsquadriaLevantada = {
     indice: number
     tipologia: string
@@ -410,7 +410,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
     const parciais: RecusaParcial[] = []
 
     // 1. cada esquadria pelo avaliador
-    type PecaBruta = { esquadria: number; perfil: string; descricao: string; comprimento_mm: number; quantidade_por_esquadria: number; quantidade: number; corte: string; posicao: string }
+    type PecaBruta = { esquadria: number; perfil: string; descricao: string; comprimento_mm: number; quantidade_por_esquadria: number; quantidade: number; corte: string; posicao: string } & OrigemNoMotor
     const brutas: PecaBruta[] = []
     const levantadas: Array<Omit<EsquadriaLevantada, 'pecas'>> = []
     entrada.esquadrias.forEach((e, k) => {
@@ -452,7 +452,9 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
             insumos: r.insumos, vidros: r.vidros, faltasDoAvaliador: r.faltas })
         for (const p of r.pecas) {
             brutas.push({ esquadria: indice, perfil: p.codigo, descricao: p.descricao, comprimento_mm: p.comprimento_mm,
-                quantidade_por_esquadria: p.quantidade, quantidade: p.quantidade * e.quantidade, corte: p.corte, posicao: p.posicao })
+                quantidade_por_esquadria: p.quantidade, quantidade: p.quantidade * e.quantidade, corte: p.corte, posicao: p.posicao,
+                // de qual linha do motor ela saiu (o orientativo de montagem, 22/11/2026): só informa, nenhuma conta lê
+                ...(p.linha !== undefined ? { linha: p.linha } : {}), ...(p.obs !== undefined ? { obs: p.obs } : {}) })
         }
     })
 
@@ -548,6 +550,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
         pecas: brutas.filter((b) => b.esquadria === e.indice && codigoDoPerfil[b.perfil] !== undefined).map((b) => ({
             perfil: b.perfil, codigo: codigoDoPerfil[b.perfil], descricao: b.descricao, comprimento_mm: b.comprimento_mm,
             quantidade_por_esquadria: b.quantidade_por_esquadria, quantidade: b.quantidade, corte: b.corte, posicao: b.posicao,
+            ...(b.linha !== undefined ? { linha: b.linha } : {}), ...(b.obs !== undefined ? { obs: b.obs } : {}),
         })),
     }))
     return {

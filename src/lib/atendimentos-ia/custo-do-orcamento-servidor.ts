@@ -26,8 +26,9 @@
  */
 import type { PecaDoCorte } from './relatorio-de-corte'
 import { calcularOLevantamento, mensagemDoCalculo, type EsquadriaGravada, type FamiliasDaEmpresa, type ItemDaFamilia } from './levantamento-da-conversa'
-import { custoDoOrcamento, valorDoMinuto, chaveDoMaterial, PERCENTUAIS, type CaminhoDoCusto, type CustoDoItem, type MaterialDaTabela, type Percentuais, type ResolucaoGravada } from './custo-do-orcamento'
-import type { ItemDaTabela } from './levantamento-de-barras'
+import { custoDoOrcamento, insumoPorComprimento, valorDoMinuto, chaveDoMaterial, PERCENTUAIS, type CaminhoDoCusto, type CustoDoItem, type MaterialDaTabela, type Percentuais, type ResolucaoGravada } from './custo-do-orcamento'
+import type { ItemDaTabela, PecaDaEsquadria } from './levantamento-de-barras'
+import type { InsumoAvaliado, VidroAvaliado } from './avaliador-de-formulas'
 import { resolverReferencia, tabelaNoEscopo, GRUPO_DE_COR, type ContextoDaResolucao, type EscopoDoMotor, type ReferenciaProcurada, type ResolucaoDeReferencia } from './resolucao-de-referencia'
 import { traduzirVidro } from './vidro-da-tabela'
 import { lerVidrosPadraoDaConta, vidroPadraoDaEsquadria } from './vidro-padrao'
@@ -56,9 +57,28 @@ export type CustoDoLevantamento =
         ok: true; itens: CustoDoItem[]; maoDeObra: MaoDeObraDaEmpresa; faltas: FaltaDoOrcamento[]
         /** As peças de perfil de cada item, na ordem de `itens` (o relatório de corte, 16/11/2026): o que o cálculo levantou e com que barra e serra. */
         pecasPorItem: PecaDoCorte[][]
+        /**
+         * O QUE O AVALIADOR DEU para cada item, na ordem de `itens` (o orientativo de montagem, 22/11/2026): as peças com a linha e a Obs. do
+         * motor, os insumos com o item da tabela em que o custo os achou, e os panos de vidro com a fixação. NENHUMA conta lê isto, e nada
+         * daqui é gravado: é o mesmo cálculo, mostrado por esquadria.
+         */
+        montagemPorItem: MontagemDoItem[]
     }
     | { ok: false; recusas: string[] }
 
+/** Um insumo como o orientativo o mostra: o código do motor e, quando o custo o achou, o da tabela, a descrição e a unidade de lá. */
+export type InsumoDaMontagem = InsumoAvaliado & {
+    codigo_na_tabela: string | null; descricao_na_tabela: string | null; unidade: string | null
+    /** O insumo vendido por ROLO/BARRA (`insumoPorComprimento`): a quantidade do avaliador é em mm de comprimento. Nulo = sem o item da tabela, não se sabe. */
+    por_comprimento: boolean | null
+}
+export type MontagemDoItem = {
+    pecas: PecaDaEsquadria[]
+    insumos: InsumoDaMontagem[]
+    vidros: VidroAvaliado[]
+    /** O item da tabela de vidro do item (o código e a descrição), quando o custo o achou. */
+    vidro: { codigo: string; descricao: string | null } | null
+}
 export const fraseDaFamiliaSemCalculo = (rotulo: string) =>
     `a etapa de cálculo da família ${rotulo}: sem ela as barras e a mão de obra não saem, e o orçamento não tem custo`
 export const CATEGORIAS_FORA_DO_INSUMO: ReadonlySet<string> = new Set(['PERFIL', 'VIDRO'])
@@ -170,6 +190,7 @@ export async function custoDoLevantamento(tenantId: string, fonte: FamiliasDaEmp
 
     const porItem: Array<CustoDoItem | undefined> = new Array(lev.itens.length)
     const pecasPorItem: PecaDoCorte[][] = lev.itens.map((): PecaDoCorte[] => [])
+    const montagemPorItem: MontagemDoItem[] = lev.itens.map((): MontagemDoItem => ({ pecas: [], insumos: [], vidros: [], vidro: null }))
     const recusas: string[] = []
     const faltas: FaltaDoOrcamento[] = []
     let maoDeObra: MaoDeObraDaEmpresa | null = null
@@ -260,6 +281,16 @@ export async function custoDoLevantamento(tenantId: string, fonte: FamiliasDaEmp
                 quantidade_por_esquadria: p.quantidade_por_esquadria, quantidade: p.quantidade, corte: p.corte, posicao: p.posicao,
                 comprimento_barra_mm: barraDoCodigo.get(p.codigo) ?? null, serra_mm: calculo.r.serra_mm,
             }))
+            const v = vidroDoItem[j]
+            montagemPorItem[g.indices[j]] = {
+                pecas: e.pecas,
+                insumos: e.insumos.map((i) => {
+                    const m = materiais[chaveDoMaterial('insumo', i.codigo)]
+                    return { ...i, codigo_na_tabela: m?.codigo_na_tabela ?? null, descricao_na_tabela: m?.descricao ?? null, unidade: m?.unidade ?? null, por_comprimento: m ? insumoPorComprimento(m) : null }
+                }),
+                vidros: e.vidros,
+                vidro: v === null ? null : { codigo: v.codigo, descricao: materiais[chaveDoMaterial('vidro', v.codigo)]?.descricao ?? null },
+            }
         })
         // o que o custo deixou de fora por valor ausente (o item existe, o número não)
         for (const f of r.faltas) {
@@ -268,5 +299,5 @@ export async function custoDoLevantamento(tenantId: string, fonte: FamiliasDaEmp
     })
     if (recusas.length) return { ok: false, recusas }
     if (maoDeObra === null || porItem.some((i) => i === undefined)) return { ok: false, recusas: ['o custo de todos os itens: algum ficou sem cálculo'] }
-    return { ok: true, itens: porItem as CustoDoItem[], maoDeObra, faltas, pecasPorItem }
+    return { ok: true, itens: porItem as CustoDoItem[], maoDeObra, faltas, pecasPorItem, montagemPorItem }
 }

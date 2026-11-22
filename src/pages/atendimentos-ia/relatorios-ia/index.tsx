@@ -1,7 +1,7 @@
 /**
  * /atendimentos-ia/relatorios-ia — os RELATÓRIOS I.A. (dono do produto, 11/11/2026), a terceira seção de Agentes I.A.: por CLIENTE ORÇADO
  * (um orçamento I.A.), as abas — o relatório de materiais (`RelatorioDeMateriais`), o relatório de corte (`RelatorioDeCorte`) e, desde 22/11/2026, as
- * barras do pedido (`BarrasDoPedidoDoOrcamento`); os dois primeiros
+ * barras do pedido (`BarrasDoPedidoDoOrcamento`); o orientativo de montagem (`OrientativoDeMontagem`, 22/11/2026); os dois primeiros
  * desde 16/11/2026. `TEXTO_DA_ABA_SEM_CONTEUDO` fica para uma aba nova que nasça sem conteúdo.
  *
  * Desde 17/11/2026 (dono do produto): "todos os clientes abertos na própria página. E selecionando ele, a gente acessa o relatório individual
@@ -15,6 +15,7 @@ import { PAGE_TITLES } from '@/constants/page-titles'
 import { RelatorioDeMateriais } from '@/page-parts/atendimentos-ia/relatorio-de-materiais.component'
 import { RelatorioDeCorte } from '@/page-parts/atendimentos-ia/relatorio-de-corte.component'
 import { BarrasDoPedidoDoOrcamento } from '@/page-parts/atendimentos-ia/barras-do-pedido.component'
+import { OrientativoDeMontagem } from '@/page-parts/atendimentos-ia/orientativo-de-montagem.component'
 
 type OrcamentoParaRelatorio = { id: string; numero: number; nome: string; criado_em: string; itens: number }
 type Estado =
@@ -28,6 +29,7 @@ export const ABAS_DOS_RELATORIOS = [
     { key: 'materiais', label: 'Relatório de materiais' },
     { key: 'corte', label: 'Relatório de corte' },
     { key: 'barras', label: 'Barras do pedido' },
+    { key: 'orientativo', label: 'Orientativo de montagem' },
 ] as const
 export const TEXTO_DA_ABA_SEM_CONTEUDO = 'Este relatório ainda não foi construído: a seção e a navegação já existem, o conteúdo entra numa próxima entrega.'
 export const TEXTO_SEM_ORCAMENTO = 'Escolha o cliente orçado na lista para ver os relatórios.'
@@ -80,7 +82,7 @@ const RelatoriosIA: React.FC = () => {
                                 key: a.key, label: a.label,
                                 children: (
                                     <div data-aba-do-relatorio={a.key}>
-                                        {a.key === 'materiais' ? <RelatorioDeMateriais orcamentoId={aberto.id} numero={aberto.numero} cliente={aberto.nome} /> : a.key === 'corte' ? <RelatorioDeCorte orcamentoId={aberto.id} numero={aberto.numero} cliente={aberto.nome} /> : a.key === 'barras' ? <BarrasDoPedidoDoOrcamento orcamentoId={aberto.id} numero={aberto.numero} cliente={aberto.nome} /> : <Empty description={TEXTO_DA_ABA_SEM_CONTEUDO} />}
+                                        {a.key === 'materiais' ? <RelatorioDeMateriais orcamentoId={aberto.id} numero={aberto.numero} cliente={aberto.nome} /> : a.key === 'corte' ? <RelatorioDeCorte orcamentoId={aberto.id} numero={aberto.numero} cliente={aberto.nome} /> : a.key === 'barras' ? <BarrasDoPedidoDoOrcamento orcamentoId={aberto.id} numero={aberto.numero} cliente={aberto.nome} /> : a.key === 'orientativo' ? <OrientativoDeMontagem orcamentoId={aberto.id} numero={aberto.numero} cliente={aberto.nome} /> : <Empty description={TEXTO_DA_ABA_SEM_CONTEUDO} />}
                                     </div>
                                 ),
                             }))} />

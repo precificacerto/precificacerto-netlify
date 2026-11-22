@@ -9,6 +9,11 @@ import { jsPDF } from 'jspdf'
 import { fraseDoTotalSemCusto, quantidadeNoRelatorio, reaisNoRelatorio, type MaterialDoRelatorio, type RelatorioDeMateriais, type TotalDoGrupo } from './relatorio-de-materiais'
 import type { CodigoDoCorte, RelatorioDeCorte } from './relatorio-de-corte'
 import type { BarrasDoPedido, FracaoDaBarra, PlanoDoPerfil } from './barras-do-pedido'
+import { desenharFiguraProporcional } from './folha-do-levantamento'
+import {
+    COLUNAS_DO_VIDRO, COLUNAS_DOS_ACESSORIOS, COLUNAS_DOS_PERFIS, COLUNAS_DOS_SERVICOS, celulasDoAcessorio, celulasDoPerfil, celulasDoVidro,
+    fimDoVidro, fimDosPerfis, medidaDaEsquadria, tituloDaEsquadria, type EsquadriaDoOrientativo, type OrientativoDeMontagem,
+} from './orientativo-de-montagem'
 
 export type CabecalhoDoRelatorio = { numero: number; cliente: string; geradoEm: Date }
 type Extras = { itensSemCalculo: readonly number[]; itensSemPecas?: readonly number[] }
@@ -24,7 +29,7 @@ const dataBR = (d: Date) => d.toLocaleDateString('pt-BR', { timeZone: 'America/S
 const horaBR = (d: Date) => d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' })
 
 /** O nome do arquivo: "Relatorio_de_materiais_8_-_Cristiano_Fernandes.pdf" (sem acento nem caractere que o sistema de arquivos estranhe). */
-export function nomeDoRelatorio(tipo: 'materiais' | 'corte' | 'barras_do_pedido', numero: number, cliente: string): string {
+export function nomeDoRelatorio(tipo: 'materiais' | 'corte' | 'barras_do_pedido' | 'orientativo_de_montagem', numero: number, cliente: string): string {
     const limpo = cliente.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
     return `Relatorio_de_${tipo}_${numero}${limpo ? `_-_${limpo}` : ''}.pdf`
 }
@@ -32,7 +37,11 @@ export function nomeDoRelatorio(tipo: 'materiais' | 'corte' | 'barras_do_pedido'
 class Folha {
     readonly doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
     y = A4.margem
+    /** O que se repete no topo de CADA página depois do cabeçalho do orçamento (o orientativo: o desenho, a tipologia e a medida da esquadria). */
+    extra: (() => void) | null = null
     constructor(private readonly titulo: string, private readonly c: CabecalhoDoRelatorio) { this.cabecalho() }
+    /** Página nova, com o cabeçalho (e o `extra`). */
+    novaPagina() { this.doc.addPage('a4', 'portrait'); this.y = A4.margem; this.cabecalho() }
     private cabecalho() {
         const d = this.doc
         d.setFont('helvetica', 'bold'); d.setFontSize(13); d.text(this.titulo, A4.margem, this.y + 5)
@@ -41,9 +50,10 @@ class Folha {
         d.text(`Gerado em ${dataBR(this.c.geradoEm)} ${horaBR(this.c.geradoEm)}`, A4.margem + LARGURA, this.y + 10.5, { align: 'right' })
         d.setDrawColor(0); d.setLineWidth(0.3); d.line(A4.margem, this.y + 13, A4.margem + LARGURA, this.y + 13)
         this.y += 18
+        this.extra?.()
     }
     /** Garante `h` mm livres; sem lugar, página nova (com o cabeçalho). */
-    cabe(h: number) { if (this.y + h > FIM) { this.doc.addPage('a4', 'portrait'); this.y = A4.margem; this.cabecalho() } }
+    cabe(h: number) { if (this.y + h > FIM) this.novaPagina() }
     titulo2(t: string) { this.cabe(10); const d = this.doc; d.setFont('helvetica', 'bold'); d.setFontSize(11); d.text(t, A4.margem, this.y + 4); this.y += 7 }
     paragrafo(t: string, cor: [number, number, number] = [0, 0, 0]) {
         const d = this.doc; d.setFont('helvetica', 'normal'); d.setFontSize(8.5); d.setTextColor(...cor)
@@ -197,6 +207,71 @@ export function pdfDasBarrasDoPedido(r: BarrasDoPedido & Extras & { codigosSemPe
 }
 
 /** Baixa os bytes como arquivo, no navegador. */
+// ── O ORIENTATIVO DE MONTAGEM ───────────────────────────────────────────────────────────────────────────────────────────────────────
+const comLargura = (titulos: readonly string[], larguras: readonly number[], direita: readonly number[] = []) =>
+    titulos.map((titulo, i) => ({ titulo, w: larguras[i], ...(direita.includes(i) ? { alinha: 'right' as const } : {}) }))
+const COLUNAS_PDF_DOS_PERFIS = comLargura(COLUNAS_DOS_PERFIS, [18, 42, 10, 18, 16, 16, 20, 46], [2, 3, 6])
+const COLUNAS_PDF_DOS_ACESSORIOS = comLargura(COLUNAS_DOS_ACESSORIOS, [14, 22, 66, 10, 16, 58], [4])
+const COLUNAS_PDF_DO_VIDRO = comLargura(COLUNAS_DO_VIDRO, [50, 18, 18, 22, 12, 22, 22, 22], [4, 5, 6, 7])
+const COLUNAS_PDF_DOS_SERVICOS = comLargura(COLUNAS_DOS_SERVICOS, [140, 46], [1])
+/** A caixa do desenho no topo da página da esquadria, à direita. */
+const CAIXA_DO_DESENHO = { w: 44, h: 32 }
+
+/** O topo da página da esquadria: o título (item e tipologia), a medida e o DESENHO — repetido em cada página dela. */
+function topoDaEsquadria(f: Folha, e: EsquadriaDoOrientativo) {
+    const d = f.doc
+    const y0 = f.y
+    const larguraDoTexto = LARGURA - CAIXA_DO_DESENHO.w - 4
+    d.setFont('helvetica', 'bold'); d.setFontSize(11)
+    const titulo = d.splitTextToSize(tituloDaEsquadria(e), larguraDoTexto) as string[]
+    titulo.forEach((l, k) => d.text(l, A4.margem, y0 + 4 + k * 4.6))
+    d.setFont('helvetica', 'normal'); d.setFontSize(8.5)
+    const medida = d.splitTextToSize(medidaDaEsquadria(e), larguraDoTexto) as string[]
+    medida.forEach((l, k) => d.text(l, A4.margem, y0 + 5 + titulo.length * 4.6 + k * 4))
+    const caixa = { x: A4.margem + LARGURA - CAIXA_DO_DESENHO.w, y: y0, w: CAIXA_DO_DESENHO.w, h: CAIXA_DO_DESENHO.h }
+    d.setDrawColor(200); d.setLineWidth(0.2); d.rect(caixa.x, caixa.y, caixa.w, caixa.h)
+    if (e.desenho) desenharFiguraProporcional(d, e.desenho, caixa)
+    else {
+        d.setFontSize(7); d.setTextColor(120)
+        const falta = d.splitTextToSize(e.semDesenho ?? 'Sem desenho para esta tipologia.', caixa.w - 4) as string[]
+        falta.slice(0, 6).forEach((l, k) => d.text(l, caixa.x + 2, caixa.y + 5 + k * 3.2))
+        d.setTextColor(0)
+    }
+    f.y = y0 + CAIXA_DO_DESENHO.h + 4
+}
+
+/**
+ * O orientativo de montagem em PDF: UMA esquadria por página (ou mais páginas, se ela não couber), com o desenho, a tipologia e a medida no
+ * topo de CADA página dela; os blocos na ordem que a fábrica conhece — PERFIS, ACESSÓRIOS, VIDRO, SERVIÇOS —, as lacunas nomeadas e os avisos.
+ */
+export function pdfDoOrientativoDeMontagem(r: OrientativoDeMontagem, c: CabecalhoDoRelatorio): Uint8Array {
+    const f = new Folha('Orientativo de montagem', c)
+    if (r.itensSemCalculo.length) f.paragrafo(`${lista(r.itensSemCalculo)} sem cálculo: não estão neste orientativo.`, AMARELO)
+    if (!r.esquadrias.length) { f.paragrafo('Nenhum item calculado neste orçamento.'); return f.fechar() }
+    r.esquadrias.forEach((e, k) => {
+        f.extra = () => topoDaEsquadria(f, e)
+        if (k > 0 || r.itensSemCalculo.length) f.novaPagina()
+        else topoDaEsquadria(f, e)
+        if (e.aviso) f.paragrafo(e.aviso, AMARELO)
+        f.titulo2('Perfis')
+        f.tabela(COLUNAS_PDF_DOS_PERFIS, e.perfis.linhas.map(celulasDoPerfil))
+        f.paragrafo(fimDosPerfis(e.perfis))
+        f.titulo2('Acessórios')
+        if (e.acessorios.length) f.tabela(COLUNAS_PDF_DOS_ACESSORIOS, e.acessorios.map(celulasDoAcessorio))
+        else f.paragrafo('Nenhum acessório neste item.')
+        f.titulo2('Vidro')
+        if (e.vidros.linhas.length) { f.tabela(COLUNAS_PDF_DO_VIDRO, e.vidros.linhas.map(celulasDoVidro)); f.paragrafo(fimDoVidro(e.vidros)) }
+        else f.paragrafo('Nenhum pano de vidro neste item.')
+        f.titulo2('Serviços')
+        f.tabela(COLUNAS_PDF_DOS_SERVICOS, [])
+        f.paragrafo(e.servicos.falta, AMARELO)
+        for (const l of e.lacunas) f.paragrafo(l, AMARELO)
+        f.paragrafo(r.avisosDoRodape.join(' '), [90, 90, 90])
+    })
+    f.extra = null
+    return f.fechar()
+}
+
 export function baixarPdf(bytes: Uint8Array, nome: string): void {
     const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }))
     const a = document.createElement('a')

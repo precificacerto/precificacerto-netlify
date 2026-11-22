@@ -28,7 +28,8 @@ describe('os insumos', () => {
             { insumo: 'X1', descricao: 'NÃO ENTRA', qtd: '2', condicao: 'L>5000' },
             { insumo: 'X2', descricao: 'ZERO', qtd: '0', condicao: 'sempre' },
         ] }))
-        expect(r.insumos).toEqual([{ codigo: '10457', descricao: 'ROLDANA', quantidade: 4 }, { codigo: '9074/WOLFF', descricao: 'BOTÃO', quantidade: 4 }])
+        // `linha` é a da aba daquela tipologia (o X1 e o X2, linhas 3 e 4, não entram); sem 'Obs.' na linha, `obs` é nulo — nunca inventado
+        expect(r.insumos).toEqual([{ codigo: '10457', descricao: 'ROLDANA', quantidade: 4, linha: 1, obs: null }, { codigo: '9074/WOLFF', descricao: 'BOTÃO', quantidade: 4, linha: 2, obs: null }])
         expect(r.faltas).toEqual([])
     })
     it('a linha que não se avalia é FALTA nomeada, com a aba, a linha e o código — e os perfis e os outros insumos saem', () => {
@@ -37,6 +38,10 @@ describe('os insumos', () => {
         expect(r.faltas[0].mensagem).toMatch(/^Linha 1 da aba Insumos \(Q1\): /)
         expect(r.insumos.map((i) => i.codigo)).toEqual(['Q2'])
         expect(r.pecas.length).toBe(1)
+    })
+    it('a Obs. da linha do insumo vai junto (o orientativo de montagem, 22/11/2026)', () => {
+        const r = ok(tipologia({ insumos: [{ insumo: 'P', descricao: 'PARAFUSO', qtd: '2', condicao: 'sempre', obs: 'FIXAR NYL-190' }] }))
+        expect(r.insumos).toEqual([{ codigo: 'P', descricao: 'PARAFUSO', quantidade: 2, linha: 1, obs: 'FIXAR NYL-190' }])
     })
     it('a quantidade negativa é falta, nunca zero', () => {
         const r = ok(tipologia({ insumos: [{ insumo: 'N', descricao: null, qtd: '0-2', condicao: 'sempre' }] }))
@@ -47,7 +52,7 @@ describe('os insumos', () => {
 describe('os vidros', () => {
     it('o pano pelas fórmulas do motor: LVID = L − 147, HVID = H − 100, e a quantidade', () => {
         const r = ok(tipologia({ vidros: [{ vidro: 'VIDRO', largura: 'LVID', altura: 'HVID', qtd: '2', fixacao: 'BAGUETE', condicao: 'sempre' }] }))
-        expect(r.vidros).toEqual([{ vidro: 'VIDRO', largura_mm: 1053, altura_mm: 900, quantidade: 2, fixacao: 'BAGUETE' }])
+        expect(r.vidros).toEqual([{ vidro: 'VIDRO', largura_mm: 1053, altura_mm: 900, quantidade: 2, fixacao: 'BAGUETE', linha: 1 }])
     })
     it('a quantidade que não é inteira, e o pano de medida zero ou negativa, são falta nomeada', () => {
         const r = ok(tipologia({ vidros: [
@@ -65,7 +70,7 @@ describe('os vidros', () => {
             vidros: [{ vidro: 'VIDRO', largura: 'LVID', altura: 'HVID', qtd: '1', fixacao: null, condicao: 'sempre' }],
         }))
         // 1200 + 400 − 67,2 = 1532,8 → 1532 (nunca 1533); 1000 + 0,99 = 1000,99 → 1000
-        expect(r.vidros).toEqual([{ vidro: 'VIDRO', largura_mm: 1532, altura_mm: 1000, quantidade: 1, fixacao: null }])
+        expect(r.vidros).toEqual([{ vidro: 'VIDRO', largura_mm: 1532, altura_mm: 1000, quantidade: 1, fixacao: null, linha: 1 }])
     })
     it('o pano positivo de menos de 1 mm, que o corte do decimal zeraria, é falta nomeada — nunca vidro de medida zero', () => {
         const r = ok(tipologia({ vidros: [{ vidro: 'V3', largura: 'L-1199.5', altura: 'HVID', qtd: '1', fixacao: null, condicao: 'sempre' }] }))

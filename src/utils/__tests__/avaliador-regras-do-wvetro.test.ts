@@ -63,7 +63,7 @@ describe('R1 — a variável INATIVA vale 0', () => {
 
     it('com H dentro da faixa, CMFI está ativa e a cremona entra pelo padrão', () => {
         const r = ok(avaliarTipologia(entrada({ H_mm: 700 })))
-        expect(r.insumos.filter((x) => x.codigo === '1737')).toEqual([{ codigo: '1737', descricao: 'CREMONA 135MM', quantidade: 1 }])
+        expect(r.insumos.filter((x) => x.codigo === '1737')).toEqual([expect.objectContaining({ codigo: '1737', descricao: 'CREMONA 135MM', quantidade: 1 })])
     })
 
     it('a ESCOLHA de uma variável inativa também não vale: 0', () => {
