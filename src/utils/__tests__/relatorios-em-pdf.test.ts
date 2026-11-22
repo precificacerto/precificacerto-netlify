@@ -5,7 +5,8 @@
  */
 import type { RelatorioDeCorte } from '@/lib/atendimentos-ia/relatorio-de-corte'
 import type { RelatorioDeMateriais } from '@/lib/atendimentos-ia/relatorio-de-materiais'
-import { nomeDoRelatorio, pdfDoRelatorioDeCorte, pdfDoRelatorioDeMateriais } from '@/lib/atendimentos-ia/relatorios-em-pdf'
+import { nomeDoRelatorio, pdfDasBarrasDoPedido, pdfDoRelatorioDeCorte, pdfDoRelatorioDeMateriais } from '@/lib/atendimentos-ia/relatorios-em-pdf'
+import { montarBarrasDoPedido, type PecaDoPedido } from '@/lib/atendimentos-ia/barras-do-pedido'
 
 const WIN_ANSI: Record<string, string> = { '\x97': '—', '\x95': '•', '\xb7': '·' }
 const textoDoPdf = (pdf: Uint8Array) => [...Buffer.from(pdf).toString('latin1').matchAll(/\(((?:\\.|[^\\)])*)\) Tj/g)]
@@ -81,5 +82,28 @@ describe('o nome do arquivo', () => {
     it('sem acento nem caractere estranho, com o número e o cliente', () => {
         expect(nomeDoRelatorio('materiais', 8, 'José da Conceição / Obra')).toBe('Relatorio_de_materiais_8_-_Jose_da_Conceicao_Obra.pdf')
         expect(nomeDoRelatorio('corte', 3, '  ')).toBe('Relatorio_de_corte_3.pdf')
+    })
+})
+
+describe('as BARRAS DO PEDIDO em PDF (22/11/2026)', () => {
+    const peca = (o: Partial<PecaDoPedido> & { comprimento_mm: number }): PecaDoPedido => ({
+        codigo: '1023', perfil: '1023/WOLFF', descricao: 'CLICK GUIA', quantidade: 1, corte: '90/90', posicao: 'Largura',
+        comprimento_barra_mm: 6000, serra_mm: 5, item: 6, tipologia: 'DP-72', cor: 'Branco', ...o,
+    })
+    const r = montarBarrasDoPedido([peca({ comprimento_mm: 4646 }), peca({ comprimento_mm: 1495, quantidade: 4, item: 3, tipologia: 'DP-07' }),
+        peca({ codigo: '9681', perfil: 'SF66/WOLFF', descricao: null, comprimento_mm: 100, comprimento_barra_mm: null })], new Map([['1023', 0.101]]))
+    it('o resumo com o total, uma barra por linha com as frações e a sobra, e o sem plano dito', () => {
+        const t = textoDoPdf(pdfDasBarrasDoPedido({ ...r, itensSemCalculo: [], itensSemPecas: [], codigosSemPeso: ['9681'] }, cab))
+        expect(t[0]).toBe('Barras do pedido')
+        expect(t).toEqual(expect.arrayContaining(['Resumo por perfil', 'Total', '1023 — CLICK GUIA (1023/WOLFF) · Branco']))
+        expect(t.join(' ')).toContain('4.646 mm 90/90 (Item 6 DP-72)')
+        expect(t.join(' ')).toContain('1.495 mm 90/90 (Item 3 DP-07) + 1.495 mm 90/90 (Item 3 DP-07)')
+        expect(t).toContain('1.349 mm')
+        expect(t.join(' ')).toContain('Aproveitamento do PEDIDO: não muda o preço do orçamento')
+        expect(t.join(' ')).toContain('não teve barra no cálculo')
+        expect(t.join(' ')).toContain('Sem peso na tabela de preço: 9681')
+    })
+    it('o nome do arquivo', () => {
+        expect(nomeDoRelatorio('barras_do_pedido', 12, 'Cristiano')).toBe('Relatorio_de_barras_do_pedido_12_-_Cristiano.pdf')
     })
 })

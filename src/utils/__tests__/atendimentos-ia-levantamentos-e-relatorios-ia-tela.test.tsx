@@ -29,6 +29,7 @@ const Relatorios = require('@/pages/atendimentos-ia/relatorios-ia/index').defaul
 const { ABAS_DOS_RELATORIOS, TEXTO_DA_ABA_SEM_CONTEUDO, TEXTO_SEM_ORCAMENTO } = require('@/pages/atendimentos-ia/relatorios-ia/index')
 const { RelatorioDeMateriais, TEXTO_SEM_MATERIAL, fraseDosItensSemCalculo } = require('@/page-parts/atendimentos-ia/relatorio-de-materiais.component')
 const { RelatorioDeCorte, TEXTO_SEM_PECA, fraseDosItensSemPecas } = require('@/page-parts/atendimentos-ia/relatorio-de-corte.component')
+const { BarrasDoPedidoDoOrcamento, TEXTO_SEM_BARRA, AVISO_DO_PRECO } = require('@/page-parts/atendimentos-ia/barras-do-pedido.component')
 const { PAGE_TITLES } = require('@/constants/page-titles')
 /* eslint-enable @typescript-eslint/no-require-imports */
 
@@ -104,7 +105,7 @@ describe('os Relatórios I.A.', () => {
         expect(host.querySelector('[data-baixar-pdf="materiais"]')).not.toBeNull()
     })
     it('as duas abas, nesta ordem, nascem com a estrutura e dizem que ainda não têm conteúdo', () => {
-        expect(ABAS_DOS_RELATORIOS.map((a: { label: string }) => a.label)).toEqual(['Relatório de materiais', 'Relatório de corte'])
+        expect(ABAS_DOS_RELATORIOS.map((a: { label: string }) => a.label)).toEqual(['Relatório de materiais', 'Relatório de corte', 'Barras do pedido'])
         expect(TEXTO_DA_ABA_SEM_CONTEUDO).toContain('ainda não foi construído')
     })
 })
@@ -188,5 +189,39 @@ describe('o RELATÓRIO DE CORTE (dono do produto, 16/11/2026)', () => {
         servidor.status = 503; servidor.corpo = { error: 'O relatório de corte ainda não está disponível: a estrutura do banco (migração 20261117000001) não foi aplicada.' }
         const outro = await montar(<RelatorioDeCorte orcamentoId="o-2" numero={2} cliente="Outro" />)
         expect(outro.textContent).toContain('migração 20261117000001')
+    })
+})
+
+describe('as BARRAS DO PEDIDO (dono do produto, 22/11/2026)', () => {
+    const perfil = (extra: Record<string, unknown> = {}) => ({
+        codigo: '1023', perfil: '1023/WOLFF', descricao: 'CLICK GUIA', cor: 'Branco', barra_mm: 6000, serra_mm: 5, refilo_mm: 0,
+        barras: [
+            { fracoes: [{ comprimento_mm: 4646, corte: '90/90', posicao: 'Largura', item: 6, tipologia: 'DP-72' }], serra_mm: 5, usado_mm: 4651, sobra_mm: 1349 },
+            { fracoes: [1, 2].map(() => ({ comprimento_mm: 1495, corte: '90/90', posicao: 'Largura', item: 3, tipologia: 'DP-07' })), serra_mm: 10, usado_mm: 3000, sobra_mm: 3000 },
+        ],
+        n_barras: 2, n_fracoes: 3, metros_uteis: 7.636, metros_comprados: 12, sobra_mm: 4364, aproveitamento_pct: 63.63, peso_kg_m: 0.101, peso_bruto_kg: 1.212, peso_liquido_kg: 0.771,
+        ...extra,
+    })
+    const total = { n_barras: 2, metros_uteis: 7.636, metros_comprados: 12, aproveitamento_pct: 63.63, peso_bruto_kg: 1.212, peso_liquido_kg: 0.771 }
+    it('lê a rota e mostra uma barra por linha, com as frações (medida, corte e origem) e a sobra; e o resumo com o total', async () => {
+        servidor.corpo = { relatorio: { perfis: [perfil()], semPlano: [], total, itensSemCalculo: [], itensSemPecas: [], codigosSemPeso: [] } }
+        const host = await montar(<BarrasDoPedidoDoOrcamento orcamentoId="o-1" numero={12} cliente="Geraldo Huck" />)
+        expect(servidor.chamadas).toEqual(['/api/atendimentos-ia/orcamentos/o-1/barras-do-pedido'])
+        expect(host.textContent).toContain(AVISO_DO_PRECO)
+        const bloco = host.querySelector('[data-perfil-do-pedido="1023|Branco"]')!
+        expect(bloco.querySelector('[data-resumo-do-perfil]')?.textContent).toBe('Barra de 6.000 mm, serra de 5 mm por corte, refilo de 0 mm por ponta: 2 barras, peso bruto 1,21 kg, peso líquido 0,77 kg, aproveitamento de 63,6%')
+        expect(bloco.textContent).toContain('4.646 mm 90/90 (Item 6 DP-72)')
+        expect(bloco.textContent).toContain('1.495 mm 90/90 (Item 3 DP-07) + 1.495 mm 90/90 (Item 3 DP-07)')
+        expect(bloco.textContent).toContain('1.349 mm')
+        expect(host.querySelector('[data-total-do-pedido]')?.textContent).toContain('1,21 kg')
+    })
+    it('o perfil sem plano diz por quê; o código sem peso é nomeado; o vazio é dito', async () => {
+        servidor.corpo = { relatorio: { perfis: [], semPlano: [{ codigo: '9681', perfil: 'SF66/WOLFF', descricao: null, cor: 'Branco', motivo: 'o código 9681 não teve barra no cálculo' }], total: { ...total, n_barras: 0 }, itensSemCalculo: [], itensSemPecas: [], codigosSemPeso: ['9681'] } }
+        const host = await montar(<BarrasDoPedidoDoOrcamento orcamentoId="o-1" numero={12} cliente="G" />)
+        expect(host.querySelector('[data-sem-plano]')?.textContent).toContain('9681 (SF66/WOLFF) · Branco: o código 9681 não teve barra no cálculo.')
+        expect(host.querySelector('[data-sem-peso]')?.textContent).toContain('9681')
+        servidor.corpo = { relatorio: { perfis: [], semPlano: [], total: { ...total, n_barras: 0 }, itensSemCalculo: [], itensSemPecas: [], codigosSemPeso: [] } }
+        const vazio = await montar(<BarrasDoPedidoDoOrcamento orcamentoId="o-2" numero={12} cliente="G" />)
+        expect(vazio.textContent).toContain(TEXTO_SEM_BARRA)
     })
 })
