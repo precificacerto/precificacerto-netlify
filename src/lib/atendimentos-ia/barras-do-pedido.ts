@@ -13,7 +13,10 @@
  *     abre barra nova. Desempate: a barra aberta primeiro. Determinístico: mesma entrada, mesmas barras.
  *   - SERRA: por corte, INCLUSIVE o último da barra — cada peça consome o comprimento dela mais a serra. A serra é a GRAVADA nas peças (a do
  *     cálculo); serras diferentes no mesmo grupo: sem plano, nomeado.
- *   - REFILO: 45 mm em cada ponta da barra SÓ na cor PINTURA MADEIRA; nas demais, 0. A cor é a do item (`cor_perfil`).
+ *   - REFILO (dono do produto, 22/11/2026, à noite): "TODA COR LEVA REFILO DE 45 MM POR PONTA (90 mm por barra), MENOS O BRANCO. Só o branco
+ *     aproveita a barra inteira." A regra é pela EXCEÇÃO, não por lista de cores (a do fornecedor cresce): a cor do item (`cor_perfil`) igual a
+ *     BRANCO, 0; qualquer outra, 45 por ponta — as EXTERNO (uma face colorida) inclusive. Um nome COMPOSTO com BRANCO ("EXTERNO BRANCO") não é
+ *     decidido aqui: o PO decide antes (sem plano, nomeado). Item sem cor: sem plano, nomeado — a cor decide o refilo, e nenhuma é suposta.
  *   - BARRA: a do perfil, GRAVADA nas peças (`comprimento_barra_mm`, da tabela do fornecedor) — nunca 6000 fixo. Sem barra: sem plano.
  *   - SOBRA: toda sobra é reportada, barra a barra.
  *   - Peça que não cabe na barra útil (barra − 2 × refilo, com a serra): sem plano para o grupo, nomeado — a peça não se emenda.
@@ -57,7 +60,7 @@ export type PlanoDoPerfil = {
     cor: string | null
     barra_mm: number
     serra_mm: number
-    /** O refilo por ponta: 45 mm em PINTURA MADEIRA, 0 nas demais. */
+    /** O refilo por ponta: 0 no BRANCO, 45 mm em qualquer outra cor. */
     refilo_mm: number
     barras: BarraDoPedido[]
     n_barras: number
@@ -86,10 +89,20 @@ export type TotalDoPedido = {
 export type BarrasDoPedido = { perfis: PlanoDoPerfil[]; semPlano: PerfilSemPlano[]; total: TotalDoPedido }
 
 export const REFILO_POR_PONTA_MM = 45
-/** A cor que leva refilo, normalizada (sem acento, maiúscula, espaço simples). */
-export const COR_COM_REFILO = 'PINTURA MADEIRA'
+/** A ÚNICA cor sem refilo, normalizada (sem acento, maiúscula, espaço simples). */
+export const COR_SEM_REFILO = 'BRANCO'
 const normalizarCor = (cor: string | null) => (cor ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim()
-export const refiloDaCor = (cor: string | null): number => (normalizarCor(cor).includes(COR_COM_REFILO) ? REFILO_POR_PONTA_MM : 0)
+/**
+ * O refilo por ponta da cor: 0 no BRANCO, 45 em qualquer outra; ou o motivo de não decidir — a cor ausente, ou um nome composto com BRANCO
+ * ("EXTERNO BRANCO"), que o PO decide antes.
+ */
+export function refiloDaCor(cor: string | null): number | { motivo: string } {
+    const c = normalizarCor(cor)
+    if (c === '') return { motivo: 'o item não tem a cor do perfil, e o refilo depende dela (o branco aproveita a barra inteira; as outras cores perdem 45 mm por ponta)' }
+    if (c === COR_SEM_REFILO) return 0
+    if (/\bBRANCO\b/.test(c)) return { motivo: `a cor "${cor}" tem BRANCO num nome composto: se leva o refilo de 45 mm por ponta é decisão do dono do produto, e nenhuma é suposta` }
+    return REFILO_POR_PONTA_MM
+}
 
 export const fraseDoPerfilSemBarra = (codigo: string) =>
     `o código ${codigo} não teve barra no cálculo (sem a medida da barra na tabela): as peças existem, o plano de barras não`
@@ -116,7 +129,9 @@ export function planoDoPerfil(pecas: readonly PecaDoPedido[], peso_kg_m: number 
     if (serras.length > 1) return { ...base, motivo: fraseDasSerrasDivergentes(p0.codigo, serras.sort((a, b) => a - b)) }
     const barra_mm = barras[0] as number
     const serra_mm = serras[0]
-    const refilo_mm = refiloDaCor(p0.cor)
+    const refilo = refiloDaCor(p0.cor)
+    if (typeof refilo !== 'number') return { ...base, motivo: `${p0.codigo}: ${refilo.motivo}` }
+    const refilo_mm = refilo
     const utilUm = paraUm(barra_mm) - 2 * paraUm(refilo_mm)
     const serraUm = paraUm(serra_mm)
 

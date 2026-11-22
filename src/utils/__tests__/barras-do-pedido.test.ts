@@ -1,10 +1,10 @@
 /**
  * AS BARRAS DO PEDIDO (dono do produto, 22/11/2026). O plano por perfil + cor, FFD best-fit, serra por corte (inclusive o último), refilo de
- * 45 mm por ponta só em PINTURA MADEIRA, barra do perfil gravada; e a prova sobre as peças REAIS do orçamento 12.
+ * 45 mm por ponta em toda cor menos o BRANCO, barra do perfil gravada; e a prova sobre as peças REAIS do orçamento 12.
  */
 import fixture from './fixtures/pecas-do-orcamento-12.json'
 import {
-    COR_COM_REFILO, fraseDaPecaQueNaoCabe, fraseDasBarrasDivergentes, fraseDasSerrasDivergentes, fraseDoPerfilSemBarra,
+    COR_SEM_REFILO, fraseDaPecaQueNaoCabe, fraseDasBarrasDivergentes, fraseDasSerrasDivergentes, fraseDoPerfilSemBarra,
     montarBarrasDoPedido, pesosDosCodigos, planoDoPerfil, refiloDaCor, type PecaDoPedido, type PlanoDoPerfil,
 } from '@/lib/atendimentos-ia/barras-do-pedido'
 
@@ -58,24 +58,34 @@ describe('a serra: por corte, INCLUSIVE o último da barra', () => {
     })
 })
 
-describe('o refilo: 45 mm por ponta só em PINTURA MADEIRA', () => {
-    it('a cor da PINTURA MADEIRA tira 90 mm da barra útil; as outras, nada', () => {
-        expect(refiloDaCor('Pintura Madeira')).toBe(45)
-        expect(refiloDaCor('PINTURA  MADEIRA (Golden Oak)')).toBe(45)
+describe('o refilo (PO, 22/11/2026): 45 mm por ponta em TODA cor, menos o BRANCO — pela exceção, não por lista', () => {
+    it('o branco aproveita a barra inteira; amadeirada, EXTERNO (uma face colorida) e qualquer outra levam 45 mm por ponta', () => {
         expect(refiloDaCor('Branco')).toBe(0)
-        expect(refiloDaCor('Amadeirado')).toBe(0)
-        expect(refiloDaCor(null)).toBe(0)
-        expect(COR_COM_REFILO).toBe('PINTURA MADEIRA')
+        expect(refiloDaCor(' branco ')).toBe(0)
+        expect(refiloDaCor('AMADEIRADO GOLDEN OAK')).toBe(45)
+        expect(refiloDaCor('EXTERNO GOLDEN OAK')).toBe(45)
+        expect(refiloDaCor('EXTERNO PRETO TEXTURADO')).toBe(45)
+        expect(refiloDaCor('Grafite')).toBe(45)
+        expect(refiloDaCor('Cor Nova Que O Fornecedor Lançou')).toBe(45)
+        expect(COR_SEM_REFILO).toBe('BRANCO')
     })
-    it('com refilo, 910 + serra 0 cabe na barra de 1000 e 911 não', () => {
-        const madeira = (c: number) => planoDoPerfil([peca({ comprimento_mm: c, cor: 'PINTURA MADEIRA' })], null)
+    it('um nome COMPOSTO com BRANCO ("EXTERNO BRANCO") não é decidido: o PO decide antes; e a cor ausente também não', () => {
+        expect(refiloDaCor('EXTERNO BRANCO')).toMatchObject({ motivo: expect.stringContaining('nome composto') })
+        expect(refiloDaCor('BRANCO NEVE')).toMatchObject({ motivo: expect.stringContaining('nome composto') })
+        expect(refiloDaCor(null)).toMatchObject({ motivo: expect.stringContaining('não tem a cor do perfil') })
+        expect(refiloDaCor('  ')).toMatchObject({ motivo: expect.any(String) })
+        expect(planoDoPerfil([peca({ comprimento_mm: 100, cor: 'EXTERNO BRANCO' })], null)).toMatchObject({ motivo: expect.stringContaining('9681: a cor "EXTERNO BRANCO"') })
+        expect(planoDoPerfil([peca({ comprimento_mm: 100, cor: null })], null)).toMatchObject({ motivo: expect.stringContaining('9681: o item não tem a cor') })
+    })
+    it('com refilo (amadeirada), 910 + serra 0 cabe na barra de 1000 e 911 não; no branco, 1000 cabe', () => {
+        const madeira = (c: number) => planoDoPerfil([peca({ comprimento_mm: c, cor: 'AMADEIRADO NOGUEIRA' })], null)
         expect(plano(madeira(910))).toMatchObject({ refilo_mm: 45, barras: [{ sobra_mm: 0 }] })
         expect(madeira(911)).toMatchObject({ motivo: fraseDaPecaQueNaoCabe('9681', 911, 910, 0) })
+        expect(plano(planoDoPerfil([peca({ comprimento_mm: 1000 })], null))).toMatchObject({ refilo_mm: 0, barras: [{ sobra_mm: 0 }] })
     })
-    it('a sobra da barra é a da barra útil; a sobra do perfil (comprado − peças) inclui o refilo', () => {
-        const p = plano(planoDoPerfil([peca({ comprimento_mm: 800, cor: 'Pintura Madeira' })], null))
-        expect(p.barras[0].sobra_mm).toBe(110)
-        expect(p.sobra_mm).toBe(200)
+    it('EXTERNO GOLDEN OAK: a sobra da barra é a da barra útil (1000 − 90); a sobra do perfil (comprado − peças) inclui o refilo', () => {
+        const p = plano(planoDoPerfil([peca({ comprimento_mm: 800, cor: 'EXTERNO GOLDEN OAK' })], null))
+        expect([p.refilo_mm, p.barras[0].sobra_mm, p.sobra_mm]).toEqual([45, 110, 200])
     })
 })
 

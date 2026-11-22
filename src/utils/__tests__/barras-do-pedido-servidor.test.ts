@@ -35,7 +35,7 @@ beforeEach(() => {
     db.orcamentista_orcamento = [{ id: 'o-12', tenant_id: T, deleted_at: null, aproveitamento_modo: 'SEM' }]
     db.orcamentista_orcamento_item = [
         { id: 'i-1', tenant_id: T, orcamento_id: 'o-12', ordem: 1, calculo_id: 'c-1', familia: 'PVC', removido_em: null, tipologia: 'DP-72', cor_perfil: 'Branco' },
-        { id: 'i-2', tenant_id: T, orcamento_id: 'o-12', ordem: 2, calculo_id: 'c-2', familia: 'PVC', removido_em: null, tipologia: 'DP-07', cor_perfil: 'Pintura Madeira' },
+        { id: 'i-2', tenant_id: T, orcamento_id: 'o-12', ordem: 2, calculo_id: 'c-2', familia: 'PVC', removido_em: null, tipologia: 'DP-07', cor_perfil: 'AMADEIRADO GOLDEN OAK' },
         { id: 'i-3', tenant_id: T, orcamento_id: 'o-12', ordem: 3, calculo_id: null, familia: 'PVC', removido_em: null, tipologia: 'DP-02', cor_perfil: 'Branco' },
     ]
     const pc = (o: Linha) => ({ tenant_id: T, perfil: '1023/WOLFF', codigo: '1023', descricao: 'CLICK GUIA', corte: '90/90', posicao: 'Largura', comprimento_barra_mm: '6000', serra_mm: '5', ordem: 1, ...o })
@@ -56,12 +56,12 @@ it('só LÊ: nenhuma escrita, e o orçamento só é lido para conferir a conta �
     expect(selects.find((s) => s.tabela === 'orcamentista_orcamento')?.colunas).toBe('id')
 })
 
-it('as peças do cálculo VIGENTE, por código + cor, com o item e a tipologia de origem; a cor PINTURA MADEIRA leva refilo', async () => {
+it('as peças do cálculo VIGENTE, por código + cor, com o item e a tipologia de origem; a cor que não é branco leva refilo', async () => {
     const r = await S().lerBarrasDoPedido(T, 'o-12')
     if ('semMigracao' in r) throw new Error('sem migração')
-    expect(r.perfis.map((p) => [p.cor, p.refilo_mm, p.n_fracoes])).toEqual([['Branco', 0, 2], ['Pintura Madeira', 45, 1]])
-    expect(r.perfis[0].barras[0].fracoes[0]).toEqual({ comprimento_mm: 4646, corte: '90/90', posicao: 'Largura', item: 1, tipologia: 'DP-72' })
-    expect(r.perfis[1].barras[0].fracoes[0]).toMatchObject({ item: 2, tipologia: 'DP-07' })
+    expect(r.perfis.map((p) => [p.cor, p.refilo_mm, p.n_fracoes])).toEqual([['AMADEIRADO GOLDEN OAK', 45, 1], ['Branco', 0, 2]])
+    expect(r.perfis[1].barras[0].fracoes[0]).toEqual({ comprimento_mm: 4646, corte: '90/90', posicao: 'Largura', item: 1, tipologia: 'DP-72' })
+    expect(r.perfis[0].barras[0].fracoes[0]).toMatchObject({ item: 2, tipologia: 'DP-07' })
     expect(r.itensSemCalculo).toEqual([3])
 })
 
