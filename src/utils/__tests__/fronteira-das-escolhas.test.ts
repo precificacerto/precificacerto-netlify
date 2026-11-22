@@ -177,7 +177,7 @@ describe('(4) a política: a EMPRESA sobre o NICHO, campo a campo; a tradução 
 
 /*
  * (9) O ARREMATE EXTERNO SEM O "VÃO+50" (dono do produto, 21/11/2026): onde a variação não oferece a opção da política, entra a de AJUSTE EM OBRA
- * dela (a de menor acréscimo), e só sem nenhuma a opção 1 — nunca calado. As opções são as medidas no motor da Wolff em 21/11/2026.
+ * dela (a de menor acréscimo), e só sem nenhuma o padrão da tipologia (22/11/2026; era a opção 1) — nunca calado. As opções são as medidas no motor da Wolff em 21/11/2026.
  */
 describe('(9) a MAE sem a opção da política: o ajuste em obra que a variação oferece', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -203,13 +203,22 @@ describe('(9) a MAE sem a opção da política: o ajuste em obra que a variaçã
         expect(traduz('X', '1 = MEDIDA DO VÃO; 2 = VÃO+90MM (CORTE 90/90) - PARA AJUSTE EM OBRA; 3 = VÃO+40MM (CORTE 90/90) - PARA AJUSTE EM OBRA'))
             .toMatchObject({ valor: 3, ajuste: expect.stringContaining('VÃO+40MM') })
     })
-    it('o ajuste exige as palavras do motor: CORTE 90/90 E AJUSTE EM OBRA — sem elas, a opção 1', () => {
-        expect(traduz('X', '1 = MEDIDA DO VÃO (CORTE 45); 2 = VÃO+40MM (CORTE 45/45) - PARA AJUSTE EM OBRA'))
-            .toMatchObject({ valor: 1, ajuste: expect.stringContaining('sem opção de ajuste em obra: a opção 1 do motor') })
-        expect(traduz('X', '1 = MEDIDA DO VÃO (CORTE 45); 2 = VÃO+40MM (CORTE 90/90)')).toMatchObject({ valor: 1 })
+    const comPadrao = (codigo: string, opcoes: string, padrao: string | null) => P().traduzirPolitica(codigo, { variavel: 'MAE', opcoes, padrao }, POLITICA)
+    it('o ajuste exige as palavras do motor: CORTE 90/90 E AJUSTE EM OBRA — sem elas, o PADRÃO DA TIPOLOGIA (22/11/2026)', () => {
+        expect(comPadrao('X', '1 = MEDIDA DO VÃO (CORTE 45); 2 = VÃO+40MM (CORTE 45/45) - PARA AJUSTE EM OBRA', '1'))
+            .toMatchObject({ valor: 1, ajuste: expect.stringContaining('sem opção de ajuste em obra: o padrão da tipologia') })
+        expect(comPadrao('X', '1 = MEDIDA DO VÃO (CORTE 45); 2 = VÃO+40MM (CORTE 90/90)', '1')).toMatchObject({ valor: 1 })
     })
-    it('nenhuma de ajuste e nenhuma opção 1: recusa nomeada, nunca uma opção inventada', () => {
-        expect(traduz('X', '2 = MEDIDA DO VÃO (CORTE 45)')).toMatchObject({ recusa: expect.stringContaining('nenhuma opção de MAE') })
+    it('sem opção de ajuste, vale o PADRÃO da tipologia, não a opção 1 fixa', () => {
+        expect(comPadrao('X', '1 = MEDIDA DO VÃO (CORTE 45); 2 = VÃO+40MM (CORTE 90/90)', '2'))
+            .toEqual({ valor: 2, campo: 'MAE', ajuste: 'a política diz MAE = "VAO+50MM (CORTE 90/90)", que a tipologia X não oferece; entrou a opção 2 = VÃO+40MM (CORTE 90/90) (sem opção de ajuste em obra: o padrão da tipologia)' })
+    })
+    it('com opção de ajuste, o padrão da tipologia NÃO é olhado: entra a de ajuste, mesmo com padrão 1 = MEDIDA DO VÃO', () => {
+        expect(comPadrao('DP-113', MEDIDAS['DP-113'], '1')).toMatchObject({ valor: 2, ajuste: expect.stringContaining('ajuste em obra de menor acréscimo') })
+    })
+    it('nenhuma de ajuste e nenhum padrão válido na lista: recusa nomeada, nunca uma opção inventada', () => {
+        expect(comPadrao('X', '2 = MEDIDA DO VÃO (CORTE 45)', null)).toMatchObject({ recusa: expect.stringContaining('nem há uma de ajuste em obra, nem um padrão na lista') })
+        expect(comPadrao('X', '2 = MEDIDA DO VÃO (CORTE 45)', '1')).toMatchObject({ recusa: expect.any(String) })
     })
     it('mais de uma casando pelo texto continua RECUSA (a ambiguidade não é a falta)', () => {
         expect(traduz('X', '1 = VAO+50MM (CORTE 90/90) A; 2 = VAO+50MM (CORTE 90/90) B; 3 = VÃO+40MM (CORTE 90/90) - PARA AJUSTE EM OBRA'))
