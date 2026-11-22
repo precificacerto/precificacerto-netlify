@@ -140,7 +140,7 @@ export function naturezaNaPolitica(politica: PoliticaDaEmpresa, variavel: string
  *   1. o texto da política casa a opção (como em toda variável);
  *   2. não casando NENHUMA, a opção de AJUSTE EM OBRA daquela variação — o rótulo do motor diz "AJUSTE EM OBRA" e "CORTE 90/90" —, a de MENOR
  *      acréscimo (os milímetros do "+NNMM") quando houver mais de uma;
- *   3. sem nenhuma de ajuste, a opção 1 do motor.
+ *   3. sem nenhuma de ajuste, o PADRÃO DA TIPOLOGIA (22/11/2026; era a opção 1 fixa); sem padrão válido, recusa nomeada.
  * Nunca se inventa opção: só as que o motor da variação oferece. A troca nunca é calada: a tradução devolve `ajuste` (qual e por quê), a fronteira
  * marca a origem e o cálculo a registra no rastro. Mais de uma opção casando continua recusa nomeada (a ambiguidade não é a falta).
  */
@@ -180,8 +180,12 @@ function traduzirPelaNatureza(tipologia: string, v: Pick<VariavelDaTipologia, 'v
         const motivo = (o: { valor: number; rotulo: string }, porque: string) =>
             `a política diz ${v.variavel} = "${n.opcao}", que a tipologia ${tipologia} não oferece; entrou a opção ${o.valor} = ${o.rotulo} (${porque})`
         if (ajuste !== null) return { valor: ajuste.valor, campo: v.variavel, ajuste: motivo(ajuste, 'ajuste em obra de menor acréscimo') }
-        const primeira = opcoes.find((o) => o.valor === 1)
-        if (primeira) return { valor: 1, campo: v.variavel, ajuste: motivo(primeira, 'sem opção de ajuste em obra: a opção 1 do motor') }
+        // sem NENHUMA opção de ajuste: o PADRÃO DA TIPOLOGIA (dono do produto, 22/11/2026: "o padrão da tipologia só quando não houver NENHUMA
+        // opção de ajuste"), no lugar da opção 1 fixa de 21/11. Sem padrão válido na lista, recusa nomeada
+        const p = (v.padrao ?? '').trim()
+        const padrao = /^\d+$/.test(p) ? opcoes.find((o) => o.valor === Number(p)) : undefined
+        if (padrao) return { valor: padrao.valor, campo: v.variavel, ajuste: motivo(padrao, 'sem opção de ajuste em obra: o padrão da tipologia') }
+        return { campo: v.variavel, recusa: `a política da empresa diz ${v.variavel} = "${n.opcao}", e na tipologia ${tipologia} nenhuma opção de ${v.variavel} começa assim, nem há uma de ajuste em obra, nem um padrão na lista (${listaDasOpcoes(opcoes)}): corrija a política ou o motor` }
     }
     // A TIPOLOGIA MANDA (dono do produto, 22/11/2026, regra geral: qualquer variável, empresa ou fornecedor): "O critério que nós temos que tomar
     // como regra é a TIPOLOGIA. A tipologia vai informar como que deve ser feito. O motor, ele só define as proporções." A política escolhe ENTRE o

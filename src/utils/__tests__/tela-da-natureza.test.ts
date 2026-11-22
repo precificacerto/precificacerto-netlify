@@ -50,9 +50,12 @@ describe('a conferência da opção em texto', () => {
         expect(conferirOpcao('MAX', 'VAO+50MM (CORTE 90/90)', OUTRA)).toEqual({ casam: 3, pelaTipologia: [], ajuste: [], semOpcao: ['DP-07'], maisDeUma: [] })
         expect(conferirOpcao('MAX', 'VÃO+50', OUTRA)).toEqual({ casam: 2, pelaTipologia: [], ajuste: [], semOpcao: ['DP-07'], maisDeUma: ['DP-09'] })
     })
-    it('na MAE, a tipologia sem a opção da política vai para o AJUSTE (a de ajuste em obra, ou a 1), não para a recusa; mais de uma continua recusa', () => {
-        expect(conferirOpcao('MAE', 'VAO+50MM (CORTE 90/90)', MOTOR)).toEqual({ casam: 3, pelaTipologia: [], ajuste: ['DP-07'], semOpcao: [], maisDeUma: [] })
-        expect(conferirOpcao('MAE', 'VÃO+50', MOTOR)).toEqual({ casam: 2, pelaTipologia: [], ajuste: ['DP-07'], semOpcao: [], maisDeUma: ['DP-09'] })
+    it('na MAE, a tipologia sem a opção da política vai para o AJUSTE (a de ajuste em obra, ou o padrão da tipologia); sem os dois, sem opção; mais de uma continua recusa', () => {
+        // a DP-07 desta fixture não tem opção de ajuste (CORTE 45/45) nem padrão: desde 22/11/2026 (o padrão no lugar da opção 1 fixa), é sem opção
+        expect(conferirOpcao('MAE', 'VAO+50MM (CORTE 90/90)', MOTOR)).toEqual({ casam: 3, pelaTipologia: [], ajuste: [], semOpcao: ['DP-07'], maisDeUma: [] })
+        expect(conferirOpcao('MAE', 'VÃO+50', MOTOR)).toEqual({ casam: 2, pelaTipologia: [], ajuste: [], semOpcao: ['DP-07'], maisDeUma: ['DP-09'] })
+        const comPadrao = { ...MOTOR, 'DP-07': { variaveis: MOTOR['DP-07'].variaveis.map((v) => ({ ...v, padrao: '1' })) } }
+        expect(conferirOpcao('MAE', 'VAO+50MM (CORTE 90/90)', comPadrao)).toEqual({ casam: 3, pelaTipologia: [], ajuste: ['DP-07'], semOpcao: [], maisDeUma: [] })
     })
     it('A TIPOLOGIA MANDA (22/11/2026): a lista sem a opção (a folha de veneziana) vai para o padrão da tipologia, contada à parte e dita na frase', () => {
         const VENEZIANA = { 'DP-57': { variaveis: [{ variavel: 'MFE', descricao: null, padrao: '3', condicao: null, condicao_opcoes: null,
