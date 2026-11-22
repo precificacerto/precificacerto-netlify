@@ -78,7 +78,8 @@ const forma = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperC
 
 export type TraducaoDaPolitica =
     /** `ajuste`: a opção NÃO é a da política (ela não existe nesta variação do motor) — é a de ajuste em obra, ou a 1; diz qual e por quê */
-    | { valor: number; campo: string; ajuste?: string }
+    /** `equivalencia`: a opção é a da política com outro rótulo (a lista não separa a chave) — diz qual e por quê, para o rastro */
+    | { valor: number; campo: string; ajuste?: string; equivalencia?: string }
     | { semAPeca: true; campo: string }
     | { recusa: string; campo: string }
     | null
@@ -160,6 +161,18 @@ function traduzirPelaNatureza(tipologia: string, v: Pick<VariavelDaTipologia, 'v
     const texto = forma(n.opcao)
     const booleano = texto === 'SIM' || texto === 'NAO'
     const achadas = opcoes.filter((o) => (booleano ? forma(o.rotulo) === texto : forma(o.rotulo).startsWith(texto)))
+    // A CHAVE QUE A LISTA NÃO SEPARA (dono do produto, 22/11/2026, medido no motor ativo): "CREMONA COM MAÇANETA" (EUROPA 42) e "CREMONA COM
+    // MAÇANETA SEM CHAVE" (as que separam) acionam os MESMOS insumos; "COM CHAVE" é outra peça. Nenhuma lista oferece COM CHAVE sem oferecer SEM
+    // CHAVE. Então, sem casar pelo texto, e SÓ quando nenhuma opção da tipologia fala em chave, "X SEM CHAVE" casa a opção "X". Nunca por prefixo
+    // genérico ("CREMONA COM MAÇANETA" é o começo de "… COM CHAVE"): a equivalência vale pela ausência de ambiguidade na lista, e vai ao rastro.
+    if (achadas.length === 0 && texto.endsWith('SEMCHAVE') && !opcoes.some((o) => forma(o.rotulo).includes('CHAVE'))) {
+        const semAChave = texto.slice(0, -'SEMCHAVE'.length)
+        const iguais = opcoes.filter((o) => forma(o.rotulo) === semAChave)
+        if (iguais.length === 1) {
+            return { valor: iguais[0].valor, campo: v.variavel, equivalencia:
+                `a política diz ${v.variavel} = "${n.opcao}", e a lista da tipologia ${tipologia} não fala em chave; entrou a opção ${iguais[0].valor} = ${iguais[0].rotulo} (a mesma peça, por equivalência)` }
+        }
+    }
     if (achadas.length === 1) return { valor: achadas[0].valor, campo: v.variavel }
     if (achadas.length === 0 && VARIAVEIS_COM_AJUSTE_EM_OBRA.has(v.variavel)) {
         const ajuste = opcaoDeAjusteEmObra(opcoes)

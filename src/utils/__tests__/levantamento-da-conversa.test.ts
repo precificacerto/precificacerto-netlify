@@ -931,6 +931,19 @@ describe('(5b) as ESCOLHAS gravadas chegam ao avaliador', () => {
         expect(r.desfecho).toBe('levantou')
         expect(r.texto).toContain('VÃO+40MM (CORTE 90/90) - PARA AJUSTE EM OBRA (a opção da política não existe nesta tipologia: ajuste em obra)')
         expect(r.texto).toContain('A política diz MAE = "VAO+50MM (CORTE 90/90)", que a tipologia DP-02 não oferece; entrou a opção 2 = VÃO+40MM (CORTE 90/90) - PARA AJUSTE EM OBRA (ajuste em obra de menor acréscimo).')
+        expect(r.etapa?.rastro).toEqual(['AJUSTE_EM_OBRA:1:DP-02:MAE=2'])
+    })
+    it('O FECHAMENTO DA POLÍTICA NA EUROPA 42 (22/11/2026): a lista não fala em chave, "… SEM CHAVE" casa "CREMONA COM MAÇANETA" — o orçamento sai, e o rastro diz', async () => {
+        // a DP-02 da fixture é a do motor: MFI e MFE com a lista que não fala em chave
+        const fechos = (banco.db.orcamentista_motor_variavel ?? []).filter((v) => v.variavel === 'MFI' || v.variavel === 'MFE')
+        expect(fechos.map((v) => [v.variavel, /CHAVE/i.test(String(v.opcoes)), /CREMONA COM MAÇANETA/.test(String(v.opcoes))])).toEqual([['MFI', false, true], ['MFE', false, true]])
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        banco.db.orcamentista_natureza_da_variavel = [...NATUREZA_DE_PAULA, ...['MFI', 'MFE'].map((variavel) => ({ ...NATUREZA_DE_PAULA[0], variavel, opcao_padrao: 'CREMONA COM MACANETA SEM CHAVE' }))]
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev())
+        expect(r.desfecho).toBe('levantou')
+        expect(r.texto).not.toContain('CREMONA COM MACANETA SEM CHAVE')
+        // o rastro: o resumo da etapa do cálculo (a linha [IA]) diz que entrou por equivalência, item a item
+        expect(r.etapa?.rastro).toEqual(['POLITICA_POR_EQUIVALENCIA:1:DP-02:MFI=1', 'POLITICA_POR_EQUIVALENCIA:1:DP-02:MFE=1'])
     })
     it('a natureza de OUTRA família não vale para a esquadria PVC', async () => {
         const t = await M().lerFamiliasDaEmpresa(TENANT)
@@ -1148,7 +1161,7 @@ describe('(8) a COR é a da pré-definição, comparada SEM CAIXA (e só sem cai
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ cor_perfil: 'BRANCO', escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
         expect(r.desfecho).toBe('levantou')
-        expect(r.etapa).toEqual({ esquadrias: 1, pecas: 40, barras: 9, codigos: 8, semPreco: 0, maoDeObra: 'ok', faltou: [] })
+        expect(r.etapa).toEqual({ esquadrias: 1, pecas: 40, barras: 9, codigos: 8, semPreco: 0, maoDeObra: 'ok', faltou: [], rastro: [] })
         // só contagens e códigos: nenhum número do resumo é dinheiro
         expect(JSON.stringify(r.etapa)).not.toMatch(/R\$|,\d{2}\b/)
     })
