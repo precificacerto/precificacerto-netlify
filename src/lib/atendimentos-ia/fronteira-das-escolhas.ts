@@ -35,7 +35,8 @@ import { naturezaNaPolitica, traduzirPolitica, type PoliticaDaEmpresa } from '@/
 export type OrigemDaEscolha = 'vendedor' | 'politica' | 'politica_ajuste_em_obra' | 'calculo' | 'padrao_do_motor' | 'principal'
 export type VoltaAoAgente = { variavel: string; descricao: string; frase: string }
 /** `ajustes`: as variáveis em que a política não existia na variação e entrou a opção de ajuste em obra (ou a 1), com o motivo — o rastro. */
-export type EscolhasDoCalculo = { escolhas: Record<string, number>; origem: Record<string, OrigemDaEscolha>; voltas: VoltaAoAgente[]; ajustes: Array<{ variavel: string; motivo: string }> }
+/** `equivalencias`: as variáveis em que a opção da política entrou com outro rótulo (a lista não separa a chave), com o motivo — o rastro. */
+export type EscolhasDoCalculo = { escolhas: Record<string, number>; origem: Record<string, OrigemDaEscolha>; voltas: VoltaAoAgente[]; ajustes: Array<{ variavel: string; motivo: string }>; equivalencias: Array<{ variavel: string; motivo: string }> }
 
 const semAcento = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '')
 const numeroDoPadrao = (p: string | null) => (/^-?\d+(\.\d+)?$/.test((p ?? '').trim()) ? Number((p ?? '').trim()) : null)
@@ -77,6 +78,7 @@ export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<s
     const origem: Record<string, OrigemDaEscolha> = Object.fromEntries(Object.keys(ditas).map((k) => [k, 'vendedor' as const]))
     const voltas: VoltaAoAgente[] = []
     const ajustes: Array<{ variavel: string; motivo: string }> = []
+    const equivalencias: Array<{ variavel: string; motivo: string }> = []
     const condicoes = condicoesDasLinhas(tipologia)
     // os valores da conta: o que já foi decidido e, nas demais, o padrão do motor (para avaliar as condições; não é decisão)
     const valores = (): Record<string, number> => {
@@ -102,6 +104,7 @@ export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<s
             escolhas[v.variavel] = t.valor
             origem[v.variavel] = t.ajuste === undefined ? 'politica' : 'politica_ajuste_em_obra'
             if (t.ajuste !== undefined) ajustes.push({ variavel: v.variavel, motivo: t.ajuste })
+            if (t.equivalencia !== undefined) equivalencias.push({ variavel: v.variavel, motivo: t.equivalencia })
             continue
         }
         const opcoes = (opcoesDaVariavel(v.opcoes) ?? []).map((o) => o.valor)
@@ -140,5 +143,5 @@ export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<s
         escolhas[v.variavel] = principal
         origem[v.variavel] = 'principal'
     }
-    return { escolhas, origem, voltas, ajustes }
+    return { escolhas, origem, voltas, ajustes, equivalencias }
 }

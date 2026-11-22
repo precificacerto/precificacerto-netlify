@@ -5630,9 +5630,18 @@ describe('(39) observabilidade por etapa: coletar, casar, montar, calcular e res
         await fecharDp02('Casa do João')
         const calcular = doTurno()[3]
         expect(calcular).toMatch(/^\[ETAPA 4 calcular\] esquadrias=1 pecas=\d+ barras=\d+ codigos=\d+ sem_preco=\d+ mao_de_obra=(ok|falta) desfecho=levantou faltou=/)
+        expect(calcular).not.toContain('rastro=')
         const [, pecas, barras] = /pecas=(\d+) barras=(\d+)/.exec(calcular) ?? []
         expect(Number(pecas)).toBeGreaterThan(0)
         expect(Number(barras)).toBeGreaterThan(0)
+    })
+
+    it('o RASTRO (22/11/2026): a opção da política que entrou por equivalência sai na linha do cálculo, e só quando houve', async () => {
+        estado.ausentes.delete('orcamentista_natureza_da_variavel')
+        estado.db.orcamentista_natureza_da_variavel = ['MFI', 'MFE'].map((variavel) => ({ tenant_id: TENANT, familia: 'PVC', linha: null as string | null, formato: null as string | null,
+            variavel, natureza: 'POLITICA', opcao_padrao: 'CREMONA COM MACANETA SEM CHAVE' }))
+        await fecharDp02('Casa do João')
+        expect(doTurno()[3]).toMatch(/ faltou=\S+ rastro=POLITICA_POR_EQUIVALENCIA:1:DP-02:MFI=1,POLITICA_POR_EQUIVALENCIA:1:DP-02:MFE=1( |$)/)
     })
 
     it('a pergunta: a montagem diz o que falta, por esquadria e campo; o cálculo não chega', async () => {

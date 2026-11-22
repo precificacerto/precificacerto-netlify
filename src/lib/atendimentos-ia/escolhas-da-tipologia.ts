@@ -63,6 +63,14 @@ export type EscolhaPendente = { variavel: string; descricao: string; opcoes: Opc
 
 const capturada = (v: string) => (ESCOLHAS_CAPTURADAS as readonly string[]).includes(v)
 
+/**
+ * O FECHAMENTO DITO PELO VENDEDOR (dono do produto, 22/11/2026): "por padrão, sempre e sem chave: cremona com maçaneta sem chave. Quando houver
+ * chave, será informado através do vendedor." MFI e MFE são POLÍTICA (a natureza gravada), e o "com chave" do item a sobrepõe — item → política →
+ * motor (`escolhasDoCalculo`). Diferente das capturadas, NUNCA se perguntam nem entram na linha do arremate: só valem quando o vendedor diz.
+ */
+export const ESCOLHAS_DO_ITEM = ['MFI', 'MFE'] as const
+const doItem = (v: string) => (ESCOLHAS_DO_ITEM as readonly string[]).includes(v)
+
 // ── A PEÇA QUE NINGUÉM PEDIU NÃO ENTRA POR PADRÃO (dono do produto, 19/11/2026) ─────────────────────────────────────────
 /**
  * O caso: o item 6 do orçamento da Daiane (DP-72, PORTA DE CORRER 04 FOLHAS MÓVEIS, 4750 x 2300) saiu COM TRAVESSA, com as escolhas NULAS — a
@@ -160,7 +168,7 @@ export function perguntaDaEscolha(p: EscolhaPendente): string {
 
 /** A variável capturada da tipologia, como escolha a mostrar ao vendedor; null se não existe ou não tem opções. */
 export function escolhaPedida(tipologia: VariaveisDaTipologia, variavel: string): EscolhaPendente | null {
-    if (!capturada(variavel)) return null
+    if (!capturada(variavel) && !doItem(variavel)) return null
     const v = tipologia.variaveis.find((x) => x.variavel === variavel)
     const opcoes = v ? opcoesDaVariavel(v.opcoes) : null
     if (!v || !opcoes || opcoes.length === 0) return null
@@ -172,7 +180,7 @@ export function escolhaPedida(tipologia: VariaveisDaTipologia, variavel: string)
  * precisa para responder na ferramenta. Vocabulário interno: nunca vai ao vendedor.
  */
 export function escolhasParaOPrompt(tipologia: VariaveisDaTipologia): string[] {
-    return ESCOLHAS_CAPTURADAS.map((v) => escolhaPedida(tipologia, v)).filter((p): p is EscolhaPendente => p !== null)
+    return [...ESCOLHAS_CAPTURADAS, ...ESCOLHAS_DO_ITEM].map((v) => escolhaPedida(tipologia, v)).filter((p): p is EscolhaPendente => p !== null)
         .map((p) => `${p.variavel} = ${p.descricao}: ${p.opcoes.map((o) => `${o.valor} = ${o.rotulo}`).join('; ')}`)
 }
 
@@ -221,7 +229,7 @@ export function lerEscolhasGravadas(valor: unknown, tipologia: VariaveisDaTipolo
     const lidas: Record<string, number> = {}
     for (const [k, v] of Object.entries(valor as Record<string, unknown>)) {
         if (typeof v !== 'number' || !Number.isInteger(v)) continue
-        if (capturada(k) || (deValor.has(k) && v > 0) || (k in PECAS_QUE_NAO_ENTRAM_POR_PADRAO && tipologia?.variaveis.some((x) => x.variavel === k))) lidas[k] = v
+        if (capturada(k) || (doItem(k) && v > 0) || (deValor.has(k) && v > 0) || (k in PECAS_QUE_NAO_ENTRAM_POR_PADRAO && tipologia?.variaveis.some((x) => x.variavel === k))) lidas[k] = v
     }
     return lidas
 }

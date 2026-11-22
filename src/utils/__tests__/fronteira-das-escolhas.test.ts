@@ -236,3 +236,81 @@ describe('(9) a MAE sem a opção da política: o ajuste em obra que a variaçã
             .toBe('medida do arremate externo: VÃO+40MM (CORTE 90/90) - PARA AJUSTE EM OBRA (a opção da política não existe nesta tipologia: ajuste em obra)')
     })
 })
+
+/*
+ * (10) O FECHAMENTO (dono do produto, 22/11/2026): "por padrão, sempre e sem chave: cremona com maçaneta sem chave. Quando houver chave, será
+ * informado através do vendedor." E a medição do chat: "CREMONA COM MAÇANETA" e "… SEM CHAVE" acionam os MESMOS insumos; "COM CHAVE" é outra
+ * peça. A regra: texto; sem ele, e SÓ quando a lista não fala em chave, "X SEM CHAVE" casa "X". Nunca prefixo genérico. As listas são as 7
+ * distintas de MFI/MFE com maçaneta no motor ativo (259035a9), medidas em 22/11/2026.
+ */
+describe('(10) o fechamento: a equivalência pela ausência de chave na lista, nunca por prefixo; e o "com chave" do vendedor', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const P = () => require('@/lib/atendimentos-ia/politica-da-empresa') as typeof import('@/lib/atendimentos-ia/politica-da-empresa')
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const E = () => require('@/lib/atendimentos-ia/escolhas-da-tipologia') as typeof import('@/lib/atendimentos-ia/escolhas-da-tipologia')
+    const SEM_CHAVE = 'CREMONA COM MACANETA SEM CHAVE'
+    const POLITICA = { porVariavel: { MFI: { natureza: 'POLITICA' as const, opcao: SEM_CHAVE } } }
+    const SEM_MENCAO_A_CHAVE = [
+        '1 = CREMONA COM MAÇANETA; 2 = CREMONA COM FECHO ALAVANCA; 3 = CREMONA OCULTA; 4 = CREMONA COM CONCHA PRÁTIKA',
+        '1 = CREMONA COM MAÇANETA; 2 = CREMONA COM FECHO ALAVANCA; 4 = CREMONA COM CONCHA PRÁTIKA',
+    ]
+    const QUE_SEPARAM = [
+        '1 = CREMONA COM MAÇANETA SEM CHAVE; 2 = CREMONA COM MAÇANETA COM CHAVE; 3 = CREMONA COM FECHO ALAVANCA; 4 = CREMONA OCULTA; 5 = CREMONA COM CONCHA PRÁTIKA',
+        '1 = CREMONA COM MAÇANETA SEM CHAVE; 2 = CREMONA COM MAÇANETA COM CHAVE; 3 = CREMONA COM FECHO ALAVANCA; 5 = CREMONA COM CONCHA PRÁTIKA',
+        '1 = CREMONA COM MAÇANETA SEM CHAVE; 3 = CREMONA COM FECHO ALAVANCA; 4 = CREMONA OCULTA; 5 = CREMONA COM CONCHA PRÁTIKA',
+        '1 = CREMONA COM MAÇANETA SEM CHAVE; 3 = CREMONA COM FECHO ALAVANCA; 5 = CREMONA COM CONCHA PRÁTIKA',
+        '3 = CREMONA COM FECHO ALAVANCA; 5 = CREMONA COM CONCHA PRÁTIKA; 1 = CREMONA COM MAÇANETA SEM CHAVE; 3 = CREMONA COM FECHO ALAVANCA; 5 = CREMONA COM CONCHA PRÁTIKA',
+    ]
+    const traduz = (opcoes: string, opcao = SEM_CHAVE, codigo = 'X') =>
+        P().traduzirPolitica(codigo, { variavel: 'MFI', opcoes }, { porVariavel: { MFI: { natureza: 'POLITICA' as const, opcao } } })
+    it('as listas que NÃO falam em chave: casa a "CREMONA COM MAÇANETA", por equivalência, dita', () => {
+        for (const l of SEM_MENCAO_A_CHAVE) {
+            expect(traduz(l, SEM_CHAVE, 'DP-017')).toEqual({ valor: 1, campo: 'MFI', equivalencia:
+                'a política diz MFI = "CREMONA COM MACANETA SEM CHAVE", e a lista da tipologia DP-017 não fala em chave; entrou a opção 1 = CREMONA COM MAÇANETA (a mesma peça, por equivalência)' })
+        }
+    })
+    it('as listas que separam: casa a SEM CHAVE pelo texto, sem equivalência', () => {
+        for (const l of QUE_SEPARAM) expect(traduz(l)).toEqual({ valor: 1, campo: 'MFI' })
+    })
+    it('NUNCA por prefixo: a lista que fala em chave e não tem a SEM CHAVE recusa — nunca a "CREMONA COM MAÇANETA", nunca a COM CHAVE', () => {
+        expect(traduz('1 = CREMONA COM MAÇANETA; 2 = CREMONA COM MAÇANETA COM CHAVE; 3 = CREMONA OCULTA')).toMatchObject({ recusa: expect.stringContaining('nenhuma opção de MFI') })
+        expect(traduz('2 = CREMONA COM MAÇANETA COM CHAVE; 3 = CREMONA OCULTA')).toMatchObject({ recusa: expect.any(String) })
+    })
+    it('a equivalência é a do rótulo INTEIRO sem "sem chave": um rótulo mais curto, ou outro, não casa', () => {
+        expect(traduz('1 = CREMONA; 2 = CREMONA OCULTA')).toMatchObject({ recusa: expect.any(String) })
+        expect(traduz('1 = CREMONA COM MAÇANETA DUPLA; 2 = CREMONA OCULTA')).toMatchObject({ recusa: expect.any(String) })
+    })
+    it('só para o texto que diz SEM CHAVE: outra política sem casar continua recusa', () => {
+        expect(traduz(SEM_MENCAO_A_CHAVE[0], 'CREMONA COM MACANETA DUPLA')).toMatchObject({ recusa: expect.any(String) })
+        // "COM CHAVE" é outra peça: numa lista que não fala em chave, nunca vira a "CREMONA COM MAÇANETA"
+        expect(traduz(SEM_MENCAO_A_CHAVE[0], 'CREMONA COM MACANETA COM CHAVE')).toMatchObject({ recusa: expect.any(String) })
+    })
+    it('duas opções iguais ao rótulo sem a chave: ambiguidade, recusa', () => {
+        expect(traduz('1 = CREMONA COM MAÇANETA; 2 = CREMONA COM MAÇANETA')).toMatchObject({ recusa: expect.any(String) })
+    })
+    it('sem maçaneta nenhuma (DP-57, DP-58, DP-59, DP-96, DP-98): recusa nomeada, nunca uma opção inventada', () => {
+        expect(traduz('3 = CREMONA COM FECHO ALAVANCA; 5 = CREMONA COM CONCHA PRÁTIKA')).toMatchObject({ recusa: expect.stringContaining('nenhuma opção de MFI') })
+    })
+    it('na fronteira: a equivalência vai a `equivalencias` (o rastro), com origem política; o texto exato não vai', () => {
+        const t = (opcoes: string): Tipologia => ({ ...dp02(), variaveis: [{ variavel: 'MFI', descricao: 'MODO DE FECHAMENTO', padrao: '1', condicao: 'sempre', opcoes, condicao_opcoes: null }], perfis: [], insumos: [], vidros: [] })
+        const eq = F().escolhasDoCalculo(t(SEM_MENCAO_A_CHAVE[0]), {}, POLITICA)
+        expect([eq.escolhas.MFI, eq.origem.MFI, eq.equivalencias.map((q) => q.variavel), eq.voltas]).toEqual([1, 'politica', ['MFI'], []])
+        const exato = F().escolhasDoCalculo(t(QUE_SEPARAM[0]), {}, POLITICA)
+        expect([exato.escolhas.MFI, exato.equivalencias]).toEqual([1, []])
+    })
+    it('o "com chave" do vendedor sobrepõe a política: item → política → motor', () => {
+        const t: Tipologia = { ...dp02(), variaveis: [{ variavel: 'MFI', descricao: 'MODO DE FECHAMENTO', padrao: '1', condicao: 'sempre', opcoes: QUE_SEPARAM[0], condicao_opcoes: null }], perfis: [], insumos: [], vidros: [] }
+        const comChave = F().escolhasDoCalculo(t, { MFI: 2 }, POLITICA)
+        expect([comChave.escolhas.MFI, comChave.origem.MFI, comChave.voltas, comChave.equivalencias]).toEqual([2, 'vendedor', [], []])
+    })
+    it('o vendedor pode dizer o fechamento: a escolha vale, fica gravada, e vai ao prompt — mas nunca é perguntada nem entra na linha do arremate', () => {
+        const tip = { variaveis: [{ variavel: 'MFI', descricao: 'MODO DE FECHAMENTO', padrao: '1', condicao: 'sempre', opcoes: QUE_SEPARAM[0], condicao_opcoes: null as string | null }] }
+        expect(E().validarEscolha(tip, {}, { variavel: 'MFI', opcao: 2 })).toEqual({ gravar: { MFI: 2 }, propostos: 1, descartados: 0 })
+        expect(E().validarEscolha(tip, {}, { variavel: 'MFI', opcao: 9 })).toMatchObject({ gravar: null, descartados: 1 })
+        expect(E().lerEscolhasGravadas({ MFI: 2, MFE: 1, XYZ: 3 })).toEqual({ MFI: 2, MFE: 1 })
+        expect(E().lerEscolhasGravadas({ MFI: 0 })).toEqual({})
+        expect(E().escolhasParaOPrompt(tip)).toEqual([`MFI = MODO DE FECHAMENTO: ${QUE_SEPARAM[0]}`])
+        expect(E().escolhasPendentes(tip, {})).toEqual([])
+        expect(E().descreverArremate(tip, { MFI: 2 })).toBeNull()
+    })
+})

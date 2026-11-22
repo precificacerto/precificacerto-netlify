@@ -643,7 +643,7 @@ export const FERRAMENTA = {
             },
             escolhas: {
                 type: 'array',
-                description: 'Só o arremate que o vendedor disse NESTA mensagem, em palavras: o CÓDIGO da variável e o NÚMERO da opção que corresponde. Vazio se ele não disse.',
+                description: 'Só o arremate ou o fechamento que o vendedor disse NESTA mensagem, em palavras: o CÓDIGO da variável e o NÚMERO da opção que corresponde. Vazio se ele não disse.',
                 // os dois são obrigatórios na escolha (03/11/2026): a escolha sem um deles era descartada de qualquer jeito (e, enquanto a
                 // ferramenta foi strict, o limite de 24 opcionais precisava de lugar para a `opcao` do resgate)
                 items: { type: 'object', additionalProperties: false, required: ['variavel', 'opcao'], properties: { variavel: texto, opcao: inteiro } },
@@ -748,6 +748,7 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
         '- A ORDEM DAS TIPOLOGIAS é família > linha > formato > folhas/módulos > variações. Dentro do formato (porta de correr, janela de correr, com persiana, maxim-ar, giro, oscilo-batente, pivotante, fixo) e das folhas pedidas, escolha a PRINCIPAL: a que não tem nada além disso no nome (sem trilho, veneziana, bandeira, peitoril, tela, fechamento central, modulação), salvo o que o vendedor pediu com todas as letras ("com veneziana", "trilho de alumínio", "com bandeira"). NUNCA escolha pela ordem da lista. A LINHA NÃO SE PERGUNTA: o formato a determina; quando o mesmo formato existe em mais de uma linha, EUROPA 42, depois EUROPA 60, depois DESIGN.',
         '- quantidade: só a dita. Não dita é 1 — NUNCA pergunte quantas.',
         '- ARREMATE e GUARNIÇÃO: NÃO pergunte. O padrão da tipologia já vale sem ninguém dizer. NUNCA escolha sozinho: em `escolhas`, só o arremate que o vendedor DISSE, em palavras, com o código da variável e o número da opção que corresponde (lista abaixo). Se ele pedir para ver as opções, ou quiser trocar sem dizer por qual, ponha o código da variável em `opcoes_de`.',
+        '- FECHAMENTO (MFI, MFE): NÃO pergunte; a política da empresa já vale. Só quando o vendedor DISSER (ex.: "com chave"), em `escolhas`, com o código da variável e o número da opção daquele item (lista abaixo). Se a tipologia não tiver a opção que ele disse, não escolha outra.',
         ...(c.variasFamilias ? ['- familia e fornecedor: a mesma tipologia pode estar no motor de mais de uma família da empresa. SÓ o que o vendedor disse — a família, o fornecedor, ou os dois —, escrito EXATAMENTE como está na lista. NUNCA escolha sozinho.'] : []),
         '- Os códigos das variáveis (ex.: ARI), os números das opções e os códigos de fornecedor (ex.: BZ0010) são INTERNOS: nunca os escreva em `pergunta`.',
         '- NUNCA pergunte nada sobre os padrões da empresa.',
@@ -762,7 +763,7 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
         '',
         `Cores da empresa (cor_perfil): ${c.cores.length ? c.cores.join(', ') : '(nenhuma)'}`,
         '',
-        'Escolhas de arremate (USO INTERNO — código = descrição: número = opção). Cada linha de opções vai UMA vez, com o número entre colchetes; a tipologia diz quais usa:',
+        'Escolhas de arremate e de fechamento (USO INTERNO — código = descrição: número = opção). Cada linha de opções vai UMA vez, com o número entre colchetes; a tipologia diz quais usa:',
         ...opcoesDeArremateNoPrompt(c.escolhasPorTipologia),
         // as variáveis sem padrão (06/11/2026): só quando alguma tipologia tem — nenhuma linha quando não há
         ...variaveisSemPadraoNoPrompt(c.variaveisSemPadraoPorTipologia),
@@ -2457,6 +2458,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             const e = levantamento.etapa
             rastro.etapas.calcular = `esquadrias=${e.esquadrias} pecas=${nuloNoLog(e.pecas)} barras=${nuloNoLog(e.barras)} codigos=${nuloNoLog(e.codigos)}`
                 + ` sem_preco=${nuloNoLog(e.semPreco)} mao_de_obra=${nuloNoLog(e.maoDeObra)} desfecho=${levantamento.desfecho} faltou=${listaNoLog(e.faltou)}`
+                + (e.rastro?.length ? ` rastro=${listaNoLog(e.rastro)}` : '')
         }
         // A TRAVESSIA (dono do produto, 10/11/2026): o "sim" ao levantamento COMPLETO que levantou atravessa para o orçamento do agente, pelo
         // MESMO código da ação manual. Idempotente; nunca muda a resposta ao vendedor — o resultado vai ao log da etapa do cálculo

@@ -827,6 +827,8 @@ export type ResumoDoCalculo = {
     semPreco: number | null
     maoDeObra: 'ok' | 'falta' | 'sem_calculo' | null
     faltou: string[]
+    /** O RASTRO (22/11/2026): `AJUSTE_EM_OBRA:<n>:<tipologia>:<variável>=<opção>` e `POLITICA_POR_EQUIVALENCIA:…` — a opção que não é a da política pelo texto. */
+    rastro?: string[]
 }
 
 /** O que faltou, em código: `e<n>:<MOTIVO>[:<variável ou código>]`, `configuracao`, `serra`… */
@@ -933,8 +935,9 @@ export function mensagemDoCalculo(c: Exclude<CalculoDoLevantamento, { recusa: un
     const { lev, d, grupos, calculos } = c
     const resumo = (faltou: string[], fechado: Partial<ResumoDoCalculo> = {}): ResumoDoCalculo =>
         ({ esquadrias: lev.itens.length, pecas: null, barras: null, codigos: null, semPreco: null, maoDeObra: null, faltou, ...fechado })
+    const rastroDoCalculo = calculos.flatMap((c) => c.rastro ?? [])
     const recusa = (faltas: string[], faltou: string[], caminhos: string[] = []): LevantamentoDaConversa =>
-        ({ texto: fraseDaRecusa(d, faltas, caminhos), desfecho: 'recusou', etapa: resumo(faltou) })
+        ({ texto: fraseDaRecusa(d, faltas, caminhos), desfecho: 'recusou', etapa: { ...resumo(faltou), rastro: rastroDoCalculo } })
     const varias = grupos.length > 1
     const rotulos = calculos.flatMap((c) => c.rotulos)
     // o rótulo do fallback vai em TODA resposta, a que fecha e a que recusa
@@ -963,6 +966,7 @@ export function mensagemDoCalculo(c: Exclude<CalculoDoLevantamento, { recusa: un
         codigos: soma((c) => c.r.por_codigo.length),
         semPreco: calculados.length ? new Set(calculados.flatMap((c) => c.r.faltas.map((f) => f.codigo_do_motor))).size : null,
         maoDeObra: calculados.length === 0 ? 'sem_calculo' : semMao.length ? 'falta' : 'ok',
+        rastro: rastroDoCalculo,
     })
     const textoDe = (c: (typeof fechados)[number], bloco: { titulo: string; cobertura: false; numerar: true } | null) =>
         ('semCalculo' in c ? fraseDoLevantamentoSemCalculo(c.d, bloco) : fraseDoLevantamento(c.d, c.r, c.maos, bloco))
@@ -985,9 +989,11 @@ export type CalculoDaFamilia =
         cores: CorDoFornecedor[]
         /** O vidro de cada esquadria do grupo, lido do texto (a espessura) — o custo do vidro o traduz no item da tabela. */
         vidros: Array<ReturnType<typeof lerVidro>>
+        /** O RASTRO (22/11/2026): a opção que entrou no lugar da política, ou com outro rótulo — em código, para o log da etapa do cálculo. */
+        rastro?: string[]
     }
-    | { semCalculo: true; d: DadosDoLevantamento; rotulos: string[] }
-    | { faltas: string[]; rotulos: string[]; codigos: string[]; caminhos: string[] }
+    | { semCalculo: true; d: DadosDoLevantamento; rotulos: string[]; rastro?: string[] }
+    | { faltas: string[]; rotulos: string[]; codigos: string[]; caminhos: string[]; rastro?: string[] }
 
 /** As esquadrias de um grupo (uma família) como o bloco da mensagem as recebe: as MESMAS de `d`, com a cor do grupo. */
 function dadosDoGrupo(lev: { nome: string; itens: EsquadriaGravada[] }, d: DadosDoLevantamento, indices: number[]): { dg: DadosDoLevantamento; itensDoGrupo: EsquadriaGravada[]; cores: string[] } {
@@ -1037,17 +1043,20 @@ async function calcularFamilia(
     const politica = await lerPoliticaDaEmpresa(tenantId, familia.familia)
     const decididas = itensDoGrupo.map((_, k) => {
         const t = lidas[dg.esquadrias[k].tipologia]
-        return t ? escolhasDoCalculo(t, ditas[k], politica) : { escolhas: ditas[k], origem: {}, voltas: [], ajustes: [] }
+        return t ? escolhasDoCalculo(t, ditas[k], politica) : { escolhas: ditas[k], origem: {}, voltas: [], ajustes: [], equivalencias: [] }
     })
     // O AJUSTE EM OBRA NO RASTRO (dono do produto, 21/11/2026): a opção que entrou no lugar da política muda material e preço — nunca calada
     const ajustesEmObra = dg.esquadrias.flatMap((e, k) => decididas[k].ajustes.map((a) => ({ e, a, valor: decididas[k].escolhas[a.variavel] })))
-    codigos.push(...ajustesEmObra.map(({ e, a, valor }) => `AJUSTE_EM_OBRA:${e.numero}:${e.tipologia}:${a.variavel}=${valor}`))
+    const rastro = ajustesEmObra.map(({ e, a, valor }) => `AJUSTE_EM_OBRA:${e.numero}:${e.tipologia}:${a.variavel}=${valor}`)
+    codigos.push(...rastro)
     rotulos.push(...ajustesEmObra.map(({ e, a }) => fraseDoAjusteEmObra(e.numero, d.esquadrias.length, a.motivo)))
+    // A EQUIVALÊNCIA NO RASTRO (22/11/2026): a opção da política que entrou com outro rótulo (a lista não separa a chave) — a mesma peça, registrada
+    rastro.push(...dg.esquadrias.flatMap((e, k) => decididas[k].equivalencias.map((q) => `POLITICA_POR_EQUIVALENCIA:${e.numero}:${e.tipologia}:${q.variavel}=${decididas[k].escolhas[q.variavel]}`)))
     const escolhas = decididas.map((x) => x.escolhas)
     dg.esquadrias.forEach((e, k) => { if (lidas[e.tipologia]) e.escolhas = descreverArremate(lidas[e.tipologia], escolhas[k], decididas[k].origem) })
     const voltas = dg.esquadrias.flatMap((e, k) => decididas[k].voltas.map((v) => faltaComEsquadrias(v.frase, [e.numero], d.esquadrias.length, e.tipologia)))
     if (voltas.length) { faltas.push(...voltas); codigos.push(`VOLTA_AO_AGENTE:${voltas.length}`) }
-    if (faltas.length) return { faltas, rotulos, codigos, caminhos: [] }
+    if (faltas.length) return { faltas, rotulos, codigos, caminhos: [], rastro }
 
     // o vidro de cada esquadria, pelo leitor canônico, com as espessuras que os baguetes da tipologia dela aceitam (08/11/2026)
     const vidros = itensDoGrupo.map((e, k) => lerVidro(e.vidro, espessurasAceitasDaTipologia(lidas[dg.esquadrias[k].tipologia])))
@@ -1056,10 +1065,10 @@ async function calcularFamilia(
         if (v.espessuras_ambiguas === null) return []
         return [faltaComEsquadrias(faltaDaEspessuraAmbigua(v.texto_original ?? '', v.espessuras_ambiguas), [e.numero], d.esquadrias.length, e.tipologia)]
     })
-    if (ambiguas.length) return { faltas: ambiguas, rotulos, codigos: ambiguas.map(() => 'ESPESSURA_AMBIGUA'), caminhos: [] }
+    if (ambiguas.length) return { faltas: ambiguas, rotulos, codigos: ambiguas.map(() => 'ESPESSURA_AMBIGUA'), caminhos: [], rastro }
 
     const serra = await lerSerra(tenantId)
-    if ('frase' in serra) return { faltas: [maiuscula(serra.frase)], rotulos, codigos: ['SERRA'], caminhos: [] }
+    if ('frase' in serra) return { faltas: [maiuscula(serra.frase)], rotulos, codigos: ['SERRA'], caminhos: [], rastro }
     // a mesma linha do motor pode servir a duas tipologias: o de-para entra uma vez só
     const porTrio = new Map<string, RegraDoDePara>()
     for (const t of Object.keys(lidas)) {
@@ -1112,9 +1121,10 @@ async function calcularFamilia(
                 ...('recusas' in r ? [] : r.faltas.map((f) => `e${numeros[f.esquadria - 1] ?? f.esquadria}:${f.motivo}:${f.codigo_do_motor}`))],
             // o CAMINHO DE ALTERAÇÃO de cada falta que tem um (08/11/2026): "Para trocar, diga: muda o vidro da esquadria 1 para 8 mm."
             caminhos: caminhosDasRecusas(recusas, numeros, itensDoGrupo),
+            rastro,
         }
     }
-    return { d: dg, r, maos, rotulos, itens, daFamilia, cores: coresDoFornecedor, vidros }
+    return { d: dg, r, maos, rotulos, itens, daFamilia, cores: coresDoFornecedor, vidros, rastro }
 }
 
 /**
