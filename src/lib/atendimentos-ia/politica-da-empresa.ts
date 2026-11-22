@@ -79,7 +79,8 @@ const forma = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperC
 export type TraducaoDaPolitica =
     /** `ajuste`: a opção NÃO é a da política (ela não existe nesta variação do motor) — é a de ajuste em obra, ou a 1; diz qual e por quê */
     /** `equivalencia`: a opção é a da política com outro rótulo (a lista não separa a chave) — diz qual e por quê, para o rastro */
-    | { valor: number; campo: string; ajuste?: string; equivalencia?: string }
+    /** `pelaTipologia`: a lista da tipologia não tem a opção da política, e entrou o PADRÃO da tipologia — diz qual e por quê, para o rastro */
+    | { valor: number; campo: string; ajuste?: string; equivalencia?: string; pelaTipologia?: string }
     | { semAPeca: true; campo: string }
     | { recusa: string; campo: string }
     | null
@@ -90,7 +91,7 @@ const listaDasOpcoes = (opcoes: ReadonlyArray<{ valor: number; rotulo: string }>
 /**
  * A opção que a política escolhe para a variável desta tipologia. Null quando a variável não é da política, ou a política não a define (cai na (c)).
  */
-export function traduzirPolitica(tipologia: string, v: Pick<VariavelDaTipologia, 'variavel' | 'opcoes'>, politica: PoliticaDaEmpresa): TraducaoDaPolitica {
+export function traduzirPolitica(tipologia: string, v: Pick<VariavelDaTipologia, 'variavel' | 'opcoes' | 'padrao'>, politica: PoliticaDaEmpresa): TraducaoDaPolitica {
     if (politica.porVariavel !== undefined) return traduzirPelaNatureza(tipologia, v, politica.porVariavel[v.variavel])
     const mapa = (MAPA_DA_POLITICA as Record<string, Entrada>)[v.variavel]
     if (!mapa) return null
@@ -155,7 +156,7 @@ export function opcaoDeAjusteEmObra(opcoes: ReadonlyArray<{ valor: number; rotul
     return deAjuste.reduce((a, b) => (b.mm < a.mm || (b.mm === a.mm && b.o.valor < a.o.valor) ? b : a)).o
 }
 
-function traduzirPelaNatureza(tipologia: string, v: Pick<VariavelDaTipologia, 'variavel' | 'opcoes'>, n: NaturezaResolvida | undefined): TraducaoDaPolitica {
+function traduzirPelaNatureza(tipologia: string, v: Pick<VariavelDaTipologia, 'variavel' | 'opcoes' | 'padrao'>, n: NaturezaResolvida | undefined): TraducaoDaPolitica {
     if (!n || n.natureza !== 'POLITICA' || n.opcao === null) return null
     const opcoes = opcoesDaVariavel(v.opcoes) ?? []
     const texto = forma(n.opcao)
@@ -181,6 +182,20 @@ function traduzirPelaNatureza(tipologia: string, v: Pick<VariavelDaTipologia, 'v
         if (ajuste !== null) return { valor: ajuste.valor, campo: v.variavel, ajuste: motivo(ajuste, 'ajuste em obra de menor acréscimo') }
         const primeira = opcoes.find((o) => o.valor === 1)
         if (primeira) return { valor: 1, campo: v.variavel, ajuste: motivo(primeira, 'sem opção de ajuste em obra: a opção 1 do motor') }
+    }
+    // A TIPOLOGIA MANDA (dono do produto, 22/11/2026, regra geral: qualquer variável, empresa ou fornecedor): "O critério que nós temos que tomar
+    // como regra é a TIPOLOGIA. A tipologia vai informar como que deve ser feito. O motor, ele só define as proporções." A política escolhe ENTRE o
+    // que a tipologia oferece e nunca impõe opção que ela não tem. Quando a lista NÃO tem a opção da política — nenhuma começa pelo texto e nenhuma é
+    // o começo dele —, não é falta: é a tipologia dizendo que ali não cabe (a folha de veneziana não leva maçaneta), e vale o PADRÃO dela, no rastro.
+    // Quando a lista TEM uma opção que é o começo do texto (a "CREMONA COM MAÇANETA" de uma lista que separa a chave), o texto diverge de uma opção
+    // que existe: aí é falta, e se pergunta. Mais de uma casando é ambiguidade: também se pergunta.
+    if (achadas.length === 0 && !opcoes.some((o) => { const r = forma(o.rotulo); return r !== '' && texto.startsWith(r) })) {
+        const p = (v.padrao ?? '').trim()
+        const padrao = /^\d+$/.test(p) ? opcoes.find((o) => o.valor === Number(p)) : undefined
+        if (padrao) {
+            return { valor: padrao.valor, campo: v.variavel, pelaTipologia:
+                `a política diz ${v.variavel} = "${n.opcao}", que a tipologia ${tipologia} não oferece; entrou o padrão da tipologia, ${padrao.valor} = ${padrao.rotulo}` }
+        }
     }
     return {
         campo: v.variavel,

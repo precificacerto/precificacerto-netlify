@@ -914,12 +914,20 @@ describe('(5b) as ESCOLHAS gravadas chegam ao avaliador', () => {
         expect(r.texto).toContain('arremate externo: SEM ARREMATE EXTERNO (política da empresa)')
         expect(r.texto).not.toContain('BZ9999')
     })
-    it('a natureza POLITICA que não casa nenhuma opção volta ao agente, nomeada pela VARIÁVEL', async () => {
+    it('A TIPOLOGIA MANDA (22/11/2026): a política que a lista NÃO tem não recusa — entra o padrão da tipologia, dito na linha e no rastro', async () => {
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         banco.db.orcamentista_natureza_da_variavel = NATUREZA_DE_PAULA.map((l) => (l.variavel === 'ARI' ? { ...l, opcao_padrao: 'BZ9999' } : { ...l }))
         const r = await M().mensagemDoLevantamento(TENANT, t, lev())
+        expect(r.desfecho).toBe('levantou')
+        expect(r.texto).toContain('(a opção da política não cabe nesta tipologia: o padrão dela)')
+        expect(r.etapa?.rastro).toEqual(['PELA_TIPOLOGIA:1:DP-02:ARI=1'])
+    })
+    it('a política cujo texto DIVERGE de uma opção que a lista tem (a opção é o começo do texto) volta ao agente, nomeada pela VARIÁVEL', async () => {
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        banco.db.orcamentista_natureza_da_variavel = NATUREZA_DE_PAULA.map((l) => (l.variavel === 'ARI' ? { ...l, opcao_padrao: 'BZ1770 - ARREMATE 70MM DUPLO' } : { ...l }))
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev())
         expect(r.desfecho).toBe('recusou')
-        expect(r.texto).toContain('a política da empresa diz ARI = "BZ9999", e na tipologia DP-02 nenhuma opção')
+        expect(r.texto).toContain('a política da empresa diz ARI = "BZ1770 - ARREMATE 70MM DUPLO", e na tipologia DP-02 nenhuma opção')
     })
     it('A MAE SEM O VÃO+50 NA VARIAÇÃO (21/11/2026): entra a de ajuste em obra, o cálculo sai, e a troca é DITA na resposta e no rastro', async () => {
         for (const v of banco.db.orcamentista_motor_variavel ?? []) {

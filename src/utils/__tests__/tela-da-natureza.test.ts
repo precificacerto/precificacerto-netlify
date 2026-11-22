@@ -47,28 +47,35 @@ describe('a conferência da opção em texto', () => {
     const OUTRA: Record<string, VariaveisDaTipologia> = Object.fromEntries(Object.entries(MOTOR).map(([t, { variaveis }]) =>
         [t, { variaveis: variaveis.map((v) => (v.variavel === 'MAE' ? { ...v, variavel: 'MAX' } : v)) }]))
     it('o começo do rótulo casa por tipologia; nenhuma e mais de uma são listadas', () => {
-        expect(conferirOpcao('MAX', 'VAO+50MM (CORTE 90/90)', OUTRA)).toEqual({ casam: 3, ajuste: [], semOpcao: ['DP-07'], maisDeUma: [] })
-        expect(conferirOpcao('MAX', 'VÃO+50', OUTRA)).toEqual({ casam: 2, ajuste: [], semOpcao: ['DP-07'], maisDeUma: ['DP-09'] })
+        expect(conferirOpcao('MAX', 'VAO+50MM (CORTE 90/90)', OUTRA)).toEqual({ casam: 3, pelaTipologia: [], ajuste: [], semOpcao: ['DP-07'], maisDeUma: [] })
+        expect(conferirOpcao('MAX', 'VÃO+50', OUTRA)).toEqual({ casam: 2, pelaTipologia: [], ajuste: [], semOpcao: ['DP-07'], maisDeUma: ['DP-09'] })
     })
     it('na MAE, a tipologia sem a opção da política vai para o AJUSTE (a de ajuste em obra, ou a 1), não para a recusa; mais de uma continua recusa', () => {
-        expect(conferirOpcao('MAE', 'VAO+50MM (CORTE 90/90)', MOTOR)).toEqual({ casam: 3, ajuste: ['DP-07'], semOpcao: [], maisDeUma: [] })
-        expect(conferirOpcao('MAE', 'VÃO+50', MOTOR)).toEqual({ casam: 2, ajuste: ['DP-07'], semOpcao: [], maisDeUma: ['DP-09'] })
+        expect(conferirOpcao('MAE', 'VAO+50MM (CORTE 90/90)', MOTOR)).toEqual({ casam: 3, pelaTipologia: [], ajuste: ['DP-07'], semOpcao: [], maisDeUma: [] })
+        expect(conferirOpcao('MAE', 'VÃO+50', MOTOR)).toEqual({ casam: 2, pelaTipologia: [], ajuste: ['DP-07'], semOpcao: [], maisDeUma: ['DP-09'] })
+    })
+    it('A TIPOLOGIA MANDA (22/11/2026): a lista sem a opção (a folha de veneziana) vai para o padrão da tipologia, contada à parte e dita na frase', () => {
+        const VENEZIANA = { 'DP-57': { variaveis: [{ variavel: 'MFE', descricao: null, padrao: '3', condicao: null, condicao_opcoes: null,
+            opcoes: '3 = CREMONA COM FECHO ALAVANCA; 4 = CREMONA OCULTA; 5 = CREMONA COM CONCHA PRÁTIKA' }] } } as unknown as Record<string, VariaveisDaTipologia>
+        const c = conferirOpcao('MFE', 'CREMONA COM MACANETA SEM CHAVE', VENEZIANA)
+        expect(c).toEqual({ casam: 0, pelaTipologia: ['DP-57'], ajuste: [], semOpcao: [], maisDeUma: [] })
+        expect(fraseDaConferencia('MFE', 'CREMONA COM MACANETA SEM CHAVE', c)).toBe('Casa em 0 tipologias; 1 sem essa opção na lista, onde entra o padrão da tipologia (DP-57).')
     })
     it('SIM/NAO casam exatos, e a tipologia sem a variável não conta', () => {
-        expect(conferirOpcao('RL', 'SIM', MOTOR)).toEqual({ casam: 2, ajuste: [], semOpcao: [], maisDeUma: [] })
-        expect(conferirOpcao('RL', 'TALVEZ', MOTOR)).toEqual({ casam: 0, ajuste: [], semOpcao: ['DP-01', 'DP-02'], maisDeUma: [] })
+        expect(conferirOpcao('RL', 'SIM', MOTOR)).toEqual({ casam: 2, pelaTipologia: [], ajuste: [], semOpcao: [], maisDeUma: [] })
+        expect(conferirOpcao('RL', 'TALVEZ', MOTOR)).toEqual({ casam: 0, pelaTipologia: [], ajuste: [], semOpcao: ['DP-01', 'DP-02'], maisDeUma: [] })
     })
     it('a frase diz quantas casam e nomeia as outras; todas casando, null', () => {
-        expect(fraseDaConferencia('RL', 'SIM', { casam: 2, ajuste: [], semOpcao: [], maisDeUma: [] })).toBeNull()
+        expect(fraseDaConferencia('RL', 'SIM', { casam: 2, pelaTipologia: [], ajuste: [], semOpcao: [], maisDeUma: [] })).toBeNull()
         expect(fraseDaConferencia('MAX', 'VÃO+50', conferirOpcao('MAX', 'VÃO+50', OUTRA))).toBe(
             'Casa em 2 tipologias; 1 sem opção de MAX que comece com "VÃO+50" (DP-07); 1 com mais de uma opção que começa assim (DP-09). '
-            + 'Nas que não casam nem têm ajuste, a conversa recusa nomeando a política, nunca escolhe uma opção.')
-        expect(fraseDaConferencia('MAE', 'VÃO+50', { casam: 5, ajuste: ['DP-113'], semOpcao: [], maisDeUma: [] }))
+            + 'Nessas, a lista tem uma opção parecida (ou mais de uma), e a conversa pergunta nomeando a política: nunca escolhe uma opção.')
+        expect(fraseDaConferencia('MAE', 'VÃO+50', { casam: 5, pelaTipologia: [], ajuste: ['DP-113'], semOpcao: [], maisDeUma: [] }))
             .toBe('Casa em 5 tipologias; 1 sem essa opção, onde entra a de ajuste em obra que a tipologia oferece (DP-113).')
-        expect(fraseDaConferencia('MAE', 'VÃO', { casam: 0, ajuste: [], semOpcao: [], maisDeUma: ['DP-09'] }))
-            .toBe('Casa em 0 tipologias; 1 com mais de uma opção que começa assim (DP-09). Nas que não casam nem têm ajuste, a conversa recusa nomeando a política, nunca escolhe uma opção.')
+        expect(fraseDaConferencia('MAE', 'VÃO', { casam: 0, pelaTipologia: [], ajuste: [], semOpcao: [], maisDeUma: ['DP-09'] }))
+            .toBe('Casa em 0 tipologias; 1 com mais de uma opção que começa assim (DP-09). Nessas, a lista tem uma opção parecida (ou mais de uma), e a conversa pergunta nomeando a política: nunca escolhe uma opção.')
         const muitas = Array.from({ length: 12 }, (_, i) => `T${i + 1}`)
-        expect(fraseDaConferencia('X', 'a', { casam: 1, ajuste: [], semOpcao: muitas, maisDeUma: [] })).toContain('(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10 e mais 2)')
+        expect(fraseDaConferencia('X', 'a', { casam: 1, pelaTipologia: [], ajuste: [], semOpcao: muitas, maisDeUma: [] })).toContain('(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10 e mais 2)')
     })
 })
 

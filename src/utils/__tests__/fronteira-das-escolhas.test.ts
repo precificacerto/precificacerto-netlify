@@ -112,7 +112,7 @@ describe('(2) o padrão do motor só vale quando NÃO acrescenta peça — senã
         expect(amb.voltas[0].frase).toContain('a política da empresa diz UT = "N", e na tipologia')
     })
     it('a natureza vazia NÃO cai nos campos de antes: com porVariavel, o mapa não é lido', () => {
-        const ari = { variavel: 'ARI', opcoes: '1 = BZ0006 - ARREMATE 65MM; 2 = BZ1770 - ARREMATE 70MM; 4 = SEM ARREMATE INTERNO' }
+        const ari = { variavel: 'ARI', opcoes: '1 = BZ0006 - ARREMATE 65MM; 2 = BZ1770 - ARREMATE 70MM; 4 = SEM ARREMATE INTERNO', padrao: null as string | null }
         expect(P().traduzirPolitica('DP-02', ari, { usa_arremate_interno: true, guarnicao_interna: 'BZ1770', porVariavel: {} })).toBeNull()
         expect(P().traduzirPolitica('DP-02', ari, { usa_arremate_interno: true, guarnicao_interna: 'BZ1770' })).toEqual({ valor: 2, campo: 'guarnicao_interna' })
     })
@@ -150,13 +150,13 @@ describe('(4) a política: a EMPRESA sobre o NICHO, campo a campo; a tradução 
             .toEqual({ usa_arremate_interno: false, guarnicao_interna: 'BZ1770' })
     })
     it('o FECHAMENTO e o INTERLOCK não são lidos da política (20/11/2026): o texto da De Paula não diz uma opção só — nunca recusa por eles', () => {
-        const mfi = { variavel: 'MFI', opcoes: '1 = CREMONA COM MAÇANETA SEM CHAVE; 2 = CREMONA COM MAÇANETA COM CHAVE' }
+        const mfi = { variavel: 'MFI', opcoes: '1 = CREMONA COM MAÇANETA SEM CHAVE; 2 = CREMONA COM MAÇANETA COM CHAVE', padrao: null as string | null }
         expect(P().traduzirPolitica('DP-39', mfi, { fechamento_folha_interna: 'CREMONA + MACANETA' } as never)).toBeNull()
-        expect(P().traduzirPolitica('DP-39', { variavel: 'MFE', opcoes: mfi.opcoes }, { fechamento_folha_externa: 'CREMONA COM MAÇANETA' } as never)).toBeNull()
-        expect(P().traduzirPolitica('DP-39', { variavel: 'INT', opcoes: '1 = ÚNICO; 2 = INTERLOCK + CAPA' }, { modelo_interlock: 'ÚNICO' } as never)).toBeNull()
+        expect(P().traduzirPolitica('DP-39', { variavel: 'MFE', opcoes: mfi.opcoes, padrao: null as string | null }, { fechamento_folha_externa: 'CREMONA COM MAÇANETA' } as never)).toBeNull()
+        expect(P().traduzirPolitica('DP-39', { variavel: 'INT', opcoes: '1 = ÚNICO; 2 = INTERLOCK + CAPA', padrao: null as string | null }, { modelo_interlock: 'ÚNICO' } as never)).toBeNull()
     })
     it('a política que casa MAIS DE UMA opção é recusa nomeada — nunca a primeira', () => {
-        const ari = { variavel: 'ARI', opcoes: '1 = BZ1770 - ARREMATE 70MM; 2 = BZ1770 - ARREMATE 70MM LAMINADO; 3 = SEM ARREMATE INTERNO' }
+        const ari = { variavel: 'ARI', opcoes: '1 = BZ1770 - ARREMATE 70MM; 2 = BZ1770 - ARREMATE 70MM LAMINADO; 3 = SEM ARREMATE INTERNO', padrao: null as string | null }
         const t = P().traduzirPolitica('DP-XX', ari, DE_PAULA)
         expect(t && 'recusa' in t ? t.recusa : null).toContain('mais de uma opção de ARI')
     })
@@ -165,10 +165,10 @@ describe('(4) a política: a EMPRESA sobre o NICHO, campo a campo; a tradução 
         expect(p).toEqual({})
     })
     it('o booleano casa o rótulo SIM ou NÃO; o texto casa o COMEÇO do rótulo, sem acento nem espaço; o que não casa é recusa nomeada', () => {
-        const rl = { variavel: 'RL', opcoes: '1 = SIM; 2 = NÃO' }
+        const rl = { variavel: 'RL', opcoes: '1 = SIM; 2 = NÃO', padrao: null as string | null }
         expect(P().traduzirPolitica('DP-02', rl, { regiao_litoranea: false })).toEqual({ valor: 2, campo: 'regiao_litoranea' })
         expect(P().traduzirPolitica('DP-02', rl, {})).toBeNull()
-        const mae = { variavel: 'MAE', opcoes: '1 = MEDIDA DO VÃO (CORTE 45); 2 = VÃO+90MM (CORTE 90/90) - PARA AJUSTE EM OBRA [90,00]' }
+        const mae = { variavel: 'MAE', opcoes: '1 = MEDIDA DO VÃO (CORTE 45); 2 = VÃO+90MM (CORTE 90/90) - PARA AJUSTE EM OBRA [90,00]', padrao: null as string | null }
         // a DP-90 da De Paula: a política diz VÃO+50, e a opção 2 dela é VÃO+90 — recusa, nunca "a mais parecida"
         const t = P().traduzirPolitica('DP-90', mae, DE_PAULA)
         expect(t && 'recusa' in t ? t.recusa : null).toContain('na tipologia DP-90 nenhuma opção de MAE')
@@ -189,7 +189,7 @@ describe('(9) a MAE sem a opção da política: o ajuste em obra que a variaçã
         'DP-90': '1 = MEDIDA DO VÃO (CORTE 45/45); 2 = VÃO+90MM (CORTE 90/90) - PARA AJUSTE EM OBRA [90,00]',
         'DP-02': '1 = MEDIDA DO VÃO (CORTE 45/45); 2 = VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA [50,00]',
     }
-    const traduz = (codigo: string, opcoes: string) => P().traduzirPolitica(codigo, { variavel: 'MAE', opcoes }, POLITICA)
+    const traduz = (codigo: string, opcoes: string) => P().traduzirPolitica(codigo, { variavel: 'MAE', opcoes, padrao: null as string | null }, POLITICA)
     it('a variação COM VÃO+50: casa pelo texto, sem ajuste', () => {
         expect(traduz('DP-02', MEDIDAS['DP-02'])).toEqual({ valor: 2, campo: 'MAE' })
     })
@@ -216,7 +216,7 @@ describe('(9) a MAE sem a opção da política: o ajuste em obra que a variaçã
             .toMatchObject({ recusa: expect.stringContaining('mais de uma opção') })
     })
     it('a regra é SÓ da MAE: outra variável sem a opção continua recusa', () => {
-        expect(P().traduzirPolitica('DP-113', { variavel: 'ARE', opcoes: MEDIDAS['DP-113'] }, { porVariavel: { ARE: { natureza: 'POLITICA' as const, opcao: 'VAO+50' } } }))
+        expect(P().traduzirPolitica('DP-113', { variavel: 'ARE', opcoes: MEDIDAS['DP-113'], padrao: null as string | null }, { porVariavel: { ARE: { natureza: 'POLITICA' as const, opcao: 'VAO+50' } } }))
             .toMatchObject({ recusa: expect.any(String) })
     })
     it('na fronteira: a origem é politica_ajuste_em_obra e o ajuste vai em `ajustes`; com a opção existente, origem politica e nada em ajustes', () => {
@@ -262,7 +262,7 @@ describe('(10) o fechamento: a equivalência pela ausência de chave na lista, n
         '3 = CREMONA COM FECHO ALAVANCA; 5 = CREMONA COM CONCHA PRÁTIKA; 1 = CREMONA COM MAÇANETA SEM CHAVE; 3 = CREMONA COM FECHO ALAVANCA; 5 = CREMONA COM CONCHA PRÁTIKA',
     ]
     const traduz = (opcoes: string, opcao = SEM_CHAVE, codigo = 'X') =>
-        P().traduzirPolitica(codigo, { variavel: 'MFI', opcoes }, { porVariavel: { MFI: { natureza: 'POLITICA' as const, opcao } } })
+        P().traduzirPolitica(codigo, { variavel: 'MFI', opcoes, padrao: null as string | null }, { porVariavel: { MFI: { natureza: 'POLITICA' as const, opcao } } })
     it('as listas que NÃO falam em chave: casa a "CREMONA COM MAÇANETA", por equivalência, dita', () => {
         for (const l of SEM_MENCAO_A_CHAVE) {
             expect(traduz(l, SEM_CHAVE, 'DP-017')).toEqual({ valor: 1, campo: 'MFI', equivalencia:
@@ -312,5 +312,66 @@ describe('(10) o fechamento: a equivalência pela ausência de chave na lista, n
         expect(E().escolhasParaOPrompt(tip)).toEqual([`MFI = MODO DE FECHAMENTO: ${QUE_SEPARAM[0]}`])
         expect(E().escolhasPendentes(tip, {})).toEqual([])
         expect(E().descreverArremate(tip, { MFI: 2 })).toBeNull()
+    })
+})
+
+/*
+ * (11) A TIPOLOGIA MANDA (dono do produto, 22/11/2026, REGRA GERAL): "O critério que nós temos que tomar como regra é a TIPOLOGIA. A tipologia vai
+ * informar como que deve ser feito. O motor, ele só define as proporções." A política escolhe ENTRE o que a tipologia oferece; a opção que a lista
+ * não tem não é falta — entra o padrão da tipologia, no rastro. As listas e os padrões das cinco folhas de veneziana são os do motor ativo
+ * (259035a9), medidos em 22/11/2026.
+ */
+describe('(11) a tipologia manda: a política escolhe entre o que ela oferece, e o que ela não tem dá lugar ao padrão dela', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const P = () => require('@/lib/atendimentos-ia/politica-da-empresa') as typeof import('@/lib/atendimentos-ia/politica-da-empresa')
+    const SEM_CHAVE = 'CREMONA COM MACANETA SEM CHAVE'
+    const VENEZIANA = {
+        MFE: { tipologias: ['DP-57', 'DP-58', 'DP-59'], opcoes: '3 = CREMONA COM FECHO ALAVANCA; 4 = CREMONA OCULTA; 5 = CREMONA COM CONCHA PRÁTIKA', padrao: '3' },
+        MFI: { tipologias: ['DP-96', 'DP-98'], opcoes: '3 = CREMONA COM FECHO ALAVANCA; 5 = CREMONA COM CONCHA PRÁTIKA', padrao: '3' },
+    }
+    const pol = (variavel: string, opcao: string) => ({ porVariavel: { [variavel]: { natureza: 'POLITICA' as const, opcao } } })
+    const traduz = (variavel: string, opcoes: string, padrao: string | null, opcao: string, codigo = 'X') =>
+        P().traduzirPolitica(codigo, { variavel, opcoes, padrao }, pol(variavel, opcao))
+    it('as cinco folhas de veneziana: a lista não tem maçaneta, e entra o padrão da tipologia (3 = FECHO ALAVANCA), dito', () => {
+        for (const [variavel, { tipologias, opcoes, padrao }] of Object.entries(VENEZIANA)) {
+            for (const t of tipologias) {
+                expect(traduz(variavel, opcoes, padrao, SEM_CHAVE, t)).toEqual({ valor: 3, campo: variavel, pelaTipologia:
+                    `a política diz ${variavel} = "${SEM_CHAVE}", que a tipologia ${t} não oferece; entrou o padrão da tipologia, 3 = CREMONA COM FECHO ALAVANCA` })
+            }
+        }
+    })
+    it('a política vence quando a opção EXISTE na lista: o padrão da tipologia nem é olhado', () => {
+        expect(traduz('MFE', '1 = CREMONA COM MAÇANETA SEM CHAVE; 3 = CREMONA COM FECHO ALAVANCA', '3', SEM_CHAVE)).toEqual({ valor: 1, campo: 'MFE' })
+        expect(traduz('MFE', VENEZIANA.MFE.opcoes, '3', 'CREMONA OCULTA')).toEqual({ valor: 4, campo: 'MFE' })
+    })
+    it('é REGRA GERAL: qualquer variável, qualquer texto — não uma lista das cinco', () => {
+        expect(traduz('ARE', '1 = BZ0010 - ARREMATE 20MM; 2 = SEM ARREMATE EXTERNO', '2', 'BZ9999')).toMatchObject({ valor: 2, pelaTipologia: expect.stringContaining('entrou o padrão da tipologia, 2 = SEM ARREMATE EXTERNO') })
+        expect(traduz('XYZ', '7 = QUALQUER; 8 = OUTRA', '8', 'NENHUMA DESSAS')).toMatchObject({ valor: 8, campo: 'XYZ' })
+    })
+    it('a lista que TEM uma opção que é o começo do texto (o texto diverge de uma opção que existe): falta, e se pergunta — nunca o padrão', () => {
+        expect(traduz('MFI', '1 = CREMONA COM MAÇANETA; 2 = CREMONA COM MAÇANETA COM CHAVE; 3 = CREMONA COM FECHO ALAVANCA', '1', SEM_CHAVE))
+            .toMatchObject({ recusa: expect.stringContaining('nenhuma opção de MFI') })
+    })
+    it('o rótulo vazio na lista não é "uma opção parecida": a lista continua sem a opção, e entra o padrão', () => {
+        expect(traduz('X', '1 = ; 2 = CREMONA OCULTA', '2', 'NADA DISSO')).toMatchObject({ valor: 2, pelaTipologia: expect.any(String) })
+    })
+    it('mais de uma casando continua pergunta (a ambiguidade não é a falta)', () => {
+        expect(traduz('X', '1 = CREMONA A; 2 = CREMONA B', '1', 'CREMONA')).toMatchObject({ recusa: expect.stringContaining('mais de uma opção') })
+    })
+    it('sem padrão válido na tipologia (vazio, não número, ou fora da lista): recusa nomeada, nunca uma opção inventada', () => {
+        expect(traduz('MFI', VENEZIANA.MFI.opcoes, null, SEM_CHAVE)).toMatchObject({ recusa: expect.any(String) })
+        expect(traduz('MFI', VENEZIANA.MFI.opcoes, 'X', SEM_CHAVE)).toMatchObject({ recusa: expect.any(String) })
+        expect(traduz('MFI', VENEZIANA.MFI.opcoes, '4', SEM_CHAVE)).toMatchObject({ recusa: expect.any(String) })
+    })
+    it('a MAE segue a regra própria (21/11/2026): o ajuste em obra vem ANTES do padrão da tipologia', () => {
+        expect(traduz('MAE', '1 = MEDIDA DO VÃO (CORTE 45); 2 = VÃO+40MM (CORTE 90/90) - PARA AJUSTE EM OBRA [40,00]', '1', 'VAO+50MM (CORTE 90/90)'))
+            .toMatchObject({ valor: 2, ajuste: expect.any(String) })
+    })
+    it('na fronteira: a origem é `tipologia`, o motivo vai a `pelaTipologia` (o rastro), e o vendedor continua vencendo', () => {
+        const t: Tipologia = { ...dp02(), variaveis: [{ variavel: 'MFE', descricao: 'MODO DE FECHAMENTO DA FOLHA EXTERNA', padrao: '3', condicao: 'sempre', opcoes: VENEZIANA.MFE.opcoes, condicao_opcoes: null }], perfis: [], insumos: [], vidros: [] }
+        const r = F().escolhasDoCalculo(t, {}, pol('MFE', SEM_CHAVE))
+        expect([r.escolhas.MFE, r.origem.MFE, r.pelaTipologia.map((q) => q.variavel), r.voltas]).toEqual([3, 'tipologia', ['MFE'], []])
+        const doVendedor = F().escolhasDoCalculo(t, { MFE: 5 }, pol('MFE', SEM_CHAVE))
+        expect([doVendedor.escolhas.MFE, doVendedor.origem.MFE, doVendedor.pelaTipologia]).toEqual([5, 'vendedor', []])
     })
 })
