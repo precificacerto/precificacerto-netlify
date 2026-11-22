@@ -8,6 +8,7 @@
 import { jsPDF } from 'jspdf'
 import { quantidadeNoRelatorio, type MaterialDoRelatorio, type RelatorioDeMateriais } from './relatorio-de-materiais'
 import type { CodigoDoCorte, RelatorioDeCorte } from './relatorio-de-corte'
+import type { BarrasDoPedido, FracaoDaBarra, PlanoDoPerfil } from './barras-do-pedido'
 
 export type CabecalhoDoRelatorio = { numero: number; cliente: string; geradoEm: Date }
 type Extras = { itensSemCalculo: readonly number[]; itensSemPecas?: readonly number[] }
@@ -23,7 +24,7 @@ const dataBR = (d: Date) => d.toLocaleDateString('pt-BR', { timeZone: 'America/S
 const horaBR = (d: Date) => d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' })
 
 /** O nome do arquivo: "Relatorio_de_materiais_8_-_Cristiano_Fernandes.pdf" (sem acento nem caractere que o sistema de arquivos estranhe). */
-export function nomeDoRelatorio(tipo: 'materiais' | 'corte', numero: number, cliente: string): string {
+export function nomeDoRelatorio(tipo: 'materiais' | 'corte' | 'barras_do_pedido', numero: number, cliente: string): string {
     const limpo = cliente.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
     return `Relatorio_de_${tipo}_${numero}${limpo ? `_-_${limpo}` : ''}.pdf`
 }
@@ -131,6 +132,48 @@ export function pdfDoRelatorioDeCorte(r: RelatorioDeCorte & Extras, c: Cabecalho
     for (const cat of r.categorias) { f.titulo2(cat.rotulo); for (const k of cat.codigos) blocoDoCodigo(f, k) }
     if (r.ambiguos.length) { f.titulo2('Em mais de uma categoria'); for (const k of r.ambiguos) blocoDoCodigo(f, k) }
     if (r.semCategoria.length) { f.titulo2('Sem categoria'); for (const k of r.semCategoria) blocoDoCodigo(f, k) }
+    return f.fechar()
+}
+
+const kg = (n: number | null) => (n === null ? '—' : `${new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)} kg`)
+/** Uma fração como o WVetro mostra: o comprimento, o tipo de corte e o item/tipologia de origem. */
+export const fracaoNoRelatorio = (f: FracaoDaBarra) => `${mm(f.comprimento_mm)}${f.corte ? ` ${f.corte}` : ''} (Item ${f.item}${f.tipologia ? ` ${f.tipologia}` : ''})`
+/** O título de um perfil: código, descrição, perfil do motor e a cor. */
+export const tituloDoPerfil = (p: Pick<PlanoDoPerfil, 'codigo' | 'descricao' | 'perfil' | 'cor'>) =>
+    `${p.codigo}${p.descricao ? ` — ${p.descricao}` : ''} (${p.perfil})${p.cor ? ` · ${p.cor}` : ''}`
+/** A linha do perfil: a barra, a serra, o refilo, as barras, os pesos e o aproveitamento. */
+export const resumoDoPerfil = (p: PlanoDoPerfil) =>
+    `Barra de ${mm(p.barra_mm)}, serra de ${mm(p.serra_mm)} por corte, refilo de ${mm(p.refilo_mm)} por ponta: ${p.n_barras} ${p.n_barras === 1 ? 'barra' : 'barras'}, `
+    + `peso bruto ${kg(p.peso_bruto_kg)}, peso líquido ${kg(p.peso_liquido_kg)}, aproveitamento de ${pct(p.aproveitamento_pct)}`
+
+const COLUNAS_DO_RESUMO_DE_BARRAS = [{ titulo: 'Perfil', w: 66 }, { titulo: 'Cor', w: 26 }, { titulo: 'Barras', w: 18, alinha: 'right' as const },
+    { titulo: 'Peso bruto', w: 26, alinha: 'right' as const }, { titulo: 'Peso líquido', w: 26, alinha: 'right' as const }, { titulo: 'Aproveit.', w: 24, alinha: 'right' as const }]
+const COLUNAS_DAS_BARRAS = [{ titulo: 'Barra', w: 14, alinha: 'right' as const }, { titulo: 'Frações (medida, corte e origem)', w: 146 }, { titulo: 'Sobra', w: 26, alinha: 'right' as const }]
+
+/** As barras do pedido em PDF: o resumo por perfil e o total; depois, por perfil, uma barra por linha com as frações e a sobra. */
+export function pdfDasBarrasDoPedido(r: BarrasDoPedido & Extras & { codigosSemPeso?: readonly string[] }, c: CabecalhoDoRelatorio): Uint8Array {
+    const f = new Folha('Barras do pedido', c)
+    f.paragrafo('Aproveitamento do PEDIDO: não muda o preço do orçamento, que cobra o consumo de cada item.', [90, 90, 90])
+    if (r.itensSemCalculo.length) f.paragrafo(`${lista(r.itensSemCalculo)} sem cálculo: as peças não estão neste relatório.`, AMARELO)
+    if (r.itensSemPecas?.length) f.paragrafo(`${lista(r.itensSemPecas)} calculado(s) antes do relatório de corte existir: recalcule o orçamento para ver as peças.`, AMARELO)
+    if (r.codigosSemPeso?.length) f.paragrafo(`Sem peso na tabela de preço: ${r.codigosSemPeso.join(', ')} — o peso desses perfis não sai, e o total de peso também não.`, AMARELO)
+    if (!r.perfis.length && !r.semPlano.length) { f.paragrafo('Nenhuma peça de corte neste orçamento.'); return f.fechar() }
+    if (r.perfis.length) {
+        f.titulo2('Resumo por perfil')
+        f.tabela(COLUNAS_DO_RESUMO_DE_BARRAS, [
+            ...r.perfis.map((p) => [`${p.codigo}${p.descricao ? ` — ${p.descricao}` : ''}`, p.cor ?? '—', String(p.n_barras), kg(p.peso_bruto_kg), kg(p.peso_liquido_kg), pct(p.aproveitamento_pct)]),
+            ['Total', '', String(r.total.n_barras), kg(r.total.peso_bruto_kg), kg(r.total.peso_liquido_kg), r.total.aproveitamento_pct === null ? '—' : pct(r.total.aproveitamento_pct)],
+        ])
+    }
+    for (const p of r.perfis) {
+        f.titulo2(tituloDoPerfil(p))
+        f.paragrafo(resumoDoPerfil(p))
+        f.tabela(COLUNAS_DAS_BARRAS, p.barras.map((b, i) => [String(i + 1), b.fracoes.map(fracaoNoRelatorio).join(' + '), mm(b.sobra_mm)]))
+    }
+    if (r.semPlano.length) {
+        f.titulo2('Sem plano de barras')
+        for (const s of r.semPlano) f.paragrafo(`${tituloDoPerfil(s)}: ${s.motivo.replace(/\.$/, '')}.`, AMARELO)
+    }
     return f.fechar()
 }
 
