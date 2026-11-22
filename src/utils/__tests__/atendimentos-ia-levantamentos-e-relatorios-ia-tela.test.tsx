@@ -105,7 +105,7 @@ describe('os Relatórios I.A.', () => {
         expect(host.querySelector('[data-baixar-pdf="materiais"]')).not.toBeNull()
     })
     it('as duas abas, nesta ordem, nascem com a estrutura e dizem que ainda não têm conteúdo', () => {
-        expect(ABAS_DOS_RELATORIOS.map((a: { label: string }) => a.label)).toEqual(['Relatório de materiais', 'Relatório de corte', 'Barras do pedido'])
+        expect(ABAS_DOS_RELATORIOS.map((a: { label: string }) => a.label)).toEqual(['Relatório de materiais', 'Relatório de corte', 'Barras do pedido', 'Orientativo de montagem'])
         expect(TEXTO_DA_ABA_SEM_CONTEUDO).toContain('ainda não foi construído')
     })
 })

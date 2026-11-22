@@ -31,6 +31,20 @@ export type BarrasDoPedidoDoOrcamento =
 
 const numero = (v: unknown): number | null => (v === null || v === undefined || v === '' ? null : Number(v))
 
+/**
+ * O PESO (kg/m) de cada código nas tabelas da conta que VALEM: a linha com barra e peso (`pesosDosCodigos`). Um só lugar para as barras do
+ * pedido e o orientativo de montagem (`copia-divergente`). Só leitura.
+ */
+export async function pesosNasTabelasQueValem(tenantId: string, codigos: readonly string[]): Promise<Map<string, number>> {
+    if (!codigos.length) return new Map()
+    const { tabelas } = await derivarTabelasDaConta(tenantId)
+    const ids = tabelas.filter((t) => t.vale).map((t) => t.tabelaId)
+    if (!ids.length) return new Map()
+    const ti = await db().from('orcamentista_tabela_item').select('codigo, peso, medida_barra_m').in('tabela_id', ids).in('codigo', [...codigos])
+    if (ti.error) falhou('orcamentista_tabela_item', ti.error)
+    return pesosDosCodigos((ti.data ?? []) as Array<{ codigo: string; peso: unknown; medida_barra_m: unknown }>)
+}
+
 export async function lerBarrasDoPedido(tenantId: string, orcamentoId: string): Promise<BarrasDoPedidoDoOrcamento> {
     const itens = await itensDoRelatorio(tenantId, orcamentoId)
     const calculados = itens.filter((i) => i.calculo_id)
@@ -63,16 +77,7 @@ export async function lerBarrasDoPedido(tenantId: string, orcamentoId: string): 
     const itensSemPecas = calculados.filter((i) => !comPecas.has(i.id)).map((i) => i.ordem)
 
     const codigos = [...new Set(pecas.map((x) => x.codigo))]
-    let pesos = new Map<string, number>()
-    if (codigos.length) {
-        const { tabelas } = await derivarTabelasDaConta(tenantId)
-        const ids = tabelas.filter((t) => t.vale).map((t) => t.tabelaId)
-        if (ids.length) {
-            const ti = await db().from('orcamentista_tabela_item').select('codigo, peso, medida_barra_m').in('tabela_id', ids).in('codigo', codigos)
-            if (ti.error) falhou('orcamentista_tabela_item', ti.error)
-            pesos = pesosDosCodigos((ti.data ?? []) as Array<{ codigo: string; peso: unknown; medida_barra_m: unknown }>)
-        }
-    }
+    const pesos = await pesosNasTabelasQueValem(tenantId, codigos)
     const r = montarBarrasDoPedido(pecas, pesos)
     return { ...r, itensSemCalculo, itensSemPecas, codigosSemPeso: codigos.filter((c) => !pesos.has(c)).sort() }
 }

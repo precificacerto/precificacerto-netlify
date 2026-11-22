@@ -115,8 +115,11 @@ export async function calcularOrcamento(tenantId: string, id: string, agora: Dat
     return gravarOCalculo(tenantId, id, orc, doLevantamento, fonte, custo, agora, novoId)
 }
 
-/** O custo do orçamento `id` COMO ELE SAIRIA AGORA (a tabela vigente): só leitura — nada é gravado. */
-async function custoDeAgora(tenantId: string, id: string) {
+/**
+ * O custo do orçamento `id` COMO ELE SAIRIA AGORA (a tabela vigente): só leitura — nada é gravado. Exportado para o ORIENTATIVO DE MONTAGEM
+ * (22/11/2026), que roda o MESMO cálculo de novo para mostrar a linha e a Obs. do motor de cada peça (`montagemPorItem`), sem gravar nada.
+ */
+export async function custoDeAgora(tenantId: string, id: string) {
     const orc = await lerOrcamento(tenantId, id)
     if (orc.itens.length === 0) throw new ErroDoCalculo(['os itens do orçamento: ele não tem nenhum'])
     const doLevantamento = orc.levantamento_id

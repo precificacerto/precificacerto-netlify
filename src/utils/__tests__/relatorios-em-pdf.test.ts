@@ -119,3 +119,58 @@ describe('as BARRAS DO PEDIDO em PDF (22/11/2026)', () => {
         expect(nomeDoRelatorio('barras_do_pedido', 12, 'Cristiano')).toBe('Relatorio_de_barras_do_pedido_12_-_Cristiano.pdf')
     })
 })
+
+describe('o PDF do orientativo de montagem (22/11/2026)', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { pdfDoOrientativoDeMontagem } = require('@/lib/atendimentos-ia/relatorios-em-pdf') as typeof import('@/lib/atendimentos-ia/relatorios-em-pdf')
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const O = require('@/lib/atendimentos-ia/orientativo-de-montagem') as typeof import('@/lib/atendimentos-ia/orientativo-de-montagem')
+    const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=='
+    const esquadria = (ordem: number, desenho: boolean, perfis = 1) => O.montarEsquadria({
+        ordem, tipologia: 'DP-02', descricao: 'JANELA DE CORRER', largura_mm: 1500, altura_mm: 1200, quantidade: 1, cor_perfil: 'BRANCO', vidro: 'vidro 8mm',
+        desenho: desenho ? { dados: PNG, formato: 'PNG' } : null, semDesenho: desenho ? null : 'Sem desenho: a tipologia DP-02 não está no catálogo.',
+        gravadas: Array.from({ length: perfis }, (_, k) => ({ perfil: `P${k}/WOLFF`, codigo: `P${k}`, descricao: 'PERFIL', comprimento_mm: 1000 + k, quantidade_por_esquadria: 1, corte: '90/90', posicao: 'Largura' })),
+        materiais: [],
+        recalculo: {
+            pecas: Array.from({ length: perfis }, (_, k) => ({ perfil: `P${k}/WOLFF`, codigo: `P${k}`, descricao: 'PERFIL', comprimento_mm: 1000 + k, quantidade_por_esquadria: 1, quantidade: 1, corte: '90/90', posicao: 'Largura', linha: k + 1, obs: `MONT. FIXO ${k}` })),
+            insumos: [{ codigo: 'NYL', descricao: 'BUCHA', quantidade: 4, linha: 1, obs: 'FIXAR NYL-190', codigo_na_tabela: 'NYL-0630', descricao_na_tabela: 'BUCHA NYLON', unidade: 'PC', por_comprimento: false }],
+            vidros: [{ vidro: 'VIDRO', largura_mm: 700, altura_mm: 1000, quantidade: 2, fixacao: 'Fixo', linha: 1 }],
+            vidro: { codigo: 'VTIN08', descricao: 'TEMPERADO 8MM' },
+        },
+    }, new Map())
+    const texto = (pdf: Uint8Array) => textoDoPdf(pdf).map((l) => l.replace(/\s/g, ' '))
+
+    it('os blocos na ordem que a fábrica conhece — Perfis, Acessórios, Vidro, Serviços —, com a Obs., as lacunas e os avisos com palavras nossas', () => {
+        const t = texto(pdfDoOrientativoDeMontagem({ esquadrias: [esquadria(1, true)], itensSemCalculo: [], avisosDoRodape: O.AVISOS_DO_RODAPE }, cab))
+        expect(t[0]).toBe('Orientativo de montagem')
+        expect(t).toContain('Item 1 — DP-02 · JANELA DE CORRER')
+        const i = (x: string) => t.indexOf(x)
+        expect(i('Perfis')).toBeGreaterThan(0)
+        expect(i('Perfis')).toBeLessThan(i('Acessórios'))
+        expect(i('Acessórios')).toBeLessThan(i('Vidro'))
+        expect(i('Vidro')).toBeLessThan(i('Serviços'))
+        expect(t).toEqual(expect.arrayContaining(['MONT. FIXO 0', 'FIXAR NYL-190', 'Figura', 'Observações', 'Fixação', 'Total M² do item: 1,400 m²', O.FALTA_DOS_SERVICOS,
+            O.LACUNA_DA_COR_DO_VIDRO, O.LACUNA_DA_POSICAO_DO_VIDRO]))
+        expect(t.join(' ')).toContain('profissional habilitado')
+    })
+    it('o DESENHO vai na página (uma imagem); sem desenho, a razão no lugar dele', () => {
+        const com = Buffer.from(pdfDoOrientativoDeMontagem({ esquadrias: [esquadria(1, true)], itensSemCalculo: [], avisosDoRodape: [] }, cab)).toString('latin1')
+        // o PNG com transparência vira a imagem e a máscara dela: pelo menos uma
+        expect((com.match(/\/Subtype \/Image/g) ?? []).length).toBeGreaterThan(0)
+        const sem = pdfDoOrientativoDeMontagem({ esquadrias: [esquadria(1, false)], itensSemCalculo: [], avisosDoRodape: [] }, cab)
+        expect(Buffer.from(sem).toString('latin1')).not.toMatch(/\/Subtype \/Image/)
+        expect(texto(sem).join(' ')).toContain('Sem desenho: a tipologia DP-02')
+    })
+    it('uma esquadria por página; a que não cabe numa página repete o título e o desenho no topo de CADA página dela', () => {
+        const pdf = pdfDoOrientativoDeMontagem({ esquadrias: [esquadria(1, true, 70), esquadria(2, true)], itensSemCalculo: [], avisosDoRodape: [] }, cab)
+        const t = texto(pdf)
+        const n = paginas(pdf)
+        expect(n).toBeGreaterThanOrEqual(3)
+        expect(t.filter((l) => l === 'Item 1 — DP-02 · JANELA DE CORRER')).toHaveLength(n - 1)
+        expect(t.filter((l) => l === 'Item 2 — DP-02 · JANELA DE CORRER')).toHaveLength(1)
+        expect(t).toContain(`Página ${n} de ${n}`)
+    })
+    it('o nome do arquivo', () => {
+        expect(nomeDoRelatorio('orientativo_de_montagem', 12, 'De Paula')).toBe('Relatorio_de_orientativo_de_montagem_12_-_De_Paula.pdf')
+    })
+})

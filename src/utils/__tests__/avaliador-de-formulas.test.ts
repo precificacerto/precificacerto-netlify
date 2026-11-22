@@ -243,7 +243,7 @@ describe('(4) A DP-02, L = 1200, H = 1000, MAE = 2, vidro 6 mm — peça a peça
     // R5 (dono do produto, 17/11/2026): o corte sai como o WVetro o imprime, com o DECIMAL CORTADO (953,6 → 953). A conta do cabeçalho
     // continua exata (LTRI = 1095,8); a peça é 1095.
     it('as 17 peças, na ordem da aba, com o comprimento de cada uma conferido contra a conta do cabeçalho', () => {
-        expect(ok(ENTRADA).pecas).toEqual([
+        expect(ok(ENTRADA).pecas.map((x) => { const { linha, obs, ...resto } = x; void linha; void obs; return resto })).toEqual([
             p('BZ0006/WOLFF', 'GUARNIÇÃO', 1266, 2, '45/45', 'Largura'),                                              // linha 1: LARI
             p('BZ0006/WOLFF', 'GUARNIÇÃO', 1066, 2, '45/45', 'Altura'),                                               // linha 2: HARI
             p('BZ0012/WOLFF', 'BASE DE GUARNIÇAO', 10, 15, '90/90', 'Largura'),                                       // linha 3: Medida 10, Qtd 8+7
@@ -264,6 +264,13 @@ describe('(4) A DP-02, L = 1200, H = 1000, MAE = 2, vidro 6 mm — peça a peça
         ])
     })
 
+    it('cada peça diz de qual LINHA do motor saiu e traz a Obs. dela (o orientativo de montagem, 22/11/2026) — só informa, a peça é a mesma', () => {
+        const pecas = ok(ENTRADA).pecas
+        expect(pecas.map((x) => x.linha)).toEqual([1, 2, 3, 12, 13, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 31, 32])
+        // a Obs. é a da LINHA do motor (a coluna 'Obs.' da aba Perfis), lida pelo `lerTipologia`
+        expect(pecas.slice(0, 2).map((x) => x.obs)).toEqual(['ARREMATE - ARREMATE INTERNO 65MM', 'ARREMATE - ARREMATE INTERNO 65MM'])
+        expect(pecas.every((x) => x.obs === null || typeof x.obs === 'string')).toBe(true)
+    })
     it('as 34 linhas da aba: quais entraram, e por que cada uma das outras ficou de fora', () => {
         const linhas = ok(ENTRADA).linhas
         expect(linhas).toHaveLength(34)

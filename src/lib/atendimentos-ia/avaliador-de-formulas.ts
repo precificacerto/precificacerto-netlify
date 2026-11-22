@@ -121,6 +121,8 @@ export type VariavelDaTipologia = {
 export type FormulaDaTipologia = { variavel: string; formula: string }
 export type PerfilDaTipologia = {
     perfil: string; descricao: string; corte: string; qtd: string; medida: string; posicao: string; esp_vidro: string | null; condicao: string
+    /** A coluna 'Obs.' da linha (a nota de montagem: "MARCO - ALTURA", "MONT. FIXO"). Só INFORMA: não entra em conta nenhuma. `lerTipologia` sempre a preenche. */
+    obs?: string | null
 }
 export type ValidacaoDaTipologia = { condicao: string; mensagem: string }
 /** Uma linha da aba Insumos: o código, a descrição, a fórmula da quantidade e a condição. */
@@ -128,6 +130,8 @@ export type InsumoDaTipologia = {
     insumo: string; descricao: string | null; qtd: string; condicao: string
     /** R3 (17/11/2026): as espessuras de vidro em que a linha entra ("5,6,8,24"). Ausente ou nula = qualquer. `lerTipologia` sempre a preenche. */
     esp_vidro?: string | null
+    /** A coluna 'Obs.' (a nota de montagem, "FIXAR NYL-190"). Só INFORMA. `lerTipologia` sempre a preenche. */
+    obs?: string | null
 }
 /** Uma linha da aba Vidros: as fórmulas da largura e da altura do pano, a quantidade, a fixação e a condição. */
 export type VidroDaTipologia = {
@@ -148,12 +152,19 @@ export type Tipologia = {
 }
 
 // ── A saída ───────────────────────────────────────────────────────────────────────────────
+/**
+ * DE QUAL LINHA DO MOTOR a peça, o insumo ou o pano saiu (22/11/2026, o orientativo de montagem): `linha` é a posição da linha na aba daquela
+ * tipologia (1, 2, …, a mesma das mensagens "Linha N da aba …"), e `obs` a coluna 'Obs.' dela. SÓ INFORMAM: nenhuma conta as lê, e o
+ * resultado do cálculo é o mesmo com ou sem elas. O avaliador sempre as preenche; opcionais no tipo porque a peça montada fora dele
+ * (testes, o custo) não as tem.
+ */
+export type OrigemNoMotor = { linha?: number; obs?: string | null }
 /** A peça — `codigo`, `comprimento_mm` e `quantidade` são o que o agrupador de barras lê. */
-export type PecaDoPerfil = { codigo: string; descricao: string; comprimento_mm: number; quantidade: number; corte: string; posicao: string }
+export type PecaDoPerfil = { codigo: string; descricao: string; comprimento_mm: number; quantidade: number; corte: string; posicao: string } & OrigemNoMotor
 /** O insumo avaliado: o código como o motor o escreve, a descrição dele e a quantidade por esquadria (pode ser fracionária: silicone, fita). */
-export type InsumoAvaliado = { codigo: string; descricao: string | null; quantidade: number }
+export type InsumoAvaliado = { codigo: string; descricao: string | null; quantidade: number } & OrigemNoMotor
 /** O pano de vidro avaliado: largura e altura em mm (ao micrômetro) e quantas vezes ele entra por esquadria. */
-export type VidroAvaliado = { vidro: string; largura_mm: number; altura_mm: number; quantidade: number; fixacao: string | null }
+export type VidroAvaliado = { vidro: string; largura_mm: number; altura_mm: number; quantidade: number; fixacao: string | null; linha?: number }
 /** A linha de insumo ou de vidro que não se avaliou: falta nomeada, que NÃO recusa a tipologia. */
 export type FaltaDoAvaliador = { aba: 'Insumos' | 'Vidros'; linha: number; codigo: string; mensagem: string }
 export type LinhaAvaliada = { linha: number; perfil: string; entrou: boolean; motivo: 'CONDICAO_FALSA' | 'ESPESSURA_NAO_ATENDIDA' | 'QUANTIDADE_ZERO' | null }
@@ -814,7 +825,8 @@ export function avaliarTipologia(entrada: EntradaDoAvaliador): ResultadoDaAvalia
             return
         }
 
-        pecas.push({ codigo: p.perfil, descricao: p.descricao, comprimento_mm: aoMilimetroCortado(medida), quantidade: Number(quantidade.n), corte: p.corte, posicao: p.posicao })
+        pecas.push({ codigo: p.perfil, descricao: p.descricao, comprimento_mm: aoMilimetroCortado(medida), quantidade: Number(quantidade.n), corte: p.corte, posicao: p.posicao,
+            linha, obs: p.obs ?? null })
         linhas.push({ linha, perfil: p.perfil, entrou: true, motivo: null })
     })
 
@@ -873,7 +885,7 @@ export function avaliarTipologia(entrada: EntradaDoAvaliador): ResultadoDaAvalia
             const q = numeroDe(avaliar(x.qtd, amb, []), 'A quantidade')
             if (q.n < Z) { onde(`a quantidade "${x.qtd}" dá ${paraNumero(q)}.`); return }
             if (q.n === Z) return
-            insumos.push({ codigo: x.insumo, descricao: x.descricao, quantidade: aoMicrometro(q) })
+            insumos.push({ codigo: x.insumo, descricao: x.descricao, quantidade: aoMicrometro(q), linha, obs: x.obs ?? null })
         } catch (e) { onde(recusaDe(e, {}).mensagem) }
     })
     const vidros: VidroAvaliado[] = []
@@ -892,7 +904,7 @@ export function avaliarTipologia(entrada: EntradaDoAvaliador): ResultadoDaAvalia
             if (largura.n <= Z || altura.n <= Z) { onde(`o pano dá ${aoMicrometro(largura)} × ${aoMicrometro(altura)} mm — não há vidro de medida zero ou negativa.`); return }
             const l = aoMilimetroCortado(largura), h = aoMilimetroCortado(altura)
             if (l === 0 || h === 0) { onde(`o pano dá ${aoMicrometro(largura)} × ${aoMicrometro(altura)} mm — com o decimal cortado, menos de 1 mm.`); return }
-            vidros.push({ vidro: x.vidro, largura_mm: l, altura_mm: h, quantidade: Number(q.n), fixacao: x.fixacao })
+            vidros.push({ vidro: x.vidro, largura_mm: l, altura_mm: h, quantidade: Number(q.n), fixacao: x.fixacao, linha })
         } catch (e) { onde(recusaDe(e, {}).mensagem) }
     })
     return { ok: true, pecas, linhas, avisos, insumos, vidros, faltas }
@@ -976,13 +988,13 @@ export function lerTipologia(abas: AbasDoMotor, codigo: string): { ok: true; tip
         perfis: daTipologia('Perfis').map((l) => ({
             perfil: textoObrigatorio(l['Perfil']), descricao: textoObrigatorio(l['Descrição']), corte: textoObrigatorio(l['Corte']),
             qtd: textoObrigatorio(l['Qtd']), medida: textoObrigatorio(l['Medida']), posicao: textoObrigatorio(l['Posição']),
-            esp_vidro: texto(l['Esp. vidro']), condicao: textoObrigatorio(l['Condição']),
+            esp_vidro: texto(l['Esp. vidro']), condicao: textoObrigatorio(l['Condição']), obs: texto(l['Obs.']),
         })),
         validacoes: daTipologia('Validações').map((l) => ({ condicao: textoObrigatorio(l['Condição válida']), mensagem: textoObrigatorio(l['Mensagem']) })),
         // as abas OPCIONAIS (12/11/2026): ausentes no arquivo, a tipologia não tem insumo nem vidro — nunca recusa
         insumos: abas['Insumos'] ? daTipologia('Insumos').map((l) => ({
             insumo: textoObrigatorio(l['Insumo']), descricao: texto(l['Descrição']), qtd: textoObrigatorio(l['Qtd (fórmula)']), condicao: textoObrigatorio(l['Condição']) || 'sempre',
-            esp_vidro: texto(l['Esp. vidro']),
+            esp_vidro: texto(l['Esp. vidro']), obs: texto(l['Obs.']),
         })) : [],
         vidros: abas['Vidros'] ? daTipologia('Vidros').map((l) => ({
             vidro: textoObrigatorio(l['Vidro']), largura: textoObrigatorio(l['Largura']), altura: textoObrigatorio(l['Altura']), qtd: textoObrigatorio(l['Qtd']),
