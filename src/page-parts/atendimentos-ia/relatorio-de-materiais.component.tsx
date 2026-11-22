@@ -2,12 +2,14 @@
  * A ABA "Relatório de materiais" dos Relatórios I.A. (dono do produto, 16/11/2026): o que o pedido inteiro precisa, por categoria, na ordem
  * da base de conhecimento (Perfil, Persianas, Reforço…). Lê `/api/atendimentos-ia/orcamentos/[id]/relatorio-de-materiais`.
  *
- * O que não tem categoria, ou tem mais de uma, aparece numa lista própria, nomeado — nunca dentro de uma categoria escolhida. A esquadria sem
- * cálculo é dito: os materiais dele não estão no relatório (nunca um relatório que pareça completo sem estar).
+ * A categoria é a da TABELA DE ONDE O PREÇO SAIU (22/11/2026), não o texto da linha. O que não tem categoria, ou tem mais de uma, aparece
+ * numa lista própria, nomeado e com o motivo — nunca dentro de uma categoria escolhida. Cada categoria tem o total (custo bruto e líquido), e
+ * o fim, o total geral do pedido; o total com um código sem custo gravado não sai, e diz qual. A esquadria sem cálculo é dita: os materiais
+ * dela não estão no relatório (nunca um relatório que pareça completo sem estar).
  */
 import React, { useEffect, useState } from 'react'
 import { Alert, Button, Empty, Spin, Table, Typography } from 'antd'
-import { quantidadeNoRelatorio, type MaterialDoRelatorio } from '@/lib/atendimentos-ia/relatorio-de-materiais'
+import { fraseDoTotalSemCusto, quantidadeNoRelatorio, reaisNoRelatorio, type MaterialDoRelatorio, type TotalDoGrupo } from '@/lib/atendimentos-ia/relatorio-de-materiais'
 import type { RelatorioDeMateriaisDoOrcamento } from '@/lib/atendimentos-ia/relatorio-de-materiais-servidor'
 
 type Estado = { tipo: 'carregando' } | { tipo: 'erro'; mensagem: string } | { tipo: 'pronto'; relatorio: RelatorioDeMateriaisDoOrcamento }
@@ -20,7 +22,17 @@ const colunas = [
     { title: 'Código', dataIndex: 'codigo', key: 'codigo', width: 120 },
     { title: 'Descrição', dataIndex: 'descricao', key: 'descricao', render: (d: string | null) => d ?? '—' },
     { title: 'Quantidade', key: 'quantidade', align: 'right' as const, width: 140, render: (_: unknown, m: MaterialDoRelatorio) => quantidadeNoRelatorio(m.quantidade, m.unidade) },
+    { title: 'Custo bruto', key: 'custo_bruto', align: 'right' as const, width: 140, render: (_: unknown, m: MaterialDoRelatorio) => reaisNoRelatorio(m.custo_bruto) },
+    { title: 'Custo líquido', key: 'custo_liquido', align: 'right' as const, width: 140, render: (_: unknown, m: MaterialDoRelatorio) => reaisNoRelatorio(m.custo_liquido) },
 ]
+
+/** O total de um grupo: os dois custos, ou a frase que nomeia os códigos sem custo gravado. */
+export function TotalDoGrupoNaTela({ nome, total, geral = false }: { nome: string; total: TotalDoGrupo; geral?: boolean }) {
+    const texto = total.codigosSemCusto.length
+        ? `${nome}: ${fraseDoTotalSemCusto(total.codigosSemCusto)}.`
+        : `${nome}: custo bruto ${reaisNoRelatorio(total.custo_bruto)} · custo líquido ${reaisNoRelatorio(total.custo_liquido)}`
+    return <Typography.Paragraph strong={geral} type={total.codigosSemCusto.length ? 'warning' : undefined} style={{ textAlign: 'right', margin: '6px 0 0' }} data-total={geral ? 'geral' : nome}>{texto}</Typography.Paragraph>
+}
 
 function TabelaDeMateriais({ materiais }: { materiais: readonly MaterialDoRelatorio[] }) {
     return <Table size="small" pagination={false} rowKey={(m) => `${m.codigo}-${m.unidade}`} columns={colunas} dataSource={[...materiais]} scroll={{ x: true }} />
@@ -47,7 +59,7 @@ export function RelatorioDeMateriais({ orcamentoId, numero, cliente }: { orcamen
 
     if (estado.tipo === 'carregando') return <div style={{ padding: 24, textAlign: 'center' }}><Spin /></div>
     if (estado.tipo === 'erro') return <Alert type="error" showIcon message={estado.mensagem} />
-    const { categorias, semCategoria, ambiguos, itensSemCalculo } = estado.relatorio
+    const { categorias, semCategoria, ambiguos, itensSemCalculo, totalGeral } = estado.relatorio
     const vazio = categorias.length === 0 && semCategoria.length === 0 && ambiguos.length === 0
     return (
         <div data-relatorio-de-materiais="">
@@ -60,13 +72,14 @@ export function RelatorioDeMateriais({ orcamentoId, numero, cliente }: { orcamen
                 <section key={c.chave} data-categoria={c.chave} style={{ marginBottom: 16 }}>
                     <Typography.Title level={5} style={{ marginBottom: 8 }}>{c.rotulo}</Typography.Title>
                     <TabelaDeMateriais materiais={c.materiais} />
+                    <TotalDoGrupoNaTela nome={`Total de ${c.rotulo}`} total={c.total} />
                 </section>
             ))}
             {ambiguos.length > 0 && (
                 <section data-categoria="ambiguos" style={{ marginBottom: 16 }}>
                     <Typography.Title level={5} style={{ marginBottom: 4 }}>Em mais de uma categoria</Typography.Title>
                     <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-                        Estes códigos estão em tabelas de categorias diferentes, e nenhuma é escolhida: {ambiguos.map((a) => `${a.codigo} (${a.categorias.join(', ')})`).join('; ')}.
+                        Nenhuma categoria é escolhida para estes códigos: {ambiguos.map((a) => `${a.codigo} (${a.categorias.join(', ')}: ${a.motivo})`).join('; ')}.
                     </Typography.Paragraph>
                     <TabelaDeMateriais materiais={ambiguos} />
                 </section>
@@ -74,10 +87,13 @@ export function RelatorioDeMateriais({ orcamentoId, numero, cliente }: { orcamen
             {semCategoria.length > 0 && (
                 <section data-categoria="sem-categoria">
                     <Typography.Title level={5} style={{ marginBottom: 4 }}>Sem categoria</Typography.Title>
-                    <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>Estes códigos não estão em nenhuma tabela de preço da conta com categoria.</Typography.Paragraph>
+                    <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+                        Sem a tabela de onde o preço saiu, com categoria: {semCategoria.map((m) => `${m.codigo} (${m.motivo})`).join('; ')}.
+                    </Typography.Paragraph>
                     <TabelaDeMateriais materiais={semCategoria} />
                 </section>
             )}
+            {!vazio && <TotalDoGrupoNaTela nome="Total geral do pedido" total={totalGeral} geral />}
         </div>
     )
 }
