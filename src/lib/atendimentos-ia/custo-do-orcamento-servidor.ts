@@ -28,7 +28,7 @@ import type { PecaDoCorte } from './relatorio-de-corte'
 import { calcularOLevantamento, mensagemDoCalculo, type EsquadriaGravada, type FamiliasDaEmpresa, type ItemDaFamilia } from './levantamento-da-conversa'
 import { custoDoOrcamento, valorDoMinuto, chaveDoMaterial, PERCENTUAIS, type CaminhoDoCusto, type CustoDoItem, type MaterialDaTabela, type Percentuais, type ResolucaoGravada } from './custo-do-orcamento'
 import type { ItemDaTabela } from './levantamento-de-barras'
-import { resolverReferencia, GRUPO_DE_COR, type ContextoDaResolucao, type ReferenciaProcurada, type ResolucaoDeReferencia } from './resolucao-de-referencia'
+import { resolverReferencia, tabelaNoEscopo, GRUPO_DE_COR, type ContextoDaResolucao, type EscopoDoMotor, type ReferenciaProcurada, type ResolucaoDeReferencia } from './resolucao-de-referencia'
 import { traduzirVidro } from './vidro-da-tabela'
 import { lerVidrosPadraoDaConta, vidroPadraoDaEsquadria } from './vidro-padrao'
 import { principaisDaConta, type PrincipaisDaConta } from './tabelas-da-conta'
@@ -78,15 +78,18 @@ export function materialDoItem(caminho: CaminhoDoCusto, codigoDoMotor: string, i
     }
 }
 
+/** O que os escopos leem de um item da família: a categoria e o fornecedor da tabela dele. */
+export type ItemNoEscopo = Pick<ItemDaFamilia, 'categoria' | 'fornecedor_id'>
+
 /** Os itens do escopo do INSUMO: as tabelas de cada categoria (fora PERFIL e VIDRO) do fornecedor principal dela. */
-export function escopoDoInsumo<I extends ItemDaFamilia>(todos: readonly I[], p: PrincipaisDaConta): I[] {
+export function escopoDoInsumo<I extends ItemNoEscopo>(todos: readonly I[], p: PrincipaisDaConta): I[] {
     return todos.filter((i) => i.categoria !== null && !CATEGORIAS_FORA_DO_INSUMO.has(i.categoria) && p.principais.get(i.categoria) === i.fornecedor_id)
 }
 /**
  * Os DEGRAUS da descida do insumo: o primeiro é `escopoDoInsumo` (os principais); o k-ésimo seguinte junta, de cada categoria, o k-ésimo grupo
  * de `seguintes` (os fornecedores daquela ordem). Uma categoria com menos grupos simplesmente não entra nos degraus de baixo.
  */
-export function niveisDoInsumo<I extends ItemDaFamilia>(todos: readonly I[], p: PrincipaisDaConta): I[][] {
+export function niveisDoInsumo<I extends ItemNoEscopo>(todos: readonly I[], p: PrincipaisDaConta): I[][] {
     const profundidade = Math.max(0, ...[...p.seguintes.values()].map((g) => g.length))
     const niveis: I[][] = [escopoDoInsumo(todos, p)]
     for (let k = 0; k < profundidade; k++) {
@@ -120,9 +123,25 @@ export function resolverDescendo<I extends ItemDaFamilia>(ref: ReferenciaProcura
     return 'item' in f ? f : comContagem(f)
 }
 /** Os itens do escopo do VIDRO: as tabelas da categoria VIDRO do fornecedor principal dela. */
-export function escopoDoVidro<I extends ItemDaFamilia>(todos: readonly I[], p: PrincipaisDaConta): I[] {
+export function escopoDoVidro<I extends ItemNoEscopo>(todos: readonly I[], p: PrincipaisDaConta): I[] {
     const principal = p.principais.get('VIDRO')
     return principal === undefined ? [] : todos.filter((i) => i.categoria === 'VIDRO' && i.fornecedor_id === principal)
+}
+/**
+ * DE ONDE O PREÇO SAI (dono do produto, 22/11/2026, o relatório de materiais): das tabelas da família em que o código está, as que o CÁLCULO
+ * olha pelo caminho dele — os MESMOS escopos que decidem o custo, sem cópia:
+ * - perfil: as tabelas do fornecedor e de uma família do motor do cálculo (`tabelaNoEscopo`, como `lerItensNoEscopo`);
+ * - insumo: o primeiro degrau da descida (`niveisDoInsumo`) que tem o código — o principal da categoria, depois os seguintes, na ordem;
+ * - vidro: a categoria VIDRO do principal dela (`escopoDoVidro`).
+ * O caminho que não é nenhum dos três, ou o perfil sem motor de cálculo, não tem de onde sair: lista vazia (quem chama nomeia o motivo).
+ */
+export function tabelasDeOndeOPrecoSai<I extends ItemNoEscopo & { familia: string | null }>(
+    caminho: string, doCodigo: readonly I[], motor: EscopoDoMotor | null, p: PrincipaisDaConta,
+): I[] {
+    if (caminho === 'perfil') return motor === null ? [] : doCodigo.filter((i) => tabelaNoEscopo(i, motor))
+    if (caminho === 'vidro') return escopoDoVidro(doCodigo, p)
+    if (caminho === 'insumo') return niveisDoInsumo(doCodigo, p).find((n) => n.length > 0) ?? []
+    return []
 }
 const textoOuNulo = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null)
 

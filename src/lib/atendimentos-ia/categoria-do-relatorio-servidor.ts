@@ -1,15 +1,23 @@
 /**
- * A LEITURA da categoria e da ordem para os RELATÓRIOS I.A. (materiais e corte, 16/11/2026) — SÓ SERVIDOR, e uma só para os dois
- * (`copia-divergente`). A regra de agrupar mora em `categoria-do-relatorio.ts`.
+ * A LEITURA da categoria e da ordem para os RELATÓRIOS I.A. (materiais e corte) — SÓ SERVIDOR, e uma só para os dois (`copia-divergente`).
+ * A regra mora em `categoria-do-relatorio.ts`.
  *
- * - a categoria de cada código: a das tabelas da conta que VALEM e têm categoria (`derivarTabelasDaConta`), pelo código como a tabela o tem
- *   — o código que o cálculo já resolveu (`codigo_na_tabela`). Isto CLASSIFICA, não resolve preço nem escolhe item;
+ * - A CATEGORIA NÃO SAI DO TEXTO DA LINHA; SAI DA TABELA QUE DEU O PREÇO (dono do produto, 22/11/2026). De cada linha (o código como a tabela o
+ *   tem, o caminho do cálculo e a família do item): as tabelas de preço da família em que o código está (`lerFamiliasDaEmpresa`, as mesmas do
+ *   cálculo), e delas as que o cálculo olha pelo caminho (`tabelasDeOndeOPrecoSai`, os escopos do custo: o motor do cálculo, os principais e a
+ *   descida). A `categoria_chave` dessa tabela é a categoria. A categoria do fornecedor escrita no item da tabela (`COLUNA_DA_CATEGORIA_DO_FORNECEDOR`) não é lida. Isto CLASSIFICA, não resolve preço.
+ * - LIMITE CONHECIDO: o cálculo não grava a tabela de cada material (seria migração, e o pedido é sem migração). A tabela é derivada de novo,
+ *   com os escopos de hoje; se a base de conhecimento trocar o principal de uma categoria depois do cálculo, o relatório segue a configuração nova.
  * - a ordem: as ramificações das famílias na base de conhecimento (`orcamentista_familia_ramificacao.ordem`); o catálogo dá o rótulo e a
  *   ordem do que ficar de fora.
  */
 import { supabaseAdmin } from '@/supabase/admin'
-import { derivarTabelasDaConta } from './tabelas-da-conta'
 import { ErroNaoEncontrado, TABELA_DO_ITEM, TABELA_DO_ORCAMENTO } from './orcamentos-ia'
+import { categoriaDoPreco, juntarCategoriasDoCodigo, type CategoriaDoPreco } from './categoria-do-relatorio'
+import { lerFamiliasDaEmpresa } from './levantamento-da-conversa'
+import { principaisDaConta } from './tabelas-da-conta'
+import { tabelasDeOndeOPrecoSai } from './custo-do-orcamento-servidor'
+import type { EscopoDoMotor } from './resolucao-de-referencia'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- as tabelas são posteriores a `database.types.ts`
 const db = () => supabaseAdmin as any
@@ -17,24 +25,67 @@ const falhou = (tabela: string, e: { message: string }): never => { throw new Er
 
 export type ClassificacaoDoRelatorio = {
     categoriasDoCodigo: Map<string, string[]>
+    /** Por que o código ficou sem categoria, ou em mais de uma: nunca sem motivo. */
+    motivos: Map<string, string>
     ordem: string[]
     rotulos: Map<string, string>
 }
+/** Uma linha a classificar: o código como a tabela o tem, o caminho do cálculo ('perfil', 'insumo', 'vidro') e a família do item. */
+export type LinhaAClassificar = { codigo: string; caminho: string; familia: string | null }
 
-export async function classificacaoDoRelatorio(tenantId: string, codigos: readonly string[], familias: readonly string[]): Promise<ClassificacaoDoRelatorio> {
-    const categoriasDoCodigo = new Map<string, string[]>()
-    const distintos = [...new Set(codigos)]
-    if (distintos.length) {
-        const { tabelas } = await derivarTabelasDaConta(tenantId)
-        const categoriaDaTabela = new Map(tabelas.filter((t) => t.vale && t.categoria).map((t) => [t.tabelaId, t.categoria as string]))
-        if (categoriaDaTabela.size) {
-            const ti = await db().from('orcamentista_tabela_item').select('tabela_id, codigo').in('tabela_id', [...categoriaDaTabela.keys()]).in('codigo', distintos)
-            if (ti.error) falhou('orcamentista_tabela_item', ti.error)
-            for (const x of (ti.data ?? []) as Array<{ tabela_id: string; codigo: string }>) {
-                categoriasDoCodigo.set(x.codigo, [...(categoriasDoCodigo.get(x.codigo) ?? []), categoriaDaTabela.get(x.tabela_id) as string])
-            }
-        }
+export const motivoDaConfiguracao = (frase: string) => `a configuração da conta não deixa saber de onde o preço sai: ${frase}`
+export const MOTIVO_ITEM_SEM_FAMILIA = 'o item não tem uma família da conta: não há de onde o preço sair'
+
+type TabelaDoItem = { tabela_id: string; fornecedor_id: string; familia: string | null; categoria: string | null }
+
+async function categoriasPelaTabelaDoPreco(tenantId: string, linhas: readonly LinhaAClassificar[]): Promise<Array<{ codigo: string; r: CategoriaDoPreco }>> {
+    if (!linhas.length) return []
+    const [fam, principais] = await Promise.all([lerFamiliasDaEmpresa(tenantId), principaisDaConta(tenantId)])
+    // `'frase' in`: com `strictNullChecks: false` o `ok` não estreita a união
+    if ('frase' in fam) {
+        const motivo = motivoDaConfiguracao(fam.frase)
+        return linhas.map((l): { codigo: string; r: CategoriaDoPreco } => ({ codigo: l.codigo, r: { categoria: null, categorias: [], motivo } }))
     }
+
+    const ids = [...new Set(fam.familias.flatMap((f) => f.tabelasDePreco))]
+    const motores = [...new Set(fam.familias.map((f) => f.calculo?.id).filter((m): m is string => !!m))]
+    const codigos = [...new Set(linhas.map((l) => l.codigo))]
+    const [tab, itens, mot, mfam] = await Promise.all([
+        ids.length ? db().from('orcamentista_tabela').select('id, fornecedor_id, familia, categoria_chave').in('id', ids) : Promise.resolve({ data: [], error: null }),
+        ids.length ? db().from('orcamentista_tabela_item').select('tabela_id, codigo').in('tabela_id', ids).in('codigo', codigos) : Promise.resolve({ data: [], error: null }),
+        motores.length ? db().from('orcamentista_motor').select('id, fornecedor_id').in('id', motores) : Promise.resolve({ data: [], error: null }),
+        motores.length ? db().from('orcamentista_motor_familia').select('motor_id, familia').in('motor_id', motores) : Promise.resolve({ data: [], error: null }),
+    ])
+    if (tab.error) falhou('orcamentista_tabela', tab.error)
+    if (itens.error) falhou('orcamentista_tabela_item', itens.error)
+    if (mot.error) falhou('orcamentista_motor', mot.error)
+    if (mfam.error) falhou('orcamentista_motor_familia', mfam.error)
+    const daTabela = new Map(((tab.data ?? []) as Array<{ id: string; fornecedor_id: string; familia: string | null; categoria_chave: string | null }>)
+        .map((t) => [t.id, { tabela_id: t.id, fornecedor_id: t.fornecedor_id, familia: t.familia, categoria: t.categoria_chave }]))
+    const tabelasDoCodigo = new Map<string, TabelaDoItem[]>()
+    for (const x of (itens.data ?? []) as Array<{ tabela_id: string; codigo: string }>) {
+        const t = daTabela.get(x.tabela_id)
+        if (t && !(tabelasDoCodigo.get(x.codigo) ?? []).some((y) => y.tabela_id === t.tabela_id)) tabelasDoCodigo.set(x.codigo, [...(tabelasDoCodigo.get(x.codigo) ?? []), t])
+    }
+    const escopoDoMotor = new Map<string, EscopoDoMotor>()
+    for (const m of (mot.data ?? []) as Array<{ id: string; fornecedor_id: string }>) {
+        escopoDoMotor.set(m.id, { fornecedor_id: m.fornecedor_id, familias: ((mfam.data ?? []) as Array<{ motor_id: string; familia: string }>).filter((f) => f.motor_id === m.id).map((f) => f.familia) })
+    }
+
+    return linhas.map((l) => {
+        const f = fam.familias.find((x) => x.familia === l.familia)
+        if (!f) return { codigo: l.codigo, r: { categoria: null, categorias: [], motivo: MOTIVO_ITEM_SEM_FAMILIA } }
+        const daFamilia = new Set(f.tabelasDePreco)
+        const doCodigo = (tabelasDoCodigo.get(l.codigo) ?? []).filter((t) => daFamilia.has(t.tabela_id))
+        const motor = f.calculo ? escopoDoMotor.get(f.calculo.id) ?? null : null
+        return { codigo: l.codigo, r: categoriaDoPreco(l.caminho, doCodigo, tabelasDeOndeOPrecoSai(l.caminho, doCodigo, motor, principais)) }
+    })
+}
+
+export async function classificacaoDoRelatorio(tenantId: string, linhas: readonly LinhaAClassificar[], familias: readonly string[]): Promise<ClassificacaoDoRelatorio> {
+    // uma resposta por (código, caminho, família): é o que muda a tabela de onde o preço sai
+    const unicas = [...new Map(linhas.map((l) => [JSON.stringify([l.codigo, l.caminho, l.familia]), l])).values()]
+    const { categoriasDoCodigo, motivos } = juntarCategoriasDoCodigo(await categoriasPelaTabelaDoPreco(tenantId, unicas))
     const fs = [...new Set(familias)]
     const [ram, cat] = await Promise.all([
         fs.length
@@ -47,7 +98,7 @@ export async function classificacaoDoRelatorio(tenantId: string, codigos: readon
     const ordem: string[] = []
     for (const r of (ram.data ?? []) as Array<{ categoria_chave: string }>) if (!ordem.includes(r.categoria_chave)) ordem.push(r.categoria_chave)
     const rotulos = new Map(((cat.data ?? []) as Array<{ chave: string; rotulo: string }>).map((c) => [c.chave, c.rotulo]))
-    return { categoriasDoCodigo, ordem, rotulos }
+    return { categoriasDoCodigo, motivos, ordem, rotulos }
 }
 
 export type ItemDoRelatorio = { id: string; ordem: number; calculo_id: string | null; familia: string | null }

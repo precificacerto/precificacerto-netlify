@@ -52,6 +52,9 @@ export async function lerRelatorioDeCorte(tenantId: string, orcamentoId: string)
     }
     const comPecas = new Set(linhas.map((l) => l.orcamento_item_id))
     const itensSemPecas = calculados.filter((i) => !comPecas.has(i.id)).map((i) => i.ordem)
-    const c = await classificacaoDoRelatorio(tenantId, linhas.map((l) => l.codigo), itens.map((i) => i.familia).filter((f): f is string => !!f))
+    // a peça de corte é PERFIL: a categoria é a da tabela de onde o preço do perfil saiu (a mesma regra do relatório de materiais)
+    const familiaDo = new Map(itens.map((i) => [i.id, i.familia]))
+    const c = await classificacaoDoRelatorio(tenantId, linhas.map((l) => ({ codigo: l.codigo, caminho: 'perfil', familia: familiaDo.get(l.orcamento_item_id) ?? null })),
+        itens.map((i) => i.familia).filter((f): f is string => !!f))
     return { ...montarRelatorioDeCorte(linhas, c.categoriasDoCodigo, c.ordem, c.rotulos), itensSemCalculo, itensSemPecas }
 }

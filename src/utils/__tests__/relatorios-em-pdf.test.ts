@@ -16,13 +16,17 @@ const cab = { numero: 8, cliente: 'Cristiano Fernandes', geradoEm: new Date('202
 
 const materiais: RelatorioDeMateriais & { itensSemCalculo: number[] } = {
     categorias: [
-        { chave: 'PERFIL', rotulo: 'Perfil', materiais: [{ codigo: '9681', descricao: 'MARCO 60', unidade: 'm' as const, quantidade: 12.5 }] },
-        { chave: 'REFORCO', rotulo: 'Reforço metálico', materiais: [{ codigo: '8523', descricao: 'REFORÇO GALV.', unidade: 'm' as const, quantidade: 3 }] },
+        { chave: 'PERFIL', rotulo: 'Perfil', materiais: [{ codigo: '9681', descricao: 'MARCO 60', unidade: 'm' as const, quantidade: 12.5, custo_bruto: 1234.5, custo_liquido: 1000 }],
+          total: { custo_bruto: 1234.5, custo_liquido: 1000, codigosSemCusto: [] as string[] } },
+        { chave: 'REFORCO', rotulo: 'Reforço metálico', materiais: [{ codigo: '8523', descricao: 'REFORÇO GALV.', unidade: 'm' as const, quantidade: 3, custo_bruto: null, custo_liquido: null }],
+          total: { custo_bruto: null, custo_liquido: null, codigosSemCusto: ['8523'] } },
     ],
-    semCategoria: [{ codigo: 'X1', descricao: null, unidade: 'un' as const, quantidade: 4 }],
-    ambiguos: [{ codigo: 'Y1', descricao: 'PARAFUSO', unidade: 'un' as const, quantidade: 2, categorias: ['FERRAGENS', 'PERFIL'] }],
+    semCategoria: [{ codigo: 'X1', descricao: null, unidade: 'un' as const, quantidade: 4, custo_bruto: 10, custo_liquido: 9, motivo: 'a tabela de onde o preço saiu não tem categoria declarada' }],
+    ambiguos: [{ codigo: 'Y1', descricao: 'PARAFUSO', unidade: 'un' as const, quantidade: 2, custo_bruto: 1, custo_liquido: 1, categorias: ['FERRAGENS', 'PERFIL'], motivo: 'motivo y' }],
     itensSemCalculo: [3],
+    totalGeral: { custo_bruto: null, custo_liquido: null, codigosSemCusto: ['8523'] },
 }
+const VAZIO: RelatorioDeMateriais & { itensSemCalculo: number[] } = { categorias: [], semCategoria: [], ambiguos: [], itensSemCalculo: [], totalGeral: { custo_bruto: 0, custo_liquido: 0, codigosSemCusto: [] } }
 
 describe('o PDF do relatório de materiais', () => {
     it('o cabeçalho do orçamento, as categorias na ordem da rota, cada código com a quantidade e a unidade, e o rodapé Página N de M', () => {
@@ -32,18 +36,26 @@ describe('o PDF do relatório de materiais', () => {
         expect(t.indexOf('Perfil')).toBeLessThan(t.indexOf('Reforço metálico'))
         expect(t.indexOf('Reforço metálico')).toBeLessThan(t.indexOf('Em mais de uma categoria'))
         expect(t.indexOf('Em mais de uma categoria')).toBeLessThan(t.indexOf('Sem categoria'))
-        expect(t).toEqual(expect.arrayContaining(['9681', 'MARCO 60', '12,50 m', '8523', '3,00 m', 'X1', '4 un', 'PARAFUSO (FERRAGENS, PERFIL)']))
+        expect(t).toEqual(expect.arrayContaining(['9681', 'MARCO 60', '12,50 m', '8523', '3,00 m', 'X1', '4 un', 'PARAFUSO (FERRAGENS, PERFIL: motivo y)',
+            '— (a tabela de onde o preço saiu não tem categoria', 'declarada)']))
+        // o custo de cada linha, o total de cada categoria e o total geral (22/11/2026); o que falta não é somado como zero
+        expect(t.map((l) => l.replace(/\s/g, ' '))).toEqual(expect.arrayContaining(['R$ 1.234,50', 'R$ 1.000,00', 'não sai',
+            'Total de Perfil: custo bruto R$ 1.234,50 · custo líquido R$ 1.000,00',
+            'Total de Reforço metálico: o total não sai: o código 8523 não tem o custo gravado pelo cálculo.',
+            'Total geral do pedido: o total não sai: o código 8523 não tem o custo gravado pelo cálculo.']))
+        expect(t.indexOf('Sem categoria')).toBeLessThan(t.indexOf('Total geral'))
         expect(t).toContain('O item 3 sem cálculo: os materiais não estão neste relatório.')
         expect(t).toContain('Página 1 de 1')
     })
     it('sem material nenhum, o vazio é dito', () => {
-        const t = textoDoPdf(pdfDoRelatorioDeMateriais({ categorias: [], semCategoria: [], ambiguos: [], itensSemCalculo: [] }, cab))
+        const t = textoDoPdf(pdfDoRelatorioDeMateriais(VAZIO, cab))
         expect(t).toContain('Nenhum material calculado neste orçamento.')
         expect(t.some((l) => l.includes('sem cálculo'))).toBe(false)
     })
     it('a lista longa quebra em páginas, e cada página diz "Página N de M" e repete o cabeçalho', () => {
-        const muitos = Array.from({ length: 120 }, (_, i) => ({ codigo: `C${i}`, descricao: 'PEÇA', unidade: 'un' as const, quantidade: i + 1 }))
-        const pdf = pdfDoRelatorioDeMateriais({ categorias: [{ chave: 'PERFIL', rotulo: 'Perfil', materiais: muitos }], semCategoria: [], ambiguos: [], itensSemCalculo: [] }, cab)
+        const muitos = Array.from({ length: 120 }, (_, i) => ({ codigo: `C${i}`, descricao: 'PEÇA', unidade: 'un' as const, quantidade: i + 1, custo_bruto: 1, custo_liquido: 1 }))
+        const total = { custo_bruto: 120, custo_liquido: 120, codigosSemCusto: [] as string[] }
+        const pdf = pdfDoRelatorioDeMateriais({ ...VAZIO, categorias: [{ chave: 'PERFIL', rotulo: 'Perfil', materiais: muitos, total }], totalGeral: total }, cab)
         const n = paginas(pdf)
         expect(n).toBeGreaterThan(1)
         const t = textoDoPdf(pdf)

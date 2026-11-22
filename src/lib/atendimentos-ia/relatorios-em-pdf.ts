@@ -6,7 +6,7 @@
  * tela no papel: as mesmas categorias, na mesma ordem, os mesmos números. A4 retrato, com o cabeçalho do orçamento e "Página N de M".
  */
 import { jsPDF } from 'jspdf'
-import { quantidadeNoRelatorio, type MaterialDoRelatorio, type RelatorioDeMateriais } from './relatorio-de-materiais'
+import { fraseDoTotalSemCusto, quantidadeNoRelatorio, reaisNoRelatorio, type MaterialDoRelatorio, type RelatorioDeMateriais, type TotalDoGrupo } from './relatorio-de-materiais'
 import type { CodigoDoCorte, RelatorioDeCorte } from './relatorio-de-corte'
 import type { BarrasDoPedido, FracaoDaBarra, PlanoDoPerfil } from './barras-do-pedido'
 
@@ -94,20 +94,39 @@ class Folha {
 const AMARELO: [number, number, number] = [150, 100, 0]
 const lista = (ordens: readonly number[]) => `${ordens.length === 1 ? 'O item' : 'Os itens'} ${ordens.join(', ')}`
 
-const COLUNAS_DE_MATERIAL = [{ titulo: 'Código', w: 30 }, { titulo: 'Descrição', w: 116 }, { titulo: 'Quantidade', w: 40, alinha: 'right' as const }]
-const linhaDeMaterial = (m: MaterialDoRelatorio) => [m.codigo, m.descricao ?? '—', quantidadeNoRelatorio(m.quantidade, m.unidade)]
+const COLUNAS_DE_MATERIAL = [{ titulo: 'Código', w: 24 }, { titulo: 'Descrição', w: 78 }, { titulo: 'Quantidade', w: 28, alinha: 'right' as const },
+    { titulo: 'Custo bruto', w: 28, alinha: 'right' as const }, { titulo: 'Custo líquido', w: 28, alinha: 'right' as const }]
+const linhaDeMaterial = (m: MaterialDoRelatorio, descricao: string = m.descricao ?? '—') =>
+    [m.codigo, descricao, quantidadeNoRelatorio(m.quantidade, m.unidade), reaisNoRelatorio(m.custo_bruto), reaisNoRelatorio(m.custo_liquido)]
+/** A linha do total de um grupo: os dois custos, ou a frase que nomeia os códigos sem custo (nunca a soma com o que falta como zero). */
+export const textoDoTotal = (nome: string, t: TotalDoGrupo) =>
+    t.codigosSemCusto.length
+        ? `${nome}: ${fraseDoTotalSemCusto(t.codigosSemCusto)}.`
+        : `${nome}: custo bruto ${reaisNoRelatorio(t.custo_bruto)} · custo líquido ${reaisNoRelatorio(t.custo_liquido)}`
 
-/** O relatório de materiais em PDF: uma tabela por categoria, na ordem da base de conhecimento; à parte, os ambíguos e os sem categoria. */
+/**
+ * O relatório de materiais em PDF: uma tabela por categoria (a da tabela de onde o preço saiu), na ordem da base de conhecimento, com o total
+ * dela; à parte, os ambíguos e os sem categoria, cada um com o motivo; no fim, o total geral do pedido.
+ */
 export function pdfDoRelatorioDeMateriais(r: RelatorioDeMateriais & Extras, c: CabecalhoDoRelatorio): Uint8Array {
     const f = new Folha('Relatório de materiais', c)
     if (r.itensSemCalculo.length) f.paragrafo(`${lista(r.itensSemCalculo)} sem cálculo: os materiais não estão neste relatório.`, AMARELO)
-    if (!r.categorias.length && !r.semCategoria.length && !r.ambiguos.length) f.paragrafo('Nenhum material calculado neste orçamento.')
-    for (const cat of r.categorias) { f.titulo2(cat.rotulo); f.tabela(COLUNAS_DE_MATERIAL, cat.materiais.map(linhaDeMaterial)) }
+    if (!r.categorias.length && !r.semCategoria.length && !r.ambiguos.length) { f.paragrafo('Nenhum material calculado neste orçamento.'); return f.fechar() }
+    for (const cat of r.categorias) {
+        f.titulo2(cat.rotulo)
+        f.tabela(COLUNAS_DE_MATERIAL, cat.materiais.map((m) => linhaDeMaterial(m)))
+        f.paragrafo(textoDoTotal(`Total de ${cat.rotulo}`, cat.total))
+    }
     if (r.ambiguos.length) {
         f.titulo2('Em mais de uma categoria')
-        f.tabela(COLUNAS_DE_MATERIAL, r.ambiguos.map((a) => [a.codigo, `${a.descricao ?? '—'} (${a.categorias.join(', ')})`, quantidadeNoRelatorio(a.quantidade, a.unidade)]))
+        f.tabela(COLUNAS_DE_MATERIAL, r.ambiguos.map((a) => linhaDeMaterial(a, `${a.descricao ?? '—'} (${a.categorias.join(', ')}: ${a.motivo})`)))
     }
-    if (r.semCategoria.length) { f.titulo2('Sem categoria'); f.tabela(COLUNAS_DE_MATERIAL, r.semCategoria.map(linhaDeMaterial)) }
+    if (r.semCategoria.length) {
+        f.titulo2('Sem categoria')
+        f.tabela(COLUNAS_DE_MATERIAL, r.semCategoria.map((m) => linhaDeMaterial(m, `${m.descricao ?? '—'} (${m.motivo})`)))
+    }
+    f.titulo2('Total geral')
+    f.paragrafo(textoDoTotal('Total geral do pedido', r.totalGeral))
     return f.fechar()
 }
 

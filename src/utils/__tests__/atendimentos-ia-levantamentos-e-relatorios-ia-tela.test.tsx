@@ -114,10 +114,13 @@ describe('o RELATÓRIO DE MATERIAIS (dono do produto, 16/11/2026)', () => {
     it('lê a rota do orçamento e mostra uma seção por categoria, na ordem que a rota mandou, com a quantidade e a unidade', async () => {
         servidor.corpo = { relatorio: {
             categorias: [
-                { chave: 'PERFIL', rotulo: 'Perfil', materiais: [{ codigo: '9681', descricao: 'SF66 - FOLHA', unidade: 'm', quantidade: 10.5 }] },
-                { chave: 'REFORCO', rotulo: 'Reforço', materiais: [{ codigo: '8427', descricao: 'REFORÇO SF92', unidade: 'm', quantidade: 11.764 }] },
+                { chave: 'PERFIL', rotulo: 'Perfil', materiais: [{ codigo: '9681', descricao: 'SF66 - FOLHA', unidade: 'm', quantidade: 10.5, custo_bruto: 100, custo_liquido: 80 }],
+                  total: { custo_bruto: 100, custo_liquido: 80, codigosSemCusto: [] as string[] } },
+                { chave: 'REFORCO', rotulo: 'Reforço', materiais: [{ codigo: '8427', descricao: 'REFORÇO SF92', unidade: 'm', quantidade: 11.764, custo_bruto: 50.5, custo_liquido: 40.25 }],
+                  total: { custo_bruto: 50.5, custo_liquido: 40.25, codigosSemCusto: [] as string[] } },
             ],
             semCategoria: [], ambiguos: [], itensSemCalculo: [],
+            totalGeral: { custo_bruto: 150.5, custo_liquido: 120.25, codigosSemCusto: [] as string[] },
         } }
         const host = await montar(<RelatorioDeMateriais orcamentoId="o-1" numero={1} cliente="Geraldo Huck" />)
         expect(servidor.chamadas).toEqual(['/api/atendimentos-ia/orcamentos/o-1/relatorio-de-materiais'])
@@ -125,24 +128,40 @@ describe('o RELATÓRIO DE MATERIAIS (dono do produto, 16/11/2026)', () => {
         expect(host.textContent).toContain('10,50 m')
         expect(host.textContent).toContain('11,76 m')
         expect(host.querySelector('[data-itens-sem-calculo]')).toBeNull()
+        // o total de cada categoria e o total geral, na tela (22/11/2026)
+        expect(host.querySelector('[data-total="Total de Reforço"]')?.textContent?.replace(/\s/g, ' ')).toBe('Total de Reforço: custo bruto R$ 50,50 · custo líquido R$ 40,25')
+        expect(host.querySelector('[data-total="geral"]')?.textContent?.replace(/\s/g, ' ')).toBe('Total geral do pedido: custo bruto R$ 150,50 · custo líquido R$ 120,25')
+    })
+    it('o total com um código sem custo gravado NÃO sai: nomeia o código (nunca soma o que falta como zero)', async () => {
+        servidor.corpo = { relatorio: {
+            categorias: [{ chave: 'PERFIL', rotulo: 'Perfil', materiais: [{ codigo: '9681', descricao: 'F', unidade: 'm', quantidade: 1, custo_bruto: null, custo_liquido: null }],
+                total: { custo_bruto: null, custo_liquido: null, codigosSemCusto: ['9681'] } }],
+            semCategoria: [], ambiguos: [], itensSemCalculo: [], totalGeral: { custo_bruto: null, custo_liquido: null, codigosSemCusto: ['9681'] },
+        } }
+        const host = await montar(<RelatorioDeMateriais orcamentoId="o-1" numero={1} cliente="Geraldo Huck" />)
+        expect(host.querySelector('[data-total="geral"]')?.textContent).toBe('Total geral do pedido: o total não sai: o código 9681 não tem o custo gravado pelo cálculo.')
+        expect(host.textContent).not.toContain('R$ 0,00')
     })
     it('diz quais esquadrias não têm cálculo, e lista à parte o que não tem categoria e o que tem mais de uma', async () => {
         servidor.corpo = { relatorio: {
             categorias: [], itensSemCalculo: [2, 3],
-            semCategoria: [{ codigo: 'X1', descricao: null, unidade: 'un', quantidade: 4 }],
-            ambiguos: [{ codigo: 'Y1', descricao: 'peça', unidade: 'm', quantidade: 1, categorias: ['FERRAGENS', 'PERFIL'] }],
+            semCategoria: [{ codigo: 'X1', descricao: null, unidade: 'un', quantidade: 4, custo_bruto: 1, custo_liquido: 1, motivo: 'a tabela de onde o preço saiu não tem categoria declarada' }],
+            ambiguos: [{ codigo: 'Y1', descricao: 'peça', unidade: 'm', quantidade: 1, custo_bruto: 1, custo_liquido: 1, categorias: ['FERRAGENS', 'PERFIL'], motivo: 'o preço sai de mais de uma tabela, de categorias diferentes' }],
+            totalGeral: { custo_bruto: 2, custo_liquido: 2, codigosSemCusto: [] as string[] },
         } }
         const host = await montar(<RelatorioDeMateriais orcamentoId="o-1" numero={1} cliente="Geraldo Huck" />)
         expect(host.querySelector('[data-itens-sem-calculo]')?.textContent).toBe(fraseDosItensSemCalculo([2, 3]))
         expect(fraseDosItensSemCalculo([2, 3])).toBe('Os itens 2, 3 não têm cálculo: os materiais deles não estão neste relatório.')
-        expect(host.querySelector('[data-categoria="ambiguos"]')?.textContent).toContain('Y1 (FERRAGENS, PERFIL)')
-        expect(host.querySelector('[data-categoria="sem-categoria"]')?.textContent).toContain('X1')
+        expect(host.querySelector('[data-categoria="ambiguos"]')?.textContent).toContain('Y1 (FERRAGENS, PERFIL: o preço sai de mais de uma tabela, de categorias diferentes)')
+        // o código sem categoria vai NOMEADO e com o MOTIVO (dono do produto, 22/11/2026: "liste pelo nome, diga o motivo")
+        expect(host.querySelector('[data-categoria="sem-categoria"]')?.textContent).toContain('X1 (a tabela de onde o preço saiu não tem categoria declarada)')
         expect(host.textContent).not.toContain(TEXTO_SEM_MATERIAL)
     })
     it('sem material nenhum, o vazio é dito (nunca uma tabela vazia que pareça "sem material")', async () => {
-        servidor.corpo = { relatorio: { categorias: [], semCategoria: [], ambiguos: [], itensSemCalculo: [] } }
+        servidor.corpo = { relatorio: { categorias: [], semCategoria: [], ambiguos: [], itensSemCalculo: [], totalGeral: { custo_bruto: 0, custo_liquido: 0, codigosSemCusto: [] as string[] } } }
         const host = await montar(<RelatorioDeMateriais orcamentoId="o-1" numero={1} cliente="Geraldo Huck" />)
         expect(host.textContent).toContain(TEXTO_SEM_MATERIAL)
+        expect(host.querySelector('[data-total="geral"]')).toBeNull()
     })
     it('a recusa da rota aparece como erro, com a frase dela', async () => {
         servidor.status = 404; servidor.corpo = { error: 'Orçamento não encontrado.' }
