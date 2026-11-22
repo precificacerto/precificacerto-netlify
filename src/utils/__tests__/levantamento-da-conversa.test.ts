@@ -921,6 +921,17 @@ describe('(5b) as ESCOLHAS gravadas chegam ao avaliador', () => {
         expect(r.desfecho).toBe('recusou')
         expect(r.texto).toContain('a política da empresa diz ARI = "BZ9999", e na tipologia DP-02 nenhuma opção')
     })
+    it('A MAE SEM O VÃO+50 NA VARIAÇÃO (21/11/2026): entra a de ajuste em obra, o cálculo sai, e a troca é DITA na resposta e no rastro', async () => {
+        for (const v of banco.db.orcamentista_motor_variavel ?? []) {
+            if (v.variavel === 'MAE') v.opcoes = '1 = MEDIDA DO VÃO (CORTE 45/45); 2 = VÃO+40MM (CORTE 90/90) - PARA AJUSTE EM OBRA [40,00]'
+        }
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        banco.db.orcamentista_natureza_da_variavel = NATUREZA_DE_PAULA.map((l) => ({ ...l }))
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev())
+        expect(r.desfecho).toBe('levantou')
+        expect(r.texto).toContain('VÃO+40MM (CORTE 90/90) - PARA AJUSTE EM OBRA (a opção da política não existe nesta tipologia: ajuste em obra)')
+        expect(r.texto).toContain('A política diz MAE = "VAO+50MM (CORTE 90/90)", que a tipologia DP-02 não oferece; entrou a opção 2 = VÃO+40MM (CORTE 90/90) - PARA AJUSTE EM OBRA (ajuste em obra de menor acréscimo).')
+    })
     it('a natureza de OUTRA família não vale para a esquadria PVC', async () => {
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const semPolitica = await M().mensagemDoLevantamento(TENANT, t, lev())

@@ -102,7 +102,8 @@ export const confirmacaoVale = (p: PerguntaEmAberto, resumoDoArquivo: string | n
 
 /**
  * As esquadrias da proposta, com SÓ os campos da esquadria e só as que dizem alguma coisa. O número
- * (`ordem`) fica de fora: ele se refere a um levantamento que a pergunta ainda não decidiu.
+ * (`ordem`) fica de fora — ele se refere a um levantamento que a pergunta ainda não decidiu —, salvo na esquadria marcada para ALTERAR
+ * (`intencao`, 21/11/2026), em que ele é o item que o vendedor quer mudar.
  */
 export function esquadriasDaProposta(proposta: unknown): EsquadriaProposta[] {
     const itens = proposta && typeof proposta === 'object' ? (proposta as { itens?: unknown }).itens : undefined
@@ -112,8 +113,13 @@ export function esquadriasDaProposta(proposta: unknown): EsquadriaProposta[] {
         const b = bruto as Record<string, unknown>
         // o `vidro_padrao` (04/11/2026) viaja com a esquadria retida: é aplicado só quando ela fica sem vidro (`aplicarProposta`); os ambientes e a obs
         // (06/11/2026) também, já validados contra a mensagem em que foram ditos
-        const campos = Object.fromEntries([...CAMPOS_DA_ESQUADRIA, 'vidro_padrao', 'ambientes', 'obs'].filter((c) => b[c] !== undefined && b[c] !== null && b[c] !== '').map((c) => [c, b[c]]))
-        return CAMPOS_DA_ESQUADRIA.some((c) => c in campos) ? [campos] : []
+        const campos: Record<string, unknown> = Object.fromEntries([...CAMPOS_DA_ESQUADRIA, 'vidro_padrao', 'ambientes', 'obs'].filter((c) => b[c] !== undefined && b[c] !== null && b[c] !== '').map((c) => [c, b[c]]))
+        if (!CAMPOS_DA_ESQUADRIA.some((c) => c in campos)) return []
+        // A INTENÇÃO VIAJA COM A RETIDA (dono do produto, 21/11/2026, o achado da 0016): a alteração retida para perguntar o nome não volta como
+        // acréscimo. Na ALTERAÇÃO o número também viaja: é o item do levantamento que o vendedor vai nomear. Fora dela, o número não viaja
+        if (b.intencao === 'alterar' || b.intencao === 'acrescentar') campos.intencao = b.intencao
+        if (b.intencao === 'alterar' && typeof b.ordem === 'number' && Number.isInteger(b.ordem) && b.ordem > 0) campos.ordem = b.ordem
+        return [campos]
     })
 }
 

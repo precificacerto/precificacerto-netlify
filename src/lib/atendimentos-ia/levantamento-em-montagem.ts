@@ -140,6 +140,12 @@ export type ContextoDaProposta = {
     mensagem: string
     /** A esquadria que recebe o que vier sem ordem e sem tipologia; null quando não há como saber. */
     ordemPadrao: number | null
+    /**
+     * O vendedor disse que é para ACRESCENTAR (dono do produto, 21/11/2026: "alteração no levantamento pode ser a alteração do item existente OU
+     * adicionar outro item [...] o defeito é o sistema decidir sozinho"): toda esquadria da proposta vira uma esquadria NOVA — nem a `ordem`, nem a
+     * esquadria padrão, nem a única recebem. Ausente: as regras de sempre (quem chama já decidiu que é alteração, ou é montagem).
+     */
+    acrescentar?: boolean
     definicao: DefinicaoDaTipologia
     familiasDoCodigo: FamiliasDoCodigo
     /**
@@ -230,7 +236,10 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
         if (Object.keys(validos).length === 0 && corFora === null && fornecedor === null && familia === null && ambientes === null && obs === null) continue
 
         let alvo: ItemDoLevantamento | undefined
-        if (ordemValida(b.ordem)) {
+        if (ctx.acrescentar === true) {
+            alvo = itemVazio(proxima())
+            itens.push(alvo)
+        } else if (ordemValida(b.ordem)) {
             alvo = itens.find((i) => i.ordem === b.ordem)
             if (!alvo) { alvo = itemVazio(proxima()); itens.push(alvo) }
         } else if (validos.tipologia !== undefined) {

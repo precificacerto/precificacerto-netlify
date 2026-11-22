@@ -77,7 +77,8 @@ export function politicaEfetiva(empresa: Record<string, unknown> | null, nicho: 
 const forma = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, '')
 
 export type TraducaoDaPolitica =
-    | { valor: number; campo: string }
+    /** `ajuste`: a opção NÃO é a da política (ela não existe nesta variação do motor) — é a de ajuste em obra, ou a 1; diz qual e por quê */
+    | { valor: number; campo: string; ajuste?: string }
     | { semAPeca: true; campo: string }
     | { recusa: string; campo: string }
     | null
@@ -130,6 +131,29 @@ export function naturezaNaPolitica(politica: PoliticaDaEmpresa, variavel: string
  * caixa); SIM e NÃO casam o rótulo inteiro. Nenhuma ou mais de uma é recusa nomeada, como no caminho de antes. ITEM, CALCULO ou sem linha: null —
  * não é política (a fronteira trata).
  */
+/**
+ * O ARREMATE EXTERNO SEM O "VÃO+50" (dono do produto, 21/11/2026): "onde não houver VÃO+50, usa a opção de ajuste em obra que aquela variação
+ * oferece". Medido no motor da Wolff: a DP-113 só tem VÃO+40; a DP-49 tem variações com +50 e outras só com +100; a DP-90, a DP-91 e a DP-116, umas
+ * com +50 e outras com +90. A regra, só para as variáveis daqui:
+ *   1. o texto da política casa a opção (como em toda variável);
+ *   2. não casando NENHUMA, a opção de AJUSTE EM OBRA daquela variação — o rótulo do motor diz "AJUSTE EM OBRA" e "CORTE 90/90" —, a de MENOR
+ *      acréscimo (os milímetros do "+NNMM") quando houver mais de uma;
+ *   3. sem nenhuma de ajuste, a opção 1 do motor.
+ * Nunca se inventa opção: só as que o motor da variação oferece. A troca nunca é calada: a tradução devolve `ajuste` (qual e por quê), a fronteira
+ * marca a origem e o cálculo a registra no rastro. Mais de uma opção casando continua recusa nomeada (a ambiguidade não é a falta).
+ */
+export const VARIAVEIS_COM_AJUSTE_EM_OBRA: ReadonlySet<string> = new Set(['MAE'])
+const ACRESCIMO = /\+\s*(\d+(?:[.,]\d+)?)\s*MM/i
+export function opcaoDeAjusteEmObra(opcoes: ReadonlyArray<{ valor: number; rotulo: string }>): { valor: number; rotulo: string } | null {
+    const deAjuste = opcoes.flatMap((o) => {
+        const r = forma(o.rotulo)
+        const m = ACRESCIMO.exec(o.rotulo)
+        return r.includes('AJUSTEEMOBRA') && r.includes('CORTE90/90') && m ? [{ o, mm: Number(m[1].replace(',', '.')) }] : []
+    })
+    if (deAjuste.length === 0) return null
+    return deAjuste.reduce((a, b) => (b.mm < a.mm || (b.mm === a.mm && b.o.valor < a.o.valor) ? b : a)).o
+}
+
 function traduzirPelaNatureza(tipologia: string, v: Pick<VariavelDaTipologia, 'variavel' | 'opcoes'>, n: NaturezaResolvida | undefined): TraducaoDaPolitica {
     if (!n || n.natureza !== 'POLITICA' || n.opcao === null) return null
     const opcoes = opcoesDaVariavel(v.opcoes) ?? []
@@ -137,6 +161,14 @@ function traduzirPelaNatureza(tipologia: string, v: Pick<VariavelDaTipologia, 'v
     const booleano = texto === 'SIM' || texto === 'NAO'
     const achadas = opcoes.filter((o) => (booleano ? forma(o.rotulo) === texto : forma(o.rotulo).startsWith(texto)))
     if (achadas.length === 1) return { valor: achadas[0].valor, campo: v.variavel }
+    if (achadas.length === 0 && VARIAVEIS_COM_AJUSTE_EM_OBRA.has(v.variavel)) {
+        const ajuste = opcaoDeAjusteEmObra(opcoes)
+        const motivo = (o: { valor: number; rotulo: string }, porque: string) =>
+            `a política diz ${v.variavel} = "${n.opcao}", que a tipologia ${tipologia} não oferece; entrou a opção ${o.valor} = ${o.rotulo} (${porque})`
+        if (ajuste !== null) return { valor: ajuste.valor, campo: v.variavel, ajuste: motivo(ajuste, 'ajuste em obra de menor acréscimo') }
+        const primeira = opcoes.find((o) => o.valor === 1)
+        if (primeira) return { valor: 1, campo: v.variavel, ajuste: motivo(primeira, 'sem opção de ajuste em obra: a opção 1 do motor') }
+    }
     return {
         campo: v.variavel,
         recusa: `a política da empresa diz ${v.variavel} = "${n.opcao}", e na tipologia ${tipologia} ${achadas.length === 0 ? 'nenhuma opção' : 'mais de uma opção'} de ${v.variavel} começa assim (${listaDasOpcoes(opcoes)}): corrija a política ou o motor`,

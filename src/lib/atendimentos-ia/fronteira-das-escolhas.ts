@@ -32,9 +32,10 @@ import { avaliarTexto, opcoesDaVariavel, type Tipologia } from '@/lib/atendiment
 import { PECAS_QUE_NAO_ENTRAM_POR_PADRAO } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { naturezaNaPolitica, traduzirPolitica, type PoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa'
 
-export type OrigemDaEscolha = 'vendedor' | 'politica' | 'calculo' | 'padrao_do_motor' | 'principal'
+export type OrigemDaEscolha = 'vendedor' | 'politica' | 'politica_ajuste_em_obra' | 'calculo' | 'padrao_do_motor' | 'principal'
 export type VoltaAoAgente = { variavel: string; descricao: string; frase: string }
-export type EscolhasDoCalculo = { escolhas: Record<string, number>; origem: Record<string, OrigemDaEscolha>; voltas: VoltaAoAgente[] }
+/** `ajustes`: as variáveis em que a política não existia na variação e entrou a opção de ajuste em obra (ou a 1), com o motivo — o rastro. */
+export type EscolhasDoCalculo = { escolhas: Record<string, number>; origem: Record<string, OrigemDaEscolha>; voltas: VoltaAoAgente[]; ajustes: Array<{ variavel: string; motivo: string }> }
 
 const semAcento = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '')
 const numeroDoPadrao = (p: string | null) => (/^-?\d+(\.\d+)?$/.test((p ?? '').trim()) ? Number((p ?? '').trim()) : null)
@@ -75,6 +76,7 @@ export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<s
     const escolhas: Record<string, number> = { ...ditas }
     const origem: Record<string, OrigemDaEscolha> = Object.fromEntries(Object.keys(ditas).map((k) => [k, 'vendedor' as const]))
     const voltas: VoltaAoAgente[] = []
+    const ajustes: Array<{ variavel: string; motivo: string }> = []
     const condicoes = condicoesDasLinhas(tipologia)
     // os valores da conta: o que já foi decidido e, nas demais, o padrão do motor (para avaliar as condições; não é decisão)
     const valores = (): Record<string, number> => {
@@ -96,7 +98,12 @@ export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<s
         const t = traduzirPolitica(tipologia.codigo, v, politica)
         if (t === null) continue
         if ('recusa' in t) { voltas.push({ variavel: v.variavel, descricao: v.descricao ?? v.variavel, frase: t.recusa }); continue }
-        if ('valor' in t) { escolhas[v.variavel] = t.valor; origem[v.variavel] = 'politica'; continue }
+        if ('valor' in t) {
+            escolhas[v.variavel] = t.valor
+            origem[v.variavel] = t.ajuste === undefined ? 'politica' : 'politica_ajuste_em_obra'
+            if (t.ajuste !== undefined) ajustes.push({ variavel: v.variavel, motivo: t.ajuste })
+            continue
+        }
         const opcoes = (opcoesDaVariavel(v.opcoes) ?? []).map((o) => o.valor)
         const sem = principalDe(v.variavel, opcoes)
         if (sem === null) { voltas.push({ variavel: v.variavel, descricao: v.descricao ?? v.variavel, frase: `a política da empresa diz ${t.campo} = não, e nenhuma opção de ${v.variavel} da tipologia ${tipologia.codigo} é a de menos peças` }); continue }
@@ -133,5 +140,5 @@ export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<s
         escolhas[v.variavel] = principal
         origem[v.variavel] = 'principal'
     }
-    return { escolhas, origem, voltas }
+    return { escolhas, origem, voltas, ajustes }
 }

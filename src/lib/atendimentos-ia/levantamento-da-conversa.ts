@@ -452,6 +452,9 @@ async function formulasDaLinha(motorId: string, tipologia: string): Promise<{ li
     return { linha, linhas: lida.linhas.map((f) => ({ tipologia, variavel: f.variavel, descricao: f.descricao, formula: f.formula })) }
 }
 
+/** A troca da opção da política pela de ajuste em obra, dita na resposta (nunca calada): a esquadria e o motivo, com as palavras do motor. */
+export const fraseDoAjusteEmObra = (numero: number, total: number, motivo: string) => `${total > 1 ? `Item ${numero}: ` : ''}${motivo.charAt(0).toUpperCase()}${motivo.slice(1)}.`
+
 export type TipologiasDoBanco = { lidas: Record<string, Tipologia>; faltas: string[]; rotulos: string[] }
 
 /**
@@ -1034,8 +1037,12 @@ async function calcularFamilia(
     const politica = await lerPoliticaDaEmpresa(tenantId, familia.familia)
     const decididas = itensDoGrupo.map((_, k) => {
         const t = lidas[dg.esquadrias[k].tipologia]
-        return t ? escolhasDoCalculo(t, ditas[k], politica) : { escolhas: ditas[k], origem: {}, voltas: [] }
+        return t ? escolhasDoCalculo(t, ditas[k], politica) : { escolhas: ditas[k], origem: {}, voltas: [], ajustes: [] }
     })
+    // O AJUSTE EM OBRA NO RASTRO (dono do produto, 21/11/2026): a opção que entrou no lugar da política muda material e preço — nunca calada
+    const ajustesEmObra = dg.esquadrias.flatMap((e, k) => decididas[k].ajustes.map((a) => ({ e, a, valor: decididas[k].escolhas[a.variavel] })))
+    codigos.push(...ajustesEmObra.map(({ e, a, valor }) => `AJUSTE_EM_OBRA:${e.numero}:${e.tipologia}:${a.variavel}=${valor}`))
+    rotulos.push(...ajustesEmObra.map(({ e, a }) => fraseDoAjusteEmObra(e.numero, d.esquadrias.length, a.motivo)))
     const escolhas = decididas.map((x) => x.escolhas)
     dg.esquadrias.forEach((e, k) => { if (lidas[e.tipologia]) e.escolhas = descreverArremate(lidas[e.tipologia], escolhas[k], decididas[k].origem) })
     const voltas = dg.esquadrias.flatMap((e, k) => decididas[k].voltas.map((v) => faltaComEsquadrias(v.frase, [e.numero], d.esquadrias.length, e.tipologia)))
