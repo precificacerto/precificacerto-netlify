@@ -55,11 +55,12 @@ export function resumoDasVariaveis(porTipologia: Readonly<Record<string, Variave
 }
 
 /** `ajuste`: as tipologias em que o texto não casa, e entra a opção de ajuste em obra (ou a 1) — só nas variáveis com essa regra (a MAE). */
-export type ConferenciaDaOpcao = { casam: number; ajuste: string[]; semOpcao: string[]; maisDeUma: string[] }
+/** `pelaTipologia`: as tipologias cuja lista não tem a opção, e entra o padrão delas (22/11/2026). */
+export type ConferenciaDaOpcao = { casam: number; ajuste: string[]; pelaTipologia: string[]; semOpcao: string[]; maisDeUma: string[] }
 
 /** A opção em texto contra cada tipologia que tem a variável, pelo tradutor da conversa. */
 export function conferirOpcao(variavel: string, opcao: string, porTipologia: Readonly<Record<string, VariaveisDaTipologia>>): ConferenciaDaOpcao {
-    const out: ConferenciaDaOpcao = { casam: 0, ajuste: [], semOpcao: [], maisDeUma: [] }
+    const out: ConferenciaDaOpcao = { casam: 0, ajuste: [], pelaTipologia: [], semOpcao: [], maisDeUma: [] }
     const politica = { porVariavel: { [variavel]: { natureza: 'POLITICA' as const, opcao } } }
     for (const tipologia of Object.keys(porTipologia).sort((a, b) => a.localeCompare(b, 'pt-BR'))) {
         const v = porTipologia[tipologia].variaveis.find((x) => x.variavel === variavel)
@@ -67,6 +68,7 @@ export function conferirOpcao(variavel: string, opcao: string, porTipologia: Rea
         const t = traduzirPolitica(tipologia, v, politica)
         if (t === null) continue
         if ('ajuste' in t && t.ajuste !== undefined) out.ajuste.push(tipologia)
+        else if ('pelaTipologia' in t && t.pelaTipologia !== undefined) out.pelaTipologia.push(tipologia)
         else if (!('recusa' in t)) out.casam += 1
         else if (t.recusa.includes('nenhuma opção')) out.semOpcao.push(tipologia)
         else out.maisDeUma.push(tipologia)
@@ -76,14 +78,15 @@ export function conferirOpcao(variavel: string, opcao: string, porTipologia: Rea
 
 /** A frase da conferência para a tela; null quando todas casam. */
 export function fraseDaConferencia(variavel: string, opcao: string, c: ConferenciaDaOpcao): string | null {
-    if (c.semOpcao.length === 0 && c.maisDeUma.length === 0 && c.ajuste.length === 0) return null
+    if (c.semOpcao.length === 0 && c.maisDeUma.length === 0 && c.ajuste.length === 0 && c.pelaTipologia.length === 0) return null
     const lista = (xs: string[]) => (xs.length <= 10 ? xs.join(', ') : `${xs.slice(0, 10).join(', ')} e mais ${xs.length - 10}`)
     const partes = [
         c.ajuste.length > 0 ? `${c.ajuste.length} sem essa opção, onde entra a de ajuste em obra que a tipologia oferece (${lista(c.ajuste)})` : null,
+        c.pelaTipologia.length > 0 ? `${c.pelaTipologia.length} sem essa opção na lista, onde entra o padrão da tipologia (${lista(c.pelaTipologia)})` : null,
         c.semOpcao.length > 0 ? `${c.semOpcao.length} sem opção de ${variavel} que comece com "${opcao}" (${lista(c.semOpcao)})` : null,
         c.maisDeUma.length > 0 ? `${c.maisDeUma.length} com mais de uma opção que começa assim (${lista(c.maisDeUma)})` : null,
     ].filter((p): p is string => p !== null)
-    const recusam = c.semOpcao.length + c.maisDeUma.length > 0 ? ' Nas que não casam nem têm ajuste, a conversa recusa nomeando a política, nunca escolhe uma opção.' : ''
+    const recusam = c.semOpcao.length + c.maisDeUma.length > 0 ? ' Nessas, a lista tem uma opção parecida (ou mais de uma), e a conversa pergunta nomeando a política: nunca escolhe uma opção.' : ''
     return `Casa em ${c.casam} tipologia${c.casam === 1 ? '' : 's'}; ${partes.join('; ')}.${recusam}`
 }
 

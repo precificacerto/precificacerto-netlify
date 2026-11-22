@@ -1043,7 +1043,7 @@ async function calcularFamilia(
     const politica = await lerPoliticaDaEmpresa(tenantId, familia.familia)
     const decididas = itensDoGrupo.map((_, k) => {
         const t = lidas[dg.esquadrias[k].tipologia]
-        return t ? escolhasDoCalculo(t, ditas[k], politica) : { escolhas: ditas[k], origem: {}, voltas: [], ajustes: [], equivalencias: [] }
+        return t ? escolhasDoCalculo(t, ditas[k], politica) : { escolhas: ditas[k], origem: {}, voltas: [], ajustes: [], equivalencias: [], pelaTipologia: [] }
     })
     // O AJUSTE EM OBRA NO RASTRO (dono do produto, 21/11/2026): a opção que entrou no lugar da política muda material e preço — nunca calada
     const ajustesEmObra = dg.esquadrias.flatMap((e, k) => decididas[k].ajustes.map((a) => ({ e, a, valor: decididas[k].escolhas[a.variavel] })))
@@ -1051,6 +1051,8 @@ async function calcularFamilia(
     codigos.push(...rastro)
     rotulos.push(...ajustesEmObra.map(({ e, a }) => fraseDoAjusteEmObra(e.numero, d.esquadrias.length, a.motivo)))
     // A EQUIVALÊNCIA NO RASTRO (22/11/2026): a opção da política que entrou com outro rótulo (a lista não separa a chave) — a mesma peça, registrada
+    // A TIPOLOGIA MANDA (22/11/2026): a opção da política que a lista não tem deu lugar ao padrão da tipologia — registrado, nunca calado
+    rastro.push(...dg.esquadrias.flatMap((e, k) => decididas[k].pelaTipologia.map((q) => `PELA_TIPOLOGIA:${e.numero}:${e.tipologia}:${q.variavel}=${decididas[k].escolhas[q.variavel]}`)))
     rastro.push(...dg.esquadrias.flatMap((e, k) => decididas[k].equivalencias.map((q) => `POLITICA_POR_EQUIVALENCIA:${e.numero}:${e.tipologia}:${q.variavel}=${decididas[k].escolhas[q.variavel]}`)))
     const escolhas = decididas.map((x) => x.escolhas)
     dg.esquadrias.forEach((e, k) => { if (lidas[e.tipologia]) e.escolhas = descreverArremate(lidas[e.tipologia], escolhas[k], decididas[k].origem) })
