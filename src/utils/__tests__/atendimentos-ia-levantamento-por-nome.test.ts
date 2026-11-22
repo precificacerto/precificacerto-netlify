@@ -7811,6 +7811,31 @@ describe('(47) alterar ou acrescentar: a intenção dita manda; sem ela, a conve
         await chamar('altera o item 1')
         expect(itensDe(doJoao().id).map((i) => [i.ordem, i.largura_mm])).toEqual([[1, 900]])
     })
+    it('(g) o número de um item que existe, mesmo com a esquadria inteira, já diz que é alteração: muda o item, sem perguntar', async () => {
+        await fecharDp02(JOAO)
+        llmResponde({ nome: JOAO, itens: [{ ordem: 1, largura_mm: 900, altura_mm: 900 }] })
+        await chamar(`${JOAO}: o 1 é 900 x 900`)
+        expect(itensDe(doJoao().id).map((i) => [i.ordem, i.largura_mm])).toEqual([[1, 900]])
+        expect(enviados().some((e) => e.includes('para acrescentar, ou altera'))).toBe(false)
+    })
+    it('(h) "altera o item 2" à pergunta, num levantamento de DOIS itens: a retida muda o 2, não o 1', async () => {
+        await fecharDp02(JOAO)
+        llmResponde({ nome: JOAO, alteracao: 'acrescentar', itens: [{ ...DP02, largura_mm: 700, altura_mm: 700 }] })
+        await chamar(`${JOAO}: acrescenta uma DP-02 de 700 x 700, branco, temperado 5mm`)
+        llmResponde({ nome: JOAO, itens: [{ largura_mm: 900, altura_mm: 900 }] })
+        await chamar(`${JOAO}: 900 x 900`)
+        expect(ultimoEnviado()).toContain('para acrescentar, ou altera')
+        llmResponde({ alteracao: 'alterar', itens: [{ ordem: 2 }] })
+        await chamar('altera o item 2')
+        expect(itensDe(doJoao().id).map((i) => [i.ordem, i.largura_mm])).toEqual([[1, 1200], [2, 900]])
+    })
+    it('(j) a retida só leva o NÚMERO quando é para alterar: na de "acrescentar" ou sem intenção, ele não viaja', () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { esquadriasDaProposta } = require('@/lib/atendimentos-ia/pergunta-em-aberto') as typeof import('@/lib/atendimentos-ia/pergunta-em-aberto')
+        expect(esquadriasDaProposta({ itens: [{ ordem: 2, vidro: 'x', intencao: 'alterar' }] })).toEqual([{ vidro: 'x', intencao: 'alterar', ordem: 2 }])
+        expect(esquadriasDaProposta({ itens: [{ ordem: 2, vidro: 'x', intencao: 'acrescentar' }] })).toEqual([{ vidro: 'x', intencao: 'acrescentar' }])
+        expect(esquadriasDaProposta({ itens: [{ ordem: 2, vidro: 'x' }] })).toEqual([{ vidro: 'x' }])
+    })
     it('(f) o que JÁ diz que é alteração não pergunta: o número de um item que existe, e a correção de campo de uma esquadria que não está inteira', async () => {
         await fecharDp02(JOAO)
         llmResponde({ nome: JOAO, itens: [{ ordem: 1, quantidade: 3 }] })

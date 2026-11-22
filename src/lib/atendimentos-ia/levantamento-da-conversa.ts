@@ -453,7 +453,7 @@ async function formulasDaLinha(motorId: string, tipologia: string): Promise<{ li
 }
 
 /** A troca da opção da política pela de ajuste em obra, dita na resposta (nunca calada): a esquadria e o motivo, com as palavras do motor. */
-export const fraseDoAjusteEmObra = (numero: number, total: number, motivo: string) => `${total > 1 ? `Esquadria ${numero}: ` : ''}${motivo.charAt(0).toUpperCase()}${motivo.slice(1)}.`
+export const fraseDoAjusteEmObra = (numero: number, total: number, motivo: string) => `${total > 1 ? `Item ${numero}: ` : ''}${motivo.charAt(0).toUpperCase()}${motivo.slice(1)}.`
 
 export type TipologiasDoBanco = { lidas: Record<string, Tipologia>; faltas: string[]; rotulos: string[] }
 

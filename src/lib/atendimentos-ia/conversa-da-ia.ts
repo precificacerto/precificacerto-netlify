@@ -1924,8 +1924,6 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                     }
                 }
                 // "sim" ou "não" à confirmação do acréscimo, sem nome: é sobre o levantamento que ela citou
-                // a resposta à pergunta "alterar ou acrescentar" (21/11/2026) — "acrescenta", "altera o item 2" — é sobre o levantamento citado, como o "sim"
-                if (lido === null && aberta?.p.pergunta === 'CONFIRMAR_ACRESCIMO' && aberta.p.nome === null && intencaoDita !== null) lido = aberta.citados[0].nome
                 if (lido === null && aberta?.p.pergunta === 'CONFIRMAR_ACRESCIMO' && aberta.p.nome === null && confirma !== null) {
                     const citado = aberta.citados[0]
                     if (confirma) lido = citado.nome

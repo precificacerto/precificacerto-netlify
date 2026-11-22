@@ -231,7 +231,7 @@ describe('(9) a MAE sem a opção da política: o ajuste em obra que a variaçã
     it('a linha do documento diz de onde veio, com o rótulo do motor', () => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const E = require('@/lib/atendimentos-ia/escolhas-da-tipologia') as typeof import('@/lib/atendimentos-ia/escolhas-da-tipologia')
-        const tip = { variaveis: [{ variavel: 'MAE', descricao: 'MEDIDA DO ARREMATE EXTERNO', padrao: '1', condicao: 'sempre', opcoes: MEDIDAS['DP-113'], condicao_opcoes: null }] }
+        const tip = { variaveis: [{ variavel: 'MAE', descricao: 'MEDIDA DO ARREMATE EXTERNO', padrao: '1', condicao: 'sempre', opcoes: MEDIDAS['DP-113'], condicao_opcoes: null as string | null }] }
         expect(E.descreverArremate(tip, { MAE: 2 }, { MAE: 'politica_ajuste_em_obra' }))
             .toBe('medida do arremate externo: VÃO+40MM (CORTE 90/90) - PARA AJUSTE EM OBRA (a opção da política não existe nesta tipologia: ajuste em obra)')
     })
