@@ -4,8 +4,9 @@
  * corte e o item/tipologia de origem) e a sobra; e o resumo por perfil — barras, peso bruto, peso líquido e aproveitamento.
  * Lê `/api/atendimentos-ia/orcamentos/[id]/barras-do-pedido`. Não muda o preço do orçamento.
  */
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Card, Empty, Spin, Table, Typography } from 'antd'
+import { FolhaA4, SeletorDaVista, VISTA_PADRAO, type VistaDoRelatorio } from './folha-a4.component'
 import type { PlanoDoPerfil } from '@/lib/atendimentos-ia/barras-do-pedido'
 import type { BarrasDoPedidoDoOrcamento } from '@/lib/atendimentos-ia/barras-do-pedido-servidor'
 import { fracaoNoRelatorio, resumoDoPerfil, tituloDoPerfil } from '@/lib/atendimentos-ia/relatorios-em-pdf'
@@ -35,8 +36,15 @@ function BlocoDoPerfil({ p }: { p: PlanoDoPerfil }) {
     )
 }
 
-export function BarrasDoPedidoDoOrcamento({ orcamentoId, numero, cliente }: { orcamentoId: string; numero: number; cliente: string }) {
+export function BarrasDoPedidoDoOrcamento({ orcamentoId, numero, cliente, vistaInicial = VISTA_PADRAO }: { orcamentoId: string; numero: number; cliente: string; vistaInicial?: VistaDoRelatorio }) {
     const [estado, setEstado] = useState<Estado>({ tipo: 'carregando' })
+    // a FOLHA A4 é a vista padrão (dono do produto, 22/11/2026): o próprio PDF, pela mesma função do "Baixar PDF"
+    const [vista, setVista] = useState<VistaDoRelatorio>(vistaInicial)
+    const pronto = estado.tipo === 'pronto' ? estado.relatorio : null
+    const gerar = useCallback(async () => {
+        const m = await import('@/lib/atendimentos-ia/relatorios-em-pdf')
+        return m.pdfDasBarrasDoPedido(pronto as NonNullable<typeof pronto>, { numero, cliente, geradoEm: new Date() })
+    }, [pronto, numero, cliente])
     useEffect(() => {
         let vivo = true
         setEstado({ tipo: 'carregando' })
@@ -60,9 +68,11 @@ export function BarrasDoPedidoDoOrcamento({ orcamentoId, numero, cliente }: { or
     const vazio = r.perfis.length === 0 && r.semPlano.length === 0
     return (
         <div data-barras-do-pedido="">
-            <div style={{ textAlign: 'right', marginBottom: 12 }}>
-                <Button data-baixar-pdf="barras_do_pedido" onClick={async () => { const m = await import('@/lib/atendimentos-ia/relatorios-em-pdf'); m.baixarPdf(m.pdfDasBarrasDoPedido(r, { numero, cliente, geradoEm: new Date() }), m.nomeDoRelatorio('barras_do_pedido', numero, cliente)) }}>Baixar PDF</Button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                <SeletorDaVista vista={vista} mudar={setVista} />
+                <Button data-baixar-pdf="barras_do_pedido" onClick={async () => { const m = await import('@/lib/atendimentos-ia/relatorios-em-pdf'); m.baixarPdf(await gerar(), m.nomeDoRelatorio('barras_do_pedido', numero, cliente)) }}>Baixar PDF</Button>
             </div>
+            {vista === 'a4' ? <FolhaA4 gerar={gerar} titulo="Barras do pedido" /> : (<>
             <Alert type="info" showIcon style={{ marginBottom: 12 }} message={AVISO_DO_PRECO} />
             {r.itensSemCalculo.length > 0 && <Alert type="warning" showIcon style={{ marginBottom: 12 }} message={`${lista(r.itensSemCalculo)} sem cálculo: as peças não estão neste relatório.`} data-itens-sem-calculo="" />}
             {r.itensSemPecas.length > 0 && <Alert type="info" showIcon style={{ marginBottom: 12 }} message={`${lista(r.itensSemPecas)} calculado(s) antes do relatório de corte existir: recalcule o orçamento para ver as peças.`} data-itens-sem-pecas="" />}
@@ -98,6 +108,7 @@ export function BarrasDoPedidoDoOrcamento({ orcamentoId, numero, cliente }: { or
                     {r.semPlano.map((s) => <Alert key={`${s.codigo}|${s.cor ?? ''}`} type="warning" showIcon style={{ marginBottom: 8 }} message={`${tituloDoPerfil(s)}: ${s.motivo.replace(/\.$/, '')}.`} />)}
                 </section>
             )}
+            </>)}
         </div>
     )
 }

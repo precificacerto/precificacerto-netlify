@@ -5,8 +5,9 @@
  *
  * O que não veio é dito (lacuna nomeada), nunca preenchido: a cor e a posição do vidro, os serviços, a figura do acessório.
  */
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Card, Empty, Spin, Table, Typography } from 'antd'
+import { FolhaA4, SeletorDaVista, VISTA_PADRAO, type VistaDoRelatorio } from './folha-a4.component'
 import {
     COLUNAS_DO_VIDRO, COLUNAS_DOS_ACESSORIOS, COLUNAS_DOS_PERFIS, COLUNAS_DOS_SERVICOS, celulasDoAcessorio, celulasDoPerfil, celulasDoVidro,
     fimDoVidro, fimDosPerfis, medidaDaEsquadria, tituloDaEsquadria, type EsquadriaDoOrientativo,
@@ -63,8 +64,15 @@ function Esquadria({ e }: { e: EsquadriaDoOrientativo }) {
     )
 }
 
-export function OrientativoDeMontagem({ orcamentoId, numero, cliente }: { orcamentoId: string; numero: number; cliente: string }) {
+export function OrientativoDeMontagem({ orcamentoId, numero, cliente, vistaInicial = VISTA_PADRAO }: { orcamentoId: string; numero: number; cliente: string; vistaInicial?: VistaDoRelatorio }) {
     const [estado, setEstado] = useState<Estado>({ tipo: 'carregando' })
+    // a FOLHA A4 é a vista padrão (dono do produto, 22/11/2026): o próprio PDF, pela mesma função do "Baixar PDF"
+    const [vista, setVista] = useState<VistaDoRelatorio>(vistaInicial)
+    const pronto = estado.tipo === 'pronto' ? estado.relatorio : null
+    const gerar = useCallback(async () => {
+        const m = await import('@/lib/atendimentos-ia/relatorios-em-pdf')
+        return m.pdfDoOrientativoDeMontagem(pronto as NonNullable<typeof pronto>, { numero, cliente, geradoEm: new Date() })
+    }, [pronto, numero, cliente])
     useEffect(() => {
         let vivo = true
         setEstado({ tipo: 'carregando' })
@@ -87,15 +95,18 @@ export function OrientativoDeMontagem({ orcamentoId, numero, cliente }: { orcame
     const r = estado.relatorio
     return (
         <div data-orientativo-de-montagem="">
-            <div style={{ textAlign: 'right', marginBottom: 12 }}>
-                <Button data-baixar-pdf="orientativo_de_montagem" onClick={async () => { const m = await import('@/lib/atendimentos-ia/relatorios-em-pdf'); m.baixarPdf(m.pdfDoOrientativoDeMontagem(r, { numero, cliente, geradoEm: new Date() }), m.nomeDoRelatorio('orientativo_de_montagem', numero, cliente)) }}>Baixar PDF</Button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                <SeletorDaVista vista={vista} mudar={setVista} />
+                <Button data-baixar-pdf="orientativo_de_montagem" onClick={async () => { const m = await import('@/lib/atendimentos-ia/relatorios-em-pdf'); m.baixarPdf(await gerar(), m.nomeDoRelatorio('orientativo_de_montagem', numero, cliente)) }}>Baixar PDF</Button>
             </div>
+            {vista === 'a4' ? <FolhaA4 gerar={gerar} titulo="Orientativo de montagem" /> : (<>
             {r.itensSemCalculo.length > 0 && <Alert type="warning" showIcon style={{ marginBottom: 12 }} message={`${lista(r.itensSemCalculo)} sem cálculo: não estão neste orientativo.`} data-itens-sem-calculo="" />}
             {r.esquadrias.length === 0 && <Empty description={TEXTO_SEM_ESQUADRIA} />}
             {r.esquadrias.map((e) => <Esquadria key={e.ordem} e={e} />)}
             {r.esquadrias.length > 0 && (
                 <Alert type="info" style={{ marginTop: 8 }} data-avisos-do-rodape="" message={<ul style={{ margin: 0, paddingLeft: 18 }}>{r.avisosDoRodape.map((a) => <li key={a}>{a}</li>)}</ul>} />
             )}
+            </>)}
         </div>
     )
 }

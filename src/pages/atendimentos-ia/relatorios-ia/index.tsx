@@ -9,6 +9,7 @@
  */
 import React, { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Card, Empty, Spin, Table, Tabs, Typography } from 'antd'
+import { ArrowLeftOutlined } from '@ant-design/icons'
 
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
@@ -61,33 +62,37 @@ const RelatoriosIA: React.FC = () => {
                 {estado.tipo === 'desligada' && <Alert type="info" showIcon message="O Atendimentos I.A. não está ligado nesta conta." />}
                 {estado.tipo === 'sem-permissao' && <Alert type="warning" showIcon message="Você não tem permissão para ver os Relatórios I.A." />}
                 {estado.tipo === 'erro' && <Alert type="error" showIcon message={estado.mensagem} />}
-                {estado.tipo === 'pronto' && (
+                {/* UM CLIENTE DE CADA VEZ (dono do produto, 22/11/2026): com um cliente aberto, a lista SOME; trocar de cliente é "Voltar" */}
+                {estado.tipo === 'pronto' && aberto === null && (
                     <Card size="small">
-                        <Table<OrcamentoParaRelatorio> size="small" rowKey="id" data-lista-de-clientes="" style={{ marginBottom: 16 }}
+                        <Table<OrcamentoParaRelatorio> size="small" rowKey="id" data-lista-de-clientes=""
                             pagination={estado.orcamentos.length > 20 ? { pageSize: 20 } : false} locale={{ emptyText: TEXTO_SEM_CLIENTE }}
                             dataSource={estado.orcamentos}
-                            rowClassName={(o) => (o.id === escolhido ? 'ant-table-row-selected' : '')}
                             onRow={(o) => ({ onClick: () => setEscolhido(o.id), style: { cursor: 'pointer' }, 'data-cliente': o.id } as React.HTMLAttributes<HTMLElement>)}
                             columns={[
                                 { title: 'Nº', dataIndex: 'numero', key: 'numero', width: 70 },
                                 { title: 'Cliente', dataIndex: 'nome', key: 'nome' },
                                 { title: 'Data', dataIndex: 'criado_em', key: 'criado_em', width: 110, render: (d: string) => dataBR(d) },
                                 { title: 'Itens', dataIndex: 'itens', key: 'itens', width: 70, align: 'right' as const },
-                                { title: '', key: 'abrir', width: 120, render: (_: unknown, o) => <Button size="small" type={o.id === escolhido ? 'primary' : 'default'}>{o.id === escolhido ? 'Aberto' : 'Ver relatórios'}</Button> },
+                                { title: '', key: 'abrir', width: 120, render: () => <Button size="small">Ver relatórios</Button> },
                             ]} />
-                        {aberto === null ? <Typography.Paragraph type="secondary" data-sem-orcamento="">{TEXTO_SEM_ORCAMENTO}</Typography.Paragraph> : (
-                            <>
-                            <Typography.Title level={5} data-cliente-aberto="">{`Orçamento ${aberto.numero} — ${aberto.nome}`}</Typography.Title>
-                            <Tabs key={aberto.id} items={ABAS_DOS_RELATORIOS.map((a) => ({
-                                key: a.key, label: a.label,
-                                children: (
-                                    <div data-aba-do-relatorio={a.key}>
-                                        {a.key === 'materiais' ? <RelatorioDeMateriais orcamentoId={aberto.id} numero={aberto.numero} cliente={aberto.nome} /> : a.key === 'corte' ? <RelatorioDeCorte orcamentoId={aberto.id} numero={aberto.numero} cliente={aberto.nome} /> : a.key === 'barras' ? <BarrasDoPedidoDoOrcamento orcamentoId={aberto.id} numero={aberto.numero} cliente={aberto.nome} /> : a.key === 'orientativo' ? <OrientativoDeMontagem orcamentoId={aberto.id} numero={aberto.numero} cliente={aberto.nome} /> : <Empty description={TEXTO_DA_ABA_SEM_CONTEUDO} />}
-                                    </div>
-                                ),
-                            }))} />
-                            </>
-                        )}
+                        <Typography.Paragraph type="secondary" style={{ marginTop: 16, marginBottom: 0 }} data-sem-orcamento="">{TEXTO_SEM_ORCAMENTO}</Typography.Paragraph>
+                    </Card>
+                )}
+                {estado.tipo === 'pronto' && aberto !== null && (
+                    <Card size="small">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+                            <Button icon={<ArrowLeftOutlined />} onClick={() => setEscolhido(null)} data-voltar-a-lista="">Voltar</Button>
+                            <Typography.Title level={5} style={{ margin: 0 }} data-cliente-aberto="">{`Orçamento ${aberto.numero} — ${aberto.nome}`}</Typography.Title>
+                        </div>
+                        <Tabs key={aberto.id} items={ABAS_DOS_RELATORIOS.map((a) => ({
+                            key: a.key, label: a.label,
+                            children: (
+                                <div data-aba-do-relatorio={a.key}>
+                                    {a.key === 'materiais' ? <RelatorioDeMateriais orcamentoId={aberto.id} numero={aberto.numero} cliente={aberto.nome} /> : a.key === 'corte' ? <RelatorioDeCorte orcamentoId={aberto.id} numero={aberto.numero} cliente={aberto.nome} /> : a.key === 'barras' ? <BarrasDoPedidoDoOrcamento orcamentoId={aberto.id} numero={aberto.numero} cliente={aberto.nome} /> : a.key === 'orientativo' ? <OrientativoDeMontagem orcamentoId={aberto.id} numero={aberto.numero} cliente={aberto.nome} /> : <Empty description={TEXTO_DA_ABA_SEM_CONTEUDO} />}
+                                </div>
+                            ),
+                        }))} />
                     </Card>
                 )}
             </div>
