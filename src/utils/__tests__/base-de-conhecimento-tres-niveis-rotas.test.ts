@@ -90,8 +90,8 @@ function montar() {
             { id: N_MARC, modelo: 'FABRICACAO', nome: 'Marcenaria' },
         ],
         orcamentista_config: [
-            { tenant_id: T_A, nicho_id: N_ESQ },
-            { tenant_id: T_B, nicho_id: N_MARC },
+            { tenant_id: T_A, nicho_id: N_ESQ, modelo: 'FABRICACAO' },
+            { tenant_id: T_B, nicho_id: N_MARC, modelo: 'REVENDA' },
         ],
         orcamentista_fornecedor: [
             { id: F_WOLFF, nicho_id: N_ESQ, nome: 'Wolff', criado_em: null, criado_por: null },
@@ -200,6 +200,7 @@ const ROTAS = {
     ferragens: rota('ferragens'),
     instalacao: rota('instalacao'),
     familiaDaMateriaPrima: rota('familia-da-materia-prima'),
+    formatoDaMateriaPrima: rota('formato-da-materia-prima'),
 }
 
 async function chamar(nome: keyof typeof ROTAS, method: string, query: Linha = {}, body?: unknown) {
@@ -226,6 +227,7 @@ const CADA_ESCRITA: Caso[] = [
         { p_tenant: T_A, p_mp_categoria: C_PVC_PERFIL, p_lista: [{ fornecedor_id: F_WOLFF, principal: true }] }],
     ['materiaPrima', 'DELETE', { tenant: T_A, materia_prima: MP_PVC }, undefined, 'superadmin_remover_materia_prima', { p_tenant: T_A, p_materia_prima: MP_PVC }],
     ['familiaDaMateriaPrima', 'PUT', { tenant: T_A }, { materia_prima: MP_PVC, familia: 'PVC' }, 'superadmin_definir_familia_da_materia_prima', { p_tenant: T_A, p_materia_prima: MP_PVC, p_familia: 'PVC' }],
+    ['formatoDaMateriaPrima', 'PUT', { tenant: T_A }, { materia_prima: MP_PVC, formato: 'REVENDA' }, 'superadmin_definir_formato_da_materia_prima', { p_tenant: T_A, p_materia_prima: MP_PVC, p_formato: 'REVENDA' }],
     ['arvore', 'PUT', { tenant: T_A }, { arvore: { materias_primas: [{ nome: 'PVC' }] } }, 'superadmin_gravar_arvore', { p_tenant: T_A, p_arvore: { materias_primas: [{ nome: 'PVC' }] } }],
 ]
 /** As três rotas das listas que SAÍRAM (03/11/2026, migração 20261103000002): 410 com a frase para o super admin, sem chamar função. */
@@ -413,6 +415,11 @@ describe('(6) GET — a árvore inteira da empresa, numa resposta só', () => {
     })
     const mp = (j: any, nome: string) => j.materias_primas.find((m: Linha) => m.nome === nome)
     const categoria = (j: any, nome: string, chave: string) => mp(j, nome).categorias.find((c: Linha) => c.categoria_chave === chave)
+
+    it('o modelo DA CONTA vem junto (o formato principal das famílias, 23/11/2026) — o desta empresa, não o de outra', async () => {
+        expect((await chamar('arvore', 'GET', { tenant: T_A })).json.modelo_da_conta).toBe('FABRICACAO')
+        expect((await chamar('arvore', 'GET', { tenant: T_B })).json.modelo_da_conta).toBe('REVENDA')
+    })
 
     it('as matérias-primas da empresa, na ordem — e nenhuma de outra empresa', async () => {
         const r = await chamar('arvore', 'GET', { tenant: T_A })
@@ -794,6 +801,61 @@ describe('(7) PUT /familia-da-materia-prima — a família escolhe as ramificaç
 
     it('só PUT: GET, POST e DELETE são 405', async () => {
         for (const m of ['GET', 'POST', 'DELETE']) expect((await chamar('familiaDaMateriaPrima', m, { tenant: T_A }, {})).status).toBe(405)
+        nenhumaEscrita()
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+describe('(8) PUT /formato-da-materia-prima — o formato é da FAMÍLIA: fabricação ou revenda (23/11/2026)', () => {
+    const put = (corpo: unknown) => chamar('formatoDaMateriaPrima', 'PUT', { tenant: T_A }, corpo)
+
+    it('chama SÓ superadmin_definir_formato_da_materia_prima, com a empresa da URL e o autor da sessão', async () => {
+        const r = await put({ materia_prima: MP_ALU, formato: 'FABRICACAO' })
+        expect(r.status).toBe(200)
+        expect(estado.rpcs).toEqual([{ nome: 'superadmin_definir_formato_da_materia_prima', args: { p_tenant: T_A, p_por: SUPER.id, p_materia_prima: MP_ALU, p_formato: 'FABRICACAO' } }])
+        expect(estado.escritasDiretas).toEqual([])
+    })
+
+    it('o formato é normalizado (espaço e caixa) antes da função', async () => {
+        await put({ materia_prima: MP_PVC, formato: '  revenda ' })
+        expect(estado.rpcs[0].args.p_formato).toBe('REVENDA')
+    })
+
+    it.each([
+        ['formato null (a família não volta a "não escolhido" pela tela)', { materia_prima: MP_PVC, formato: null }],
+        ['formato ausente', { materia_prima: MP_PVC }],
+        ['formato fora da lista', { materia_prima: MP_PVC, formato: 'PRODUZIDO' }],
+        ['formato que não é texto', { materia_prima: MP_PVC, formato: 1 }],
+        ['matéria-prima que não é uuid', { materia_prima: 'x', formato: 'REVENDA' }],
+        ['campo que não existe', { materia_prima: MP_PVC, formato: 'REVENDA', familia: 'PVC' }],
+        ['o autor no corpo', { materia_prima: MP_PVC, formato: 'REVENDA', por: SUPER.id }],
+        ['corpo que não é objeto', 'REVENDA'],
+        ['corpo lista', [MP_PVC]],
+    ])('%s: 400 nomeado, e a função NÃO é chamada', async (_nome, corpo) => {
+        const r = await put(corpo)
+        expect(r.status).toBe(400)
+        expect(typeof r.json.error).toBe('string')
+        nenhumaEscrita()
+    })
+
+    it('o erro do formato é nomeado no campo formato', async () => {
+        const r = await put({ materia_prima: MP_PVC, formato: 'PRODUZIDO' })
+        expect(r.json.erros).toEqual([{ campo: 'formato', mensagem: 'obrigatório: FABRICACAO ou REVENDA' }])
+    })
+
+    it.each([
+        ['22023', 400, 'formato da familia: o formato e FABRICACAO ou REVENDA. Nada foi gravado.'],
+        ['P0002', 404, 'formato da familia: a materia-prima nao e desta empresa.'],
+        ['42501', 403, 'o autor da alteracao nao e super admin'],
+    ])('o código %s vira %i com a mensagem da função', async (code, status, message) => {
+        estado.respostaDoRpc = { data: null, error: { code, message } }
+        const r = await put({ materia_prima: MP_PVC, formato: 'REVENDA' })
+        expect(r.status).toBe(status)
+        expect(r.json).toEqual({ error: message })
+    })
+
+    it('só PUT: GET, POST e DELETE são 405', async () => {
+        for (const m of ['GET', 'POST', 'DELETE']) expect((await chamar('formatoDaMateriaPrima', m, { tenant: T_A }, {})).status).toBe(405)
         nenhumaEscrita()
     })
 })

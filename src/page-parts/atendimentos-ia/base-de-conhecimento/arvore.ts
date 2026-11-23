@@ -44,13 +44,16 @@ export type CampoDoCatalogo = { categoria_chave: string; chave: string; tipo: Ti
 export type FornecedorGravado = Linha & { fornecedor_id: string; principal: boolean; ordem: number; nome_do_fornecedor?: string | null }
 /** `instrucao` só existe depois da `20261103000002`: ausente é null ("não informada"). */
 export type CategoriaLida = Linha & { id: string; categoria_chave: string; config: Linha | null; fornecedores: FornecedorGravado[]; instrucao?: string | null }
-export type MateriaPrimaLida = Linha & { id: string; nome: string; ordem: number; familia?: string | null; categorias: CategoriaLida[] }
+/** `formato` AUSENTE (undefined) = a migração 20261123000001 não foi aplicada; null = não escolhido. */
+export type MateriaPrimaLida = Linha & { id: string; nome: string; ordem: number; familia?: string | null; formato?: string | null; categorias: CategoriaLida[] }
 /** As famílias da lista e as ramificações que cada uma declara (`orcamentista_familia_ramificacao`), na ordem dela. */
 export type FamiliaDoCatalogo = { chave: string; rotulo: string; ordem: number }
 export type RamificacaoDaFamilia = { familia: string; categoria_chave: string; ordem: number }
 export type ArvoreLida = {
     tenant_id: string
     nicho: { id: string; modelo: string; nome: string } | null
+    /** `orcamentista_config.modelo`: o formato PRINCIPAL das famílias. Ausente na rota de antes. */
+    modelo_da_conta?: string | null
     catalogo: { categorias: CategoriaDoCatalogo[]; campos: CampoDoCatalogo[]; familias?: FamiliaDoCatalogo[]; ramificacoes?: RamificacaoDaFamilia[] }
     /** `categorias_das_tabelas`: de quais categorias o fornecedor TEM tabela; `tabelas_sem_categoria`: as tabelas dele sem categoria declarada. */
     fornecedores_do_nicho: Array<{ id: string; nome: string; categorias_das_tabelas: string[]; tabelas_sem_categoria: number }>
@@ -243,7 +246,8 @@ export type CategoriaDoFormulario = {
     /** O texto como está no campo; '' é "sem instrução". */
     instrucao: string
 }
-export type MateriaPrimaDoFormulario = { local: string; id: string | null; nome: string; familia: string | null; categorias: CategoriaDoFormulario[] }
+/** `formato`: undefined = sem a migração (a tela não mostra o seletor); null = não escolhido. */
+export type MateriaPrimaDoFormulario = { local: string; id: string | null; nome: string; familia: string | null; formato?: string | null; categorias: CategoriaDoFormulario[] }
 export type EstadoDaArvore = { materias: MateriaPrimaDoFormulario[]; removidas: Array<{ id: string; nome: string }> }
 
 let proximo = 0
@@ -269,7 +273,7 @@ export function formularioDaArvore(lida: ArvoreLida): EstadoDaArvore {
             // as ramificações da FAMÍLIA da matéria-prima; a que não é ramificação mas tem dado gravado continua aparecendo
             const ordem = categoriasDaMateriaPrima(lida.catalogo, m.familia ?? null, m.categorias.filter(categoriaTemConteudo).map((c) => c.categoria_chave))
             return {
-                local: novoLocal(), id: m.id, nome: m.nome, familia: m.familia ?? null,
+                local: novoLocal(), id: m.id, nome: m.nome, familia: m.familia ?? null, ...('formato' in m ? { formato: (m.formato as string | null) ?? null } : {}),
                 categorias: ordem.map((k) => categoriaDoFormulario(lida.catalogo, k.chave, m.categorias.find((c) => c.categoria_chave === k.chave) ?? null)),
             }
         }),
@@ -422,6 +426,12 @@ export function planoDaArvore(lida: ArvoreLida, estado: EstadoDaArvore): PlanoDa
  * Remonta a árvore pelo `depois` que a função devolveu (as seis tabelas, planas). O `depois` não
  * traz o nome do fornecedor: ele vem do que a tela já conhecia — o nicho e os nomes gravados.
  */
+function formatoDoDepois(m: Linha, antes: MateriaPrimaLida | undefined): { formato?: string | null } {
+    if (m.formato !== undefined) return { formato: (m.formato as string | null) ?? null }
+    if (antes && 'formato' in antes) return { formato: antes.formato ?? null }
+    return {}
+}
+
 export function arvoreDoDepois(depois: Record<string, Linha[] | null | undefined>, anterior: ArvoreLida): ArvoreLida {
     const nomes = new Map<string, string | null>()
     for (const m of anterior.materias_primas) for (const c of m.categorias) for (const f of c.fornecedores) nomes.set(f.fornecedor_id, f.nome_do_fornecedor ?? null)
@@ -436,6 +446,8 @@ export function arvoreDoDepois(depois: Record<string, Linha[] | null | undefined
             id: String(m.id), nome: String(m.nome), ordem: Number(m.ordem),
             // a família não vem em todo `depois`: sem ela na resposta, vale a que a tela já tinha (nunca "não informada" por esquecimento)
             familia: m.familia !== undefined ? (m.familia as string | null) : (anterior.materias_primas.find((x) => x.id === String(m.id))?.familia ?? null),
+            // o formato idem: ausente no `depois`, vale o que a tela tinha — e continua ausente se a tela não o tinha (sem a migração)
+            ...formatoDoDepois(m, anterior.materias_primas.find((x) => x.id === String(m.id))),
             categorias: (depois.orcamentista_mp_categoria ?? [])
                 .filter((c) => c.materia_prima_id === m.id)
                 .sort((a, b) => (posicao.get(String(a.categoria_chave)) ?? 0) - (posicao.get(String(b.categoria_chave)) ?? 0))

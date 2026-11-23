@@ -385,6 +385,54 @@ export function lerCorpoDaFamiliaDaMateriaPrima(corpo: unknown): { materia_prima
     return { materia_prima: typeof b.materia_prima === 'string' ? b.materia_prima : '', familia: typeof b.familia === 'string' ? b.familia.trim() : null, erros }
 }
 
+// ── O FORMATO DA FAMÍLIA: PRODUZIDO (FABRICACAO) OU REVENDA (dono do produto, 23/11/2026; migração 20261123000001) ──────────
+/**
+ * "O formato é carregado pela FAMÍLIA, e a escolha entre principal e secundário acontece na tela da família." O PRINCIPAL é o modelo
+ * que a conta já tem (`orcamentista_config.modelo`); o SECUNDÁRIO é o outro dos dois. A conta não ganha coluna. NULL = não escolhido
+ * (as famílias de antes da migração) — nunca o principal por omissão (`ausente-vs-falso.md`).
+ */
+export const FORMATOS_DA_FAMILIA = ['FABRICACAO', 'REVENDA'] as const
+export type FormatoDaFamilia = typeof FORMATOS_DA_FAMILIA[number]
+export const NOME_DO_FORMATO: Record<FormatoDaFamilia, string> = { FABRICACAO: 'Fabricação', REVENDA: 'Revenda' }
+export const FORMATO_NAO_ESCOLHIDO = 'Formato não escolhido: escolha se a família é de fabricação ou de revenda.'
+export const FORMATO_COM_PENDENCIA = 'Salve as alterações antes de trocar o formato: a tela é relida.'
+
+/** O formato do modelo da conta, ou null quando o modelo não é um dos dois (a tela então não diz qual é o principal). */
+export function formatoPrincipal(modeloDaConta: unknown): FormatoDaFamilia | null {
+    return (FORMATOS_DA_FAMILIA as readonly unknown[]).includes(modeloDaConta) ? (modeloDaConta as FormatoDaFamilia) : null
+}
+
+/** As duas opções do seletor, o principal primeiro: "Principal (Fabricação)" e "Secundário (Revenda)". Sem principal, só os nomes. */
+export function opcoesDoFormato(modeloDaConta: unknown): Array<{ value: FormatoDaFamilia; label: string }> {
+    const principal = formatoPrincipal(modeloDaConta)
+    if (!principal) return FORMATOS_DA_FAMILIA.map((f) => ({ value: f, label: NOME_DO_FORMATO[f] }))
+    const secundario = FORMATOS_DA_FAMILIA.find((f) => f !== principal) as FormatoDaFamilia
+    return [
+        { value: principal, label: `Principal (${NOME_DO_FORMATO[principal]})` },
+        { value: secundario, label: `Secundário (${NOME_DO_FORMATO[secundario]})` },
+    ]
+}
+
+/**
+ * O corpo do PUT /formato-da-materia-prima: `{ materia_prima: uuid, formato: 'FABRICACAO' | 'REVENDA' }`. Null não limpa: a família
+ * não volta a "não escolhido" pela tela (a função do banco recusa igual). O autor é o da sessão (`por` é erro).
+ */
+export function lerCorpoDoFormatoDaMateriaPrima(corpo: unknown): { materia_prima: string; formato: FormatoDaFamilia | null; erros: ErroNomeado[] } {
+    const b = corpo && typeof corpo === 'object' && !Array.isArray(corpo) ? (corpo as Record<string, unknown>) : null
+    if (!b) return { materia_prima: '', formato: null, erros: [{ campo: 'corpo', mensagem: 'o corpo é { materia_prima, formato }' }] }
+    const erros: ErroNomeado[] = Object.keys(b).filter((k) => k !== 'materia_prima' && k !== 'formato').map((k) => (k === 'por'
+        ? { campo: 'por', mensagem: 'o autor é o usuário da sessão: `por` no corpo não é aceito' }
+        : { campo: k, mensagem: 'campo desconhecido (só materia_prima e formato)' }))
+    if (typeof b.materia_prima !== 'string' || !UUID.test(b.materia_prima)) erros.push({ campo: 'materia_prima', mensagem: 'obrigatório: o id da matéria-prima' })
+    const formato = typeof b.formato === 'string' ? b.formato.trim().toUpperCase() : null
+    if (!formato || !(FORMATOS_DA_FAMILIA as readonly string[]).includes(formato)) erros.push({ campo: 'formato', mensagem: 'obrigatório: FABRICACAO ou REVENDA' })
+    return {
+        materia_prima: typeof b.materia_prima === 'string' ? b.materia_prima : '',
+        formato: formato && (FORMATOS_DA_FAMILIA as readonly string[]).includes(formato) ? (formato as FormatoDaFamilia) : null,
+        erros,
+    }
+}
+
 // ── OS CAMPOS DA CATEGORIA: SÓ cores, cor_predominante E serra_mm FICAM (dono do produto, 03/11/2026; antes, 30/10/2026) ──────
 /**
  * "CAMPOS DA CATEGORIA VIRAM UM CAMPO DE INSTRUÇÃO." Os campos estruturados das categorias saíram da tela e da gravação, e a migração

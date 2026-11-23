@@ -113,6 +113,7 @@ export function BaseDeConhecimento({ tenantId, topo }: { tenantId: string; topo:
     const [resultado, setResultado] = useState<Resultado | null>(null)
     const [erroDaFamilia, setErroDaFamilia] = useState<{ materiaPrimaId: string; mensagem: string } | null>(null)
     const [erroDoNome, setErroDoNome] = useState<{ materiaPrimaId: string; mensagem: string } | null>(null)
+    const [erroDoFormato, setErroDoFormato] = useState<{ materiaPrimaId: string; mensagem: string } | null>(null)
 
     const ler = useCallback(async () => chamarRota<BaseDaEmpresa>(ROTAS_DA_BASE.base(tenantId)), [tenantId])
 
@@ -177,6 +178,20 @@ export function BaseDeConhecimento({ tenantId, topo }: { tenantId: string; topo:
             message.success('Família da matéria-prima salva')
         } catch (e) {
             setErroDaFamilia({ materiaPrimaId, mensagem: (e as Error).message })
+        }
+    }
+
+    /** O formato da família (23/11/2026) grava na hora, por rota própria, e relê a árvore — só sem alteração pendente, como a família. */
+    async function mudarOFormato(materiaPrimaId: string, formato: string) {
+        setErroDoFormato(null)
+        try {
+            await chamarRota(ROTAS_DA_BASE.formatoDaMateriaPrima(tenantId), 'PUT', { materia_prima: materiaPrimaId, formato })
+            const nova = await chamarRota<ArvoreLida>(ROTAS_DA_BASE.arvore(tenantId))
+            setArvore(nova)
+            setFormArvore(formularioDaArvore(nova))
+            message.success('Formato da família salvo')
+        } catch (e) {
+            setErroDoFormato({ materiaPrimaId, mensagem: (e as Error).message })
         }
     }
 
@@ -286,6 +301,7 @@ export function BaseDeConhecimento({ tenantId, topo }: { tenantId: string; topo:
             erroDaRota={avisoDaArvore && 'rota' in avisoDaArvore ? avisoDaArvore.rota : null}
             naoEnviado={avisoDaArvore && 'locais' in avisoDaArvore ? avisoDaArvore.locais : null}
             aoMudarAFamilia={mudarAFamilia} familiaTravada={pendentes > 0} erroDaFamilia={erroDaFamilia}
+            aoMudarOFormato={mudarOFormato} erroDoFormato={erroDoFormato}
             aoRenomear={renomear} erroDoNome={erroDoNome} etapasDaFamilia={(m) => (
                 <EtapasDaFamilia key={m.id} tenantId={tenantId} materiaPrimaId={m.id as string} nichoId={arvore?.nicho?.id ?? null}
                     principais={m.categorias.map((c) => c.fornecedores.principal).filter((f): f is string => f !== null)}
