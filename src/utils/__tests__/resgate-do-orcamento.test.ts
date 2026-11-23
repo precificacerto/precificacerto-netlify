@@ -4,10 +4,10 @@
  * endereço perguntado; o critério que nenhuma opção tem não aparece.
  */
 jest.mock('@/supabase/admin', () => ({ supabaseAdmin: {} }))
-import { CRITERIOS_DO_ORCAMENTO, criteriosQueSeparam, fraseDeQualOrcamento, listaDosOrcamentos, ordemDoOrcamento, pedidoDoResgate, type OpcaoDoOrcamento } from '@/lib/atendimentos-ia/resgate-do-orcamento'
+import { CRITERIOS_DO_ORCAMENTO, criteriosQueSeparam, fraseDeQualOrcamento, listaDosOrcamentos, orcamentosDaLista, ordemDoOrcamento, pedidoDoResgate, type OpcaoDoOrcamento } from '@/lib/atendimentos-ia/resgate-do-orcamento'
 
 const orc = (numero: number, sobre: Partial<OpcaoDoOrcamento> = {}): OpcaoDoOrcamento => ({
-    orcamentoId: `o${numero}`, levantamentoId: `l${numero}`, numero, nome: 'Ana Souza', criado_em: '2026-11-10T15:00:00.000Z', cidade: null, valor: 1000, familias: ['PVC Wolf'], ...sobre,
+    orcamentoId: `o${numero}`, levantamentoId: `l${numero}`, numero, numeroExibido: String(numero), nome: 'Ana Souza', criado_em: '2026-11-10T15:00:00.000Z', cidade: null, valor: 1000, familias: ['PVC Wolf'], ...sobre,
 })
 const nomes = (cs: ReturnType<typeof criteriosQueSeparam>) => cs.map((c) => c.nome)
 
@@ -56,5 +56,25 @@ describe('a lista: do mais recente ao mais antigo, com o número e o que separa'
     })
     it('o valor em reais, no padrão brasileiro', () => {
         expect(listaDosOrcamentos([orc(1, { valor: 12345.6 }), orc(2, { valor: 999 })])).toBe('1) Ana Souza, nº 1 — 10/11/2026, R$ 12.345,60\n2) Ana Souza, nº 2 — 10/11/2026, R$ 999,00'.replace(/, R/g, ' · R'))
+    })
+})
+
+describe('UM ORÇAMENTO POR FAMÍLIA (23/11/2026): a lista com o número exibido e a família de cada orçamento', () => {
+    const pvc = orc(3, { levantamentoId: 'l27', numeroExibido: '27-PVC', familias: ['PVC Wolf'], criado_em: '2026-11-23T10:00:00.000Z' })
+    const alu = orc(4, { levantamentoId: 'l27', numeroExibido: '27-ALU', familias: ['Alumínio'], criado_em: '2026-11-23T10:00:01.000Z' })
+    it('a linha diz o número exibido, e a família separa os dois orçamentos do mesmo levantamento', () => {
+        const lista = listaDosOrcamentos(ordemDoOrcamento([pvc, alu]))
+        expect(lista).toBe('1) Ana Souza, nº 27-ALU — 23/11/2026 · Alumínio\n2) Ana Souza, nº 27-PVC — 23/11/2026 · PVC Wolf')
+    })
+    it('a lista guardada (o levantamento repetido, um por orçamento) é relida na mesma ordem', () => {
+        const ordem = ordemDoOrcamento([pvc, alu, orc(1)])
+        const guardados = ordem.map((o) => o.levantamentoId)
+        expect(guardados).toEqual(['l27', 'l27', 'l1'])
+        expect(orcamentosDaLista(guardados, [orc(1), pvc, alu])?.map((o) => o.orcamentoId)).toEqual(['o4', 'o3', 'o1'])
+    })
+    it('o levantamento que ganhou ou perdeu um orçamento desde a pergunta ANULA a lista (a posição mandaria outra família); o que sumiu inteiro sai', () => {
+        expect(orcamentosDaLista(['l27', 'l1'], [pvc, alu, orc(1)])).toBeNull()
+        expect(orcamentosDaLista(['l27', 'l27', 'l1'], [pvc, orc(1)])).toBeNull()
+        expect(orcamentosDaLista(['l27', 'l27', 'l1'], [orc(1)])?.map((o) => o.orcamentoId)).toEqual(['o1'])
     })
 })

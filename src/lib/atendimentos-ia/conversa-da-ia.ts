@@ -177,7 +177,7 @@ import { atravessarNoSim } from './travessia-do-levantamento'
 import { dependenciasDoServidor, destinosDoWhatsApp, enviarAoPrimeiroQueAceitar, etapaDoPreco, reenviarOArquivo } from './cadeia-do-sim'
 import { telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
 import { comOTextoDaImagem, fraseDaImagemRecusada, fraseDeConfirmarDaImagem, fraseDeConfirmarDaImagemEmOutrasPalavras, textoDaImagemDaProposta } from '@/lib/atendimentos-ia/lido-da-imagem'
-import { criteriosQueSeparam, fraseDeQualOrcamento, fraseDeQualOrcamentoEmOutrasPalavras, type CriterioDoDesempate, fraseDoOrcamentoSemArquivo, lerOrcamentosDosLevantamentos, ordemDoOrcamento, pedidoDoResgate, type OpcaoDoOrcamento } from '@/lib/atendimentos-ia/resgate-do-orcamento'
+import { criteriosQueSeparam, fraseDeQualOrcamento, fraseDeQualOrcamentoEmOutrasPalavras, type CriterioDoDesempate, fraseDoOrcamentoSemArquivo, lerOrcamentosDosLevantamentos, ordemDoOrcamento, orcamentosDaLista, pedidoDoResgate, type OpcaoDoOrcamento } from '@/lib/atendimentos-ia/resgate-do-orcamento'
 /** A saída gravada quando depois do "sim" só o arquivo foi enviado (12/11/2026, 4.3): o texto não sai ao vendedor, é a marca da resposta. */
 export const SAIDA_SO_O_ARQUIVO = '[o arquivo do orçamento foi enviado, sem texto]'
 /**
@@ -1251,9 +1251,9 @@ async function refazerPergunta(
     if (p.pergunta === 'SEM_NOME') return { p, citados, texto: FRASE_SEM_NOME }
     // a lista dos ORÇAMENTOS (18/11/2026): os orçamentos dos levantamentos citados, relidos na ordem guardada; o que sumiu sai, e sem nenhum a pergunta não vale
     if (p.pergunta === 'QUAL_ORCAMENTO') {
-        const lidos = await lerOrcamentosDosLevantamentos(tenantId, citados)
-        const orcamentos = p.levantamentos.map((id) => lidos.find((o) => o.levantamentoId === id)).filter((o): o is OpcaoDoOrcamento => !!o)
-        return orcamentos.length && p.nome ? { p, citados, orcamentos, texto: fraseDeQualOrcamento(p.nome, orcamentos) } : null
+        // um orçamento por FAMÍLIA (23/11/2026): o levantamento repetido na lista é um orçamento de cada família; a contagem que mudou anula a lista
+        const orcamentos = orcamentosDaLista(p.levantamentos, await lerOrcamentosDosLevantamentos(tenantId, citados))
+        return orcamentos && orcamentos.length && p.nome ? { p, citados, orcamentos, texto: fraseDeQualOrcamento(p.nome, orcamentos) } : null
     }
     // a CONFIRMAÇÃO DO LIDO DA IMAGEM (18/11/2026): não cita levantamento; refeita do nome e do que a imagem deu (a cidade, os vidros)
     if (p.pergunta === 'CONFIRMAR_DA_IMAGEM') return p.nome ? { p, citados: [], texto: fraseDeConfirmarDaImagem(p.nome, p.dadosDaImagem ?? {}) } : null
@@ -1750,14 +1750,14 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 enviarAoPrimeiroQueAceitar(destinosDoWhatsApp(telefone, c.telefone), (destino) => enviarDocumento(c.wuzapiToken, destino, nomeDoArquivo, pdf)))
             const r = await reenviarOArquivo(c.tenantId, { id: o.orcamentoId, numero: o.numero, nome: o.nome }, deps)
             rastro.etapas.calcular = `orcamento=${o.numero} ${r.rastro}`
-            if (r.semArquivo) return await falar(fraseDoOrcamentoSemArquivo(o.numero, o.nome), 'orcamento-sem-arquivo')
+            if (r.semArquivo) return await falar(fraseDoOrcamentoSemArquivo(o.numeroExibido, o.nome), 'orcamento-sem-arquivo')
             if (r.enviadoPara && telefonesCasam(r.enviadoPara, c.telefone)) {
                 if (alteracaoPendente) return await responder(FRASE_ALTERACAO_FORA_DO_ORCAMENTO, 'orcamento-reenviado', 'alteracao_pendente=sim', false)
                 await gravar(SAIDA_SO_O_ARQUIVO, r.idDoEnvio ?? SEM_ID_DO_ARQUIVO)
                 rastro.enviou = true
                 return fim('orcamento-reenviado', 'so_arquivo=sim')
             }
-            const texto = r.paraOVendedor ?? fraseDoOrcamentoSemArquivo(o.numero, o.nome)
+            const texto = r.paraOVendedor ?? fraseDoOrcamentoSemArquivo(o.numeroExibido, o.nome)
             return await responder(alteracaoPendente ? `${texto}\n\n${FRASE_ALTERACAO_FORA_DO_ORCAMENTO}` : texto, 'orcamento-reenviado', alteracaoPendente ? 'alteracao_pendente=sim' : '')
         }
 
@@ -1800,7 +1800,14 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 if (lido !== null && proposta.novo !== true && emEspera.length === 0 && pedidoDoResgate(c.texto) === 'orcamento') {
                     const orcamentos = ordemDoOrcamento(await lerOrcamentosDosLevantamentos(c.tenantId, [doApanhado]))
                     rastro.qualOrcamento = String(orcamentos.length)
-                    if (orcamentos.length > 0) return await mandarOrcamento(orcamentos[0], true)
+                    if (orcamentos.length === 1) return await mandarOrcamento(orcamentos[0], true)
+                    // UM ORÇAMENTO POR FAMÍLIA (23/11/2026): o levantamento com mais de um orçamento — um de cada família — pergunta qual,
+                    // nunca escolhe o mais recente em silêncio
+                    if (orcamentos.length > 1) {
+                        rastro.rota = 'QUAL_ORCAMENTO'
+                        return await perguntar({ pergunta: 'QUAL_ORCAMENTO', nome: doApanhado.nome, levantamentos: orcamentos.map((o) => o.levantamentoId), itens: [] },
+                            fraseDeQualOrcamento(doApanhado.nome, orcamentos), 'qual-orcamento')
+                    }
                     pedidoDoOrcamento = new Set([doApanhado.id])
                 }
                 alvo = { id: doApanhado.id, nome: doApanhado.nome, estado: doApanhado.estado, donoId: doApanhado.remetente_id, vendedor, itens: await lerItens(c.tenantId, doApanhado.id) }

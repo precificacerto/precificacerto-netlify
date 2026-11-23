@@ -7314,7 +7314,7 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         llmResponde({ nome: 'Ana' })
         await chamar('me manda o orçamento da Ana')
         const lista = R.ordemDoOrcamento([orcamentoDe('Ana Souza'), orcamentoDe('Ana Lima')].map((o) => ({
-            orcamentoId: String(o.id), levantamentoId: String(o.levantamento_id), numero: Number(o.numero), nome: String(o.nome), criado_em: String(o.criado_em),
+            orcamentoId: String(o.id), levantamentoId: String(o.levantamento_id), numero: Number(o.numero), numeroExibido: String(o.numero), nome: String(o.nome), criado_em: String(o.criado_em),
             cidade: o.levantamento_id === levantamentoDe('Ana Souza').id ? 'Sapiranga' : 'Novo Hamburgo', valor: Number(o.valor_venda), familias: ['PVC'],
         })))
         expect(ultimoEnviado()).toBe(R.fraseDeQualOrcamento('Ana', lista))
@@ -7327,6 +7327,44 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         expect(estado.documentosDoOrcamento).toHaveLength(documentos + 1)
         expect(linhaIa().pop()).toContain(`levantamento=${lista[1].levantamentoId} rota=ORCAMENTO`)
         expect(estado.db.orcamentista_pergunta_em_aberto ?? []).toEqual([])
+    })
+
+    it('UM ORÇAMENTO POR FAMÍLIA (23/11/2026): o levantamento com dois orçamentos lista os dois, com o número exibido e a família — e "o 2" manda o da segunda', async () => {
+        await fecharDp02('Ana Souza')
+        const pvc = orcamentoDe('Ana Souza')
+        pvc.familia = 'PVC'
+        const alu: Linha = { ...pvc, id: 'orc-alu', numero: Number(pvc.numero) + 1, familia: 'ALUMINIO', criado_em: new Date(new Date(String(pvc.criado_em)).getTime() + 1000).toISOString() }
+        ;(estado.db.orcamentista_orcamento as Linha[]).push(alu)
+        const arquivoDoPvc = (estado.db.orcamentista_orcamento_arquivo as Linha[]).find((a) => a.orcamento_id === pvc.id) as Linha
+        ;(estado.db.orcamentista_orcamento_arquivo as Linha[]).push({ ...arquivoDoPvc, id: 'arq-alu', orcamento_id: 'orc-alu' })
+        estado.db.orcamentista_familia_catalogo = [{ chave: 'PVC', rotulo: 'PVC Wolf', sigla: 'PVC' }, { chave: 'ALUMINIO', rotulo: 'Alumínio', sigla: 'ALU' }]
+        const lev = levantamentoDe('Ana Souza')
+        llmResponde({ nome: 'Ana Souza' })
+        await chamar('me manda o orçamento da Ana Souza')
+        expect(ultimoEnviado()).toContain(`1) Ana Souza, nº ${lev.numero}-ALU`)
+        expect(ultimoEnviado()).toContain(`2) Ana Souza, nº ${lev.numero}-PVC`)
+        expect(ultimoEnviado()).toContain('Alumínio')
+        expect((estado.db.orcamentista_pergunta_em_aberto as Linha[])[0]).toEqual(expect.objectContaining({ pergunta: 'QUAL_ORCAMENTO', levantamentos: [lev.id, lev.id] }))
+        const documentos = estado.documentosDoOrcamento.length
+        llmResponde({ opcao: 2 })
+        await chamar('o segundo')
+        expect(estado.documentosDoOrcamento).toHaveLength(documentos + 1)
+        // o arquivo que foi é o do PVC (o segundo da lista), pelo nome do arquivo com o número exibido
+        expect(estado.documentosDoOrcamento[estado.documentosDoOrcamento.length - 1].corpo.FileName).toBe(`Orcamento ${lev.numero}-PVC - Ana Souza.pdf`)
+    })
+
+    it('UM ORÇAMENTO POR FAMÍLIA: a família nova criada depois da pergunta ANULA a lista guardada — a posição mandaria o orçamento de outra família', async () => {
+        await fecharDp02('Ana Souza')
+        await fecharDp02('Ana Lima')
+        llmResponde({ nome: 'Ana' })
+        await chamar('me manda o orçamento da Ana')
+        expect((estado.db.orcamentista_pergunta_em_aberto as Linha[])[0]).toEqual(expect.objectContaining({ pergunta: 'QUAL_ORCAMENTO' }))
+        const souza = orcamentoDe('Ana Souza')
+        ;(estado.db.orcamentista_orcamento as Linha[]).push({ ...souza, id: 'orc-novo', numero: 99, familia: 'ALUMINIO' })
+        const documentos = estado.documentosDoOrcamento.length
+        llmResponde({ opcao: 2 })
+        await chamar('o segundo')
+        expect(estado.documentosDoOrcamento).toHaveLength(documentos)
     })
 
     it('só entram orçamentos COM VALOR e NÃO ARQUIVADOS: o sem valor e o arquivado ficam fora, e o que sobra vai sozinho', async () => {
