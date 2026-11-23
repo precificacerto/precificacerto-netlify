@@ -1,5 +1,7 @@
 import subprocess, sys, os
 # MUTACOES dos relatorios por familia (PR4, 23/11/2026), so do trecho novo (nivel 2). Roda SOZINHO na arvore.
+# 1a passada 9/11; as duas vivas (o orcamento de antes, sem familia, e o numero exibido levado ao PDF do relatorio) ganharam teste: 11/11.
+# SO=<trecho> roda so as mutacoes cujo texto contem o trecho.
 R = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')) + '/'
 T = ['src/utils/__tests__/barras-do-pedido-servidor.test.ts', 'src/utils/__tests__/orientativo-de-montagem-servidor.test.ts',
      'src/utils/__tests__/relatorios-em-pdf.test.ts', 'src/utils/__tests__/atendimentos-ia-levantamentos-e-relatorios-ia-tela.test.tsx',
