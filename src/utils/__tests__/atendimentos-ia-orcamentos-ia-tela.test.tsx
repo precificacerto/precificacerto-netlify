@@ -112,6 +112,22 @@ describe('a lista', () => {
     })
 })
 
+describe('o NÚMERO EXIBIDO (23/11/2026)', () => {
+    it('a lista mostra o número exibido na coluna Nº e no botão; sem ele (servidor de antes), o número próprio', async () => {
+        servidor.corpo = { orcamentos: [{ ...LISTA[1], numero_exibido: '27-PVC' }, LISTA[0]] }
+        const host = await montar(<Lista />)
+        const celulas = Array.from(host.querySelectorAll('tbody tr.ant-table-row')).map((tr) => tr.querySelector('td')?.textContent)
+        expect(celulas).toEqual(['27-PVC', '2'])
+        expect(botoes(host)).toContain('Editar o orçamento 27-PVC')
+    })
+    it('a edição mostra "Orçamento <exibido>" no título do cartão', async () => {
+        rota.query = { id: 'b' }
+        servidor.corpo = { orcamento: { id: 'b', numero: 1, numero_exibido: '27-PVC', origem: 'agente', levantamento_id: 'lev', nome: 'Antonio Rock', obs: null, editado_manualmente_em: null, criado_em: '2026-11-08T21:00:00Z', itens: [] } }
+        const host = await montar(<Edicao />)
+        expect(host.textContent).toContain('Orçamento 27-PVC')
+    })
+})
+
 describe('a edição', () => {
     const ORC: Record<string, unknown> = {
         id: 'b', numero: 1, origem: 'agente', levantamento_id: 'lev', nome: 'Antonio Rock', obs: null, editado_manualmente_em: null, criado_em: '2026-11-08T21:00:00Z',

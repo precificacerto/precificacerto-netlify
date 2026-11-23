@@ -47,6 +47,8 @@ export type TipoDeComprador = 'CONSUMIDOR_FINAL' | 'CONTRIBUINTE_PJ'
 export type OrcamentoNaPrecificacao = {
     id: string
     numero: number
+    /** O NÚMERO EXIBIDO (23/11/2026), só para a tela: `<levantamento>-<SIGLA>`; ausente, vale o número próprio. */
+    numero_exibido?: string
     nome: string
     comissao_percentual: number | null
     reserva_tecnica_percentual: number | null

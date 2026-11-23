@@ -505,6 +505,19 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
         expect(await atravessarNoSim(T, LEV, naEtapa)).toEqual({ rastro: `${TRAVESSIA} calculo=ok liquido=5240.40 precificacao=falhou parou=precificacao motivo="storage fora do ar"`, paraOVendedor: fraseDoArquivoQueNaoChegou(null, 'a precificação do orçamento 1 falhou. Para tentar de novo, abra o orçamento 1 na seção Orçamentos I.A. e use Precificar') })
         expect(estado.db.orcamentista_orcamento).toHaveLength(1)
     })
+    it('o NÚMERO EXIBIDO (23/11/2026): com a sigla da família no catálogo, o texto ao vendedor diz <levantamento>-<SIGLA>; o rastro fica com o número próprio', async () => {
+        comFamilia('PVC')
+        estado.db.orcamentista_familia_catalogo = [{ chave: 'PVC', sigla: 'PVC' }]
+        etapa.resposta = () => Promise.reject(new Error('storage fora do ar'))
+        const r = await atravessarNoSim(T, LEV, naEtapa)
+        expect(r.paraOVendedor).toBe(fraseDoArquivoQueNaoChegou(null, `a precificação do orçamento ${GERALDO.numero}-PVC falhou. Para tentar de novo, abra o orçamento ${GERALDO.numero}-PVC na seção Orçamentos I.A. e use Precificar`))
+        expect(r.rastro).toMatch(/^orcamento=1 /)
+        // a família sem sigla (e o orçamento de antes, sem família): o número próprio, nunca uma sigla deduzida
+        estado.db.orcamentista_familia_catalogo = [{ chave: 'PVC', sigla: null }]
+        estado.db.orcamentista_orcamento = []
+        estado.db.orcamentista_orcamento_item = []
+        expect((await atravessarNoSim(T, LEV, naEtapa)).paraOVendedor).toContain('a precificação do orçamento 1 falhou')
+    })
     it('o já atravessado para na travessia e NÃO recalcula nem reenvia; a recusa e a falha da travessia também param nela', async () => {
         await atravessarNoSim(T, LEV, naEtapa)
         calculo.chamadas = []

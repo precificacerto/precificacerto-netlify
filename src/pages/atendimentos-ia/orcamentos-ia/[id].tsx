@@ -37,6 +37,7 @@ type Item = {
 type Orcamento = {
     id: string
     numero: number
+    numero_exibido?: string
     origem: 'agente' | 'manual'
     levantamento_id: string | null
     nome: string
@@ -209,7 +210,7 @@ function OrcamentoIA() {
                 {estado.tipo === 'erro' && <Alert type="error" showIcon message={estado.mensagem} />}
                 {estado.tipo === 'pronto' && (
                     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-                        <Card size="small" title={`Orçamento ${estado.orcamento.numero}`}
+                        <Card size="small" title={`Orçamento ${estado.orcamento.numero_exibido ?? estado.orcamento.numero}`}
                             extra={<Tag color={estado.orcamento.origem === 'agente' ? 'blue' : 'default'} data-origem={estado.orcamento.origem}>
                                 {estado.orcamento.origem === 'agente' ? 'Agente I.A.' : 'Manual'}
                             </Tag>}>

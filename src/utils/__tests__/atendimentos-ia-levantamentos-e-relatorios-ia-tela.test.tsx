@@ -86,6 +86,18 @@ describe('os Relatórios I.A.', () => {
         expect(host.querySelector('[data-sem-orcamento]')?.textContent).toBe(TEXTO_SEM_ORCAMENTO)
         expect(host.querySelector('[data-aba-do-relatorio]')).toBeNull()
     })
+    it('o NÚMERO EXIBIDO (23/11/2026): a lista e o cabeçalho do cliente aberto dizem <levantamento>-<SIGLA>', async () => {
+        servidor.corpo = { orcamentos: [{ id: 'o-1', numero: 1, numero_exibido: '27-PVC', nome: 'Geraldo Huck', criado_em: '2026-11-16T12:00:00Z', itens: 3 }] }
+        const host = await montar(<Relatorios />)
+        const linha = host.querySelector('[data-cliente]') as HTMLElement
+        expect(linha.querySelector('td')?.textContent).toBe('27-PVC')
+        servidor.corpo = { relatorio: { categorias: [], semCategoria: [], ambiguos: [], itensSemCalculo: [] } }
+        // eslint-disable-next-line testing-library/no-unnecessary-act
+        await act(async () => { linha.click() })
+        // eslint-disable-next-line testing-library/no-unnecessary-act
+        await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
+        expect(host.querySelector('[data-cliente-aberto]')?.textContent).toBe('Orçamento 27-PVC — Geraldo Huck')
+    })
     it('todos os clientes listados na página (número, cliente, data, itens); clicar num abre as abas dele, com o botão de PDF', async () => {
         servidor.corpo = { orcamentos: [
             { id: 'o-2', numero: 2, nome: 'Maria Souza', criado_em: '2026-11-17T12:00:00Z', itens: 1 },

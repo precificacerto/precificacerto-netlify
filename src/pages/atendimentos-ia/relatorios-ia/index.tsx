@@ -18,7 +18,7 @@ import { RelatorioDeCorte } from '@/page-parts/atendimentos-ia/relatorio-de-cort
 import { BarrasDoPedidoDoOrcamento } from '@/page-parts/atendimentos-ia/barras-do-pedido.component'
 import { OrientativoDeMontagem } from '@/page-parts/atendimentos-ia/orientativo-de-montagem.component'
 
-type OrcamentoParaRelatorio = { id: string; numero: number; nome: string; criado_em: string; itens: number }
+type OrcamentoParaRelatorio = { id: string; numero: number; numero_exibido?: string; nome: string; criado_em: string; itens: number }
 type Estado =
     | { tipo: 'carregando' }
     | { tipo: 'desligada' }
@@ -70,7 +70,7 @@ const RelatoriosIA: React.FC = () => {
                             dataSource={estado.orcamentos}
                             onRow={(o) => ({ onClick: () => setEscolhido(o.id), style: { cursor: 'pointer' }, 'data-cliente': o.id } as React.HTMLAttributes<HTMLElement>)}
                             columns={[
-                                { title: 'Nº', dataIndex: 'numero', key: 'numero', width: 70 },
+                                { title: 'Nº', key: 'numero', width: 90, render: (_: unknown, o: OrcamentoParaRelatorio) => o.numero_exibido ?? o.numero },
                                 { title: 'Cliente', dataIndex: 'nome', key: 'nome' },
                                 { title: 'Data', dataIndex: 'criado_em', key: 'criado_em', width: 110, render: (d: string) => dataBR(d) },
                                 { title: 'Itens', dataIndex: 'itens', key: 'itens', width: 70, align: 'right' as const },
@@ -83,7 +83,7 @@ const RelatoriosIA: React.FC = () => {
                     <Card size="small">
                         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
                             <Button icon={<ArrowLeftOutlined />} onClick={() => setEscolhido(null)} data-voltar-a-lista="">Voltar</Button>
-                            <Typography.Title level={5} style={{ margin: 0 }} data-cliente-aberto="">{`Orçamento ${aberto.numero} — ${aberto.nome}`}</Typography.Title>
+                            <Typography.Title level={5} style={{ margin: 0 }} data-cliente-aberto="">{`Orçamento ${aberto.numero_exibido ?? aberto.numero} — ${aberto.nome}`}</Typography.Title>
                         </div>
                         <Tabs key={aberto.id} items={ABAS_DOS_RELATORIOS.map((a) => ({
                             key: a.key, label: a.label,

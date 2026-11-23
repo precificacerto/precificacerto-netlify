@@ -31,6 +31,8 @@ import { calcularOrcamento, ErroDoCalculo, faltaDoParcial, type FaltaDoParcial }
 import { VERSAO_DO_CALCULO } from './custo-do-orcamento'
 import type { ResultadoDaEtapa } from './cadeia-do-sim'
 import { fraseDoArquivoQueNaoChegou } from './arquivo-que-nao-chegou'
+import { numeroExibido } from './numero-do-orcamento'
+import { siglasDasFamilias } from './numero-do-orcamento-servidor'
 import {
     CABECALHO_SINCRONIZADO, diferencaDoOrcamento, ESTADO_COMPLETO, ErroDaTravessia, ErroJaAtravessado, ErroOrcamentoArquivado, faltasDoCongelado, fraseDoOrcamentoDeAntes, orcamentoDaFamilia, origemNaTela, separarPorFamilia, planoDaTravessia, PERCENTUAIS_COM_ZERO,
     type ClienteDoLevantamento, type ItemAtivoDoOrcamento, type ItemDaTravessia, type ItemDoLevantamentoNaTravessia, type LevantamentoNaTravessia, type ModoDaBase,
@@ -356,16 +358,16 @@ export type ResultadoDoSim = { rastro: string; paraOVendedor: string | null; env
  */
 const naoChegou = fraseDoArquivoQueNaoChegou
 /** O orçamento arquivado: a falta nomeada, e ele continua arquivado (nada é reativado). */
-export const fraseDoOrcamentoArquivado = (numero: number) =>
+export const fraseDoOrcamentoArquivado = (numero: number | string) =>
     naoChegou(null, `o orçamento ${numero} está arquivado: a atualização não foi feita, e ele continua arquivado`)
 /** O "sim" sem mudança: o orçamento já está atualizado, e o arquivo que existe vai de novo. */
-export const fraseDoOrcamentoJaAtualizado = (numero: number) =>
+export const fraseDoOrcamentoJaAtualizado = (numero: number | string) =>
     `O orçamento ${numero} já está atualizado: nada mudou no levantamento desde a última vez. O arquivo dele vai de novo.`
 /** A edição manual substituída — dita, nunca em silêncio. */
-export const fraseDaEdicaoManualSubstituida = (numero: number) =>
+export const fraseDaEdicaoManualSubstituida = (numero: number | string) =>
     `O orçamento ${numero} tinha edição manual na seção Orçamentos I.A., e ela foi substituída por esta atualização do levantamento.`
 /** Os questionamentos de um orçamento PARCIAL: uma linha por código, com o que falta. Sem falta, nulo — nada a perguntar. */
-export function fraseDosQuestionamentos(numero: number, faltas: ReadonlyArray<{ codigo_do_motor: string; frase: string; esquadria: number }>): string | null {
+export function fraseDosQuestionamentos(numero: number | string, faltas: ReadonlyArray<{ codigo_do_motor: string; frase: string; esquadria: number }>): string | null {
     if (faltas.length === 0) return null
     const { codigos, linhas } = linhasDasFaltas(faltas)
     return [`O orçamento ${numero} saiu PARCIAL — ${codigos > 1 ? `faltam ${codigos} valores` : 'falta 1 valor'}. Para completar, preciso de:`, ...linhas].join('\n')
@@ -390,7 +392,7 @@ function linhasDasFaltas(faltas: ReadonlyArray<{ codigo_do_motor: string; frase:
  * O PARCIAL que CONTINUA no "sim" sem mudança (dono do produto, 13/11/2026): nada é recalculado, o arquivo vai de novo, e o que continua
  * faltando vai NOMEADO — nunca o "já está atualizado" seco, que esconde a razão.
  */
-export function fraseDoParcialQueContinua(numero: number, faltas: ReadonlyArray<{ codigo_do_motor: string; frase: string; esquadria: number }>, recusas: readonly string[] = []): string {
+export function fraseDoParcialQueContinua(numero: number | string, faltas: ReadonlyArray<{ codigo_do_motor: string; frase: string; esquadria: number }>, recusas: readonly string[] = []): string {
     const { codigos, linhas } = linhasDasFaltas(faltas)
     const quantos = codigos > 1 ? `${codigos} valores continuam` : '1 valor continua'
     return [
@@ -411,9 +413,18 @@ export async function atravessarNoSim(tenantId: string, levantamentoId: string, 
     } catch (e) {
         return recusaDaTravessia(e)
     }
+    // a sigla de cada família, para o NÚMERO EXIBIDO nos textos (23/11/2026); sem ela, vale o número próprio do orçamento
+    let siglas: Map<string, string>
+    try {
+        siglas = await siglasDasFamilias(lido.grupos.map((x) => x.familia))
+    } catch {
+        siglas = new Map()
+    }
     const resultados: Array<{ familia: string; r: ResultadoDoSim }> = []
     for (const g of lido.grupos) {
-        resultados.push({ familia: g.familia, r: await simDaFamilia(tenantId, levantamentoId, lido.lev, g, lido.grupos.map((x) => x.familia), etapaDoPreco, reenviar) })
+        const familiaDoOrcamento = g.existente ? g.existente.familia : g.familia
+        const exibido = (numero: number) => numeroExibido({ numero, levantamentoNumero: lido.lev.numero, sigla: familiaDoOrcamento ? siglas.get(familiaDoOrcamento) ?? null : null })
+        resultados.push({ familia: g.familia, r: await simDaFamilia(tenantId, levantamentoId, lido.lev, g, lido.grupos.map((x) => x.familia), etapaDoPreco, exibido, reenviar) })
     }
     return juntarResultados(resultados)
 }
@@ -437,8 +448,8 @@ export function juntarResultados(resultados: ReadonlyArray<{ familia: string; r:
     }
 }
 
-function recusaDaTravessia(e: unknown): ResultadoDoSim {
-    if (e instanceof ErroOrcamentoArquivado) return { rastro: `orcamento=${e.orcamentoNumero} atualizacao=arquivado parou=travessia`, paraOVendedor: fraseDoOrcamentoArquivado(e.orcamentoNumero) }
+function recusaDaTravessia(e: unknown, exibido: (numero: number) => string | number = (x) => x): ResultadoDoSim {
+    if (e instanceof ErroOrcamentoArquivado) return { rastro: `orcamento=${e.orcamentoNumero} atualizacao=arquivado parou=travessia`, paraOVendedor: fraseDoOrcamentoArquivado(exibido(e.orcamentoNumero)) }
     if (e instanceof ErroDaTravessia) {
         return { rastro: `recusou=${e.recusas.length} parou=travessia`, paraOVendedor: naoChegou(null, `o levantamento não passou para o orçamento. Falta: ${e.recusas.join('; ')}. Corrija isso no levantamento: o arquivo volta para você conferir, e o "sim" faz o orçamento`) }
     }
@@ -448,7 +459,7 @@ function recusaDaTravessia(e: unknown): ResultadoDoSim {
 type GrupoDoLevantamento = Awaited<ReturnType<typeof familiasDoLevantamento>>['grupos'][number]
 async function simDaFamilia(
     tenantId: string, levantamentoId: string, lev: LevantamentoNaTravessia, g: GrupoDoLevantamento, familias: readonly string[],
-    etapaDoPreco: EtapaDoPrecoNoSim, reenviar?: ReenvioNoSim,
+    etapaDoPreco: EtapaDoPrecoNoSim, exibido: (numero: number) => string, reenviar?: ReenvioNoSim,
 ): Promise<ResultadoDoSim> {
     let r: ResultadoDaTravessia
     let atualizacao: ResultadoDaAtualizacao | null = null
@@ -473,7 +484,7 @@ async function simDaFamilia(
                         return {
                             rastro: `orcamento=${a.orcamento.numero} atualizacao=sem_mudanca${p ? ` parcial=continua faltas_de_preco=${p.continuam.length}/${p.nomeadas}` : ''} ${env.rastro}`,
                             paraOVendedor: env.paraOVendedor,
-                            aviso: p ? fraseDoParcialQueContinua(a.orcamento.numero, p.continuam, p.recusas) : fraseDoOrcamentoJaAtualizado(a.orcamento.numero),
+                            aviso: p ? fraseDoParcialQueContinua(exibido(a.orcamento.numero), p.continuam, p.recusas) : fraseDoOrcamentoJaAtualizado(exibido(a.orcamento.numero)),
                             ...(env.enviadoPara ? { enviadoPara: env.enviadoPara, idDoEnvio: env.idDoEnvio ?? null } : {}),
                         }
                     }
@@ -484,9 +495,9 @@ async function simDaFamilia(
     } catch (e) {
         if (e instanceof ErroJaAtravessado) {
             // a corrida: outra travessia criou o desta família no meio — o "sim" seguinte o atualiza
-            return { rastro: `orcamento=${e.orcamentoNumero} atravessado_em_paralelo parou=travessia`, paraOVendedor: naoChegou(null, `o orçamento ${e.orcamentoNumero} acabou de ser criado por outro caminho. Diga "sim" de novo para ele seguir`) }
+            return { rastro: `orcamento=${e.orcamentoNumero} atravessado_em_paralelo parou=travessia`, paraOVendedor: naoChegou(null, `o orçamento ${exibido(e.orcamentoNumero)} acabou de ser criado por outro caminho. Diga "sim" de novo para ele seguir`) }
         }
-        return recusaDaTravessia(e)
+        return recusaDaTravessia(e, exibido)
     }
     const origens = PERCENTUAIS_COM_ZERO.map((p) => `${ROTULO_NO_LOG[p]}:${r.origens[p]}`).join(',')
     const doAtualizado = atualizacao
@@ -494,16 +505,17 @@ async function simDaFamilia(
         : ''
     const travessia = `orcamento=${r.orcamento.numero} itens=${r.itens} faltas=${r.faltas.length}${r.retomada ? ' retomada=sim' : ''}${doAtualizado} origens=${origens}`
     // a EDIÇÃO MANUAL substituída é dita, em todo desfecho daqui para frente (13/11/2026: "Nunca em silêncio")
-    const comAviso = <T extends ResultadoDoSim>(x: T): T => (atualizacao?.edicaoManualSubstituida ? { ...x, aviso: fraseDaEdicaoManualSubstituida(atualizacao.orcamento.numero) } : x)
+    const comAviso = <T extends ResultadoDoSim>(x: T): T => (atualizacao?.edicaoManualSubstituida ? { ...x, aviso: fraseDaEdicaoManualSubstituida(exibido(atualizacao.orcamento.numero)) } : x)
+    const n = exibido(r.orcamento.numero)
     let doCalculo: string
     let questionamentos: string | null = null
     try {
         const c = await calcularOrcamento(tenantId, r.orcamento.id)
         doCalculo = `${travessia} calculo=ok liquido=${c.valor_total_liquido.toFixed(2)}${c.parcial ? ` parcial=sim faltas_de_preco=${c.faltas.length}` : ''}`
-        questionamentos = fraseDosQuestionamentos(r.orcamento.numero, c.faltas)
+        questionamentos = fraseDosQuestionamentos(n, c.faltas)
     } catch (e) {
-        if (e instanceof ErroDoCalculo) return comAviso({ rastro: `${travessia} calculo=recusou recusas=${e.recusas.length} parou=calculo motivo="${e.recusas.join(' | ').slice(0, 120)}"`, paraOVendedor: naoChegou(null, `o cálculo do orçamento ${r.orcamento.numero} recusou. Falta: ${e.recusas.join('; ')}. Com isso cadastrado, abra o orçamento ${r.orcamento.numero} na seção Orçamentos I.A. e use Calcular`) })
-        return comAviso({ rastro: `${travessia} calculo=falhou parou=calculo motivo="${motivoDoLog(e)}"`, paraOVendedor: naoChegou(null, `o cálculo do orçamento ${r.orcamento.numero} falhou. Para tentar de novo, abra o orçamento ${r.orcamento.numero} na seção Orçamentos I.A. e use Calcular`) })
+        if (e instanceof ErroDoCalculo) return comAviso({ rastro: `${travessia} calculo=recusou recusas=${e.recusas.length} parou=calculo motivo="${e.recusas.join(' | ').slice(0, 120)}"`, paraOVendedor: naoChegou(null, `o cálculo do orçamento ${n} recusou. Falta: ${e.recusas.join('; ')}. Com isso cadastrado, abra o orçamento ${n} na seção Orçamentos I.A. e use Calcular`) })
+        return comAviso({ rastro: `${travessia} calculo=falhou parou=calculo motivo="${motivoDoLog(e)}"`, paraOVendedor: naoChegou(null, `o cálculo do orçamento ${n} falhou. Para tentar de novo, abra o orçamento ${n} na seção Orçamentos I.A. e use Calcular`) })
     }
     try {
         const etapa = await etapaDoPreco(r.orcamento.id)
@@ -512,7 +524,7 @@ async function simDaFamilia(
             ...(etapa.enviadoPara ? { enviadoPara: etapa.enviadoPara, idDoEnvio: etapa.idDoEnvio ?? null } : {}), ...(questionamentos ? { questionamentos } : {}),
         })
     } catch (e) {
-        return comAviso({ rastro: `${doCalculo} precificacao=falhou parou=precificacao motivo="${motivoDoLog(e)}"`, paraOVendedor: naoChegou(null, `a precificação do orçamento ${r.orcamento.numero} falhou. Para tentar de novo, abra o orçamento ${r.orcamento.numero} na seção Orçamentos I.A. e use Precificar`) })
+        return comAviso({ rastro: `${doCalculo} precificacao=falhou parou=precificacao motivo="${motivoDoLog(e)}"`, paraOVendedor: naoChegou(null, `a precificação do orçamento ${n} falhou. Para tentar de novo, abra o orçamento ${n} na seção Orçamentos I.A. e use Precificar`) })
     }
 }
 const ROTULO_NO_LOG: Readonly<Record<PercentualComZero, string>> = { comissao_percentual: 'comissao', reserva_tecnica_percentual: 'rt', lucro_projetado_percentual: 'lucro' }

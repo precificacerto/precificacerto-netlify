@@ -384,6 +384,11 @@ describe('(7) a tela: a busca e o corpo da alteração', () => {
         expect(TELA().filtrarOrcamentos(lista, '  ').map((o) => o.id)).toEqual(['a', 'b'])
         expect(TELA().filtrarOrcamentos(lista, 'zz')).toEqual([])
     })
+    it('busca também pelo número exibido (23/11/2026), sem caixa', () => {
+        const comExibido = [{ ...lista[0], numero_exibido: '27-PVC' }, lista[1]]
+        expect(TELA().filtrarOrcamentos(comExibido, '27-pvc').map((o) => o.id)).toEqual(['a'])
+        expect(TELA().filtrarOrcamentos(comExibido, '#27-PVC').map((o) => o.id)).toEqual(['a'])
+    })
 
     it('o corpo leva TODOS os itens da tela: os gravados com id, os novos sem', () => {
         const itens: Parameters<ReturnType<typeof EDICAO>['corpoDaAlteracao']>[2] = [

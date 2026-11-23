@@ -22,6 +22,7 @@ import { ROUTES } from '@/constants/routes'
 export type LinhaDoOrcamento = {
     id: string
     numero: number
+    numero_exibido?: string
     origem: 'agente' | 'manual'
     nome: string
     itens: number
@@ -57,7 +58,7 @@ const semAcento = (t: string) => t.normalize('NFD').replace(/\p{M}/gu, '').toLow
 export function filtrarOrcamentos(lista: readonly LinhaDoOrcamento[], busca: string): LinhaDoOrcamento[] {
     const b = semAcento(busca.trim())
     if (b === '') return [...lista]
-    return lista.filter((o) => semAcento(o.nome).includes(b) || String(o.numero) === b.replace(/^#/, ''))
+    return lista.filter((o) => semAcento(o.nome).includes(b) || String(o.numero) === b.replace(/^#/, '') || semAcento(o.numero_exibido ?? '') === b.replace(/^#/, ''))
 }
 
 function OrcamentosIA() {
@@ -126,14 +127,14 @@ function OrcamentosIA() {
         setRespostaDaTravessia(null)
         try {
             const r = await fetch('/api/atendimentos-ia/orcamentos/atravessar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ levantamento_id: escolhido }) })
-            const corpo = (await r.json().catch(() => ({}))) as { orcamentos?: Array<{ orcamento: { id: string; numero: number }; faltas?: string[] }>; error?: string; recusas?: string[] }
+            const corpo = (await r.json().catch(() => ({}))) as { orcamentos?: Array<{ orcamento: { id: string; numero: number; numero_exibido?: string }; faltas?: string[] }>; error?: string; recusas?: string[] }
             const criados = corpo.orcamentos ?? []
             if (!r.ok || criados.length === 0 || r.status === 409) {
                 setRespostaDaTravessia({ tipo: 'erro', linhas: [corpo.error ?? 'Não foi possível atravessar o levantamento.', ...(corpo.recusas ?? [])] })
                 return
             }
             const faltas = criados.reduce((t, c) => t + (c.faltas ?? []).length, 0)
-            const numeros = criados.map((c) => c.orcamento.numero).join(', ')
+            const numeros = criados.map((c) => c.orcamento.numero_exibido ?? c.orcamento.numero).join(', ')
             message.success(`${criados.length > 1 ? `Orçamentos ${numeros} criados` : `Orçamento ${numeros} criado`}${faltas ? ` — ${faltas} falta(s) a completar na precificação` : ''}.`)
             setAtravessando(false)
             await carregar()
@@ -146,7 +147,7 @@ function OrcamentosIA() {
     const semOrcamento = (levantamentos ?? []).filter((l) => l.orcamentos.length === 0)
 
     const colunas: ColumnsType<LinhaDoOrcamento> = [
-        { title: 'Nº', dataIndex: 'numero', key: 'numero', width: 80 },
+        { title: 'Nº', key: 'numero', width: 100, render: (_: unknown, o: LinhaDoOrcamento) => o.numero_exibido ?? o.numero },
         { title: 'Cliente', dataIndex: 'nome', key: 'nome' },
         {
             title: 'Origem', dataIndex: 'origem', key: 'origem', width: 130,
@@ -162,7 +163,7 @@ function OrcamentosIA() {
             title: '', key: 'acoes', width: 70, align: 'center',
             render: (_: unknown, o: LinhaDoOrcamento) => (
                 <Tooltip title="Editar">
-                    <Button type="text" size="small" icon={<EditOutlined />} aria-label={`Editar o orçamento ${o.numero}`} onClick={() => abrir(o.id)} />
+                    <Button type="text" size="small" icon={<EditOutlined />} aria-label={`Editar o orçamento ${o.numero_exibido ?? o.numero}`} onClick={() => abrir(o.id)} />
                 </Tooltip>
             ),
         },
