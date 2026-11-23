@@ -38,6 +38,7 @@ import {
 } from './arquivo-do-orcamento'
 import type { ItemRateado } from './rateio-do-orcamento'
 import type { AmbienteDaFolha } from './folha-do-levantamento'
+import { numerosExibidos } from './numero-do-orcamento-servidor'
 
 export const TABELA_DO_ARQUIVO = 'orcamentista_orcamento_arquivo'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- as tabelas são posteriores a `database.types.ts`
@@ -230,8 +231,9 @@ export async function lerClienteDoOrcamento(tenantId: string, orcamentoId: strin
 /** Os dados do arquivo, lidos no tenant do chamador, com a interna, a venda e o rateio que a gravação acabou de conferir. */
 export async function lerDadosDoArquivo(tenantId: string, orcamentoId: string, a: { operacaoInterna: number; valorVenda: number; rateio: readonly ItemRateado[]; geradoEm: Date }):
     Promise<{ dados: DadosDoArquivoDoOrcamento; calculoId: string | null } | { recusa: string }> {
-    const orc = ((await ler('orcamentista_orcamento', db().from('orcamentista_orcamento').select('numero, nome, levantamento_id').eq('tenant_id', tenantId).eq('id', orcamentoId).maybeSingle())) ?? null) as Linha | null
+    const orc = ((await ler('orcamentista_orcamento', db().from('orcamentista_orcamento').select('id, numero, nome, levantamento_id, familia').eq('tenant_id', tenantId).eq('id', orcamentoId).maybeSingle())) ?? null) as Linha | null
     if (!orc) return { recusa: 'o orçamento não foi achado' }
+    const exibido = (await numerosExibidos(tenantId, [{ id: String(orc.id ?? orcamentoId), numero: Number(orc.numero), levantamento_id: texto(orc.levantamento_id), familia: texto(orc.familia) }])).get(String(orc.id ?? orcamentoId)) ?? String(orc.numero)
     const itens = await itensDoArquivo(tenantId, orcamentoId)
     if ('recusa' in itens) return itens
     const [daEmpresa, cv] = await Promise.all([lerEmpresa(tenantId), lerClienteEVendedor(tenantId, texto(orc.levantamento_id), String(orc.nome ?? ''))])
@@ -240,7 +242,7 @@ export async function lerDadosDoArquivo(tenantId: string, orcamentoId: string, a
     return {
         calculoId: calculos.length === 1 ? calculos[0] : null,
         dados: {
-            empresa: daEmpresa.empresa, numero: Number(orc.numero), vendedor: cv.vendedor, contato: null, emailDoVendedor: cv.emailDoVendedor, cliente: cv.cliente, dataEntrega: cv.dataEntrega,
+            empresa: daEmpresa.empresa, numero: Number(orc.numero), numeroExibido: exibido, vendedor: cv.vendedor, contato: null, emailDoVendedor: cv.emailDoVendedor, cliente: cv.cliente, dataEntrega: cv.dataEntrega,
             itens: await comOsDesenhos(itens.itens, itens.paraODesenho),
             // O BLOCO É MONTADO das variáveis, e o texto livre vai por último (16/11/2026, o modelo 1154). As parcelas
             // do pagamento saem do VALOR DE VENDA deste orçamento, nunca de um valor gravado

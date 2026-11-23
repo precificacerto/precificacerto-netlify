@@ -14,6 +14,7 @@
  * Sem a migração, toda leitura e escrita recusa com `FRASE_SEM_MIGRACAO` (`ErroSemMigracao`) — a tela a mostra, nada quebra.
  */
 import { supabaseAdmin } from '@/supabase/admin'
+import { numerosExibidos } from './numero-do-orcamento-servidor'
 
 export const TABELA_DO_ORCAMENTO = 'orcamentista_orcamento'
 export const TABELA_DO_ITEM = 'orcamentista_orcamento_item'
@@ -51,6 +52,10 @@ export type OrcamentoIA = {
     criado_por: string | null
     criado_em: string
     atualizado_em: string
+    /** A família do orçamento (20261123000002): um por família do levantamento; nula no manual e no de antes. */
+    familia: string | null
+    /** `<levantamento>-<SIGLA>` no do agente com família (23/11/2026); o número próprio no resto (`numero-do-orcamento.ts`). */
+    numero_exibido: string
 }
 export type LinhaDaLista = OrcamentoIA & { itens: number }
 
@@ -122,7 +127,7 @@ export function validarItem(item: Record<string, unknown>, posicao: number): Ite
 }
 
 // ── A leitura ────────────────────────────────────────────────────────────────────────────────────────────────────────────
-const COLUNAS_DO_ORCAMENTO = 'id, numero, origem, levantamento_id, nome, obs, editado_manualmente_em, editado_manualmente_por, criado_por, criado_em, atualizado_em'
+const COLUNAS_DO_ORCAMENTO = 'id, numero, origem, levantamento_id, familia, nome, obs, editado_manualmente_em, editado_manualmente_por, criado_por, criado_em, atualizado_em'
 const COLUNAS_DO_ITEM = 'id, ordem, levantamento_item_id, tipologia, largura_mm, altura_mm, quantidade, cor_perfil, vidro, obs'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- as tabelas são posteriores a `database.types.ts`
@@ -132,8 +137,10 @@ const db = () => supabaseAdmin as any
 export async function listarOrcamentos(tenantId: string): Promise<LinhaDaLista[]> {
     const { data, error } = await db().from(TABELA_DO_ORCAMENTO).select(COLUNAS_DO_ORCAMENTO).eq('tenant_id', tenantId).order('numero', { ascending: false })
     if (error) falhou(TABELA_DO_ORCAMENTO, error)
-    const orcamentos = (data ?? []) as OrcamentoIA[]
-    if (orcamentos.length === 0) return []
+    const lidos = (data ?? []) as Array<Omit<OrcamentoIA, 'numero_exibido'>>
+    if (lidos.length === 0) return []
+    const numeros = await numerosExibidos(tenantId, lidos)
+    const orcamentos: OrcamentoIA[] = lidos.map((o) => ({ ...o, familia: o.familia ?? null, numero_exibido: numeros.get(o.id) ?? String(o.numero) }))
     // só os itens que VALEM: o removido (a marca `removido_em`, 20261113000002) fica no banco e sai de toda conta e de todo arquivo
     const { data: itens, error: e2 } = await db().from(TABELA_DO_ITEM).select('orcamento_id').eq('tenant_id', tenantId).in('orcamento_id', orcamentos.map((o) => o.id)).is('removido_em', null)
     if (e2) falhou(TABELA_DO_ITEM, e2)
@@ -149,7 +156,9 @@ export async function lerOrcamento(tenantId: string, id: string): Promise<Orcame
     // só os itens que VALEM: o removido (a marca `removido_em`, 20261113000002) fica no banco e sai de toda conta e de todo arquivo
     const { data: itens, error: e2 } = await db().from(TABELA_DO_ITEM).select(COLUNAS_DO_ITEM).eq('tenant_id', tenantId).eq('orcamento_id', id).is('removido_em', null).order('ordem')
     if (e2) falhou(TABELA_DO_ITEM, e2)
-    return { ...(data as OrcamentoIA), itens: (itens ?? []) as ItemDoOrcamento[] }
+    const o = data as Omit<OrcamentoIA, 'numero_exibido'>
+    const numeros = await numerosExibidos(tenantId, [o])
+    return { ...o, familia: o.familia ?? null, numero_exibido: numeros.get(o.id) ?? String(o.numero), itens: (itens ?? []) as ItemDoOrcamento[] }
 }
 
 // ── A escrita ────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -165,7 +174,8 @@ export async function criarOrcamentoManual(tenantId: string, autor: string, corp
         const { data, error } = await db().from(TABELA_DO_ORCAMENTO)
             .insert({ tenant_id: tenantId, numero, origem: 'manual', levantamento_id: null, nome: cabecalho.nome, obs: cabecalho.obs, criado_por: autor })
             .select(COLUNAS_DO_ORCAMENTO).single()
-        if (!error) return data as OrcamentoIA
+        // o manual não tem levantamento nem família: o número exibido é o próprio
+        if (!error) return { ...(data as Omit<OrcamentoIA, 'numero_exibido'>), familia: null, numero_exibido: String(numero) }
         if (error.code === '23505' && tentativa < TENTATIVAS_DO_NUMERO) continue
         falhou(TABELA_DO_ORCAMENTO, error)
     }

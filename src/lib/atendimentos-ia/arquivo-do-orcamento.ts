@@ -100,6 +100,8 @@ export type FaltaDoArquivo = { codigo: string; frase: string; itens: number[] }
 export type DadosDoArquivoDoOrcamento = {
     empresa: EmpresaDoArquivo
     numero: number
+    /** O número que o cliente lê (23/11/2026): `<levantamento>-<SIGLA>` no orçamento por família; o próprio no resto. */
+    numeroExibido: string
     vendedor: string | null
     contato: string | null
     emailDoVendedor: string | null
@@ -139,18 +141,18 @@ const texto = (v: string | null | undefined) => (typeof v === 'string' ? v.trim(
 const milimetros = (n: number | null) => (typeof n === 'number' && Number.isFinite(n) ? new Intl.NumberFormat('pt-BR').format(n) : '')
 /** "LINHA: <fornecedor> | <linha>" — só o que existe; nenhum dos dois, em branco. */
 export const linhaDoItem = (i: Pick<ItemDoArquivo, 'fornecedor' | 'linha'>) => [texto(i.fornecedor), texto(i.linha)].filter((t) => t !== '').join(' | ')
-export const nomeDoArquivo = (numero: number, cliente: string) =>
+export const nomeDoArquivo = (numero: number | string, cliente: string) =>
     `Orcamento ${numero} - ${cliente.replace(/[\\/:*?"<>|\r\n]+/g, ' ').replace(/\s+/g, ' ').trim()}.pdf`
 
 // ── O PARCIAL E A GUARDA DO CLIENTE ────────────────────────────────────────────────────────────────────────────────────────────────
 export const carimboDoParcial = (n: number) => `PARCIAL — ${n === 1 ? 'falta 1 valor' : `faltam ${n} valores`}`
 /** A guarda do envio ao CLIENTE (1.5): escrita e desligada por decisão do dono do produto. Ligar é trocar esta constante. */
 export const GUARDA_DO_ENVIO_AO_CLIENTE_LIGADA = false
-export const fraseDoParcialAoCliente = (numero: number, n: number) =>
+export const fraseDoParcialAoCliente = (numero: number | string, n: number) =>
     `o orçamento ${numero} está PARCIAL (${n === 1 ? 'falta 1 valor' : `faltam ${n} valores`}): ele vai ao vendedor, não ao cliente, até as faltas serem resolvidas`
 /** A recusa do envio ao cliente, ou nula quando pode ir. `ligada` existe para o teste; em produção é a constante. */
-export function recusaDoEnvioAoCliente(d: Pick<DadosDoArquivoDoOrcamento, 'numero' | 'faltas'>, ligada: boolean = GUARDA_DO_ENVIO_AO_CLIENTE_LIGADA): string | null {
-    return ligada && d.faltas.length > 0 ? fraseDoParcialAoCliente(d.numero, d.faltas.length) : null
+export function recusaDoEnvioAoCliente(d: Pick<DadosDoArquivoDoOrcamento, 'numeroExibido' | 'faltas'>, ligada: boolean = GUARDA_DO_ENVIO_AO_CLIENTE_LIGADA): string | null {
+    return ligada && d.faltas.length > 0 ? fraseDoParcialAoCliente(d.numeroExibido, d.faltas.length) : null
 }
 
 // ── A CONFERÊNCIA (antes de produzir) ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -247,7 +249,7 @@ function cabecalho(doc: Doc, d: DadosDoArquivoDoOrcamento): number {
     const wd = LARGURA - wEmpresa - 2
     doc.rect(xd, y, wd, h)
     fonte(doc, 'bold', 12); doc.text('ORÇAMENTO', xd + wd / 2, y + 7, { align: 'center' })
-    campo(doc, 'Número:', String(d.numero), xd + 3, y + 13)
+    campo(doc, 'Número:', d.numeroExibido, xd + 3, y + 13)
     campo(doc, 'Emissão:', dataBR(d.geradoEm), xd + 3, y + 18)
     campo(doc, 'Vendedor:', texto(d.vendedor), xd + 3, y + 23)
     campo(doc, 'Contato:', texto(d.contato), xd + 3, y + 28)
@@ -506,8 +508,8 @@ export function gerarArquivoDoOrcamento(d: DadosDoArquivoDoOrcamento): ArquivoGe
         doc.text(rodapeDaPagina(p, paginas), A4.margem + LARGURA / 2, A4.altura - A4.margem, { align: 'center' })
         doc.setTextColor(0)
     }
-    doc.setProperties({ title: `Orçamento ${d.numero} — ${d.cliente.nome}`, creator: 'Precifica Certo' })
+    doc.setProperties({ title: `Orçamento ${d.numeroExibido} — ${d.cliente.nome}`, creator: 'Precifica Certo' })
     doc.setCreationDate(d.geradoEm)
     doc.setFileId(Array.from(`orc-${d.numero}-${d.geradoEm.getTime()}`).map((ch) => ch.charCodeAt(0).toString(16)).join('').padEnd(32, '0').slice(0, 32).toUpperCase())
-    return { ok: true, pdf: new Uint8Array(doc.output('arraybuffer')), paginas, nomeDoArquivo: nomeDoArquivo(d.numero, d.cliente.nome) }
+    return { ok: true, pdf: new Uint8Array(doc.output('arraybuffer')), paginas, nomeDoArquivo: nomeDoArquivo(d.numeroExibido, d.cliente.nome) }
 }

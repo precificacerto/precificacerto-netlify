@@ -601,6 +601,14 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
         const depois = await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)
         expect(depois.rastro).toMatch(/familia=ALUMINIO orcamento=2 itens=1/)
         expect(estado.db.orcamentista_orcamento.map((o) => [o.numero, o.familia])).toEqual([[1, 'PVC'], [2, 'ALUMINIO']])
+        // O ACORDO DO PO (23/11/2026): cada orçamento carrega OS SEUS percentuais de comissão e de lucro — os do levantamento/vendedor,
+        // congelados em CADA um, nunca somados nem divididos entre as famílias; e a margem de contribuição (da empresa) não é gravada aqui.
+        const lev = estado.db.orcamentista_levantamento.find((l) => l.id === LEV)!
+        expect(lev.comissao_percentual).not.toBeNull()
+        for (const o of estado.db.orcamentista_orcamento) {
+            expect([o.comissao_percentual, o.lucro_projetado_percentual, o.reserva_tecnica_percentual]).toEqual([lev.comissao_percentual, lev.lucro_projetado_percentual, lev.reserva_tecnica_percentual])
+            expect(Object.keys(o).filter((k) => /margem|contribui/i.test(k))).toEqual([])
+        }
         const doAlu = estado.db.orcamentista_orcamento_item.filter((i) => i.orcamento_id === estado.db.orcamentista_orcamento[1].id)
         expect(doAlu.map((i) => i.levantamento_item_id)).toEqual(['li-2'])
         // o sim seguinte, sem mudança, não cria terceiro nem quarto
