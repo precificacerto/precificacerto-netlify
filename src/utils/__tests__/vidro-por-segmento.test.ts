@@ -71,6 +71,24 @@ describe('o que não fecha é nomeado, nunca escolhido', () => {
     })
 })
 
+describe('os cantos do casamento', () => {
+    it('só o vocabulário da tabela, sem espessura nem tipo do leitor de antes ("pontilhado"): achado — nunca "não traduzido"', () => {
+        expect(codigo('pontilhado')).toBe('LJ-VPON04')
+    })
+    it('o item com variante e cor mas SEM espessura na descrição não é candidato (a regra é geral, não só da duplagem)', () => {
+        const comUmSemMedida: ItemDeVidro[] = [...ITENS, { codigo: 'SEM-MM', descricao: 'VIDRO TEMPERADO ESPECIAL', segmento: 'Temperado', cor: 'INCOLOR' }]
+        expect(candidatosPorAtributo({ variante: 'TEMPERADO', cor: 'INCOLOR', espessura: null }, comUmSemMedida).map((c) => c.codigo)).not.toContain('SEM-MM')
+    })
+    it('a cor é procurada no que SOBRA depois da variante: a palavra de cor que faz parte do nome da variante não é a cor dita', () => {
+        const itens: ItemDeVidro[] = [
+            { codigo: 'ACI-BZ', descricao: 'VIDRO ACIDATO INCOLOR BRONZE 06MM', segmento: 'Acidato incolor', cor: 'BRONZE' },
+            { codigo: 'TEMP-IN', descricao: 'VIDRO TEMPERADO INCOLOR 06MM', segmento: 'Temperado', cor: 'INCOLOR' },
+        ]
+        expect(vidroDitoPorAtributo('acidato incolor bronze 6mm', itens)).toEqual({ variante: 'ACIDATO INCOLOR', cor: 'BRONZE', espessura: '6' })
+        expect(codigo('acidato incolor bronze 6mm', itens)).toBe('ACI-BZ')
+    })
+})
+
 describe('a tabela de antes (sem segmento e cor) não muda', () => {
     it('a Estrela, sozinha: pela descrição, como sempre', () => {
         expect(codigo('comum 6 mm incolor', ESTRELA)).toBe('VIN06')
