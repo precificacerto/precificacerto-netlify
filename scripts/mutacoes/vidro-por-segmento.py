@@ -1,5 +1,6 @@
 import subprocess, sys, os
 # MUTACOES do vidro por segmento + cor + espessura (23/11/2026). Roda SOZINHO na arvore (nada le a arvore enquanto roda).
+# 1a passada 15/18; as tres vivas (o item sem espessura, a cor dentro do nome da variante, o texto so com o vocabulario da tabela) ganharam teste: 18/18.
 # SO=<trecho> roda so as mutacoes cujo texto contem o trecho.
 R = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')) + '/'
 T = ['src/utils/__tests__/vidro-por-segmento.test.ts', 'src/utils/__tests__/vidro-da-tabela.test.ts', 'src/utils/__tests__/atendimentos-ia-layout-unico.test.ts',
