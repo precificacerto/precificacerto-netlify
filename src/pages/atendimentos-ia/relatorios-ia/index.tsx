@@ -18,7 +18,7 @@ import { RelatorioDeCorte } from '@/page-parts/atendimentos-ia/relatorio-de-cort
 import { BarrasDoPedidoDoOrcamento } from '@/page-parts/atendimentos-ia/barras-do-pedido.component'
 import { OrientativoDeMontagem } from '@/page-parts/atendimentos-ia/orientativo-de-montagem.component'
 
-type OrcamentoParaRelatorio = { id: string; numero: number; numero_exibido?: string; nome: string; criado_em: string; itens: number }
+type OrcamentoParaRelatorio = { id: string; numero: number; numero_exibido?: string; familia_rotulo?: string | null; nome: string; criado_em: string; itens: number }
 type Estado =
     | { tipo: 'carregando' }
     | { tipo: 'desligada' }
@@ -72,6 +72,8 @@ const RelatoriosIA: React.FC = () => {
                             columns={[
                                 { title: 'Nº', key: 'numero', width: 90, render: (_: unknown, o: OrcamentoParaRelatorio) => o.numero_exibido ?? o.numero },
                                 { title: 'Cliente', dataIndex: 'nome', key: 'nome' },
+                                // UM ORÇAMENTO POR FAMÍLIA (23/11/2026): cada linha é uma família do levantamento; o orçamento de antes, sem família, fica em branco
+                                { title: 'Família', key: 'familia', render: (_: unknown, o: OrcamentoParaRelatorio) => o.familia_rotulo ?? '' },
                                 { title: 'Data', dataIndex: 'criado_em', key: 'criado_em', width: 110, render: (d: string) => dataBR(d) },
                                 { title: 'Itens', dataIndex: 'itens', key: 'itens', width: 70, align: 'right' as const },
                                 { title: '', key: 'abrir', width: 120, render: () => <Button size="small">Ver relatórios</Button> },
@@ -83,13 +85,13 @@ const RelatoriosIA: React.FC = () => {
                     <Card size="small">
                         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
                             <Button icon={<ArrowLeftOutlined />} onClick={() => setEscolhido(null)} data-voltar-a-lista="">Voltar</Button>
-                            <Typography.Title level={5} style={{ margin: 0 }} data-cliente-aberto="">{`Orçamento ${aberto.numero_exibido ?? aberto.numero} — ${aberto.nome}`}</Typography.Title>
+                            <Typography.Title level={5} style={{ margin: 0 }} data-cliente-aberto="">{`Orçamento ${aberto.numero_exibido ?? aberto.numero} — ${aberto.nome}${aberto.familia_rotulo ? ` · ${aberto.familia_rotulo}` : ''}`}</Typography.Title>
                         </div>
                         <Tabs key={aberto.id} items={ABAS_DOS_RELATORIOS.map((a) => ({
                             key: a.key, label: a.label,
                             children: (
                                 <div data-aba-do-relatorio={a.key}>
-                                    {a.key === 'materiais' ? <RelatorioDeMateriais orcamentoId={aberto.id} numero={aberto.numero} cliente={aberto.nome} /> : a.key === 'corte' ? <RelatorioDeCorte orcamentoId={aberto.id} numero={aberto.numero} cliente={aberto.nome} /> : a.key === 'barras' ? <BarrasDoPedidoDoOrcamento orcamentoId={aberto.id} numero={aberto.numero} cliente={aberto.nome} /> : a.key === 'orientativo' ? <OrientativoDeMontagem orcamentoId={aberto.id} numero={aberto.numero} cliente={aberto.nome} /> : <Empty description={TEXTO_DA_ABA_SEM_CONTEUDO} />}
+                                    {a.key === 'materiais' ? <RelatorioDeMateriais orcamentoId={aberto.id} numero={aberto.numero_exibido ?? aberto.numero} cliente={aberto.nome} /> : a.key === 'corte' ? <RelatorioDeCorte orcamentoId={aberto.id} numero={aberto.numero_exibido ?? aberto.numero} cliente={aberto.nome} /> : a.key === 'barras' ? <BarrasDoPedidoDoOrcamento orcamentoId={aberto.id} numero={aberto.numero_exibido ?? aberto.numero} cliente={aberto.nome} /> : a.key === 'orientativo' ? <OrientativoDeMontagem orcamentoId={aberto.id} numero={aberto.numero_exibido ?? aberto.numero} cliente={aberto.nome} /> : <Empty description={TEXTO_DA_ABA_SEM_CONTEUDO} />}
                                 </div>
                             ),
                         }))} />

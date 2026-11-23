@@ -15,7 +15,8 @@ import {
     fimDoVidro, fimDosPerfis, medidaDaEsquadria, tituloDaEsquadria, type EsquadriaDoOrientativo, type OrientativoDeMontagem,
 } from './orientativo-de-montagem'
 
-export type CabecalhoDoRelatorio = { numero: number; cliente: string; geradoEm: Date }
+/** `numero` é o NÚMERO EXIBIDO do orçamento (23/11/2026: `<levantamento>-<SIGLA>`), ou o número próprio quando não há sigla. */
+export type CabecalhoDoRelatorio = { numero: number | string; cliente: string; geradoEm: Date }
 type Extras = { itensSemCalculo: readonly number[]; itensSemPecas?: readonly number[] }
 
 const A4 = { largura: 210, altura: 297, margem: 12 }
@@ -29,7 +30,7 @@ const dataBR = (d: Date) => d.toLocaleDateString('pt-BR', { timeZone: 'America/S
 const horaBR = (d: Date) => d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' })
 
 /** O nome do arquivo: "Relatorio_de_materiais_8_-_Cristiano_Fernandes.pdf" (sem acento nem caractere que o sistema de arquivos estranhe). */
-export function nomeDoRelatorio(tipo: 'materiais' | 'corte' | 'barras_do_pedido' | 'orientativo_de_montagem', numero: number, cliente: string): string {
+export function nomeDoRelatorio(tipo: 'materiais' | 'corte' | 'barras_do_pedido' | 'orientativo_de_montagem', numero: number | string, cliente: string): string {
     const limpo = cliente.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
     return `Relatorio_de_${tipo}_${numero}${limpo ? `_-_${limpo}` : ''}.pdf`
 }

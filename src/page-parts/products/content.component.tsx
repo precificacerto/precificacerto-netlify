@@ -1863,12 +1863,13 @@ export const Content: FC<ContentProps> = ({
     { title: 'Quantidade', dataIndex: 'quantity', key: 'quantity', align: 'right' },
     { title: 'Bruto', key: 'bruto', align: 'right', render: (_, r) => dinheiroOuTraco(itemDoOrcamento(String(r.id))?.custo_bruto_materiais) },
     { title: 'Líquido', key: 'liquido', align: 'right', render: (_, r) => dinheiroOuTraco(itemDoOrcamento(String(r.id))?.custo_liquido_materiais) },
-    {
-      title: 'Fabricação', key: 'fabricacao', align: 'right', render: (_, r) => {
+    // A REVENDA (dono do produto, 23/11/2026): "revenda não terá tempo de fabricação" — a coluna do tempo não existe nela, em vez de "0 min"
+    ...(tipoNoMotor === 'REVENDA' ? [] : [{
+      title: 'Fabricação', key: 'fabricacao', align: 'right' as const, render: (_: unknown, r: IItemProductModel) => {
         const i = itemDoOrcamento(String(r.id))
         return i?.tempo_fabricacao_min == null ? '—' : `${i.tempo_fabricacao_min.toLocaleString('pt-BR')} min · ${dinheiroOuTraco(i.custo_fabricacao)}`
       },
-    },
+    }]),
     { title: 'Total', key: 'total', align: 'right', render: (_, r) => dinheiroOuTraco(itemDoOrcamento(String(r.id))?.custo_liquido_total) },
   ]
   const estadoDoOrcamento = orcamento ? estadoDoCalculo(orcamento) : null

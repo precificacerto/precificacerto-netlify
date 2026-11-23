@@ -23,7 +23,7 @@ function consulta(tabela: string) {
     return q
 }
 jest.mock('@/supabase/admin', () => ({ supabaseAdmin: { from: (t: string) => consulta(t), rpc: (f: string) => { escritas.push(`rpc:${f}`); return Promise.resolve({ data: null, error: null }) } } }))
-jest.mock('@/lib/atendimentos-ia/tabelas-da-conta', () => ({ derivarTabelasDaConta: async () => ({ tabelas: [{ tabelaId: 'tab-perfil', vale: true }] }) }))
+jest.mock('@/lib/atendimentos-ia/tabelas-da-conta', () => ({ derivarTabelasDaConta: async () => ({ tabelas: [{ tabelaId: 'tab-perfil', vale: true, familiaChave: 'PVC' }] }) }))
 
 const recalculo = { atual: null as unknown }
 jest.mock('@/lib/atendimentos-ia/orcamento-calculado', () => {

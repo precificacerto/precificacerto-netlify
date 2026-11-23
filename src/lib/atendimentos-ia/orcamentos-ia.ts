@@ -14,7 +14,7 @@
  * Sem a migração, toda leitura e escrita recusa com `FRASE_SEM_MIGRACAO` (`ErroSemMigracao`) — a tela a mostra, nada quebra.
  */
 import { supabaseAdmin } from '@/supabase/admin'
-import { numerosExibidos } from './numero-do-orcamento-servidor'
+import { numerosExibidos, rotulosDasFamilias } from './numero-do-orcamento-servidor'
 
 export const TABELA_DO_ORCAMENTO = 'orcamentista_orcamento'
 export const TABELA_DO_ITEM = 'orcamentista_orcamento_item'
@@ -57,7 +57,7 @@ export type OrcamentoIA = {
     /** `<levantamento>-<SIGLA>` no do agente com família (23/11/2026); o número próprio no resto (`numero-do-orcamento.ts`). */
     numero_exibido: string
 }
-export type LinhaDaLista = OrcamentoIA & { itens: number }
+export type LinhaDaLista = OrcamentoIA & { itens: number; /** O rótulo da família no catálogo; nulo no orçamento de antes, sem família. */ familia_rotulo: string | null }
 
 export class ErroSemMigracao extends Error {
     constructor() { super(FRASE_SEM_MIGRACAO) }
@@ -139,8 +139,12 @@ export async function listarOrcamentos(tenantId: string): Promise<LinhaDaLista[]
     if (error) falhou(TABELA_DO_ORCAMENTO, error)
     const lidos = (data ?? []) as Array<Omit<OrcamentoIA, 'numero_exibido'>>
     if (lidos.length === 0) return []
-    const numeros = await numerosExibidos(tenantId, lidos)
-    const orcamentos: OrcamentoIA[] = lidos.map((o) => ({ ...o, familia: o.familia ?? null, numero_exibido: numeros.get(o.id) ?? String(o.numero) }))
+    const [numeros, rotulos] = await Promise.all([numerosExibidos(tenantId, lidos), rotulosDasFamilias(lidos.map((o) => o.familia))])
+    const orcamentos = lidos.map((o) => ({
+        ...o, familia: o.familia ?? null, numero_exibido: numeros.get(o.id) ?? String(o.numero),
+        // o RÓTULO da família (23/11/2026, os relatórios por família): o orçamento de antes, sem família, não tem
+        familia_rotulo: o.familia ? rotulos.get(o.familia) ?? o.familia : null,
+    }))
     // só os itens que VALEM: o removido (a marca `removido_em`, 20261113000002) fica no banco e sai de toda conta e de todo arquivo
     const { data: itens, error: e2 } = await db().from(TABELA_DO_ITEM).select('orcamento_id').eq('tenant_id', tenantId).in('orcamento_id', orcamentos.map((o) => o.id)).is('removido_em', null)
     if (e2) falhou(TABELA_DO_ITEM, e2)

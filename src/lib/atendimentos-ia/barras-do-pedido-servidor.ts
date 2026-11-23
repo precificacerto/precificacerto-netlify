@@ -35,10 +35,13 @@ const numero = (v: unknown): number | null => (v === null || v === undefined || 
  * O PESO (kg/m) de cada código nas tabelas da conta que VALEM: a linha com barra e peso (`pesosDosCodigos`). Um só lugar para as barras do
  * pedido e o orientativo de montagem (`copia-divergente`). Só leitura.
  */
-export async function pesosNasTabelasQueValem(tenantId: string, codigos: readonly string[]): Promise<Map<string, number>> {
+export async function pesosNasTabelasQueValem(tenantId: string, codigos: readonly string[], familias: readonly string[] = []): Promise<Map<string, number>> {
     if (!codigos.length) return new Map()
     const { tabelas } = await derivarTabelasDaConta(tenantId)
-    const ids = tabelas.filter((t) => t.vale).map((t) => t.tabelaId)
+    // UM ORÇAMENTO POR FAMÍLIA (23/11/2026): o peso vem das tabelas da FAMÍLIA dos itens (ou das de "qualquer linha", sem família) — a de
+    // outra família não entra, e um código nas duas não vira "dois pesos" por causa dela. Sem família nos itens (o orçamento de antes), todas.
+    const dasFamilias = new Set(familias)
+    const ids = tabelas.filter((t) => t.vale && (dasFamilias.size === 0 || t.familiaChave === null || dasFamilias.has(t.familiaChave))).map((t) => t.tabelaId)
     if (!ids.length) return new Map()
     const ti = await db().from('orcamentista_tabela_item').select('codigo, peso, medida_barra_m').in('tabela_id', ids).in('codigo', [...codigos])
     if (ti.error) falhou('orcamentista_tabela_item', ti.error)
@@ -77,7 +80,7 @@ export async function lerBarrasDoPedido(tenantId: string, orcamentoId: string): 
     const itensSemPecas = calculados.filter((i) => !comPecas.has(i.id)).map((i) => i.ordem)
 
     const codigos = [...new Set(pecas.map((x) => x.codigo))]
-    const pesos = await pesosNasTabelasQueValem(tenantId, codigos)
+    const pesos = await pesosNasTabelasQueValem(tenantId, codigos, [...new Set(calculados.map((i) => i.familia).filter((f): f is string => !!f))])
     const r = montarBarrasDoPedido(pecas, pesos)
     return { ...r, itensSemCalculo, itensSemPecas, codigosSemPeso: codigos.filter((c) => !pesos.has(c)).sort() }
 }

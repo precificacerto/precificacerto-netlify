@@ -178,6 +178,13 @@ describe('(2) a lista: TODOS os da empresa, só os dela, do mais novo ao mais an
         for (const op of estado.ops.filter((o) => o.tabela.startsWith('orcamentista_orcamento'))) expect(op.filtros).toContainEqual(['eq', 'tenant_id', T])
     })
 
+    it('a FAMÍLIA de cada orçamento, pelo rótulo do catálogo (23/11/2026, os relatórios por família); o de antes, sem família, nulo', async () => {
+        estado.db.orcamentista_orcamento.find((o) => o.id === O1)!.familia = 'PVC'
+        estado.db.orcamentista_familia_catalogo = [{ chave: 'PVC', rotulo: 'PVC Wolf', sigla: 'PVC' }]
+        const lista = (await chamar(rotaDaLista, 'GET')).corpo.orcamentos as Array<Record<string, unknown>>
+        expect(lista.map((o) => [o.numero, o.familia_rotulo])).toEqual([[2, null], [1, 'PVC Wolf']])
+    })
+
     it('o item REMOVIDO (a marca da 20261113000002) não conta na lista nem aparece no orçamento — a linha fica no banco', async () => {
         const i1 = estado.db.orcamentista_orcamento_item.find((i) => i.id === 'i1')!
         estado.db.orcamentista_orcamento_item.push({ ...i1, id: 'i-removido', ordem: 9, removido_em: '2026-11-13T12:00:00.000Z' })
