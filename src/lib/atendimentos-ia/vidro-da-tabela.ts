@@ -1,3 +1,5 @@
+import { COLUNA_DA_CATEGORIA_DO_FORNECEDOR, type CategoriaDoFornecedor } from '@/utils/atendimentos-ia-importacao-celula'
+
 /**
  * A TRADUÇÃO DO VIDRO (dono do produto, 12/11/2026, o comando único, 3.4): o texto que o vendedor disse ("comum 6 mm incolor", "5mm", "mini
  * boreal") vira o ITEM da tabela de vidro — só quando o que foi dito fecha num item ÚNICO.
@@ -71,23 +73,25 @@ export function vidroDoItem(descricao: string | null | undefined): VidroDoItem {
 }
 
 /**
- * O item da tabela de vidro. `segmento` e `cor` são as colunas do arquivo (o layout único, 20261123000004): quando o item traz as DUAS, ele é
- * achado por SEGMENTO + COR + ESPESSURA (`candidatosPorAtributo`); sem elas (a tabela de antes, a Estrela), pela descrição, como sempre.
+ * O item da tabela de vidro. A coluna da categoria do fornecedor (`COLUNA_DA_CATEGORIA_DO_FORNECEDOR`, que no vidro traz a VARIANTE) e a `cor`
+ * são colunas do arquivo (o layout único, 20261123000004): quando o item traz as DUAS, ele é achado por VARIANTE + COR + ESPESSURA
+ * (`candidatosPorAtributo`); sem elas (a tabela de antes, a Estrela), pela descrição, como sempre.
  */
-export type ItemDeVidro = { codigo: string; descricao?: string | null; segmento?: string | null; cor?: string | null }
+export type ItemDeVidro = { codigo: string; descricao?: string | null; cor?: string | null } & Partial<CategoriaDoFornecedor>
+const varianteDo = (i: ItemDeVidro) => i[COLUNA_DA_CATEGORIA_DO_FORNECEDOR]
 export type MotivoDoVidro = 'VIDRO_NAO_DITO' | 'VIDRO_NAO_TRADUZIDO' | 'VIDRO_AMBIGUO' | 'VIDRO_SEM_CADASTRO' | 'VIDRO_CODIGO_FORA_DA_TABELA'
 export type TraducaoDoVidro<I> = { item: I; como: 'codigo' | 'texto' | 'padrao' } | { motivo: MotivoDoVidro; frase: string; candidatos: I[] }
 
-// ══ O VIDRO POR SEGMENTO + COR + ESPESSURA (dono do produto, 23/11/2026) ══
-// "A categoria é o vidro, segmentação aramado, pontilhado, canelado. E aí, no caso, a cor." A chave que acha a linha de preço é o SEGMENTO (a
-// variante: Float, Temperado, Laminado PVB opaco…), a COR (INCOLOR, NEUTRO CINZA CLARO…) e a ESPESSURA. O segmento e a cor DITOS são procurados
+// ══ O VIDRO POR VARIANTE + COR + ESPESSURA (dono do produto, 23/11/2026) ══
+// A categoria é o vidro; aramado, pontilhado, canelado são variantes; e depois a cor. A chave que acha a linha de preço é a VARIANTE (Float,
+// Temperado, Laminado PVB opaco…), a COR (INCOLOR, NEUTRO CINZA CLARO…) e a ESPESSURA. A variante e a cor DITAS são procuradas
 // no vocabulário da PRÓPRIA tabela (os valores distintos dos itens), do mais longo para o mais curto — "NEUTRO CINZA CLARO" antes de "NEUTRO
 // CINZA", "TEMPERADO LAMINADO" antes de "TEMPERADO" —, nunca numa lista do código. O único sinônimo fixo é o do PO: Float é o Comum.
 // O item sem espessura identificável (as linhas de duplagem de hoje, adicionais por m²) NÃO é candidato: a duplagem entra quando o fornecedor
 // trouxer a composição pronta, como uma linha de vidro (decisão do PO); nada é somado por fora.
 
-/** O item que é achado pelos atributos: traz o segmento e a cor. */
-export const temAtributos = (i: ItemDeVidro) => normal(i.segmento).trim() !== '' && normal(i.cor).trim() !== ''
+/** O item que é achado pelos atributos: traz a variante e a cor. */
+export const temAtributos = (i: ItemDeVidro) => normal(varianteDo(i)).trim() !== '' && normal(i.cor).trim() !== ''
 /** A espessura do item, da descrição: o total entre parênteses ("4+4MM (8MM)" → 8), senão a medida em mm; sem ela, null. */
 export function espessuraDoItem(descricao: string | null | undefined): { total: string | null; composicao: string | null } {
     const d = normal(descricao)
@@ -98,7 +102,7 @@ export function espessuraDoItem(descricao: string | null | undefined): { total: 
     const total = parenteses ? espessuraNormal(parenteses[1]) : composicao === null && solta ? espessuraNormal(solta[1]) : null
     return { total, composicao }
 }
-const SINONIMOS_DO_SEGMENTO: ReadonlyArray<[string, string]> = [['COMUM', 'FLOAT']]
+const SINONIMOS_DA_VARIANTE: ReadonlyArray<[string, string]> = [['COMUM', 'FLOAT']]
 const semEspacoSobrando = (t: string) => t.replace(/\s+/g, ' ').trim()
 /** A frase mais longa do vocabulário que aparece no texto (palavra inteira), e o texto sem ela. */
 function acharNoTexto(texto: string, vocabulario: readonly string[]): { valor: string | null; resto: string } {
@@ -109,24 +113,24 @@ function acharNoTexto(texto: string, vocabulario: readonly string[]): { valor: s
     }
     return { valor: null, resto: texto }
 }
-/** O que o texto diz nos termos da tabela: o segmento, a cor e a espessura — cada um, ou null quando não foi dito. */
-export type VidroDitoPorAtributo = { segmento: string | null; cor: string | null; espessura: string | null }
+/** O que o texto diz nos termos da tabela: a variante, a cor e a espessura — cada uma, ou null quando não foi dita. */
+export type VidroDitoPorAtributo = { variante: string | null; cor: string | null; espessura: string | null }
 export function vidroDitoPorAtributo(texto: string | null | undefined, itens: readonly ItemDeVidro[]): VidroDitoPorAtributo {
-    const segmentos = [...new Set(itens.filter(temAtributos).map((i) => semEspacoSobrando(normal(i.segmento))))]
+    const variantes = [...new Set(itens.filter(temAtributos).map((i) => semEspacoSobrando(normal(varianteDo(i)))))]
     const cores = [...new Set(itens.filter(temAtributos).map((i) => semEspacoSobrando(normal(i.cor))))]
     let t = ` ${semEspacoSobrando(normal(texto))} `
-    for (const [dito, daTabela] of SINONIMOS_DO_SEGMENTO) if (segmentos.includes(daTabela)) t = t.replace(new RegExp(`([^A-Z0-9])${dito}(?=[^A-Z0-9])`, 'g'), `$1${daTabela}`)
-    const seg = acharNoTexto(t, segmentos)
-    const cor = acharNoTexto(seg.resto, cores)
-    return { segmento: seg.valor, cor: cor.valor, espessura: vidroDito(cor.resto).espessura }
+    for (const [dito, daTabela] of SINONIMOS_DA_VARIANTE) if (variantes.includes(daTabela)) t = t.replace(new RegExp(`([^A-Z0-9])${dito}(?=[^A-Z0-9])`, 'g'), `$1${daTabela}`)
+    const vari = acharNoTexto(t, variantes)
+    const cor = acharNoTexto(vari.resto, cores)
+    return { variante: vari.valor, cor: cor.valor, espessura: vidroDito(cor.resto).espessura }
 }
-/** Os candidatos pelos atributos: o segmento e a cor exatos (sem caixa, sem acento), a espessura pelo total ou pela composição. */
+/** Os candidatos pelos atributos: a variante e a cor exatas (sem caixa, sem acento), a espessura pelo total ou pela composição. */
 export function candidatosPorAtributo<I extends ItemDeVidro>(dito: VidroDitoPorAtributo, itens: readonly I[]): I[] {
     return itens.filter((i) => {
         if (!temAtributos(i)) return false
         const e = espessuraDoItem(i.descricao)
         if (e.total === null && e.composicao === null) return false
-        if (dito.segmento !== null && semEspacoSobrando(normal(i.segmento)) !== dito.segmento) return false
+        if (dito.variante !== null && semEspacoSobrando(normal(varianteDo(i))) !== dito.variante) return false
         if (dito.cor !== null && semEspacoSobrando(normal(i.cor)) !== dito.cor) return false
         if (dito.espessura !== null && dito.espessura !== e.total && dito.espessura !== e.composicao) return false
         return true
@@ -169,11 +173,11 @@ export function traduzirVidro<I extends ItemDeVidro>(texto: string | null | unde
     if (texto === null || texto === undefined || texto.trim() === '') return { motivo: 'VIDRO_NAO_DITO', frase: 'o vidro do item não foi dito', candidatos: [] }
     const dito = vidroDito(texto)
     const porAtributo = vidroDitoPorAtributo(texto, itens)
-    const algoPorAtributo = porAtributo.segmento !== null || porAtributo.cor !== null || porAtributo.espessura !== null
+    const algoPorAtributo = porAtributo.variante !== null || porAtributo.cor !== null || porAtributo.espessura !== null
     if (dito.tipo === null && dito.espessura === null && dito.familia === null && !algoPorAtributo) {
         return { motivo: 'VIDRO_NAO_TRADUZIDO', frase: `o vidro “${texto.trim()}” não diz tipo, espessura nem família que a tabela de vidro tenha`, candidatos: [] }
     }
-    // os itens com segmento e cor (a tabela do layout único) pelos atributos; os de antes, pela descrição — os dois juntos, e o empate é nomeado
+    // os itens com variante e cor (a tabela do layout único) pelos atributos; os de antes, pela descrição — os dois juntos, e o empate é nomeado
     const legado = dito.tipo === null && dito.espessura === null && dito.familia === null ? [] : candidatosDoVidro(dito, itens)
     const candidatos = [...(algoPorAtributo ? candidatosPorAtributo(porAtributo, itens) : []), ...legado]
     if (candidatos.length === 1) return { item: candidatos[0], como: 'texto' }

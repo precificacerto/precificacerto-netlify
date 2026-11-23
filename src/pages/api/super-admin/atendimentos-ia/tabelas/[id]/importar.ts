@@ -156,7 +156,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const doArquivo = categoriasDoFornecedorNosItens(lida.itens.map((i) => i[COLUNA_DA_CATEGORIA_DO_FORNECEDOR]))
   // SEM `?? null`: um `undefined` (a leitura da tabela que esqueceu de pedir a coluna) NÃO vira "sem categoria" — falha FECHADA, recusando.
   const declarada = tabela.categoria_chave
-  // O VIDRO (dono do produto, 23/11/2026): "a categoria é o vidro, segmentação aramado, pontilhado, canelado" — na tabela de VIDRO a coluna traz a
+  // O VIDRO (dono do produto, 23/11/2026): a categoria é o vidro, e aramado, pontilhado, canelado são as variantes dele — na tabela de VIDRO a coluna traz a
   // VARIANTE do vidro (Float, Temperado, Laminado PVB opaco…), não outra categoria: vários valores são esperados. A regra de uma categoria por
   // tabela continua valendo para todas as outras.
   if (declarada !== null && declarada !== CATEGORIA_COM_VARIANTES && doArquivo.categorias.length > 1) {

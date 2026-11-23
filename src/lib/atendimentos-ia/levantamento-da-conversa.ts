@@ -104,6 +104,7 @@
  */
 import { descricaoNoPrompt, limitesNoPrompt, numeroOuNulo } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { supabaseAdmin } from '@/supabase/admin'
+import { COLUNA_DA_CATEGORIA_DO_FORNECEDOR } from '@/utils/atendimentos-ia-importacao-celula'
 import { COLUNAS_LIDAS, COLUNAS_OPCIONAIS, lerTipologia, variaveisDaAba, type AbasDoMotor, type AvisoDoAvaliador, type Tipologia } from '@/lib/atendimentos-ia/avaliador-de-formulas'
 import { escolhasDoCalculo } from '@/lib/atendimentos-ia/fronteira-das-escolhas'
 import { lerPoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa-servidor'
@@ -535,9 +536,9 @@ export async function lerVariaveisDasTipologias(motorId: string, para: 'agente' 
  * coluna antiga `ipi` NÃO entra (dono do produto, 09/11/2026: duas fontes para o mesmo número).
  */
 export const COLUNAS_DO_ITEM_DA_TABELA =
-    'codigo, descricao, unidade, vendido_por, medida_barra_m, custo, valor_barra_interno, valor_metro_interno, cred_icms_pct, cred_pis_cofins_pct, cred_ipi_pct, nc_ipi_pct, cred_ibs_pct, cred_cbs_pct, segmento'
+    'codigo, descricao, unidade, vendido_por, medida_barra_m, custo, valor_barra_interno, valor_metro_interno, cred_icms_pct, cred_pis_cofins_pct, cred_ipi_pct, nc_ipi_pct, cred_ibs_pct, cred_cbs_pct, ' + COLUNA_DA_CATEGORIA_DO_FORNECEDOR
 /**
- * A COR do item (20261123000004, o vidro por segmento + cor + espessura). Antes de a migração entrar a coluna não existe: a leitura volta SEM
+ * A COR do item (20261123000004, o vidro por variante + cor + espessura). Antes de a migração entrar a coluna não existe: a leitura volta SEM
  * ela (o vidro é achado pela descrição, como antes) e o código não quebra pela ordem de aplicação.
  */
 export const COLUNA_DA_COR_DO_ITEM = 'cor'

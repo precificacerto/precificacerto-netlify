@@ -9,15 +9,15 @@ IM = 'src/utils/atendimentos-ia-importacao.ts'
 RT = 'src/pages/api/super-admin/atendimentos-ia/tabelas/[id]/importar.ts'
 LC = 'src/lib/atendimentos-ia/levantamento-da-conversa.ts'
 M = [
- (VT, "export const temAtributos = (i: ItemDeVidro) => normal(i.segmento).trim() !== '' && normal(i.cor).trim() !== ''", "export const temAtributos = (i: ItemDeVidro) => normal(i.segmento).trim() !== ''"),
+ (VT, "export const temAtributos = (i: ItemDeVidro) => normal(varianteDo(i)).trim() !== '' && normal(i.cor).trim() !== ''", "export const temAtributos = (i: ItemDeVidro) => normal(varianteDo(i)).trim() !== ''"),
  (VT, "    const total = parenteses ? espessuraNormal(parenteses[1]) : composicao === null && solta ? espessuraNormal(solta[1]) : null", "    const total = composicao === null && solta ? espessuraNormal(solta[1]) : null"),
  (VT, "        if (e.total === null && e.composicao === null) return false\n", ""),
  (VT, "        if (dito.cor !== null && semEspacoSobrando(normal(i.cor)) !== dito.cor) return false\n", ""),
- (VT, "        if (dito.segmento !== null && semEspacoSobrando(normal(i.segmento)) !== dito.segmento) return false\n", ""),
+ (VT, "        if (dito.variante !== null && semEspacoSobrando(normal(varianteDo(i))) !== dito.variante) return false\n", ""),
  (VT, "dito.espessura !== e.total && dito.espessura !== e.composicao", "dito.espessura !== e.total"),
  (VT, "    for (const v of [...vocabulario].sort((a, b) => b.length - a.length)) {", "    for (const v of [...vocabulario].sort((a, b) => a.length - b.length)) {"),
- (VT, "const SINONIMOS_DO_SEGMENTO: ReadonlyArray<[string, string]> = [['COMUM', 'FLOAT']]", "const SINONIMOS_DO_SEGMENTO: ReadonlyArray<[string, string]> = []"),
- (VT, "    const cor = acharNoTexto(seg.resto, cores)", "    const cor = acharNoTexto(t, cores)"),
+ (VT, "const SINONIMOS_DA_VARIANTE: ReadonlyArray<[string, string]> = [['COMUM', 'FLOAT']]", "const SINONIMOS_DA_VARIANTE: ReadonlyArray<[string, string]> = []"),
+ (VT, "    const cor = acharNoTexto(vari.resto, cores)", "    const cor = acharNoTexto(t, cores)"),
  (VT, "        if (temAtributos(i)) return false\n", ""),
  (VT, "    const candidatos = [...(algoPorAtributo ? candidatosPorAtributo(porAtributo, itens) : []), ...legado]", "    const candidatos = [...(algoPorAtributo ? candidatosPorAtributo(porAtributo, itens) : [])]"),
  (VT, "&& !algoPorAtributo) {", ") {"),

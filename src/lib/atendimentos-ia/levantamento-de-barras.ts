@@ -1,3 +1,4 @@
+import type { CategoriaDoFornecedor } from '@/utils/atendimentos-ia-importacao-celula'
 /**
  * Atendimentos I.A. — o LEVANTAMENTO DE BARRAS: a ligação do avaliador de fórmulas
  * (`avaliador-de-formulas.ts`) ao agrupador de barras (`agrupador-de-barras.ts`). Dadas N esquadrias
@@ -94,8 +95,7 @@ export type RegraDoDePara = { codigo: string; codigo_wvetro: string; cor: string
 export type ItemDaTabela = {
     codigo: string
     descricao?: string | null
-    /** A coluna do fornecedor (no vidro, a VARIANTE: Float, Temperado…) e a cor (20261123000004): o vidro casa segmento + cor + espessura. */
-    segmento?: string | null
+    /** A cor (20261123000004). A coluna da categoria do fornecedor (no vidro, a VARIANTE: Float, Temperado…) vem por `CategoriaDoFornecedor`. */
     cor?: string | null
     medida_barra_m: number | null
     valor_barra_interno: number | null
@@ -115,7 +115,7 @@ export type ItemDaTabela = {
     nc_ipi_pct?: number | null
     cred_ibs_pct?: number | null
     cred_cbs_pct?: number | null
-}
+} & Partial<CategoriaDoFornecedor>
 export type EntradaDoLevantamento = {
     /** A cor do perfil, comparada EXATA com a coluna `cor` do motor. Obrigatória: sem default. */
     cor: string

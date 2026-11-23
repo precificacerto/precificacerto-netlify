@@ -23,7 +23,7 @@ describe('a trinca acha UM vidro', () => {
         expect(comCor).toHaveLength(90)
         for (const i of comCor) {
             const e = espessuraDoItem(i.descricao)
-            const achados = candidatosPorAtributo({ segmento: (i.segmento as string).toUpperCase(), cor: (i.cor as string).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase(), espessura: e.total ?? e.composicao }, ITENS)
+            const achados = candidatosPorAtributo({ variante: (i.segmento as string).toUpperCase(), cor: (i.cor as string).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase(), espessura: e.total ?? e.composicao }, ITENS)
             expect([i.codigo, achados.map((a) => a.codigo)]).toEqual([i.codigo, [i.codigo]])
         }
     })
@@ -50,11 +50,11 @@ describe('o que não fecha é nomeado, nunca escolhido', () => {
         expect(codigo('temperado 6mm')).toBe('VIDRO_AMBIGUO:LJ-VTIN06,LJ-VTVD06,LJ-VTFM06,LJ-VTHNI06,LJ-VTHNC06,LJ-VTHNCC06,LJ-VTHRCH06,LJ-VTHRCZ06,LJ-VTHRES06')
     })
     it('"incolor" não é "neutro incolor": o mais longo do vocabulário vence, e a palavra sozinha é a cor exata', () => {
-        expect(vidroDitoPorAtributo('temperado neutro incolor 4', ITENS)).toEqual({ segmento: 'TEMPERADO', cor: 'NEUTRO INCOLOR', espessura: '4' })
-        expect(vidroDitoPorAtributo('temperado incolor 4', ITENS)).toEqual({ segmento: 'TEMPERADO', cor: 'INCOLOR', espessura: '4' })
+        expect(vidroDitoPorAtributo('temperado neutro incolor 4', ITENS)).toEqual({ variante: 'TEMPERADO', cor: 'NEUTRO INCOLOR', espessura: '4' })
+        expect(vidroDitoPorAtributo('temperado incolor 4', ITENS)).toEqual({ variante: 'TEMPERADO', cor: 'INCOLOR', espessura: '4' })
     })
     it('"temperado laminado" é UM segmento, nunca temperado nem laminado', () => {
-        expect(vidroDitoPorAtributo('temperado laminado incolor 8', ITENS).segmento).toBe('TEMPERADO LAMINADO')
+        expect(vidroDitoPorAtributo('temperado laminado incolor 8', ITENS).variante).toBe('TEMPERADO LAMINADO')
     })
     it('a espessura que não existe: SEM CADASTRO', () => {
         expect(codigo('temperado incolor 7mm')).toBe('VIDRO_SEM_CADASTRO:')
@@ -62,7 +62,7 @@ describe('o que não fecha é nomeado, nunca escolhido', () => {
     it('as 8 linhas de duplagem (sem espessura) NUNCA são candidatas, nem quando o texto as nomeia', () => {
         const duplagem = ITENS.filter((i) => !i.cor)
         expect(duplagem.map((d) => d.codigo)).toEqual(['LJ-DUP-ESP09', 'LJ-DUP-ESP11', 'LJ-DUP-ESP15', 'LJ-DUP-ESP21', 'LJ-DUP-SLMAN', 'LJ-DUP-SLMOT', 'LJ-DUP-ARG', 'LJ-DUP-SIL'])
-        expect(candidatosPorAtributo({ segmento: null, cor: null, espessura: null }, ITENS).filter((c) => !c.cor)).toEqual([])
+        expect(candidatosPorAtributo({ variante: null, cor: null, espessura: null }, ITENS).filter((c) => !c.cor)).toEqual([])
         expect(codigo('duplagem')).toBe('VIDRO_NAO_TRADUZIDO:')
     })
     it('o LJ-VLSIL5+5 é achado (laminado PVB silence 10) e vem SEM preço: quem custeia nomeia a falta', () => {

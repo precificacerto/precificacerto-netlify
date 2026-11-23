@@ -14,6 +14,8 @@ export type ValorLido = string | number | Date | null
  * arquivo. Esta linha é a exceção nominal do portão de vocabulário.
  */
 export const COLUNA_DA_CATEGORIA_DO_FORNECEDOR = 'segmento' as const
+/** A coluna da categoria do fornecedor como campo de uma linha (o item da tabela, a regra do motor). */
+export type CategoriaDoFornecedor = { [K in typeof COLUNA_DA_CATEGORIA_DO_FORNECEDOR]: string | null }
 
 /**
  * O valor de UMA célula do exceljs, em todas as formas que ela chega:

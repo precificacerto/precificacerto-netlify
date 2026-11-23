@@ -120,7 +120,7 @@ export type ItemLido = CategoriaDoFornecedor & BlocoTributario & {
     valor_barra_12: number | null
     /**
      * A COR do item, da coluna `cor` do layout único (dono do produto, 23/11/2026, o vidro: "vai ter uma coluna, exatamente"; migração
-     * 20261123000004). Com o segmento e a espessura, é o que acha a linha de preço do vidro. O layout de antes não tem a coluna: NULL.
+     * 20261123000004). Com a variante e a espessura, é o que acha a linha de preço do vidro. O layout de antes não tem a coluna: NULL.
      */
     cor: string | null
 }
@@ -623,7 +623,7 @@ function lerItensDoLayoutUnico(ws: ExcelJS.Worksheet): LeituraDoPreco {
         const item: ItemLido = {
             codigo,
             descricao: texto('descricao'),
-            // a cor, como veio (20261123000004): o vidro casa segmento + cor + espessura
+            // a cor, como veio (20261123000004): o vidro casa variante + cor + espessura
             cor: texto('cor'),
             medida_barra_m: numero('medida_barra_m'),
             unidade: texto('unidade'),
