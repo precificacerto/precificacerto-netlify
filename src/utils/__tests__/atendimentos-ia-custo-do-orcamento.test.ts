@@ -250,6 +250,13 @@ describe('OS TRÊS CAMINHOS: perfil pelo consumo (16/11/2026), insumo pela unida
         itens: [{ ...base().itens[0], insumos: [{ codigo: '10457', quantidade: 4 }], vidros: [{ codigo: 'VIN04', m2: 1.5 }] }, base().itens[1]],
         materiais: { ...base().materiais, 'insumo:10457': insumo('10457', 2.5), 'vidro:VIN04': vidro('VIN04', 74.96) },
     })
+    it('o VIDRO SEM PREÇO (o LJ-VLSIL5+5 da Lajeadense, 23/11/2026): achado, mas o custo vazio vira falta NOMEADA — nunca zero nem estimado', () => {
+        const t = tres()
+        const r = custoDoOrcamento({ ...t, itens: [{ ...t.itens[0], vidros: [{ codigo: 'LJ-VLSIL5+5', m2: 1.2 }] }, t.itens[1]],
+            materiais: { ...t.materiais, 'vidro:LJ-VLSIL5+5': vidro('LJ-VLSIL5+5', null) } })
+        const textos = JSON.stringify(r)
+        expect(textos).toContain('o preço por m² do vidro LJ-VLSIL5+5, na tabela de vidro: fica fora do custo')
+    })
     it('o INSUMO: quantidade × custo da unidade × a cascata; consumo em unidades, sem medida', () => {
         const l = ok(tres()).itens[0].materiais.find((m) => m.caminho === 'insumo')!
         expect(l).toMatchObject({ codigo: '10457', consumo_item: 4, custo_bruto_unidade: 2.5, medida_unidade: null, custo_liquido_fracao: null, unidade_compra: 'PC' })

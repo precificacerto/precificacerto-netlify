@@ -94,6 +94,9 @@ export type RegraDoDePara = { codigo: string; codigo_wvetro: string; cor: string
 export type ItemDaTabela = {
     codigo: string
     descricao?: string | null
+    /** A coluna do fornecedor (no vidro, a VARIANTE: Float, Temperado…) e a cor (20261123000004): o vidro casa segmento + cor + espessura. */
+    segmento?: string | null
+    cor?: string | null
     medida_barra_m: number | null
     valor_barra_interno: number | null
     valor_metro_interno: number | null

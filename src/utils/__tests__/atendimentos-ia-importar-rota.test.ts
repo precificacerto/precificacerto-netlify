@@ -526,6 +526,22 @@ describe('UMA TABELA, UMA CATEGORIA DO FORNECEDOR — o arquivo com mais de uma 
         expect(r.json.avisos.map((a: any) => a.tipo)).not.toContain('itens_sem_categoria_do_fornecedor')
     })
 
+    it('O VIDRO (23/11/2026): na tabela de VIDRO a coluna traz a VARIANTE (Float, Temperado, Laminado PVB opaco…) — vários valores são ACEITOS e gravados como vieram', async () => {
+        declarada('VIDRO')
+        await comCategorias(['Float', 'Temperado', 'Laminado PVB opaco', 'Temperado'])
+        const r = await chamar('POST')
+        expect(r.status).toBe(200)
+        expect(repo.importarTabela.mock.calls[0][0].payload.itens.map((i: any) => i[COLUNA_DA_CATEGORIA_DO_FORNECEDOR])).toEqual(['Float', 'Temperado', 'Laminado PVB opaco', 'Temperado'])
+    })
+
+    it('a exceção é SÓ do vidro: a mesma planilha numa tabela de FERRAGENS continua recusada (422)', async () => {
+        declarada('FERRAGENS')
+        await comCategorias(['Float', 'Temperado'])
+        const r = await chamar('POST')
+        expect(r.status).toBe(422)
+        expect(repo.importarTabela).not.toHaveBeenCalled()
+    })
+
     it('a mesma categoria em duas grafias ("Acessórios" e "acessórios", com espaço de sobra) é UMA categoria só', async () => {
         declarada('ACESSORIOS_VEDACAO')
         await comCategorias(['Acessórios', 'acessórios', ' Acessórios  '])

@@ -118,6 +118,11 @@ export type ItemLido = CategoriaDoFornecedor & BlocoTributario & {
     valor_barra_interno: number | null
     valor_metro_12: number | null
     valor_barra_12: number | null
+    /**
+     * A COR do item, da coluna `cor` do layout único (dono do produto, 23/11/2026, o vidro: "vai ter uma coluna, exatamente"; migração
+     * 20261123000004). Com o segmento e a espessura, é o que acha a linha de preço do vidro. O layout de antes não tem a coluna: NULL.
+     */
+    cor: string | null
 }
 
 /** Uma linha de `orcamentista_motor_regra`, sem `id` e `tabela_id`. A categoria vem em `CategoriaDoFornecedor`. */
@@ -390,6 +395,8 @@ function lerPreco(ws: ExcelJS.Worksheet): LeituraDoPreco {
         const codigo = l.codigo(r, COL_PRECO.codigo)
         if (codigo === null) continue
         const item: ItemLido = {
+            // o layout de antes não tem a coluna da cor
+            cor: null,
             codigo,
             descricao: l.texto(r, COL_PRECO.descricao),
             medida_barra_m: l.numero(r, COL_PRECO.medida_barra_m),
@@ -504,7 +511,9 @@ export const fraseDaColunaDe12Ausente = (faltam: readonly string[]) =>
 export const fraseDosItensSemValorDe12 = (coluna: string, codigos: readonly string[]) =>
     `${codigos.length} ${codigos.length === 1 ? 'item veio' : 'itens vieram'} sem ${coluna} (${nomeados(codigos)}): ${codigos.length === 1 ? 'ficou' : 'ficaram'} em branco, não zero.`
 /** Exigidas no cabeçalho e lidas, mas SEM coluna em `orcamentista_tabela_item` (medido em 02/11/2026): ficam fora da gravação nesta PR. */
-export const COLUNAS_SEM_DESTINO_DO_LAYOUT_UNICO = ['linha', 'cor', 'codigo_wvetro', 'valor_kg', 'multiplo_compra'] as const
+/** A categoria cuja coluna do fornecedor traz a VARIANTE do item, não a categoria (o vidro, dono do produto, 23/11/2026). */
+export const CATEGORIA_COM_VARIANTES = 'VIDRO'
+export const COLUNAS_SEM_DESTINO_DO_LAYOUT_UNICO = ['linha', 'codigo_wvetro', 'valor_kg', 'multiplo_compra'] as const
 /** As numéricas: texto nelas é recusa nomeada, como no bloco tributário (nunca vira 0 nem NULL). */
 type NumericaDoLayoutUnico = 'medida_barra_m' | 'peso_kg_por_m' | 'custo_bruto' | 'valor_metro' | ColunaOpcionalDoLayoutUnico | ColunaDoBlocoTributario
 
@@ -614,6 +623,8 @@ function lerItensDoLayoutUnico(ws: ExcelJS.Worksheet): LeituraDoPreco {
         const item: ItemLido = {
             codigo,
             descricao: texto('descricao'),
+            // a cor, como veio (20261123000004): o vidro casa segmento + cor + espessura
+            cor: texto('cor'),
             medida_barra_m: numero('medida_barra_m'),
             unidade: texto('unidade'),
             ncm: texto('ncm'),
