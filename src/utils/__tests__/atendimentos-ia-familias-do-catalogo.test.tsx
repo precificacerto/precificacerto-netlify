@@ -29,6 +29,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import {
     FAMILIA_SEM_RAMIFICACAO, RAMIFICACAO_REPETIDA, RAMIFICACOES_INVALIDAS, ROTAS_DO_CATALOGO, familiaNaoMudou, fraseDaFamiliaComNomeRepetido,
     lerEdicaoDaFamilia, lerFamiliaNova, recusada, type FamiliaDoCatalogo,
+    FRASE_DA_SIGLA_FORA_DA_FORMA, FRASE_SEM_SIGLA, fraseDaSiglaRepetida, lerSiglaDaFamilia,
 } from '@/utils/atendimentos-ia-catalogo'
 import { ROTA_DA_REMOCAO, rotaDoArrasto } from '@/utils/atendimentos-ia-remocao'
 
@@ -59,7 +60,7 @@ const CATEGORIAS = [
     { chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }, { chave: 'PERSIANAS', rotulo: 'Persianas', ordem: 2 },
     { chave: 'FERRAGENS', rotulo: 'Ferragens', ordem: 4 }, { chave: 'VIDRO', rotulo: 'Vidro', ordem: 6 },
 ]
-let familias = [{ chave: 'PVC', rotulo: 'PVC Wolf', ordem: 1 }, { chave: 'VECA', rotulo: 'PVC Veca', ordem: 2 }]
+let familias = [{ chave: 'PVC', rotulo: 'PVC Wolf', ordem: 1, sigla: 'PVC' }, { chave: 'VECA', rotulo: 'PVC Veca', ordem: 2, sigla: 'VEC' }]
 let ramificacoes = [{ familia: 'PVC', categoria_chave: 'PERFIL', ordem: 1 }, { familia: 'PVC', categoria_chave: 'VIDRO', ordem: 2 }, { familia: 'VECA', categoria_chave: 'PERFIL', ordem: 1 }]
 
 jest.mock('@/lib/atendimentos-ia/repositorio', () => {
@@ -99,7 +100,7 @@ const silencio = jest.spyOn(console, 'error').mockImplementation(() => {})
 afterAll(() => silencio.mockRestore())
 beforeEach(() => {
     perfil = SUPER
-    familias = [{ chave: 'PVC', rotulo: 'PVC Wolf', ordem: 1 }, { chave: 'VECA', rotulo: 'PVC Veca', ordem: 2 }]
+    familias = [{ chave: 'PVC', rotulo: 'PVC Wolf', ordem: 1, sigla: 'PVC' }, { chave: 'VECA', rotulo: 'PVC Veca', ordem: 2, sigla: 'VEC' }]
     ramificacoes = [{ familia: 'PVC', categoria_chave: 'PERFIL', ordem: 1 }, { familia: 'PVC', categoria_chave: 'VIDRO', ordem: 2 }, { familia: 'VECA', categoria_chave: 'PERFIL', ordem: 1 }]
     Object.values(repo).forEach((f) => { if (typeof f?.mockClear === 'function') f.mockClear() })
 })
@@ -110,7 +111,7 @@ const nenhumaEscrita = () => {
 
 describe('(1) os leitores do corpo', () => {
     it('as ramificações: ao menos uma, sem repetir, chaves de categoria — cada falta com a SUA frase', () => {
-        const ler = (ramificacoes: unknown) => { const r = lerFamiliaNova({ rotulo: 'PVC Veca', ramificacoes }); return recusada(r) ? r.erro : r.corpo.ramificacoes }
+        const ler = (ramificacoes: unknown) => { const r = lerFamiliaNova({ rotulo: 'PVC Veca', sigla: 'VEC', ramificacoes }); return recusada(r) ? r.erro : r.corpo.ramificacoes }
         expect(ler(['VIDRO', 'PERFIL'])).toEqual(['VIDRO', 'PERFIL'])
         expect(ler([])).toBe(FAMILIA_SEM_RAMIFICACAO)
         expect(ler(['PERFIL', 'PERFIL'])).toBe(RAMIFICACAO_REPETIDA)
@@ -120,9 +121,34 @@ describe('(1) os leitores do corpo', () => {
         expect(ler([null])).toBe(RAMIFICACOES_INVALIDAS)
     })
 
+    it('a SIGLA (23/11/2026): aparada e em maiúscula; vazia, de 2 ou 4 letras, com número ou acento é recusa — nunca deduzida do nome', () => {
+        const ler = (v: unknown) => { const r = lerSiglaDaFamilia(v); return recusada(r) ? r.erro : r.corpo }
+        expect(ler(' alu ')).toBe('ALU')
+        expect(ler('PVC')).toBe('PVC')
+        for (const v of [undefined, null, '', '   ']) expect(ler(v)).toBe(FRASE_SEM_SIGLA)
+        for (const v of ['AL', 'ALUM', 'A1U', 'ALÚ', 'A U']) expect(ler(v)).toBe(FRASE_DA_SIGLA_FORA_DA_FORMA)
+        const semSigla = lerFamiliaNova({ rotulo: 'Alumínio Suprema', ramificacoes: ['PERFIL'] })
+        expect(recusada(semSigla) && semSigla.erro).toBe(FRASE_SEM_SIGLA)
+    })
+    it('a sigla repetida na rota: 409 nomeando a família dela, sem chamar a função', async () => {
+        const r = await chamar('familias', 'POST', {}, { rotulo: 'Portas de ACM', sigla: 'pvc', ramificacoes: ['PERFIL'] })
+        expect(r).toEqual({ status: 409, json: { error: fraseDaSiglaRepetida('PVC', 'PVC Wolf') } })
+        expect(repo.criarFamilia).not.toHaveBeenCalled()
+    })
+    it('EDITAR mostra a sigla fixa e não a manda (é imutável)', async () => {
+        const editadas: Array<[string, unknown]> = []
+        const host = await montar(card({ onEditar: async (c, d) => { editadas.push([c, d]); return null } }))
+        await clicar(host.querySelector('[aria-label="Editar PVC Wolf"]'))
+        expect(modal()!.querySelector('[data-sigla-fixa]')!.textContent).toContain('Sigla: PVC')
+        expect(modal()!.querySelector('input[aria-label="Sigla da família"]')).toBeNull()
+        await digitar(modal()!.querySelector('input[aria-label="Nome da família"]') as HTMLInputElement, 'PVC Wolff')
+        await clicar(ok('Salvar'))
+        expect(editadas).toEqual([['PVC', { rotulo: 'PVC Wolff', ramificacoes: ['PERFIL', 'VIDRO'] }]])
+    })
+
     it('campo a mais é erro, na criação e na edição; a edição lê o nome e as ramificações e NÃO a chave', () => {
-        const nova = lerFamiliaNova({ rotulo: 'X', ramificacoes: ['PERFIL'], chave: 'OUTRA' })
-        expect(recusada(nova) && nova.erro).toBe('Campo desconhecido no corpo: chave (só rotulo e ramificacoes).')
+        const nova = lerFamiliaNova({ rotulo: 'X', sigla: 'XXX', ramificacoes: ['PERFIL'], chave: 'OUTRA' })
+        expect(recusada(nova) && nova.erro).toBe('Campo desconhecido no corpo: chave (só rotulo, sigla e ramificacoes).')
         const ed = lerEdicaoDaFamilia({ rotulo: '  PVC Wolff ', ramificacoes: ['PERFIL'] })
         expect(recusada(ed) ? ed.erro : ed.corpo).toEqual({ rotulo: 'PVC Wolff', ramificacoes: ['PERFIL'] })
         const comChave = lerEdicaoDaFamilia({ rotulo: 'X', ramificacoes: ['PERFIL'], chave: 'NOVA' })
@@ -134,7 +160,7 @@ describe('(1) os leitores do corpo', () => {
     })
 
     it('"nada mudou": o nome aparado e as ramificações NA ORDEM', () => {
-        const atual: FamiliaDoCatalogo = { chave: 'PVC', rotulo: 'PVC Wolf', ordem: 1, ramificacoes: ['PERFIL', 'VIDRO'] }
+        const atual: FamiliaDoCatalogo = { chave: 'PVC', rotulo: 'PVC Wolf', ordem: 1, sigla: 'PVC', ramificacoes: ['PERFIL', 'VIDRO'] }
         expect(familiaNaoMudou(atual, { rotulo: 'PVC Wolf', ramificacoes: ['PERFIL', 'VIDRO'] })).toBe(true)
         expect(familiaNaoMudou(atual, { rotulo: 'PVC Wolff', ramificacoes: ['PERFIL', 'VIDRO'] })).toBe(false)
         expect(familiaNaoMudou(atual, { rotulo: 'PVC Wolf', ramificacoes: ['VIDRO', 'PERFIL'] })).toBe(false)
@@ -150,16 +176,16 @@ describe('(1) os leitores do corpo', () => {
 
 describe('(2) POST /familias — a ROTA recusa antes da função', () => {
     it('categoria fora do catálogo é 400 nomeando-a; a função não é chamada', async () => {
-        const r = await chamar('familias', 'POST', {}, { rotulo: 'Portas de ACM', ramificacoes: ['PERFIL', 'INVENTADA'] })
+        const r = await chamar('familias', 'POST', {}, { rotulo: 'Portas de ACM', sigla: 'ACM', ramificacoes: ['PERFIL', 'INVENTADA'] })
         expect(r).toEqual({ status: 400, json: { error: 'Categoria fora do catálogo: INVENTADA.' } })
         nenhumaEscrita()
     })
 
     it('a recusa da função por autor (42501) é 403; outro erro é 500 sem o texto do banco', async () => {
         repo.criarFamilia.mockRejectedValueOnce(new ErroDoBanco({ code: '42501', message: 'o autor da alteracao nao e super admin' }))
-        expect((await chamar('familias', 'POST', {}, { rotulo: 'Portas de ACM', ramificacoes: ['PERFIL'] })).status).toBe(403)
+        expect((await chamar('familias', 'POST', {}, { rotulo: 'Portas de ACM', sigla: 'ACM', ramificacoes: ['PERFIL'] })).status).toBe(403)
         repo.criarFamilia.mockRejectedValueOnce(new ErroDoBanco({ code: 'XX000', message: 'segredo do banco' }))
-        const r = await chamar('familias', 'POST', {}, { rotulo: 'Portas de ACM', ramificacoes: ['PERFIL'] })
+        const r = await chamar('familias', 'POST', {}, { rotulo: 'Portas de ACM', sigla: 'ACM', ramificacoes: ['PERFIL'] })
         expect(r).toEqual({ status: 500, json: { error: 'Não foi possível acrescentar a família.' } })
     })
 })
@@ -226,8 +252,8 @@ const arrastoDe = (chave: string, rotulo: string) => ({
     ],
 })
 const FAMILIAS: FamiliaDoCatalogo[] = [
-    { chave: 'VECA', rotulo: 'PVC Veca', ordem: 2, ramificacoes: ['PERFIL'] },
-    { chave: 'PVC', rotulo: 'PVC Wolf', ordem: 1, ramificacoes: ['PERFIL', 'VIDRO'] },
+    { chave: 'VECA', rotulo: 'PVC Veca', ordem: 2, sigla: 'VEC', ramificacoes: ['PERFIL'] },
+    { chave: 'PVC', rotulo: 'PVC Wolf', ordem: 1, sigla: 'PVC', ramificacoes: ['PERFIL', 'VIDRO'] },
 ]
 
 const montadas: { root: ReturnType<typeof createRoot>; host: HTMLElement }[] = []
@@ -289,9 +315,16 @@ describe('(5) a TELA da aba Famílias', () => {
         expect(ok('Salvar').disabled).toBe(true)
         await marcar('VIDRO')
         await marcar('PERFIL')
+        // sem a SIGLA (23/11/2026), não salva — e a tela diz o que falta; a sigla fora da forma também não
+        expect(ok('Salvar').disabled).toBe(true)
+        expect(modal()!.querySelector('[data-sem-sigla]')!.textContent).toBe(FRASE_SEM_SIGLA)
+        await digitar(modal()!.querySelector('input[aria-label="Sigla da família"]') as HTMLInputElement, 'a1')
+        expect(ok('Salvar').disabled).toBe(true)
+        expect(modal()!.querySelector('[data-sigla-fora-da-forma]')!.textContent).toBe(FRASE_DA_SIGLA_FORA_DA_FORMA)
+        await digitar(modal()!.querySelector('input[aria-label="Sigla da família"]') as HTMLInputElement, 'acm')
         expect(ok('Salvar').disabled).toBe(false)
         await clicar(ok('Salvar'))
-        expect(criadas).toEqual([{ rotulo: 'Portas de ACM', ramificacoes: ['PERFIL', 'VIDRO'] }])
+        expect(criadas).toEqual([{ rotulo: 'Portas de ACM', ramificacoes: ['PERFIL', 'VIDRO'], sigla: 'ACM' }])
         expect(modal()).toBeNull()
     })
 
@@ -299,6 +332,7 @@ describe('(5) a TELA da aba Famílias', () => {
         const host = await montar(card({ onCriar: async () => 'Já há uma família chamada "PVC Wolf" no catálogo.' }))
         await clicar(host.querySelector('[data-nova-familia]'))
         await digitar(modal()!.querySelector('input[aria-label="Nome da família"]') as HTMLInputElement, 'pvc wolf')
+        await digitar(modal()!.querySelector('input[aria-label="Sigla da família"]') as HTMLInputElement, 'PVW')
         await marcar('PERFIL')
         await clicar(ok('Salvar'))
         expect(modal()!.querySelector('[data-erro-da-familia]')!.textContent).toContain('Já há uma família chamada "PVC Wolf" no catálogo.')
@@ -386,11 +420,12 @@ describe('(6) a PÁGINA DO NICHO liga as três ações às rotas e relê o catá
         const host = await montar(React.createElement(Pagina()))
         await clicar(host.querySelector('[data-nova-familia]'))
         await digitar(modal()!.querySelector('input[aria-label="Nome da família"]') as HTMLInputElement, 'Portas de ACM')
+        await digitar(modal()!.querySelector('input[aria-label="Sigla da família"]') as HTMLInputElement, 'ACM')
         await marcar('PERFIL')
         let n = pedidos.length
         await clicar(ok('Salvar'))
         expect(pedidos.slice(n).map((p) => p.chave)).toEqual([`POST ${ROTAS_DO_CATALOGO.familias}`, `GET ${ROTAS_DO_CATALOGO.fornecedores}`, `GET ${ROTAS_DO_CATALOGO.nichos}`, `GET ${ROTAS_DO_CATALOGO.familias}`, `GET ${ROTAS_DO_CATALOGO.categorias}`])
-        expect(pedidos[n].corpo).toEqual({ rotulo: 'Portas de ACM', ramificacoes: ['PERFIL'] })
+        expect(pedidos[n].corpo).toEqual({ rotulo: 'Portas de ACM', ramificacoes: ['PERFIL'], sigla: 'ACM' })
 
         await clicar(botao(host, 'Editar PVC Wolf'))
         await marcar('VIDRO')
@@ -416,13 +451,16 @@ describe('(7) o que liga o código à migração 20261029000004', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { readFileSync } = require('fs') as typeof import('fs')
     const MIGRACAO = readFileSync(require('path').join(__dirname, '../../../supabase/migrations/20261029000004_familias_do_catalogo.sql'), 'utf8') // eslint-disable-line @typescript-eslint/no-require-imports
+    const SIGLA = readFileSync(require('path').join(__dirname, '../../../supabase/migrations/20261123000002_um_orcamento_por_familia.sql'), 'utf8') // eslint-disable-line @typescript-eslint/no-require-imports
     const SOBERANO = readFileSync(require('path').join(__dirname, '../../../supabase/migrations/20261031000003_catalogo_soberano.sql'), 'utf8') // eslint-disable-line @typescript-eslint/no-require-imports
     const REPO = jest.requireActual('fs').readFileSync(require('path').join(__dirname, '../../lib/atendimentos-ia/repositorio.ts'), 'utf8') as string // eslint-disable-line @typescript-eslint/no-require-imports
 
     it('criar e editar têm os parâmetros que o repositório manda, com os mesmos nomes; remover saiu', () => {
         expect(MIGRACAO).toContain('CREATE OR REPLACE FUNCTION public.superadmin_criar_familia(\n  p_por uuid, p_chave text, p_rotulo text, p_ramificacoes text[]\n)')
         expect(MIGRACAO).toContain('CREATE OR REPLACE FUNCTION public.superadmin_editar_familia(\n  p_por uuid, p_chave text, p_rotulo text, p_ramificacoes text[]\n)')
-        expect(REPO).toContain("rpc('superadmin_criar_familia', { p_por: a.por, p_chave: a.chave, p_rotulo: a.rotulo, p_ramificacoes: a.ramificacoes })")
+        // a SIGLA (20261123000002): o repositório manda p_sigla, e a migração da sigla declara a função com ela, na mesma ordem
+        expect(REPO).toContain("rpc('superadmin_criar_familia', { p_por: a.por, p_chave: a.chave, p_rotulo: a.rotulo, p_ramificacoes: a.ramificacoes, p_sigla: a.sigla })")
+        expect(SIGLA).toContain('CREATE OR REPLACE FUNCTION public.superadmin_criar_familia(p_por uuid, p_chave text, p_rotulo text, p_ramificacoes text[], p_sigla text)')
         expect(REPO).toContain("rpc('superadmin_editar_familia', { p_por: a.por, p_chave: a.chave, p_rotulo: a.rotulo, p_ramificacoes: a.ramificacoes })")
         // a remoção da 20261029000004 (recusa por uso) sai na 20261031000003: remover é o arrasto (`atendimentos-ia-remocao.test.tsx`)
         expect(SOBERANO).toContain('DROP FUNCTION IF EXISTS public.superadmin_remover_familia(uuid, text);')

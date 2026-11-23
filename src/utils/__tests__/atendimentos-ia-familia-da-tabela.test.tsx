@@ -60,7 +60,7 @@ jest.mock('@/supabase/admin', () => ({
 
 const F = '11111111-1111-1111-1111-111111111111'
 const T = '22222222-2222-2222-2222-222222222222'
-const PVC: Familia = { chave: 'PVC', rotulo: 'PVC', ordem: 1 }
+const PVC: Familia = { chave: 'PVC', rotulo: 'PVC', ordem: 1, sigla: 'PVC' }
 let catalogo: Familia[] = [PVC]
 
 jest.mock('@/lib/atendimentos-ia/repositorio', () => {
@@ -132,9 +132,9 @@ describe('(1) a chave da família nova vem do rótulo', () => {
     })
 
     it('o rótulo é aparado e tem o limite declarado; vazio e longo são recusados com a frase', () => {
-        const R = { ramificacoes: ['PERFIL'] }
+        const R = { ramificacoes: ['PERFIL'], sigla: 'ACM' }
         const ok = lerFamiliaNova({ rotulo: '  Portas de ACM ', ...R })
-        expect(recusada(ok) ? ok.erro : ok.corpo).toEqual({ rotulo: 'Portas de ACM', chave: 'PORTAS_DE_ACM', ramificacoes: ['PERFIL'] })
+        expect(recusada(ok) ? ok.erro : ok.corpo).toEqual({ rotulo: 'Portas de ACM', chave: 'PORTAS_DE_ACM', sigla: 'ACM', ramificacoes: ['PERFIL'] })
         const vazio = lerFamiliaNova({ rotulo: '   ', ...R })
         expect(recusada(vazio) && vazio.erro).toBe('Escreva o nome da família.')
         const longo = lerFamiliaNova({ rotulo: 'x'.repeat(LIMITE_DO_ROTULO_DA_FAMILIA + 1), ...R })
@@ -201,20 +201,20 @@ describe('(3) a rota das famílias', () => {
     })
 
     it('GET devolve a lista NA ORDEM, cada uma com as ramificações NA ORDEM DELA; POST chama a função com o autor, a chave do rótulo e as ramificações', async () => {
-        catalogo = [{ chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }, PVC]
+        catalogo = [{ chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2, sigla: 'ALU' }, PVC]
         const lista = await chamar('familias', 'GET')
-        expect(lista).toEqual({ status: 200, json: [{ ...PVC, ramificacoes: ['PERFIL', 'FERRAGENS'] }, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2, ramificacoes: [] }] })
-        const nova = await chamar('familias', 'POST', {}, { rotulo: ' Portas de ACM ', ramificacoes: ['FERRAGENS', 'PERFIL'] })
+        expect(lista).toEqual({ status: 200, json: [{ ...PVC, ramificacoes: ['PERFIL', 'FERRAGENS'] }, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2, sigla: 'ALU', ramificacoes: [] }] })
+        const nova = await chamar('familias', 'POST', {}, { rotulo: ' Portas de ACM ', sigla: ' acm ', ramificacoes: ['FERRAGENS', 'PERFIL'] })
         expect(nova.status).toBe(201)
-        expect(repo.criarFamilia).toHaveBeenCalledWith({ por: SUPER.id, chave: 'PORTAS_DE_ACM', rotulo: 'Portas de ACM', ramificacoes: ['FERRAGENS', 'PERFIL'] })
+        expect(repo.criarFamilia).toHaveBeenCalledWith({ por: SUPER.id, chave: 'PORTAS_DE_ACM', rotulo: 'Portas de ACM', sigla: 'ACM', ramificacoes: ['FERRAGENS', 'PERFIL'] })
     })
 
     it('a família que já existe (pela chave) é 409 nomeando-a, sem gravar; a recusa da função numa corrida vai com a frase dela', async () => {
-        const repetida = await chamar('familias', 'POST', {}, { rotulo: 'pvc', ramificacoes: ['PERFIL'] })
+        const repetida = await chamar('familias', 'POST', {}, { rotulo: 'pvc', sigla: 'PVX', ramificacoes: ['PERFIL'] })
         expect(repetida).toEqual({ status: 409, json: { error: 'A família "PVC" já está na lista.' } })
         expect(repo.criarFamilia).not.toHaveBeenCalled()
         repo.criarFamilia.mockRejectedValueOnce(new ErroDoBanco({ code: '22023', message: 'ja existe a familia "Portas de garagem": o nome nao se repete. Nada foi gravado.' }))
-        const corrida = await chamar('familias', 'POST', {}, { rotulo: 'Portas de garagem', ramificacoes: ['PERFIL'] })
+        const corrida = await chamar('familias', 'POST', {}, { rotulo: 'Portas de garagem', sigla: 'POR', ramificacoes: ['PERFIL'] })
         expect(corrida).toEqual({ status: 409, json: { error: 'ja existe a familia "Portas de garagem": o nome nao se repete. Nada foi gravado.' } })
     })
 
@@ -259,7 +259,7 @@ const opcaoDaCategoria = (chave: string) => modal()!.querySelector(`input[data-c
 const opcaoDaFamilia = (chave: string) => modal()!.querySelector(`input[data-familia="${chave}"], [data-familia="${chave}"] input`) as HTMLInputElement | null
 
 describe('(4) a TELA', () => {
-    const FAMILIAS: Familia[] = [PVC, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }]
+    const FAMILIAS: Familia[] = [PVC, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2, sigla: 'ALU' }]
 
     it('tabela NOVA: as famílias da lista aparecem, NENHUMA vem escolhida, e sem família o salvar não liga', async () => {
         const salvos: Array<{ familia: string | null }> = []
@@ -412,17 +412,18 @@ describe('(5) a família é obrigatória SÓ na tabela de Perfil', () => {
 
     it('a família com o MESMO NOME de outra (sem olhar a caixa) é 409 nomeando a que existe, sem gravar', async () => {
         // as chaves NÃO batem (PVC x PVC_WOLF; ALU x ALUMINIO): é o NOME que repete — e é isso que a recusa pega
-        catalogo = [{ chave: 'PVC', rotulo: 'PVC Wolf', ordem: 1 }, { chave: 'ALU', rotulo: 'Alumínio', ordem: 2 }]
-        const R = { ramificacoes: ['PERFIL'] }
+        catalogo = [{ chave: 'PVC', rotulo: 'PVC Wolf', ordem: 1, sigla: 'PVC' }, { chave: 'ALU', rotulo: 'Alumínio', ordem: 2, sigla: 'ALU' }]
+        const R = { ramificacoes: ['PERFIL'], sigla: 'PVW' }
         expect(await chamar('familias', 'POST', {}, { rotulo: 'pvc WOLF', ...R })).toEqual({ status: 409, json: { error: fraseDaFamiliaComNomeRepetido('PVC Wolf') } })
         expect(await chamar('familias', 'POST', {}, { rotulo: 'ALUMÍNIO', ...R })).toEqual({ status: 409, json: { error: fraseDaFamiliaComNomeRepetido('Alumínio') } })
         expect(repo.criarFamilia).not.toHaveBeenCalled()
-        expect((await chamar('familias', 'POST', {}, { rotulo: 'PVC Veca', ...R })).status).toBe(201)
-        expect(repo.criarFamilia).toHaveBeenCalledWith({ por: SUPER.id, chave: 'PVC_VECA', rotulo: 'PVC Veca', ramificacoes: ['PERFIL'] })
+        const veca = await chamar('familias', 'POST', {}, { rotulo: 'PVC Veca', ...R })
+        expect(veca.status).toBe(201)
+        expect(repo.criarFamilia).toHaveBeenCalledWith({ por: SUPER.id, chave: 'PVC_VECA', rotulo: 'PVC Veca', sigla: 'PVW', ramificacoes: ['PERFIL'] })
     })
 
     const CATS = [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }, { chave: 'FERRAGENS', rotulo: 'Ferragens', ordem: 4 }]
-    const FAMS: Familia[] = [PVC, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }]
+    const FAMS: Familia[] = [PVC, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2, sigla: 'ALU' }]
     const qualquer = () => modal()!.querySelector('[data-familia-qualquer-linha] input, input[data-familia-qualquer-linha]') as HTMLInputElement | null
     type Salvo = { familia: string | null; semFamilia: boolean; categoria: string | null }
 

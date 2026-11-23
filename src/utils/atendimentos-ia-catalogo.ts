@@ -231,7 +231,8 @@ export const MENSAGEM_MOTOR_NAO_SAI = 'O arquivo do motor não se apaga da tabel
  * `linha` nem de `orcamentista_motor_regra.segmento`. A conta pode ter duas tabelas da mesma família.
  * O que o motor chama de "família" (a aba "Fórmulas da família") é a LINHA.
  */
-export interface Familia { chave: string; rotulo: string; ordem: number }
+/** `sigla`: 3 letras maiúsculas, o sufixo do número do orçamento por família (<levantamento>-<SIGLA>); obrigatória e imutável (20261123000002). */
+export interface Familia { chave: string; rotulo: string; ordem: number; sigla: string }
 /**
  * A família como o catálogo a mostra e edita (29/10/2026): o nome e as RAMIFICAÇÕES que ela declara (`orcamentista_familia_ramificacao`, as
  * categorias que a base de conhecimento mostra numa matéria-prima dessa família), na ordem dela. Família sem ramificação, na base de
@@ -509,18 +510,32 @@ function lerRamificacoes(v: unknown): Leitura<string[]> {
     return { ok: true, corpo: v as string[] }
 }
 
-/** A família nova: `{ rotulo, ramificacoes }`, o rótulo aparado e a chave derivada dele. Campo a mais é erro. */
-export function lerFamiliaNova(body: unknown): Leitura<{ rotulo: string; chave: string; ramificacoes: string[] }> {
+/** A SIGLA da família nova (dono do produto, 23/11/2026): "o NÚMERO e a SIGLA DA FAMÍLIA EM 3 LETRAS. PVC, ALU e assim por diante". */
+export const FRASE_SEM_SIGLA = 'Escreva a sigla da família: 3 letras (ex.: PVC, ALU). Ela vai no número do orçamento.'
+export const FRASE_DA_SIGLA_FORA_DA_FORMA = 'A sigla da família tem exatamente 3 letras, sem acento nem número (ex.: PVC, ALU).'
+export const fraseDaSiglaRepetida = (sigla: string, rotulo: string) => `A sigla ${sigla} já é da família "${rotulo}": a sigla não se repete.`
+/** Aparada e em maiúscula; vazia é falta, e nunca é deduzida do nome. */
+export function lerSiglaDaFamilia(v: unknown): Leitura<string> {
+    const sigla = (textoAparado(v) ?? '').toUpperCase()
+    if (sigla === '') return { ok: false, erro: FRASE_SEM_SIGLA }
+    if (!/^[A-Z]{3}$/.test(sigla)) return { ok: false, erro: FRASE_DA_SIGLA_FORA_DA_FORMA }
+    return { ok: true, corpo: sigla }
+}
+
+/** A família nova: `{ rotulo, sigla, ramificacoes }`, o rótulo aparado, a sigla em maiúscula e a chave derivada do rótulo. Campo a mais é erro. */
+export function lerFamiliaNova(body: unknown): Leitura<{ rotulo: string; chave: string; sigla: string; ramificacoes: string[] }> {
     const b = obj(body)
-    const extra = Object.keys(b).filter((k) => k !== 'rotulo' && k !== 'ramificacoes')
-    if (extra.length > 0) return { ok: false, erro: `Campo desconhecido no corpo: ${extra.join(', ')} (só rotulo e ramificacoes).` }
+    const extra = Object.keys(b).filter((k) => k !== 'rotulo' && k !== 'ramificacoes' && k !== 'sigla')
+    if (extra.length > 0) return { ok: false, erro: `Campo desconhecido no corpo: ${extra.join(', ')} (só rotulo, sigla e ramificacoes).` }
     const rotulo = lerRotuloDaFamilia(b.rotulo)
     if (rotulo.ok === false) return rotulo
+    const sigla = lerSiglaDaFamilia(b.sigla)
+    if (sigla.ok === false) return sigla
     const chave = chaveDaFamilia(rotulo.corpo)
     if (!chave) return { ok: false, erro: 'O nome da família precisa começar por uma letra.' }
     const ramificacoes = lerRamificacoes(b.ramificacoes)
     if (ramificacoes.ok === false) return ramificacoes
-    return { ok: true, corpo: { rotulo: rotulo.corpo, chave, ramificacoes: ramificacoes.corpo } }
+    return { ok: true, corpo: { rotulo: rotulo.corpo, chave, sigla: sigla.corpo, ramificacoes: ramificacoes.corpo } }
 }
 
 /** A edição da família: `{ rotulo, ramificacoes }` — os dois, sempre (o que não muda vai igual). A CHAVE não se renomeia (28/10/2026). */
