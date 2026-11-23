@@ -87,3 +87,10 @@ it('UM ORÇAMENTO POR FAMÍLIA (23/11/2026): a tabela que vale de OUTRA família
     if ('semMigracao' in q) throw new Error('sem migração')
     expect(q.codigosSemPeso).toEqual(['1023'])
 })
+
+it('o orçamento DE ANTES (itens sem família): o peso vem de todas as tabelas que valem, como antes da família', async () => {
+    for (const i of db.orcamentista_orcamento_item) i.familia = null
+    const r = await S().lerBarrasDoPedido(T, 'o-12')
+    if ('semMigracao' in r) throw new Error('sem migração')
+    expect(r.perfis[0].peso_kg_m).toBe(0.101)
+})

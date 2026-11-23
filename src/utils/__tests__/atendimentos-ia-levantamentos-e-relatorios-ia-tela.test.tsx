@@ -12,6 +12,8 @@ Object.defineProperty(window, 'matchMedia', {
     value: (q: string) => ({ matches: false, media: q, onchange: null as unknown, addListener: () => {}, removeListener: () => {}, addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => false }),
 })
 jest.mock('next/router', () => ({ useRouter: () => ({ pathname: '/', asPath: '/', query: {}, push: jest.fn(), replace: () => {}, events: { on: () => {}, off: () => {} } }) }))
+// o download do PDF é do navegador: o teste só vê o NOME do arquivo pedido
+jest.mock('@/lib/atendimentos-ia/relatorios-em-pdf', () => ({ ...jest.requireActual('@/lib/atendimentos-ia/relatorios-em-pdf'), baixarPdf: jest.fn() }))
 jest.mock('@/components/layout/layout.component', () => ({ Layout: ({ children, title }: { children: React.ReactNode; title: string }) => <div data-titulo={title}>{children}</div> }))
 
 const servidor = { status: 200, corpo: {} as Record<string, unknown>, chamadas: [] as string[] }
@@ -100,6 +102,16 @@ describe('os Relatórios I.A.', () => {
         // eslint-disable-next-line testing-library/no-unnecessary-act
         await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
         expect(host.querySelector('[data-cliente-aberto]')?.textContent).toBe('Orçamento 27-PVC — Geraldo Huck · PVC Wolf')
+        // e o PDF do relatório leva o número exibido no nome do arquivo
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const P = require('@/lib/atendimentos-ia/relatorios-em-pdf') as typeof import('@/lib/atendimentos-ia/relatorios-em-pdf')
+        const baixar = P.baixarPdf as jest.Mock
+        baixar.mockClear()
+        // eslint-disable-next-line testing-library/no-unnecessary-act
+        await act(async () => { (host.querySelector('[data-baixar-pdf="materiais"]') as HTMLElement).click() })
+        // eslint-disable-next-line testing-library/no-unnecessary-act
+        await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
+        expect(baixar.mock.calls.map((c) => c[1])).toEqual(['Relatorio_de_materiais_27-PVC_-_Geraldo_Huck.pdf'])
     })
     it('todos os clientes listados na página (número, cliente, data, itens); clicar num abre as abas dele, com o botão de PDF', async () => {
         servidor.corpo = { orcamentos: [
