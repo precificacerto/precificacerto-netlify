@@ -45,7 +45,7 @@ import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
 import { useDevice } from '@/contexts/device.context'
 import { ProductItemsMobileList } from './product-items-mobile-list.component'
 import {
-  CABECALHO_FIXO, entradaDoMotor, estadoDoCalculo, fabricacaoDoOrcamento, faltasDaPrecificacao, FRASE_DO_ESTADO, internaParaGravar, PRESET_DA_COMERCIALIZACAO, MODO_PRODUTO, reconciliacaoNaTela, rotuloDoItem,
+  CABECALHO_FIXO, entradaDoMotor, tipoDoProdutoDoOrcamento, estadoDoCalculo, fabricacaoDoOrcamento, faltasDaPrecificacao, FRASE_DO_ESTADO, internaParaGravar, PRESET_DA_COMERCIALIZACAO, MODO_PRODUTO, reconciliacaoNaTela, rotuloDoItem,
   type DestinoDoProdutoDoOrcamento, type GravacaoDaPrecificacao, type ModoDaPrecificacao, type OrcamentoNaPrecificacao,
 } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
 
@@ -238,6 +238,11 @@ export const Content: FC<ContentProps> = ({
   // orçamento, que amarra os tributos às credenciais da empresa e tira o bloco Fiscal: na REVENDA o NCM e o ICMS vêm de cada produto, e um
   // orçamento de revenda não pode herdar "imposto da empresa" por acidente. Hoje todo orçamento nasce PRODUZIDO (o cabeçalho fixo).
   const ehOrcamentoDeIndustrializacao = ehOrcamento && productType === 'PRODUZIDO'
+  // O TIPO NO MOTOR (dono do produto, 23/11/2026): no orçamento, o da FAMÍLIA dos itens — a de REVENDA roda "paralela, praticamente espelhada"
+  // à fabricação: o motor zera a mão de obra de produção e os minutos e aplica a margem de contribuição, como o produto de revenda. O layout do
+  // orçamento (itens só leitura, impostos da empresa — a resposta 4: o MESMO segmento tributário) não muda. É o mesmo tipo do servidor
+  // (`formarPrecoDoOrcamento`): a tela e o vendedor formam o mesmo preço.
+  const tipoNoMotor: 'PRODUZIDO' | 'REVENDA' = orcamento ? tipoDoProdutoDoOrcamento(orcamento) : productType
   const [baseItemId, setBaseItemId] = useState<string | null>(
     (product as any)?.baseItemId || null
   )
@@ -878,7 +883,7 @@ export const Content: FC<ContentProps> = ({
     )
     if (!workload.isUnset) return false
 
-    const effectiveCalcType = tipoDeCalculoEfetivo(productType, currentUser?.calcType)
+    const effectiveCalcType = tipoDeCalculoEfetivo(tipoNoMotor, currentUser?.calcType)
     if (effectiveCalcType === 'REVENDA') return false
 
     return (productPriceInfo?.productWorkloadInMinutes || 0) > 0
@@ -887,7 +892,7 @@ export const Content: FC<ContentProps> = ({
     currentUser?.unitMeasure,
     currentUser?.numProductiveSectorEmployee,
     currentUser?.calcType,
-    productType,
+    tipoNoMotor,
     productPriceInfo?.productWorkloadInMinutes,
   ])
 
@@ -921,7 +926,7 @@ export const Content: FC<ContentProps> = ({
     // A CONTA mora em `calcularNoMotorDoProduto` (`src/utils/motor-do-produto.ts`) e em lugar nenhum mais: aqui só se grava no estado
     // (`copia-divergente.md`). Os comentários de cada regra foram junto com ela.
     const conta = calcularNoMotorDoProduto({
-      currentUser, calcBase, productType, productPriceInfo, additionalIrpjPercent, customTaxPercent, isLRorLP, modo, itemsPriceSum,
+      currentUser, calcBase, productType: tipoNoMotor, productPriceInfo, additionalIrpjPercent, customTaxPercent, isLRorLP, modo, itemsPriceSum,
     })
     if (conta) setProductPriceInfo((prev) => ({ ...prev, ...conta.campos, ...conta.porProdutoDoServico(prev) }))
   }, [
@@ -948,6 +953,7 @@ export const Content: FC<ContentProps> = ({
     customTaxPercent,
     additionalIrpjPercent,
     modo,
+    tipoNoMotor,
   ])
 
   useEffect(() => {
@@ -2060,7 +2066,7 @@ export const Content: FC<ContentProps> = ({
         {orcamento ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }} data-tipo-do-orcamento="">
             <strong style={{ fontSize: 14 }}>Tipo do produto:</strong>
-            <span>🛠️ {CABECALHO_FIXO.tipo}</span>
+            <span>🛠️ {tipoNoMotor === 'REVENDA' ? 'Revenda' : CABECALHO_FIXO.tipo}</span>
           </div>
         ) : isRevendaFromDb ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -2565,6 +2571,7 @@ export const Content: FC<ContentProps> = ({
           items={itemsForSelection}
           columns={ehOrcamento ? colunasDoOrcamento : columns}
           somenteLeitura={ehOrcamento}
+          semMaoDeObra={ehOrcamento && tipoNoMotor === 'REVENDA'}
           onPrecoNaoFormado={ehOrcamento ? zerarPrecoNaoFormado : undefined}
           productItemsData={productItemsData}
           handleChangePrecificationInputs={handleChangePrecificationInputs}

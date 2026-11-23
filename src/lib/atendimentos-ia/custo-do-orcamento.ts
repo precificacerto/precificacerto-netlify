@@ -117,6 +117,11 @@ export type ItemDoCalculo = {
     vidros?: ReadonlyArray<{ codigo: string; m2: number }>
     /** O tempo de fabricação do item inteiro, em minutos; nulo quando a tipologia não tem tempo. */
     minutos: number | null
+    /**
+     * A REVENDA (dono do produto, 23/11/2026): o item da família de formato REVENDA não fabrica — sem tempo, sem valor do minuto, fabricação 0.
+     * Os minutos dele são IGNORADOS (nulo é o esperado), e o tempo gravado é 0: não há fabricação, e não é dado que falta.
+     */
+    revenda?: boolean
     /** Para a frase da recusa: como o vendedor reconhece o item. */
     referencia: string
 }
@@ -154,7 +159,8 @@ export type CustoDoItem = Percentuais & {
     custo_bruto_materiais: number
     custo_liquido_materiais: number
     tempo_fabricacao_min: number
-    valor_minuto: number
+    /** null só na REVENDA: o item que não fabrica não tem valor do minuto (23/11/2026). */
+    valor_minuto: number | null
     custo_fabricacao: number
     custo_liquido_total: number
 }
@@ -279,8 +285,10 @@ export function custoDoOrcamento(e: EntradaDoCusto): CustoDoOrcamento {
         const n = e.barras_por_codigo[m.codigo]
         if (!Number.isInteger(n) || n <= 0) recusas.push(fraseSemBarras(m.codigo))
     }
-    for (const it of e.itens) if (it.minutos === null || !Number.isFinite(it.minutos) || it.minutos < 0) recusas.push(fraseSemTempo(it.referencia))
-    if (e.valor_minuto === null || !Number.isFinite(e.valor_minuto) || e.valor_minuto < 0) recusas.push(FRASE_SEM_VALOR_DO_MINUTO)
+    const fabricados = e.itens.filter((it) => !it.revenda)
+    for (const it of fabricados) if (it.minutos === null || !Number.isFinite(it.minutos) || it.minutos < 0) recusas.push(fraseSemTempo(it.referencia))
+    // o valor do minuto só é exigido quando algum item fabrica: o orçamento só de revenda não tem mão de obra
+    if (fabricados.length > 0 && (e.valor_minuto === null || !Number.isFinite(e.valor_minuto) || e.valor_minuto < 0)) recusas.push(FRASE_SEM_VALOR_DO_MINUTO)
     if (recusas.length) return { ok: false, recusas }
 
     const calculadas = [...precificavel].sort().map((chave) => {
@@ -327,12 +335,12 @@ export function custoDoOrcamento(e: EntradaDoCusto): CustoDoOrcamento {
         })
         const bruto = materiais.reduce((t, l) => t + l.custo_bruto_material, 0)
         const liquido = materiais.reduce((t, l) => t + l.custo_liquido_material, 0)
-        const minutos = it.minutos as number
-        const fabricacao = minutos * (e.valor_minuto as number)
+        const minutos = it.revenda ? 0 : (it.minutos as number)
+        const fabricacao = it.revenda ? 0 : minutos * (e.valor_minuto as number)
         return {
             materiais, ...efetivosDoItem(materiais, bruto),
             custo_bruto_materiais: bruto, custo_liquido_materiais: liquido,
-            tempo_fabricacao_min: minutos, valor_minuto: e.valor_minuto as number,
+            tempo_fabricacao_min: minutos, valor_minuto: it.revenda ? null : (e.valor_minuto as number),
             custo_fabricacao: fabricacao, custo_liquido_total: liquido + fabricacao,
         }
     })

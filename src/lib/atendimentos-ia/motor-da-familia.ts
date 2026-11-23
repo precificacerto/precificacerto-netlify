@@ -29,6 +29,7 @@
  *   por `tabela_id`. A falta de tabela de preço vigente é do preço e mora em `levantamento-da-conversa.ts`, com a mesma forma de frase.
  */
 import { supabaseAdmin } from '@/supabase/admin'
+import type { FormatoDaFamilia } from './base-de-conhecimento'
 import {
     ACAO_QUE_USA_O_MODELO, EXECUTOR_DA_ACAO, conferirEtapasParaExecutar, ehAcaoDaEtapa, etapaLida,
     type AcaoDaEtapa, type EtapaConferivel, type ExecutorDaEtapa,
@@ -59,6 +60,11 @@ export const fraseDoMotorSemConteudo = (motor: string, familia: string, e: Pick<
 export const FRASE_SEM_LISTA_DE_TIPOLOGIAS = 'Ainda não consigo escolher a tipologia: a lista de tipologias do motor, com a descrição de cada uma, ainda não foi carregada.'
 export const fraseDosMotoresDivergentes = (familias: readonly string[], rotulo: string, acao: AcaoDaEtapa) =>
     fraseDeFalta(`as famílias ${familias.join(' e ')} (${rotulo}) apontam motores diferentes na etapa de ${ROTULO_CURTO_DA_ACAO[acao]}`, SECAO_DAS_ETAPAS)
+/** Duas instâncias da mesma família com formatos diferentes (23/11/2026): o formato é da família, e não escolho qual vale. */
+export const fraseDosFormatosDivergentes = (familias: readonly string[], rotulo: string) =>
+    fraseDeFalta(`as famílias ${familias.join(' e ')} (${rotulo}) têm formatos diferentes (fabricação e revenda)`, SECAO_DAS_FAMILIAS)
+/** O formato que o banco guardou, ou null: só FABRICACAO e REVENDA são formato (a CHECK diz o mesmo); o resto, inclusive ausente, é "não escolhido". */
+export const formatoLido = (v: unknown): FormatoDaFamilia | null => (v === 'FABRICACAO' || v === 'REVENDA' ? v : null)
 export const fraseDasEtapasDivergentes = (familias: readonly string[], rotulo: string) =>
     fraseDeFalta(`as famílias ${familias.join(' e ')} (${rotulo}) não declaram as mesmas etapas`, SECAO_DAS_ETAPAS)
 const ROTULO_CURTO_DA_ACAO: Record<AcaoDaEtapa, string> = {
@@ -95,8 +101,13 @@ export type FonteDaFamilia = {
     descricaoDoLevantamento: InstrucaoDaEtapa | null
     /** As instruções sem efeito (escritas em etapas cujo executor não usa o modelo). */
     instrucoesSemEfeito: InstrucaoSemEfeito[]
+    /**
+     * O FORMATO da família (dono do produto, 23/11/2026; migração 20261123000001): FABRICACAO ou REVENDA. null = não escolhido — o cálculo recusa
+     * nomeando a família, nunca assume a fabricação. A revenda não tem tempo de fabricação nem mão de obra: o preço é o do produto de revenda.
+     */
+    formato: FormatoDaFamilia | null
 }
-export type MotivoDaFalta = 'SEM_FAMILIA' | 'ETAPAS' | 'MOTOR_ARQUIVADO' | 'MOTOR_SEM_CONTEUDO' | 'MOTORES_DIVERGENTES' | 'SEM_LISTA_DE_TIPOLOGIAS'
+export type MotivoDaFalta = 'SEM_FAMILIA' | 'ETAPAS' | 'MOTOR_ARQUIVADO' | 'MOTOR_SEM_CONTEUDO' | 'MOTORES_DIVERGENTES' | 'FORMATOS_DIVERGENTES' | 'SEM_LISTA_DE_TIPOLOGIAS'
 export type MotoresDaConta = { ok: true; familias: FonteDaFamilia[] } | { ok: false; motivo: MotivoDaFalta; frase: string; detalhe: string }
 
 async function ler(onde: string, p: PromiseLike<{ data: unknown; error: { code?: string; message?: string } | null }>): Promise<Linha[]> {
@@ -155,7 +166,7 @@ export function blocoDasDescricoesDasEtapas(descricoes: readonly InstrucaoDaEtap
  * cada etapa (arquivado, conteúdo).
  */
 export async function lerMotoresDaConta(tenantId: string): Promise<MotoresDaConta> {
-    const instancias = (await ler('orcamentista_materia_prima', db().from('orcamentista_materia_prima').select('id, nome, familia').eq('tenant_id', tenantId)))
+    const instancias = (await ler('orcamentista_materia_prima', db().from('orcamentista_materia_prima').select('id, nome, familia, formato').eq('tenant_id', tenantId)))
         .filter((m) => typeof m.familia === 'string' && m.familia !== '')
         .sort((a, b) => porTexto(String(a.nome ?? ''), String(b.nome ?? '')) || porTexto(String(a.id), String(b.id)))
     if (instancias.length === 0) return { ok: false, motivo: 'SEM_FAMILIA', frase: FRASE_SEM_FAMILIA, detalhe: '' }
@@ -214,6 +225,13 @@ export async function lerMotoresDaConta(tenantId: string): Promise<MotoresDaCont
             }
         }
     }
+    // 2b. a mesma família em duas instâncias tem o MESMO formato (23/11/2026); o não escolhido conta como um formato a mais
+    for (const chave of chaves) {
+        const dela = instancias.filter((m) => String(m.familia) === chave)
+        if (new Set(dela.map((m) => formatoLido(m.formato))).size > 1) {
+            return { ok: false, motivo: 'FORMATOS_DIVERGENTES', frase: fraseDosFormatosDivergentes(dela.map(nomeDa), rotulo(chave)), detalhe: `familia=${chave}` }
+        }
+    }
     // 3. os motores: não arquivados e com conteúdo importado por motor_id. A contagem de cada motor e os fornecedores deles só dependem dos
     // motores lidos: vão juntos (04/11/2026); a ordem das RECUSAS continua a de antes (instância a instância, etapa a etapa)
     const motorDe = new Map(motores.map((x) => [String(x.id), x]))
@@ -263,6 +281,7 @@ export async function lerMotoresDaConta(tenantId: string): Promise<MotoresDaCont
             instrucaoDoLevantamento: corrente === null ? null : { numero: corrente.numero, rotulo: corrente.rotulo, texto: corrente.instrucao, familia: rotulo(chave) },
             descricaoDoLevantamento: descricaoDa(doLevantamento),
             instrucoesSemEfeito: comInstrucao.filter((e) => e.acao !== ACAO_QUE_USA_O_MODELO).map((e) => ({ numero: e.numero, rotulo: e.rotulo, acao: e.acao, caracteres: [...e.instrucao].length })),
+            formato: formatoLido(m.formato),
         }
     }).sort((a, b) => porTexto(a.rotulo, b.rotulo))
     return { ok: true, familias }

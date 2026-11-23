@@ -247,7 +247,7 @@ function montar() {
         // o VIDRO PADRÃO da base (20261113000001): vazio por padrão — sem padrão, a esquadria sem vidro dito fica sem vidro, e a conversa pergunta
         orcamentista_vidro_padrao: [],
         // a FAMÍLIA da conta é a da base de conhecimento, e o motor vem das etapas 1 e 2 dela (PR D, 02/11/2026)
-        orcamentista_materia_prima: [{ id: 'mp-pvc', tenant_id: TENANT, nome: 'Esquadrias de PVC', familia: 'PVC' }],
+        orcamentista_materia_prima: [{ id: 'mp-pvc', tenant_id: TENANT, nome: 'Esquadrias de PVC', familia: 'PVC', formato: 'FABRICACAO' }],
         orcamentista_familia_etapa: etapasPadrao(TENANT, 'mp-pvc', MOTOR),
         orcamentista_etapa_catalogo: CATALOGO_DE_ETAPAS.map((c) => ({ ...c })),
         orcamentista_motor: [{ id: MOTOR, nome: 'Motor_Wolf_PVC', fornecedor_id: 'f-wolff', arquivado_em: null }],
@@ -2707,7 +2707,7 @@ describe('(14) a instrução de cada categoria vai ao sistema — só as preench
     const DO_PERFIL = 'Perfil: a cor sai da lista de cores; nunca troque pela parecida.'
     function comInstrucoes(linhas: Array<{ chave: string; instrucao: unknown; mp?: string; tenant?: string }>) {
         estado.db.orcamentista_categoria_catalogo = CATALOGO.map((c) => ({ ...c }))
-        estado.db.orcamentista_materia_prima = [{ id: 'mp-pvc', tenant_id: TENANT, nome: 'Esquadrias de PVC', familia: 'PVC', ordem: 1 }]
+        estado.db.orcamentista_materia_prima = [{ id: 'mp-pvc', tenant_id: TENANT, nome: 'Esquadrias de PVC', familia: 'PVC', ordem: 1, formato: 'FABRICACAO' }]
         estado.db.orcamentista_mp_categoria = [
             { id: 'c-perfil', tenant_id: TENANT, materia_prima_id: 'mp-pvc', categoria_chave: 'PERFIL', config: { serra_mm: 5, cores: ['BRANCO'] }, instrucao: null },
             ...linhas.map((l, k) => ({ id: `c-${k}`, tenant_id: l.tenant ?? TENANT, materia_prima_id: l.mp ?? 'mp-pvc', categoria_chave: l.chave, config: null as Linha | null, instrucao: l.instrucao })),

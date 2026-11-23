@@ -117,7 +117,7 @@ import { maoDeObraPeloCaminhoDaTela, type DadosDaEmpresaParaMaoDeObra } from '@/
 import { familiaDaEsquadria, rotulosDasOpcoes, type FamiliaDoCodigo, type FamiliasDoCodigo } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import { abaDeclarada, abaDoBanco } from '@/utils/atendimentos-ia-abas-do-motor'
 import { derivarTabelasDaConta } from '@/lib/atendimentos-ia/tabelas-da-conta'
-import { FRASE_SEM_LISTA_DE_TIPOLOGIAS, SECAO_DOS_FORNECEDORES, fraseDeFalta, lerMotoresDaConta, type FonteDaFamilia, type MotivoDaFalta } from '@/lib/atendimentos-ia/motor-da-familia'
+import { FRASE_SEM_LISTA_DE_TIPOLOGIAS, SECAO_DAS_FAMILIAS, SECAO_DOS_FORNECEDORES, fraseDeFalta, lerMotoresDaConta, type FonteDaFamilia, type MotivoDaFalta } from '@/lib/atendimentos-ia/motor-da-familia'
 export { FRASE_SEM_LISTA_DE_TIPOLOGIAS }
 import { normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 import { lerVidro, vidroComEspessura } from '@/lib/atendimentos-ia/vidro'
@@ -298,6 +298,11 @@ export type MaoDeObra =
      * revenda — continuam como antes: a linha diz "não sai", e o material sai.
      */
     | { ok: false; falta: string; semTempo: boolean }
+    /**
+     * A REVENDA (dono do produto, 23/11/2026): a família de formato REVENDA não tem tempo de fabricação nem mão de obra — "praticamente espelhado
+     * a fabricação", como o produto de revenda da tela de produto. Não é falta: é a ausência de fabricação, dita.
+     */
+    | { revenda: true; quantidade: number }
 
 const centavos = (v: number) => Math.round(v * 100) / 100
 
@@ -660,9 +665,18 @@ const linhasDaEsquadria = (e: DadosDaEsquadria, k: number): string[] => [
     ...(e.escolhas === null ? [] : [`Arremate e guarnição — ${e.escolhas}.`]),
 ]
 
+/** O formato não escolhido (23/11/2026): a família diz se é de fabricação ou de revenda; sem isso, não calculo. */
+export const fraseDoFormatoNaoEscolhido = (familia: string) =>
+    fraseDeFalta(`o formato da família ${familia} (fabricação ou revenda) não foi escolhido`, SECAO_DAS_FAMILIAS)
+/** A linha da revenda na mensagem, no lugar da mão de obra: a ausência dita, nunca calada. */
+export const LINHA_DA_REVENDA = 'Mão de obra: não entra — família de revenda (o produto é comprado pronto, sem fabricação).'
+
 /** O que o número cobre e o que NÃO cobre — vai em toda resposta com preço. */
 export const O_QUE_O_PRECO_COBRE = 'O que este preço cobre: os perfis (o baguete incluído), pela tabela do fornecedor, e a mão de obra. '
     + 'NÃO cobre o vidro nem os insumos e acessórios (ferragens, escovas, calços e outros): eles ainda não estão na base.'
+/** Na família de REVENDA (23/11/2026) o preço não tem mão de obra: o "o que cobre" diz isso, e o resto continua igual. */
+export const O_QUE_O_PRECO_COBRE_NA_REVENDA = 'O que este preço cobre: os perfis (o baguete incluído), pela tabela do fornecedor — família de revenda, '
+    + 'sem mão de obra. NÃO cobre o vidro nem os insumos e acessórios (ferragens, escovas, calços e outros): eles ainda não estão na base.'
 const linhasDasEsquadrias = (d: DadosDoLevantamento) => d.esquadrias.flatMap((e) => linhasDaEsquadria(e, e.numero))
 
 /** No máximo tantas faltas listadas; o resto é contado, nunca calado. */
@@ -714,7 +728,7 @@ function faltaComEsquadrias(falta: string, numeros: readonly number[], noLevanta
     return `${quem}${tipologia ? ` (${tipologia})` : ''}: ${falta}`
 }
 
-const linhaDaMaoDeObra = (rotulo: string, mo: MaoDeObra) => ('falta' in mo
+const linhaDaMaoDeObra = (rotulo: string, mo: MaoDeObra) => ('revenda' in mo ? LINHA_DA_REVENDA : 'falta' in mo
     ? `${rotulo}: não sai — ${mo.falta}.`
     : `${rotulo}: ${numeroBR(mo.minutosPorUnidade, 0)} min por unidade${mo.origem ? ` (${mo.origem})` : ''} × ${mo.quantidade} unidade(s), `
         + `a R$ ${numeroBR(mo.custoMensal / mo.minutosDaEmpresa, 6)} o minuto (${formatarReais(mo.custoMensal)} ÷ ${numeroBR(mo.minutosDaEmpresa, 0)} min): ${formatarReais(mo.total)}.`)
@@ -751,9 +765,25 @@ export function fraseDoLevantamento(
     linhas.push(`Perfis por barra inteira: ${formatarReais(barra)}.`)
     linhas.push(`Perfis por consumo real: ${formatarReais(consumo)}.`)
     linhas.push(`Diferença entre os dois: ${formatarReais(centavos(barra - consumo))}.`)
+    // A REVENDA (23/11/2026): a família inteira é de revenda — uma linha diz que a mão de obra não entra, e os totais são os dos perfis, acima
+    // o rodapé, o mesmo nos dois formatos: as faltas de preço e os avisos — no bloco de uma família (`numerar`), a esquadria sempre numerada
+    const rodape = (): string[] => {
+        const fim = linhasDasFaltas(d, r.faltas, numerar)
+        if (r.avisos.length) {
+            fim.push('', 'Atenção:')
+            for (const a of r.avisos) {
+                const k = (a as { esquadria?: unknown }).esquadria
+                fim.push(`• ${numerar && typeof k === 'number' ? `Item ${d.esquadrias[k - 1]?.numero ?? k}: ` : ''}${fraseDoAviso(a)}`)
+            }
+        }
+        return fim
+    }
+    if (maos.length > 0 && maos.every((m) => 'revenda' in m)) {
+        return [...linhas, LINHA_DA_REVENDA, ...(bloco ? [] : ['', O_QUE_O_PRECO_COBRE_NA_REVENDA]), ...rodape()].join('\n')
+    }
     // uma mão de obra ausente derruba a total: somar as que existem seria calcular com o que sobrou
     const todasCalculadas = maos.length > 0 && maos.every((m) => !('falta' in m))
-    const maoDeObraTotal = todasCalculadas ? centavos(maos.reduce((s, m) => s + ('falta' in m ? 0 : m.total), 0)) : null
+    const maoDeObraTotal = todasCalculadas ? centavos(maos.reduce((s, m) => s + ('total' in m ? m.total : 0), 0)) : null
     if (maos.length === 1) linhas.push(linhaDaMaoDeObra('Mão de obra', maos[0]))
     else {
         maos.forEach((m, i) => linhas.push(linhaDaMaoDeObra(`Mão de obra do item ${d.esquadrias[i]?.numero ?? i + 1}`, m)))
@@ -766,16 +796,7 @@ export function fraseDoLevantamento(
     linhas.push(comMaoDeObra('Total por barra inteira', barra))
     linhas.push(comMaoDeObra('Total por consumo real', consumo))
     if (!bloco) linhas.push('', O_QUE_O_PRECO_COBRE)
-    // no bloco de uma família (`numerar`), a esquadria sai sempre numerada, como nas linhas de cima
-    linhas.push(...linhasDasFaltas(d, r.faltas, numerar))
-    if (r.avisos.length) {
-        linhas.push('', 'Atenção:')
-        for (const a of r.avisos) {
-            const k = (a as { esquadria?: unknown }).esquadria
-            linhas.push(`• ${numerar && typeof k === 'number' ? `Item ${d.esquadrias[k - 1]?.numero ?? k}: ` : ''}${fraseDoAviso(a)}`)
-        }
-    }
-    return linhas.join('\n')
+    return [...linhas, ...rodape()].join('\n')
 }
 
 /**
@@ -976,10 +997,14 @@ export function mensagemDoCalculo(c: Exclude<CalculoDoLevantamento, { recusa: un
     const algumaCalculou = fechados.some((c) => !('semCalculo' in c))
     const texto = [
         `Levantamento “${lev.nome}”: ${grupos.length} famílias, cada uma calculada com o motor e as tabelas de preço dela — as barras de uma não entram na otimização da outra.`,
-        '', blocos.join('\n\n'), ...(algumaCalculou ? ['', O_QUE_O_PRECO_COBRE] : []),
+        '', blocos.join('\n\n'), ...(algumaCalculou ? ['', coberturaDe(calculados)] : []),
     ].join('\n')
     return rotulado({ texto, desfecho: 'levantou', etapa })
 }
+
+/** O "o que cobre" de várias famílias: o da revenda só quando TODAS as que calcularam são de revenda; com alguma fabricação, o de sempre. */
+const coberturaDe = (calculados: ReadonlyArray<{ maos: MaoDeObra[] }>) =>
+    (calculados.length > 0 && calculados.every((c) => c.maos.length > 0 && c.maos.every((m) => 'revenda' in m)) ? O_QUE_O_PRECO_COBRE_NA_REVENDA : O_QUE_O_PRECO_COBRE)
 
 export type CalculoDaFamilia =
     | {
@@ -1019,6 +1044,11 @@ async function calcularFamilia(
     const corDe = (e: EsquadriaGravada) => (typeof e.cor_perfil === 'string' && e.cor_perfil !== '' ? e.cor_perfil : null)
     const faltas: string[] = []
     const codigos: string[] = []
+    // O FORMATO DA FAMÍLIA (23/11/2026): não escolhido é falta nomeada — nunca a fabricação por omissão (`ausente-vs-falso.md`)
+    if (familia.formato === null) {
+        faltas.push(fraseDoFormatoNaoEscolhido(familia.rotulo))
+        codigos.push('SEM_FORMATO')
+    }
     if (cores.length > 1) {
         const porEsquadria = dg.esquadrias.map((e, k) => `item ${e.numero}: ${corDe(itensDoGrupo[k])}`).join('; ')
         faltas.push(`uma cor só para o perfil: os itens têm cores diferentes (${porEsquadria}), e ainda não calculo um levantamento com cores misturadas`)
@@ -1096,7 +1126,10 @@ async function calcularFamilia(
         cores: coresDoFornecedor,
     })
     // a mão de obra é lida MESMO com as barras recusadas: a falta de TEMPO sai junto com a de preço, de uma vez (08/11/2026)
-    const maos = await lerMaosDeObra(tenantId, motorId, dg.esquadrias)
+    // a REVENDA não lê tempo nem mão de obra: a família de revenda não fabrica (23/11/2026)
+    const maos: MaoDeObra[] = familia.formato === 'REVENDA'
+        ? dg.esquadrias.map((e) => ({ revenda: true, quantidade: e.quantidade }))
+        : await lerMaosDeObra(tenantId, motorId, dg.esquadrias)
     const semTempo = faltasDeTempo(dg, maos, d.esquadrias.length, familia.calculo?.nome ?? null)
     if ('recusas' in r || semTempo.length) {
         // R4: a recusa nomeia o que falta, em português — sem o código interno da variável; a esquadria pelo

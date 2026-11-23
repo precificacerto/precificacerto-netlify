@@ -25,7 +25,7 @@ describe('o doProductCalc chama o módulo do motor e não refaz a conta', () => 
         expect(programa).not.toMatch(/\.(priceUnit|cmvUnit|productiveLaborCost)\b/)
     })
     it('o tipo de cálculo efetivo sai da fonte única, nunca do ternário', () => {
-        expect(programa).toContain('tipoDeCalculoEfetivo(productType, currentUser?.calcType)')
+        expect(programa).toContain('tipoDeCalculoEfetivo(tipoNoMotor, currentUser?.calcType)')
         // o ternário que segue o TENANT (o extraído); `construction: productType === 'REVENDA' ? … : 'INDUSTRIALIZACAO'` do salvar é outra regra
         expect(programa).not.toMatch(/productType === 'REVENDA'\s*\?\s*'REVENDA'\s*:\s*currentUser/)
     })

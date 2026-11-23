@@ -19,6 +19,7 @@ function cliente() {
     return {
         from: (tabela: string) => {
             const filtros: Array<[string, unknown]> = []
+            const emListas: Array<[string, unknown[]]> = []
             let op = 'select'
             let carga: unknown
             const q: Record<string, unknown> = {}
@@ -26,13 +27,16 @@ function cliente() {
                 estado.ops.push({ tabela, op, carga, filtros })
                 const erro = estado.erros[`${tabela}:${op}`]
                 if (erro) return Promise.resolve({ data: null, error: erro })
-                const r = (estado.db[tabela] ?? []).filter((l) => filtros.every(([c, v]) => (v === NULO ? (l[c] ?? null) === null : l[c] === v)))
+                const r = (estado.db[tabela] ?? []).filter((l) => filtros.every(([c, v]) => (v === NULO ? (l[c] ?? null) === null : l[c] === v))
+                    && emListas.every(([c, vs]) => vs.includes(l[c])))
                 if (op === 'update') r.forEach((l) => Object.assign(l, carga as Linha))
                 return Promise.resolve({ data: r.map((l) => ({ ...l })), error: null })
             }
             q.select = () => q
             q.order = () => q
             q.eq = (c: string, v: unknown) => { filtros.push([c, v]); return q }
+            // o `.in(coluna, lista)`: a linha cujo valor está na lista (a leitura do formato das famílias, 23/11/2026)
+            q.in = (c: string, vs: unknown[]) => { emListas.push([c, vs]); return q }
             // o `.is(coluna, null)` do PostgREST: a coluna nula (ou ausente na linha de teste, como a `removido_em` de antes da 20261113000002)
             q.is = (c: string, v: null) => { filtros.push([c, v === null ? NULO : v]); return q }
             q.update = (c: unknown) => { op = 'update'; carga = c; return q }
@@ -84,7 +88,7 @@ const itemDoBanco = (k: number, liquido: number, minutos: number) => ({
     tenant_id: T, orcamento_id: ORC, id: `i-${k}`, ordem: k, tipologia: 'DP-02', largura_mm: 1500, altura_mm: 1200, quantidade: 1,
     calculo_id: 'c-1', calculado_em: '2026-11-09T12:00:00.000Z', atualizado_em: '2026-11-09T12:00:00.000Z',
     custo_bruto_materiais: String(liquido * 1.2), custo_liquido_materiais: String(liquido), tempo_fabricacao_min: String(minutos), valor_minuto: String(VALOR_DO_MINUTO),
-    custo_fabricacao: String(minutos * VALOR_DO_MINUTO), custo_liquido_total: String(liquido + minutos * VALOR_DO_MINUTO),
+    custo_fabricacao: String(minutos * VALOR_DO_MINUTO), custo_liquido_total: String(liquido + minutos * VALOR_DO_MINUTO), familia: 'PVC',
 })
 beforeEach(() => {
     estado.ops = []
@@ -102,6 +106,7 @@ beforeEach(() => {
             ncm_code: null, sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null, editado_manualmente_em: null, editado_manualmente_por: null,
         }],
         orcamentista_orcamento_item: itens,
+        orcamentista_materia_prima: [{ tenant_id: T, familia: 'PVC', formato: 'FABRICACAO' }],
     }
 })
 

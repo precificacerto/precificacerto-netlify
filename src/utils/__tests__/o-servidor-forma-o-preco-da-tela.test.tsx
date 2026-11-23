@@ -83,6 +83,7 @@ const orcamento = (extra: Partial<OrcamentoNaPrecificacao> = {}): OrcamentoNaPre
         valor_total_bruto: itens.reduce((t, i) => t + (i.custo_bruto_materiais ?? 0) + (i.custo_fabricacao ?? 0), 0),
         valor_total_liquido: itens.reduce((t, i) => t + (i.custo_liquido_total ?? 0), 0),
         valor_venda: null, valor_operacao_interna: null, ncm_code: null, sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null,
+        formato: { formato: 'FABRICACAO' },
         ...extra, itens,
     }
 }
@@ -192,5 +193,26 @@ describe('quando a tela recusa, o servidor recusa com as MESMAS frases', () => {
         const c = cenario({ ibs: 1, cbs: 9, orcamento: orcamento({ lucro_projetado_percentual: 45 }) })
         const { servidor } = await servidorIgualATela(c)
         expect('recusas' in servidor).toBe(true)
+    })
+})
+
+describe('a família de REVENDA (23/11/2026): o tipo do produto no motor é o da família, e a tela e o servidor formam o MESMO preço', () => {
+    // os itens de revenda: sem tempo de fabricação (0), sem valor do minuto (nulo), fabricação 0 — o total é só o material
+    const deRevenda = (k: number, liquido: number): ItemNaPrecificacao => ({ ...item(k, liquido, 0), valor_minuto: null, custo_fabricacao: 0, custo_liquido_total: liquido })
+    const ITENS = [deRevenda(1, 2593.18), deRevenda(2, 421.04)]
+    it('Lucro Real: a tela grava, e o servidor forma o mesmo número, positivo', async () => {
+        const { tela } = await servidorIgualATela(cenario({ orcamento: orcamento({ itens: ITENS, formato: { formato: 'REVENDA' } }) }))
+        expect('gravacao' in tela && tela.gravacao.valor_venda).toBeGreaterThan(0)
+    })
+    it('sem a carga horária da equipe: a revenda NÃO a exige (não fabrica) — os dois lados formam o preço', async () => {
+        const { servidor } = await servidorIgualATela(cenario({
+            usuario: usuario({ monthlyWorkloadInMinutes: 0, unitMeasure: null } as Partial<Usuario>), orcamento: orcamento({ itens: ITENS, formato: { formato: 'REVENDA' } }),
+        }))
+        expect('gravacao' in servidor).toBe(true)
+    })
+    it('o formato que não vale (fabricação e revenda juntas): a MESMA recusa nos dois lados, e nada se grava', async () => {
+        const recusa = 'o orçamento junta família de fabricação (PVC) e de revenda (ALU): cada uma é precificada no seu orçamento'
+        const { servidor } = await servidorIgualATela(cenario({ orcamento: orcamento({ formato: { recusa } }) }))
+        expect(servidor).toEqual({ recusas: expect.arrayContaining([recusa]) })
     })
 })

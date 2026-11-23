@@ -18,7 +18,7 @@ import { gerarEGravarArquivo, lerDadosDoArquivo, type ArquivoGravado } from './a
 import { ErroDeValidacao, ErroNaoEncontrado, ErroSemMigracao, TABELA_DO_ITEM, TABELA_DO_ORCAMENTO, tabelaAusente } from './orcamentos-ia'
 import {
     estadoDoCalculo, fiscalDivergente, fiscalDoOrcamento, FRASE_DO_ESTADO, PRESET_DA_COMERCIALIZACAO, rastroDoFiscalSobrescrito, MODELO_DO_ORCAMENTO_IA,
-    type CampoDivergente,
+    type CampoDivergente, formatoDoOrcamento, type FormatoDoOrcamento,
     type GravacaoDaPrecificacao, type ItemNaPrecificacao, type OrcamentoNaPrecificacao,
 } from './precificacao-do-orcamento'
 
@@ -33,7 +33,7 @@ export class ErroDoEstado extends Error {}
 const COLUNAS_DO_ORCAMENTO = 'id, numero, nome, comissao_percentual, reserva_tecnica_percentual, lucro_projetado_percentual, '
     + 'valor_total_bruto, valor_total_liquido, valor_venda, valor_operacao_interna, ncm_code, sale_scope, buyer_type, uf_destino'
 export const COLUNAS_DO_ITEM_NA_PRECIFICACAO = 'id, ordem, tipologia, largura_mm, altura_mm, quantidade, calculo_id, calculado_em, atualizado_em, '
-    + 'custo_bruto_materiais, custo_liquido_materiais, tempo_fabricacao_min, valor_minuto, custo_fabricacao, custo_liquido_total'
+    + 'custo_bruto_materiais, custo_liquido_materiais, tempo_fabricacao_min, valor_minuto, custo_fabricacao, custo_liquido_total, familia'
 
 const colunaAusente = (e: { code?: string } | null | undefined) => e?.code === '42703' || e?.code === 'PGRST204'
 function falhou(tabela: string, error: { code?: string; message: string }): never {
@@ -62,14 +62,34 @@ export async function lerOrcamentoParaPrecificar(tenantId: string, id: string): 
         .eq('tenant_id', tenantId).eq('orcamento_id', id).is('removido_em', null).order('ordem')
     if (e2) falhou(TABELA_DO_ITEM, e2)
     const o = data as Record<string, unknown>
+    const linhas = (itens ?? []) as Array<Record<string, unknown>>
+    const familiaDe = (i: Record<string, unknown>) => (typeof i.familia === 'string' && i.familia !== '' ? i.familia : null)
     return {
         ...(o as unknown as OrcamentoNaPrecificacao),
         ...Object.fromEntries(NUMERICOS_DO_ORCAMENTO.map((c) => [c, numeroOuNulo(o[c])])),
-        itens: ((itens ?? []) as Array<Record<string, unknown>>).map((i) => ({
+        itens: linhas.map((i) => ({
             ...(i as unknown as ItemNaPrecificacao),
             ...Object.fromEntries(NUMERICOS_DO_ITEM.map((c) => [c, numeroOuNulo(i[c])])),
         })),
+        formato: await formatoLidoDoOrcamento(tenantId, linhas.map((i) => ({ ordem: Number(i.ordem), familia: familiaDe(i) }))),
     }
+}
+
+/** O formato das famílias dos itens, lido da base de conhecimento DESTA empresa (23/11/2026). Instâncias da mesma família com formatos diferentes: recusa. */
+async function formatoLidoDoOrcamento(tenantId: string, itens: Array<{ ordem: number; familia: string | null }>): Promise<FormatoDoOrcamento> {
+    const familias = [...new Set(itens.map((i) => i.familia).filter((f): f is string => f !== null))]
+    if (familias.length === 0) return formatoDoOrcamento(itens, new Map())
+    const { data, error } = await db().from('orcamentista_materia_prima').select('familia, formato').eq('tenant_id', tenantId).in('familia', familias)
+    if (error) falhou('orcamentista_materia_prima', error)
+    const porFamilia = new Map<string, Set<'FABRICACAO' | 'REVENDA' | null>>()
+    for (const m of (data ?? []) as Array<Record<string, unknown>>) {
+        const f = String(m.familia)
+        const v = m.formato === 'FABRICACAO' || m.formato === 'REVENDA' ? m.formato : null
+        porFamilia.set(f, (porFamilia.get(f) ?? new Set()).add(v))
+    }
+    const divergentes = [...porFamilia.entries()].filter(([, v]) => v.size > 1).map(([f]) => f).sort()
+    if (divergentes.length) return { recusa: `o formato da família ${divergentes.join(', ')}: as instâncias dela na base de conhecimento têm formatos diferentes` }
+    return formatoDoOrcamento(itens, new Map([...porFamilia.entries()].map(([f, v]) => [f, [...v][0]])))
 }
 
 function percentual(v: unknown, rotulo: string, erros: string[]): number {
@@ -134,6 +154,8 @@ export async function gravarPrecificacao(tenantId: string, id: string, corpo: Re
     const orc = await lerOrcamentoParaPrecificar(tenantId, id)
     const estado = estadoDoCalculo(orc)
     if (estado !== 'completo') throw new ErroDoEstado(FRASE_DO_ESTADO[estado])
+    // o formato que não vale (23/11/2026): o preço não se grava com o tipo de produto errado
+    if ('recusa' in orc.formato) throw new ErroDoEstado(`Falta: ${orc.formato.recusa}.`)
     const sobrescrito = fiscalDivergente(orc)
     const { data, error } = await db().from(TABELA_DO_ORCAMENTO)
         // o AGENTE (autor nulo, a cadeia do "sim") não é edição manual: a marca fica como está
