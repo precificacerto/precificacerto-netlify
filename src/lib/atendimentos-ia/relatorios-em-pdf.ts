@@ -60,8 +60,12 @@ class Folha {
         for (const l of d.splitTextToSize(t, LARGURA) as string[]) { this.cabe(LINHA); d.text(l, A4.margem, this.y + 3.4); this.y += LINHA }
         d.setTextColor(0); this.y += 1
     }
-    /** Uma tabela simples: cabeçalho cinza e linhas; a coluna marcada 'right' alinha à direita; o texto longo quebra dentro da coluna. */
-    tabela(colunas: ReadonlyArray<{ titulo: string; w: number; alinha?: 'right' }>, linhas: readonly string[][]) {
+    /**
+     * Uma tabela simples: cabeçalho cinza e linhas; a coluna marcada 'right' alinha à direita; o texto longo quebra dentro da coluna.
+     * `respiro` (mm): o espaço depois de cada linha — o RESPIRO ENTRE OS PERFIS (dono do produto, 22/11/2026: "entre cada perfil tem que ter
+     * um respiro de distância"). Só o espaçamento muda: o conteúdo e a ordem são os mesmos.
+     */
+    tabela(colunas: ReadonlyArray<{ titulo: string; w: number; alinha?: 'right' }>, linhas: readonly string[][], respiro = 0) {
         const d = this.doc
         const desenharCabecalho = () => {
             let x = A4.margem
@@ -76,7 +80,7 @@ class Folha {
         for (const l of linhas) {
             const quebradas = l.map((t, k) => d.splitTextToSize(t, colunas[k].w - 3) as string[])
             const h = Math.max(1, ...quebradas.map((q) => q.length)) * 3.6 + 1.6
-            if (this.y + h > FIM) { this.cabe(h + 6); desenharCabecalho(); d.setFont('helvetica', 'normal'); d.setFontSize(8) }
+            if (this.y + h + respiro > FIM) { this.cabe(h + respiro + 6); desenharCabecalho(); d.setFont('helvetica', 'normal'); d.setFontSize(8) }
             let x = A4.margem
             d.setDrawColor(210); d.line(A4.margem, this.y + h, A4.margem + LARGURA, this.y + h)
             quebradas.forEach((q, k) => {
@@ -84,7 +88,7 @@ class Folha {
                 q.forEach((linha, j) => d.text(linha, c.alinha === 'right' ? x + c.w - 1.5 : x + 1.5, this.y + 3.4 + j * 3.6, { align: c.alinha === 'right' ? 'right' : 'left' }))
                 x += c.w
             })
-            this.y += h
+            this.y += h + respiro
         }
         this.y += 3
     }
@@ -102,6 +106,10 @@ class Folha {
 }
 
 const AMARELO: [number, number, number] = [150, 100, 0]
+/** O RESPIRO ENTRE OS PERFIS, em mm (dono do produto, 22/11/2026): cada perfil, com a sua linha e a sua Observação, é um bloco, e há espaço entre os blocos. */
+export const RESPIRO_ENTRE_PERFIS = 3
+/** A categoria dos perfis no relatório de materiais: as linhas dela levam o respiro. */
+const CATEGORIA_DOS_PERFIS = 'PERFIL'
 const lista = (ordens: readonly number[]) => `${ordens.length === 1 ? 'O item' : 'Os itens'} ${ordens.join(', ')}`
 
 const COLUNAS_DE_MATERIAL = [{ titulo: 'Código', w: 24 }, { titulo: 'Descrição', w: 78 }, { titulo: 'Quantidade', w: 28, alinha: 'right' as const },
@@ -124,7 +132,7 @@ export function pdfDoRelatorioDeMateriais(r: RelatorioDeMateriais & Extras, c: C
     if (!r.categorias.length && !r.semCategoria.length && !r.ambiguos.length) { f.paragrafo('Nenhum material calculado neste orçamento.'); return f.fechar() }
     for (const cat of r.categorias) {
         f.titulo2(cat.rotulo)
-        f.tabela(COLUNAS_DE_MATERIAL, cat.materiais.map((m) => linhaDeMaterial(m)))
+        f.tabela(COLUNAS_DE_MATERIAL, cat.materiais.map((m) => linhaDeMaterial(m)), cat.chave === CATEGORIA_DOS_PERFIS ? RESPIRO_ENTRE_PERFIS : 0)
         f.paragrafo(textoDoTotal(`Total de ${cat.rotulo}`, cat.total))
     }
     if (r.ambiguos.length) {
@@ -151,6 +159,8 @@ function blocoDoCodigo(f: Folha, k: CodigoDoCorte) {
     f.paragrafo(`Barra de ${mm(p.barra_mm)}, serra de ${mm(p.serra_mm)}: ${p.n_barras} ${p.n_barras === 1 ? 'barra' : 'barras'}, aproveitamento de ${pct(p.aproveitamento_pct)}`)
     p.barras.forEach((b, i) => f.paragrafo(`Barra ${i + 1}: ${b.pecas_mm.map(mm).join(' + ')} · sobra ${mm(b.sobra_mm)}`))
 }
+/** O respiro depois do bloco de um perfil (o código e o plano dele) — o próximo perfil começa separado. */
+const respirar = (f: Folha) => { f.y += RESPIRO_ENTRE_PERFIS }
 
 /** O relatório de corte em PDF: por categoria, cada código com as peças a cortar e o plano de barras gravado. */
 export function pdfDoRelatorioDeCorte(r: RelatorioDeCorte & Extras, c: CabecalhoDoRelatorio): Uint8Array {
@@ -158,9 +168,9 @@ export function pdfDoRelatorioDeCorte(r: RelatorioDeCorte & Extras, c: Cabecalho
     if (r.itensSemCalculo.length) f.paragrafo(`${lista(r.itensSemCalculo)} sem cálculo: as peças não estão neste relatório.`, AMARELO)
     if (r.itensSemPecas?.length) f.paragrafo(`${lista(r.itensSemPecas)} calculado(s) antes do relatório de corte existir: recalcule o orçamento para ver as peças.`, AMARELO)
     if (!r.categorias.length && !r.semCategoria.length && !r.ambiguos.length) f.paragrafo('Nenhuma peça de corte neste orçamento.')
-    for (const cat of r.categorias) { f.titulo2(cat.rotulo); for (const k of cat.codigos) blocoDoCodigo(f, k) }
-    if (r.ambiguos.length) { f.titulo2('Em mais de uma categoria'); for (const k of r.ambiguos) blocoDoCodigo(f, k) }
-    if (r.semCategoria.length) { f.titulo2('Sem categoria'); for (const k of r.semCategoria) blocoDoCodigo(f, k) }
+    for (const cat of r.categorias) { f.titulo2(cat.rotulo); for (const k of cat.codigos) { blocoDoCodigo(f, k); respirar(f) } }
+    if (r.ambiguos.length) { f.titulo2('Em mais de uma categoria'); for (const k of r.ambiguos) { blocoDoCodigo(f, k); respirar(f) } }
+    if (r.semCategoria.length) { f.titulo2('Sem categoria'); for (const k of r.semCategoria) { blocoDoCodigo(f, k); respirar(f) } }
     return f.fechar()
 }
 
@@ -192,12 +202,13 @@ export function pdfDasBarrasDoPedido(r: BarrasDoPedido & Extras & { codigosSemPe
         f.tabela(COLUNAS_DO_RESUMO_DE_BARRAS, [
             ...r.perfis.map((p) => [`${p.codigo}${p.descricao ? ` — ${p.descricao}` : ''}`, p.cor ?? '—', String(p.n_barras), kg(p.peso_bruto_kg), kg(p.peso_liquido_kg), pct(p.aproveitamento_pct)]),
             ['Total', '', String(r.total.n_barras), kg(r.total.peso_bruto_kg), kg(r.total.peso_liquido_kg), r.total.aproveitamento_pct === null ? '—' : pct(r.total.aproveitamento_pct)],
-        ])
+        ], RESPIRO_ENTRE_PERFIS)
     }
     for (const p of r.perfis) {
         f.titulo2(tituloDoPerfil(p))
         f.paragrafo(resumoDoPerfil(p))
         f.tabela(COLUNAS_DAS_BARRAS, p.barras.map((b, i) => [String(i + 1), b.fracoes.map(fracaoNoRelatorio).join(' + '), mm(b.sobra_mm)]))
+        respirar(f)
     }
     if (r.semPlano.length) {
         f.titulo2('Sem plano de barras')
@@ -254,7 +265,7 @@ export function pdfDoOrientativoDeMontagem(r: OrientativoDeMontagem, c: Cabecalh
         else topoDaEsquadria(f, e)
         if (e.aviso) f.paragrafo(e.aviso, AMARELO)
         f.titulo2('Perfis')
-        f.tabela(COLUNAS_PDF_DOS_PERFIS, e.perfis.linhas.map(celulasDoPerfil))
+        f.tabela(COLUNAS_PDF_DOS_PERFIS, e.perfis.linhas.map(celulasDoPerfil), RESPIRO_ENTRE_PERFIS)
         f.paragrafo(fimDosPerfis(e.perfis))
         f.titulo2('Acessórios')
         if (e.acessorios.length) f.tabela(COLUNAS_PDF_DOS_ACESSORIOS, e.acessorios.map(celulasDoAcessorio))

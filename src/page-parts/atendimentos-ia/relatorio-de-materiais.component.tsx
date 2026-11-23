@@ -7,8 +7,9 @@
  * o fim, o total geral do pedido; o total com um código sem custo gravado não sai, e diz qual. A esquadria sem cálculo é dita: os materiais
  * dela não estão no relatório (nunca um relatório que pareça completo sem estar).
  */
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Empty, Spin, Table, Typography } from 'antd'
+import { FolhaA4, SeletorDaVista, VISTA_PADRAO, type VistaDoRelatorio } from './folha-a4.component'
 import { fraseDoTotalSemCusto, quantidadeNoRelatorio, reaisNoRelatorio, type MaterialDoRelatorio, type TotalDoGrupo } from '@/lib/atendimentos-ia/relatorio-de-materiais'
 import type { RelatorioDeMateriaisDoOrcamento } from '@/lib/atendimentos-ia/relatorio-de-materiais-servidor'
 
@@ -38,8 +39,15 @@ function TabelaDeMateriais({ materiais }: { materiais: readonly MaterialDoRelato
     return <Table size="small" pagination={false} rowKey={(m) => `${m.codigo}-${m.unidade}`} columns={colunas} dataSource={[...materiais]} scroll={{ x: true }} />
 }
 
-export function RelatorioDeMateriais({ orcamentoId, numero, cliente }: { orcamentoId: string; numero: number; cliente: string }) {
+export function RelatorioDeMateriais({ orcamentoId, numero, cliente, vistaInicial = VISTA_PADRAO }: { orcamentoId: string; numero: number; cliente: string; vistaInicial?: VistaDoRelatorio }) {
     const [estado, setEstado] = useState<Estado>({ tipo: 'carregando' })
+    // a FOLHA A4 é a vista padrão (dono do produto, 22/11/2026): o próprio PDF, pela mesma função do "Baixar PDF"
+    const [vista, setVista] = useState<VistaDoRelatorio>(vistaInicial)
+    const pronto = estado.tipo === 'pronto' ? estado.relatorio : null
+    const gerar = useCallback(async () => {
+        const m = await import('@/lib/atendimentos-ia/relatorios-em-pdf')
+        return m.pdfDoRelatorioDeMateriais(pronto as NonNullable<typeof pronto>, { numero, cliente, geradoEm: new Date() })
+    }, [pronto, numero, cliente])
     useEffect(() => {
         let vivo = true
         setEstado({ tipo: 'carregando' })
@@ -63,9 +71,11 @@ export function RelatorioDeMateriais({ orcamentoId, numero, cliente }: { orcamen
     const vazio = categorias.length === 0 && semCategoria.length === 0 && ambiguos.length === 0
     return (
         <div data-relatorio-de-materiais="">
-            <div style={{ textAlign: 'right', marginBottom: 12 }}>
-                <Button data-baixar-pdf="materiais" onClick={async () => { const r = estado.relatorio; const m = await import('@/lib/atendimentos-ia/relatorios-em-pdf'); m.baixarPdf(m.pdfDoRelatorioDeMateriais(r, { numero, cliente, geradoEm: new Date() }), m.nomeDoRelatorio('materiais', numero, cliente)) }}>Baixar PDF</Button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                <SeletorDaVista vista={vista} mudar={setVista} />
+                <Button data-baixar-pdf="materiais" onClick={async () => { const m = await import('@/lib/atendimentos-ia/relatorios-em-pdf'); m.baixarPdf(await gerar(), m.nomeDoRelatorio('materiais', numero, cliente)) }}>Baixar PDF</Button>
             </div>
+            {vista === 'a4' ? <FolhaA4 gerar={gerar} titulo="Relatório de materiais" /> : (<>
             {itensSemCalculo.length > 0 && <Alert type="warning" showIcon style={{ marginBottom: 12 }} message={fraseDosItensSemCalculo(itensSemCalculo)} data-itens-sem-calculo="" />}
             {vazio && <Empty description={TEXTO_SEM_MATERIAL} />}
             {categorias.map((c) => (
@@ -94,6 +104,7 @@ export function RelatorioDeMateriais({ orcamentoId, numero, cliente }: { orcamen
                 </section>
             )}
             {!vazio && <TotalDoGrupoNaTela nome="Total geral do pedido" total={totalGeral} geral />}
+            </>)}
         </div>
     )
 }

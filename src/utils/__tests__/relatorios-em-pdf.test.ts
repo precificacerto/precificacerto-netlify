@@ -174,3 +174,65 @@ describe('o PDF do orientativo de montagem (22/11/2026)', () => {
         expect(nomeDoRelatorio('orientativo_de_montagem', 12, 'De Paula')).toBe('Relatorio_de_orientativo_de_montagem_12_-_De_Paula.pdf')
     })
 })
+
+describe('o RESPIRO ENTRE OS PERFIS (dono do produto, 22/11/2026): só o espaçamento muda, nos quatro relatórios', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const P = require('@/lib/atendimentos-ia/relatorios-em-pdf') as typeof import('@/lib/atendimentos-ia/relatorios-em-pdf')
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const O = require('@/lib/atendimentos-ia/orientativo-de-montagem') as typeof import('@/lib/atendimentos-ia/orientativo-de-montagem')
+    const PT = 72 / 25.4
+    /** A altura (em pt, de baixo para cima) de cada texto da primeira página, como o jsPDF o escreve: "x y Td (texto) Tj". */
+    const alturas = (pdf: Uint8Array) => {
+        const bruto = Buffer.from(pdf).toString('latin1')
+        const m = new Map<string, number>()
+        for (const x of bruto.matchAll(/[\d.]+ ([\d.]+) Td\s*\(((?:\\.|[^\\)])*)\) Tj/g)) {
+            const t = x[2].replace(/\\([()\\])/g, '$1')
+            if (!m.has(t)) m.set(t, Number(x[1]))
+        }
+        return (t: string) => { const v = m.get(t); if (v === undefined) throw new Error(`sem o texto ${t}`); return v }
+    }
+    const respiro = (a: number) => Math.round((a / PT) * 10) / 10
+
+    it('MATERIAIS: entre dois perfis, 3 mm a mais que entre duas linhas de outra categoria', () => {
+        const m = (codigo: string) => ({ codigo, descricao: 'X', unidade: 'm' as const, quantidade: 1, custo_bruto: 1, custo_liquido: 1 })
+        const total = { custo_bruto: 2, custo_liquido: 2, codigosSemCusto: [] as string[] }
+        const y = alturas(P.pdfDoRelatorioDeMateriais({ categorias: [
+            { chave: 'PERFIL', rotulo: 'Perfil', materiais: [m('P1'), m('P2')], total },
+            { chave: 'REFORCO', rotulo: 'Reforço', materiais: [m('R1'), m('R2')], total },
+        ], semCategoria: [], ambiguos: [], itensSemCalculo: [], totalGeral: total }, cab))
+        expect(respiro((y('P1') - y('P2')) - (y('R1') - y('R2')))).toBe(P.RESPIRO_ENTRE_PERFIS)
+    })
+    it('ORIENTATIVO: entre dois perfis, 3 mm a mais que entre dois acessórios', () => {
+        const e = O.montarEsquadria({
+            ordem: 1, tipologia: 'DP-02', descricao: 'J', largura_mm: 1, altura_mm: 1, quantidade: 1, cor_perfil: null, vidro: null, desenho: null, semDesenho: null,
+            gravadas: [], materiais: [],
+            recalculo: {
+                pecas: [], insumos: ['A1', 'A2'].map((c) => ({ codigo: c, descricao: 'X', quantidade: 1, linha: 1, obs: null as string | null, codigo_na_tabela: c, descricao_na_tabela: 'X', unidade: 'PC', por_comprimento: false })),
+                vidros: [], vidro: null,
+            },
+        }, new Map())
+        const comPerfis = { ...e, perfis: { ...e.perfis, linhas: ['P1', 'P2'].map((c) => ({ codigo: c, perfil: c, descricao: 'X', quantidade: 1, comprimento_mm: 1, corte: '90/90', posicao: 'L', peso_kg: null as number | null, obs: null as string | null })) } }
+        const y = alturas(P.pdfDoOrientativoDeMontagem({ esquadrias: [comPerfis], itensSemCalculo: [], avisosDoRodape: [] }, cab))
+        expect(respiro((y('P1') - y('P2')) - (y('A1') - y('A2')))).toBe(P.RESPIRO_ENTRE_PERFIS)
+    })
+    it('CORTE: entre o bloco de um perfil e o próximo, 3 mm a mais que entre duas linhas do mesmo bloco', () => {
+        const codigo = (c: string) => ({ codigo: c, perfil: `${c}/W`, descricao: null as string | null, linhas: [{ comprimento_mm: 100, corte: '90/90', posicao: 'L', quantidade: 1 }],
+            plano: { barra_mm: 6000, serra_mm: 5, n_barras: 2, aproveitamento_pct: 1, barras: [{ pecas_mm: [100], cortes: 1, usado_mm: 105, sobra_mm: 5895 }, { pecas_mm: [100], cortes: 1, usado_mm: 105, sobra_mm: 5894 }] } })
+        const y = alturas(P.pdfDoRelatorioDeCorte({ categorias: [{ chave: 'PERFIL', rotulo: 'Perfil', codigos: [codigo('C1'), codigo('C2')] }], semCategoria: [], ambiguos: [], itensSemCalculo: [], itensSemPecas: [] }, cab))
+        const b1 = 'Barra 1: 100 mm · sobra 5.895 mm', b2 = 'Barra 2: 100 mm · sobra 5.894 mm'
+        expect(respiro((y(b2) - y('C2 (C2/W)')) - (y(b1) - y(b2)))).toBe(P.RESPIRO_ENTRE_PERFIS)
+    })
+    it('BARRAS: no resumo, entre dois perfis, 3 mm a mais que entre duas barras do mesmo perfil', () => {
+        const pecas: PecaDoPedido[] = [
+            { codigo: 'C1', perfil: 'C1/W', descricao: null, comprimento_mm: 4000, quantidade: 2, corte: '90/90', posicao: 'L', comprimento_barra_mm: 6000, serra_mm: 5, item: 1, tipologia: 'DP-02', cor: 'Branco' },
+            { codigo: 'C2', perfil: 'C2/W', descricao: null, comprimento_mm: 4000, quantidade: 1, corte: '90/90', posicao: 'L', comprimento_barra_mm: 6000, serra_mm: 5, item: 1, tipologia: 'DP-02', cor: 'Branco' },
+        ]
+        const r = montarBarrasDoPedido(pecas, new Map())
+        const y = alturas(P.pdfDasBarrasDoPedido({ ...r, itensSemCalculo: [], itensSemPecas: [] }, cab))
+        // as duas barras do C1 (a tabela das barras, sem respiro) contra as duas linhas do resumo (C1 e C2, com respiro)
+        const barras = Buffer.from(P.pdfDasBarrasDoPedido({ ...r, itensSemCalculo: [], itensSemPecas: [] }, cab)).toString('latin1')
+        const topoDoC1 = y('C1 (C1/W) · Branco')
+        const ys = [...barras.matchAll(/[\d.]+ ([\d.]+) Td\s*\((\d)\) Tj/g)].filter((x) => (x[2] === '1' || x[2] === '2') && Number(x[1]) < topoDoC1).map((x) => Number(x[1]))
+        expect(respiro((y('C1') - y('C2')) - (ys[0] - ys[1]))).toBe(P.RESPIRO_ENTRE_PERFIS)
+    })
+})

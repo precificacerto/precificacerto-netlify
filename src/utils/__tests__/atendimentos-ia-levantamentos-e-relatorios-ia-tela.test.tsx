@@ -30,6 +30,7 @@ const { ABAS_DOS_RELATORIOS, TEXTO_DA_ABA_SEM_CONTEUDO, TEXTO_SEM_ORCAMENTO } = 
 const { RelatorioDeMateriais, TEXTO_SEM_MATERIAL, fraseDosItensSemCalculo } = require('@/page-parts/atendimentos-ia/relatorio-de-materiais.component')
 const { RelatorioDeCorte, TEXTO_SEM_PECA, fraseDosItensSemPecas } = require('@/page-parts/atendimentos-ia/relatorio-de-corte.component')
 const { BarrasDoPedidoDoOrcamento, TEXTO_SEM_BARRA, AVISO_DO_PRECO } = require('@/page-parts/atendimentos-ia/barras-do-pedido.component')
+const { OrientativoDeMontagem } = require('@/page-parts/atendimentos-ia/orientativo-de-montagem.component')
 const { PAGE_TITLES } = require('@/constants/page-titles')
 /* eslint-enable @typescript-eslint/no-require-imports */
 
@@ -103,6 +104,14 @@ describe('os Relatórios I.A.', () => {
         expect(host.querySelector('[data-cliente-aberto]')?.textContent).toBe('Orçamento 1 — Geraldo Huck')
         expect(servidor.chamadas).toContain('/api/atendimentos-ia/orcamentos/o-1/relatorio-de-materiais')
         expect(host.querySelector('[data-baixar-pdf="materiais"]')).not.toBeNull()
+        // UM CLIENTE DE CADA VEZ (dono do produto, 22/11/2026): com o cliente aberto, a lista de todos SOME; "Voltar" a devolve
+        expect(host.querySelector('[data-lista-de-clientes]')).toBeNull()
+        expect(host.querySelectorAll('[data-cliente]')).toHaveLength(0)
+        // eslint-disable-next-line testing-library/no-unnecessary-act
+        await act(async () => { (host.querySelector('[data-voltar-a-lista]') as HTMLElement).click() })
+        expect(host.querySelector('[data-cliente-aberto]')).toBeNull()
+        expect(host.querySelector('[data-aba-do-relatorio]')).toBeNull()
+        expect(Array.from(host.querySelectorAll('[data-cliente]')).map((l) => l.getAttribute('data-cliente'))).toEqual(['o-2', 'o-1'])
     })
     it('as duas abas, nesta ordem, nascem com a estrutura e dizem que ainda não têm conteúdo', () => {
         expect(ABAS_DOS_RELATORIOS.map((a: { label: string }) => a.label)).toEqual(['Relatório de materiais', 'Relatório de corte', 'Barras do pedido', 'Orientativo de montagem'])
@@ -122,7 +131,7 @@ describe('o RELATÓRIO DE MATERIAIS (dono do produto, 16/11/2026)', () => {
             semCategoria: [], ambiguos: [], itensSemCalculo: [],
             totalGeral: { custo_bruto: 150.5, custo_liquido: 120.25, codigosSemCusto: [] as string[] },
         } }
-        const host = await montar(<RelatorioDeMateriais orcamentoId="o-1" numero={1} cliente="Geraldo Huck" />)
+        const host = await montar(<RelatorioDeMateriais orcamentoId="o-1" numero={1} cliente="Geraldo Huck" vistaInicial="tabela" />)
         expect(servidor.chamadas).toEqual(['/api/atendimentos-ia/orcamentos/o-1/relatorio-de-materiais'])
         expect(Array.from(host.querySelectorAll('[data-categoria]')).map((e) => e.getAttribute('data-categoria'))).toEqual(['PERFIL', 'REFORCO'])
         expect(host.textContent).toContain('10,50 m')
@@ -138,7 +147,7 @@ describe('o RELATÓRIO DE MATERIAIS (dono do produto, 16/11/2026)', () => {
                 total: { custo_bruto: null, custo_liquido: null, codigosSemCusto: ['9681'] } }],
             semCategoria: [], ambiguos: [], itensSemCalculo: [], totalGeral: { custo_bruto: null, custo_liquido: null, codigosSemCusto: ['9681'] },
         } }
-        const host = await montar(<RelatorioDeMateriais orcamentoId="o-1" numero={1} cliente="Geraldo Huck" />)
+        const host = await montar(<RelatorioDeMateriais orcamentoId="o-1" numero={1} cliente="Geraldo Huck" vistaInicial="tabela" />)
         expect(host.querySelector('[data-total="geral"]')?.textContent).toBe('Total geral do pedido: o total não sai: o código 9681 não tem o custo gravado pelo cálculo.')
         expect(host.textContent).not.toContain('R$ 0,00')
     })
@@ -149,7 +158,7 @@ describe('o RELATÓRIO DE MATERIAIS (dono do produto, 16/11/2026)', () => {
             ambiguos: [{ codigo: 'Y1', descricao: 'peça', unidade: 'm', quantidade: 1, custo_bruto: 1, custo_liquido: 1, categorias: ['FERRAGENS', 'PERFIL'], motivo: 'o preço sai de mais de uma tabela, de categorias diferentes' }],
             totalGeral: { custo_bruto: 2, custo_liquido: 2, codigosSemCusto: [] as string[] },
         } }
-        const host = await montar(<RelatorioDeMateriais orcamentoId="o-1" numero={1} cliente="Geraldo Huck" />)
+        const host = await montar(<RelatorioDeMateriais orcamentoId="o-1" numero={1} cliente="Geraldo Huck" vistaInicial="tabela" />)
         expect(host.querySelector('[data-itens-sem-calculo]')?.textContent).toBe(fraseDosItensSemCalculo([2, 3]))
         expect(fraseDosItensSemCalculo([2, 3])).toBe('Os itens 2, 3 não têm cálculo: os materiais deles não estão neste relatório.')
         expect(host.querySelector('[data-categoria="ambiguos"]')?.textContent).toContain('Y1 (FERRAGENS, PERFIL: o preço sai de mais de uma tabela, de categorias diferentes)')
@@ -159,13 +168,13 @@ describe('o RELATÓRIO DE MATERIAIS (dono do produto, 16/11/2026)', () => {
     })
     it('sem material nenhum, o vazio é dito (nunca uma tabela vazia que pareça "sem material")', async () => {
         servidor.corpo = { relatorio: { categorias: [], semCategoria: [], ambiguos: [], itensSemCalculo: [], totalGeral: { custo_bruto: 0, custo_liquido: 0, codigosSemCusto: [] as string[] } } }
-        const host = await montar(<RelatorioDeMateriais orcamentoId="o-1" numero={1} cliente="Geraldo Huck" />)
+        const host = await montar(<RelatorioDeMateriais orcamentoId="o-1" numero={1} cliente="Geraldo Huck" vistaInicial="tabela" />)
         expect(host.textContent).toContain(TEXTO_SEM_MATERIAL)
         expect(host.querySelector('[data-total="geral"]')).toBeNull()
     })
     it('a recusa da rota aparece como erro, com a frase dela', async () => {
         servidor.status = 404; servidor.corpo = { error: 'Orçamento não encontrado.' }
-        const host = await montar(<RelatorioDeMateriais orcamentoId="o-1" numero={1} cliente="Geraldo Huck" />)
+        const host = await montar(<RelatorioDeMateriais orcamentoId="o-1" numero={1} cliente="Geraldo Huck" vistaInicial="tabela" />)
         expect(host.textContent).toContain('Orçamento não encontrado.')
     })
 })
@@ -180,7 +189,7 @@ describe('o RELATÓRIO DE CORTE (dono do produto, 16/11/2026)', () => {
     })
     it('lê a rota e mostra, por categoria, cada código com a medida, o corte, a posição, a quantidade e o plano de barras', async () => {
         servidor.corpo = { relatorio: { categorias: [{ chave: 'PERFIL', rotulo: 'Perfil', codigos: [codigo()] }], semCategoria: [], ambiguos: [], itensSemCalculo: [], itensSemPecas: [] } }
-        const host = await montar(<RelatorioDeCorte orcamentoId="o-1" numero={1} cliente="Geraldo Huck" />)
+        const host = await montar(<RelatorioDeCorte orcamentoId="o-1" numero={1} cliente="Geraldo Huck" vistaInicial="tabela" />)
         expect(servidor.chamadas).toEqual(['/api/atendimentos-ia/orcamentos/o-1/relatorio-de-corte'])
         const bloco = host.querySelector('[data-codigo-do-corte="9681"]')!
         expect(bloco.textContent).toContain('2.000 mm')
@@ -195,7 +204,7 @@ describe('o RELATÓRIO DE CORTE (dono do produto, 16/11/2026)', () => {
             categorias: [{ chave: 'PERFIL', rotulo: 'Perfil', codigos: [codigo({ plano: { semPlano: 'o código 9681 não teve barra no cálculo' } })] }],
             semCategoria: [], ambiguos: [], itensSemCalculo: [], itensSemPecas: [1, 2],
         } }
-        const host = await montar(<RelatorioDeCorte orcamentoId="o-1" numero={1} cliente="Geraldo Huck" />)
+        const host = await montar(<RelatorioDeCorte orcamentoId="o-1" numero={1} cliente="Geraldo Huck" vistaInicial="tabela" />)
         expect(host.querySelector('[data-sem-plano]')?.textContent).toContain('Sem plano de barras: o código 9681 não teve barra no cálculo.')
         expect(host.querySelector('[data-plano]')).toBeNull()
         expect(host.querySelector('[data-itens-sem-pecas]')?.textContent).toBe(fraseDosItensSemPecas([1, 2]))
@@ -203,10 +212,10 @@ describe('o RELATÓRIO DE CORTE (dono do produto, 16/11/2026)', () => {
     })
     it('sem peça nenhuma, o vazio é dito; a migração pendente (503) aparece com a frase da rota', async () => {
         servidor.corpo = { relatorio: { categorias: [], semCategoria: [], ambiguos: [], itensSemCalculo: [], itensSemPecas: [] } }
-        const host = await montar(<RelatorioDeCorte orcamentoId="o-1" numero={1} cliente="Geraldo Huck" />)
+        const host = await montar(<RelatorioDeCorte orcamentoId="o-1" numero={1} cliente="Geraldo Huck" vistaInicial="tabela" />)
         expect(host.textContent).toContain(TEXTO_SEM_PECA)
         servidor.status = 503; servidor.corpo = { error: 'O relatório de corte ainda não está disponível: a estrutura do banco (migração 20261117000001) não foi aplicada.' }
-        const outro = await montar(<RelatorioDeCorte orcamentoId="o-2" numero={2} cliente="Outro" />)
+        const outro = await montar(<RelatorioDeCorte orcamentoId="o-2" numero={2} cliente="Outro" vistaInicial="tabela" />)
         expect(outro.textContent).toContain('migração 20261117000001')
     })
 })
@@ -224,7 +233,7 @@ describe('as BARRAS DO PEDIDO (dono do produto, 22/11/2026)', () => {
     const total = { n_barras: 2, metros_uteis: 7.636, metros_comprados: 12, aproveitamento_pct: 63.63, peso_bruto_kg: 1.212, peso_liquido_kg: 0.771 }
     it('lê a rota e mostra uma barra por linha, com as frações (medida, corte e origem) e a sobra; e o resumo com o total', async () => {
         servidor.corpo = { relatorio: { perfis: [perfil()], semPlano: [], total, itensSemCalculo: [], itensSemPecas: [], codigosSemPeso: [] } }
-        const host = await montar(<BarrasDoPedidoDoOrcamento orcamentoId="o-1" numero={12} cliente="Geraldo Huck" />)
+        const host = await montar(<BarrasDoPedidoDoOrcamento orcamentoId="o-1" numero={12} cliente="Geraldo Huck" vistaInicial="tabela" />)
         expect(servidor.chamadas).toEqual(['/api/atendimentos-ia/orcamentos/o-1/barras-do-pedido'])
         expect(host.textContent).toContain(AVISO_DO_PRECO)
         const bloco = host.querySelector('[data-perfil-do-pedido="1023|Branco"]')!
@@ -236,11 +245,67 @@ describe('as BARRAS DO PEDIDO (dono do produto, 22/11/2026)', () => {
     })
     it('o perfil sem plano diz por quê; o código sem peso é nomeado; o vazio é dito', async () => {
         servidor.corpo = { relatorio: { perfis: [], semPlano: [{ codigo: '9681', perfil: 'SF66/WOLFF', descricao: null, cor: 'Branco', motivo: 'o código 9681 não teve barra no cálculo' }], total: { ...total, n_barras: 0 }, itensSemCalculo: [], itensSemPecas: [], codigosSemPeso: ['9681'] } }
-        const host = await montar(<BarrasDoPedidoDoOrcamento orcamentoId="o-1" numero={12} cliente="G" />)
+        const host = await montar(<BarrasDoPedidoDoOrcamento orcamentoId="o-1" numero={12} cliente="G" vistaInicial="tabela" />)
         expect(host.querySelector('[data-sem-plano]')?.textContent).toContain('9681 (SF66/WOLFF) · Branco: o código 9681 não teve barra no cálculo.')
         expect(host.querySelector('[data-sem-peso]')?.textContent).toContain('9681')
         servidor.corpo = { relatorio: { perfis: [], semPlano: [], total: { ...total, n_barras: 0 }, itensSemCalculo: [], itensSemPecas: [], codigosSemPeso: [] } }
-        const vazio = await montar(<BarrasDoPedidoDoOrcamento orcamentoId="o-2" numero={12} cliente="G" />)
+        const vazio = await montar(<BarrasDoPedidoDoOrcamento orcamentoId="o-2" numero={12} cliente="G" vistaInicial="tabela" />)
         expect(vazio.textContent).toContain(TEXTO_SEM_BARRA)
+    })
+})
+
+describe('a FOLHA A4 na tela (dono do produto, 22/11/2026): ao clicar na aba, a folha já aparece; o PDF continua para baixar', () => {
+    it('a vista padrão é a Folha A4, nas quatro abas, com o seletor Folha A4 | Tabela e o "Baixar PDF"', async () => {
+        const corpos: Record<string, Record<string, unknown>> = {
+            materiais: { relatorio: { categorias: [], semCategoria: [], ambiguos: [], itensSemCalculo: [], totalGeral: { custo_bruto: 0, custo_liquido: 0, codigosSemCusto: [] as string[] } } },
+            corte: { relatorio: { categorias: [], semCategoria: [], ambiguos: [], itensSemCalculo: [], itensSemPecas: [] } },
+            barras: { relatorio: { perfis: [], semPlano: [], total: { n_barras: 0, peso_bruto_kg: null, peso_liquido_kg: null, aproveitamento_pct: null }, itensSemCalculo: [], itensSemPecas: [], codigosSemPeso: [] } },
+            orientativo: { relatorio: { esquadrias: [], itensSemCalculo: [], avisosDoRodape: [] } },
+        }
+        const telas: Array<[string, React.ReactElement, string]> = [
+            ['materiais', <RelatorioDeMateriais key="m" orcamentoId="o-1" numero={1} cliente="Geraldo Huck" />, 'materiais'],
+            ['corte', <RelatorioDeCorte key="c" orcamentoId="o-1" numero={1} cliente="Geraldo Huck" />, 'corte'],
+            ['barras', <BarrasDoPedidoDoOrcamento key="b" orcamentoId="o-1" numero={1} cliente="Geraldo Huck" />, 'barras_do_pedido'],
+            ['orientativo', <OrientativoDeMontagem key="o" orcamentoId="o-1" numero={1} cliente="Geraldo Huck" />, 'orientativo_de_montagem'],
+        ]
+        for (const [k, el, pdf] of telas) {
+            servidor.corpo = corpos[k]
+            const host = await montar(el)
+            expect(host.querySelector('[data-vista-do-relatorio]')?.getAttribute('data-vista-do-relatorio')).toBe('a4')
+            expect(host.querySelector('[data-folha-a4]')).not.toBeNull()
+            expect(host.querySelector(`[data-baixar-pdf="${pdf}"]`)).not.toBeNull()
+        }
+    })
+})
+
+describe('a FOLHA A4 é o próprio PDF do "Baixar PDF" (a mesma paginação)', () => {
+    const original = { criar: URL.createObjectURL, revogar: URL.revokeObjectURL }
+    afterEach(() => { URL.createObjectURL = original.criar; URL.revokeObjectURL = original.revogar })
+    it('o visor recebe um PDF de verdade, gerado pela função do relatório, e o libera ao sair', async () => {
+        const blobs: Blob[] = []
+        const revogados: string[] = []
+        URL.createObjectURL = ((b: Blob) => { blobs.push(b); return `blob:folha-${blobs.length}` }) as typeof URL.createObjectURL
+        URL.revokeObjectURL = ((u: string) => { revogados.push(u) }) as typeof URL.revokeObjectURL
+        servidor.corpo = { relatorio: {
+            categorias: [{ chave: 'PERFIL', rotulo: 'Perfil', materiais: [{ codigo: '9681', descricao: 'MARCO', unidade: 'm', quantidade: 2, custo_bruto: 1, custo_liquido: 1 }],
+                total: { custo_bruto: 1, custo_liquido: 1, codigosSemCusto: [] as string[] } }],
+            semCategoria: [], ambiguos: [], itensSemCalculo: [], totalGeral: { custo_bruto: 1, custo_liquido: 1, codigosSemCusto: [] as string[] },
+        } }
+        const host = await montar(<RelatorioDeMateriais orcamentoId="o-1" numero={1} cliente="Geraldo Huck" />)
+        // eslint-disable-next-line testing-library/no-unnecessary-act -- a geração do PDF é assíncrona (import dinâmico)
+        await act(async () => { await new Promise((r) => setTimeout(r, 50)) })
+        const iframe = host.querySelector('[data-folha-a4="pronta"] iframe')
+        expect(iframe?.getAttribute('src')).toBe('blob:folha-1#view=FitH')
+        expect(blobs[0].type).toBe('application/pdf')
+        const bytes = await new Promise<Uint8Array>((ok) => { const f = new FileReader(); f.onload = () => ok(new Uint8Array(f.result as ArrayBuffer)); f.readAsArrayBuffer(blobs[0]) })
+        expect(Buffer.from(bytes.slice(0, 5)).toString('latin1')).toBe('%PDF-')
+        expect(Buffer.from(bytes).toString('latin1')).toContain('9681')
+        // trocar para a vista Tabela desmonta o visor e libera o PDF da memória
+        const tabela = Array.from(host.querySelectorAll('[data-vista-do-relatorio] input')).find((e) => (e as HTMLInputElement).value === 'tabela') as HTMLElement
+        // eslint-disable-next-line testing-library/no-unnecessary-act
+        await act(async () => { tabela.click() })
+        expect(host.querySelector('[data-folha-a4]')).toBeNull()
+        expect(host.querySelector('[data-categoria="PERFIL"]')).not.toBeNull()
+        expect(revogados).toEqual(['blob:folha-1'])
     })
 })

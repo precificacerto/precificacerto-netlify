@@ -6,8 +6,9 @@
  * O código sem plano diz por quê (sem barra, ou barras/serras diferentes entre os cálculos); o item calculado antes do corte existir diz que
  * precisa ser recalculado — nunca um relatório que pareça completo sem estar.
  */
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Card, Empty, Spin, Table, Typography } from 'antd'
+import { FolhaA4, SeletorDaVista, VISTA_PADRAO, type VistaDoRelatorio } from './folha-a4.component'
 import type { CodigoDoCorte, LinhaDeCorte } from '@/lib/atendimentos-ia/relatorio-de-corte'
 import type { RelatorioDeCorteDoOrcamento } from '@/lib/atendimentos-ia/relatorio-de-corte-servidor'
 
@@ -54,8 +55,15 @@ function BlocoDoCodigo({ c }: { c: CodigoDoCorte }) {
     )
 }
 
-export function RelatorioDeCorte({ orcamentoId, numero, cliente }: { orcamentoId: string; numero: number; cliente: string }) {
+export function RelatorioDeCorte({ orcamentoId, numero, cliente, vistaInicial = VISTA_PADRAO }: { orcamentoId: string; numero: number; cliente: string; vistaInicial?: VistaDoRelatorio }) {
     const [estado, setEstado] = useState<Estado>({ tipo: 'carregando' })
+    // a FOLHA A4 é a vista padrão (dono do produto, 22/11/2026): o próprio PDF, pela mesma função do "Baixar PDF"
+    const [vista, setVista] = useState<VistaDoRelatorio>(vistaInicial)
+    const pronto = estado.tipo === 'pronto' ? estado.relatorio : null
+    const gerar = useCallback(async () => {
+        const m = await import('@/lib/atendimentos-ia/relatorios-em-pdf')
+        return m.pdfDoRelatorioDeCorte(pronto as NonNullable<typeof pronto>, { numero, cliente, geradoEm: new Date() })
+    }, [pronto, numero, cliente])
     useEffect(() => {
         let vivo = true
         setEstado({ tipo: 'carregando' })
@@ -79,9 +87,11 @@ export function RelatorioDeCorte({ orcamentoId, numero, cliente }: { orcamentoId
     const vazio = categorias.length === 0 && semCategoria.length === 0 && ambiguos.length === 0
     return (
         <div data-relatorio-de-corte="">
-            <div style={{ textAlign: 'right', marginBottom: 12 }}>
-                <Button data-baixar-pdf="corte" onClick={async () => { const r = estado.relatorio; const m = await import('@/lib/atendimentos-ia/relatorios-em-pdf'); m.baixarPdf(m.pdfDoRelatorioDeCorte(r, { numero, cliente, geradoEm: new Date() }), m.nomeDoRelatorio('corte', numero, cliente)) }}>Baixar PDF</Button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                <SeletorDaVista vista={vista} mudar={setVista} />
+                <Button data-baixar-pdf="corte" onClick={async () => { const m = await import('@/lib/atendimentos-ia/relatorios-em-pdf'); m.baixarPdf(await gerar(), m.nomeDoRelatorio('corte', numero, cliente)) }}>Baixar PDF</Button>
             </div>
+            {vista === 'a4' ? <FolhaA4 gerar={gerar} titulo="Relatório de corte" /> : (<>
             {itensSemCalculo.length > 0 && <Alert type="warning" showIcon style={{ marginBottom: 12 }} message={fraseDosItensSemCalculoNoCorte(itensSemCalculo)} data-itens-sem-calculo="" />}
             {itensSemPecas.length > 0 && <Alert type="info" showIcon style={{ marginBottom: 12 }} message={fraseDosItensSemPecas(itensSemPecas)} data-itens-sem-pecas="" />}
             {vazio && <Empty description={TEXTO_SEM_PECA} />}
@@ -107,6 +117,7 @@ export function RelatorioDeCorte({ orcamentoId, numero, cliente }: { orcamentoId
                     {semCategoria.map((c) => <BlocoDoCodigo key={c.codigo} c={c} />)}
                 </section>
             )}
+            </>)}
         </div>
     )
 }
