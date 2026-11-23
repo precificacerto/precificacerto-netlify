@@ -307,14 +307,16 @@ describe('recusas do layout único: nada é gravado e a frase diz o quê', () =>
 })
 
 describe('o que o layout único avisa e o que ignora', () => {
-    it('valor nas colunas sem destino (cor, valor_kg…): o aviso diz a coluna e quantas linhas — e nada delas é gravado', async () => {
+    it('valor nas colunas sem destino (valor_kg…): o aviso diz a coluna e quantas linhas — e nada delas é gravado; a COR tem destino desde a 20261123000004', async () => {
         const itens = [{ ...PERSIANAS[0], cor: 'BRANCO', valor_kg: 12.5 }, { ...PERSIANAS[1], cor: 'PRETO' }, PERSIANAS[2]]
         const r = await lida({ [ABAS_DO_LAYOUT_UNICO.itens]: abaItens(itens) })
         const a = avisosDo(r, 'colunas_sem_destino_no_layout_unico')
         expect(a).toHaveLength(1)
-        expect(a[0].colunas).toEqual({ cor: 2, valor_kg: 1 })
-        expect(a[0].mensagem).toBe('o arquivo traz valor em colunas que o banco ainda não guarda — cor (2 linhas), valor_kg (1 linha): elas não foram gravadas.')
-        expect(Object.keys(r.itens[0])).not.toContain('cor')
+        expect(a[0].colunas).toEqual({ valor_kg: 1 })
+        expect(a[0].mensagem).toBe('o arquivo traz valor em coluna que o banco ainda não guarda — valor_kg (1 linha): ela não foi gravada.')
+        expect(Object.keys(r.itens[0])).not.toContain('valor_kg')
+        // a cor vai para o item, como veio; a linha sem cor fica nula (nunca o default)
+        expect(r.itens.map((i) => (i as { cor?: string | null }).cor)).toEqual(['BRANCO', 'PRETO', null])
     })
 
     it('sem a aba CABECALHO, o layout único ainda é reconhecido pela ITENS, e o cabeçalho volta com os seis campos null', async () => {

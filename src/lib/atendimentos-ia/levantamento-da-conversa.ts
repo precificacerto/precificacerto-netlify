@@ -104,6 +104,7 @@
  */
 import { descricaoNoPrompt, limitesNoPrompt, numeroOuNulo } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { supabaseAdmin } from '@/supabase/admin'
+import { COLUNA_DA_CATEGORIA_DO_FORNECEDOR } from '@/utils/atendimentos-ia-importacao-celula'
 import { COLUNAS_LIDAS, COLUNAS_OPCIONAIS, lerTipologia, variaveisDaAba, type AbasDoMotor, type AvisoDoAvaliador, type Tipologia } from '@/lib/atendimentos-ia/avaliador-de-formulas'
 import { escolhasDoCalculo } from '@/lib/atendimentos-ia/fronteira-das-escolhas'
 import { lerPoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa-servidor'
@@ -535,7 +536,13 @@ export async function lerVariaveisDasTipologias(motorId: string, para: 'agente' 
  * coluna antiga `ipi` NÃO entra (dono do produto, 09/11/2026: duas fontes para o mesmo número).
  */
 export const COLUNAS_DO_ITEM_DA_TABELA =
-    'codigo, descricao, unidade, vendido_por, medida_barra_m, custo, valor_barra_interno, valor_metro_interno, cred_icms_pct, cred_pis_cofins_pct, cred_ipi_pct, nc_ipi_pct, cred_ibs_pct, cred_cbs_pct'
+    'codigo, descricao, unidade, vendido_por, medida_barra_m, custo, valor_barra_interno, valor_metro_interno, cred_icms_pct, cred_pis_cofins_pct, cred_ipi_pct, nc_ipi_pct, cred_ibs_pct, cred_cbs_pct, ' + COLUNA_DA_CATEGORIA_DO_FORNECEDOR
+/**
+ * A COR do item (20261123000004, o vidro por variante + cor + espessura). Antes de a migração entrar a coluna não existe: a leitura volta SEM
+ * ela (o vidro é achado pela descrição, como antes) e o código não quebra pela ordem de aplicação.
+ */
+export const COLUNA_DA_COR_DO_ITEM = 'cor'
+const semAColunaDaCor = (e: { code?: string; message?: string } | null) => !!e && (e.code === '42703' || e.code === 'PGRST204') && /\bcor\b/.test(e.message ?? '')
 /**
  * OS ITENS NO ESCOPO DA RESOLUÇÃO (dono do produto, 12/11/2026: "escopo primeiro, sempre"): das tabelas que valem para a família, só os itens
  * das do FORNECEDOR e de uma FAMÍLIA do motor (`tabelaNoEscopo`). PROVA: o 8384 da tabela é uma cremona da Celsus; o 8384/WOLFF do motor é a
@@ -548,10 +555,12 @@ export type ItemDaFamilia = ItemDaTabela & { tabela_id: string; fornecedor_id: s
 export type ItensDaFamilia = { noEscopoDoMotor: ItemDaTabela[]; todos: ItemDaFamilia[]; fornecedorDoMotor: string | null }
 async function lerItensNoEscopo(motorId: string, tabelaIds: readonly string[]): Promise<ItensDaFamilia> {
     if (tabelaIds.length === 0) return { noEscopoDoMotor: [], todos: [], fornecedorDoMotor: null }
+    let colunas = `${COLUNAS_DO_ITEM_DA_TABELA}, ${COLUNA_DA_COR_DO_ITEM}, tabela_id`
     const pagina = (de: number) => supabaseAdmin
-        .from('orcamentista_tabela_item').select(`${COLUNAS_DO_ITEM_DA_TABELA}, tabela_id`)
+        .from('orcamentista_tabela_item').select(colunas)
         .in('tabela_id', [...tabelaIds]).order('id', { ascending: true }).range(de, de + PAGINA - 1)
-    const [motor, fams, tabelas, primeira] = await Promise.all([
+    // eslint-disable-next-line prefer-const -- reatribuída quando a coluna da cor ainda não existe
+    let [motor, fams, tabelas, primeira] = await Promise.all([
         supabaseAdmin.from('orcamentista_motor').select('fornecedor_id').eq('id', motorId),
         supabaseAdmin.from('orcamentista_motor_familia').select('familia').eq('motor_id', motorId),
         supabaseAdmin.from('orcamentista_tabela').select('id, fornecedor_id, familia, categoria_chave').in('id', [...tabelaIds]),
@@ -560,6 +569,10 @@ async function lerItensNoEscopo(motorId: string, tabelaIds: readonly string[]): 
     if (motor.error) throw new Error(`orcamentista_motor: ${motor.error.message}`)
     if (fams.error) throw new Error(`orcamentista_motor_familia: ${fams.error.message}`)
     if (tabelas.error) throw new Error(`orcamentista_tabela: ${tabelas.error.message}`)
+    if (semAColunaDaCor(primeira.error)) {
+        colunas = `${COLUNAS_DO_ITEM_DA_TABELA}, tabela_id`
+        primeira = await pagina(0)
+    }
     if (primeira.error) throw new Error(`orcamentista_tabela_item: ${primeira.error.message}`)
     const fornecedor = ((motor.data ?? []) as Array<{ fornecedor_id: string }>)[0]?.fornecedor_id
     if (fornecedor === undefined) throw new Error(`orcamentista_motor: o motor ${motorId} não foi achado`)
@@ -567,11 +580,11 @@ async function lerItensNoEscopo(motorId: string, tabelaIds: readonly string[]): 
     const linhasDasTabelas = (tabelas.data ?? []) as Array<{ id: string; fornecedor_id: string; familia: string | null; categoria_chave: string | null }>
     const noEscopo = new Set(linhasDasTabelas.filter((x) => tabelaNoEscopo(x, escopo)).map((x) => x.id))
     const daTabela = new Map(linhasDasTabelas.map((t) => [t.id, t]))
-    const itens = [...((primeira.data ?? []) as Array<ItemDaTabela & { tabela_id: string }>)]
+    const itens = [...((primeira.data ?? []) as unknown as Array<ItemDaTabela & { tabela_id: string }>)]
     for (let de = PAGINA, ultima = itens.length; ultima === PAGINA; de += PAGINA) {
         const { data, error } = await pagina(de)
         if (error) throw new Error(`orcamentista_tabela_item: ${error.message}`)
-        const mais = (data ?? []) as Array<ItemDaTabela & { tabela_id: string }>
+        const mais = (data ?? []) as unknown as Array<ItemDaTabela & { tabela_id: string }>
         itens.push(...mais)
         ultima = mais.length
     }

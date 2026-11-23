@@ -76,6 +76,7 @@ import {
   montarPayloadDaImportacao,
   previaDaTroca,
   type ResultadoDaLeitura,
+  CATEGORIA_COM_VARIANTES,
 } from '@/utils/atendimentos-ia-importacao'
 
 // 90 s: ~9 s lendo do Storage e parseando, ~19 s até o comando começar no banco (18,1 MB de corpo,
@@ -155,7 +156,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const doArquivo = categoriasDoFornecedorNosItens(lida.itens.map((i) => i[COLUNA_DA_CATEGORIA_DO_FORNECEDOR]))
   // SEM `?? null`: um `undefined` (a leitura da tabela que esqueceu de pedir a coluna) NÃO vira "sem categoria" — falha FECHADA, recusando.
   const declarada = tabela.categoria_chave
-  if (declarada !== null && doArquivo.categorias.length > 1) {
+  // O VIDRO (dono do produto, 23/11/2026): a categoria é o vidro, e aramado, pontilhado, canelado são as variantes dele — na tabela de VIDRO a coluna traz a
+  // VARIANTE do vidro (Float, Temperado, Laminado PVB opaco…), não outra categoria: vários valores são esperados. A regra de uma categoria por
+  // tabela continua valendo para todas as outras.
+  if (declarada !== null && declarada !== CATEGORIA_COM_VARIANTES && doArquivo.categorias.length > 1) {
     return res.status(422).json({ error: fraseDoArquivoComMaisDeUmaCategoria(daTabela.nome, doArquivo.categorias) })
   }
   if (declarada === null) lida.avisos.push({ tipo: 'tabela_sem_categoria_declarada', mensagem: FRASE_DA_TABELA_SEM_CATEGORIA_DECLARADA })
