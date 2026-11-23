@@ -1,5 +1,10 @@
 import subprocess, sys, os
 # MUTACOES do orcamento por familia (PR3, 23/11/2026). Roda SOZINHO na arvore (nada le a arvore enquanto roda).
+# 1a passada: 26/28. As duas vivas ganharam teste: a guarda do orcamento de antes em atualizarOrcamento (chamada direta) e o pedido de
+# orcamento com a alteracao esperando o sim, que passou a mandar TODOS os orcamentos do levantamento (um por familia).
+# EQUIVALENTE, fora da bateria: o `if (avisos.length)` sem alteracao pendente — inalcancavel hoje (so o pedido com a alteracao
+# esperando o sim manda varios orcamentos); fica para quem chamar com `antes` sem a alteracao nao calar o aviso.
+# SO=<trecho> roda so as mutacoes cujo texto contem o trecho.
 R = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')) + '/'
 T = ['src/utils/__tests__/numero-do-orcamento.test.ts', 'src/utils/__tests__/atendimentos-ia-travessia-do-levantamento.test.ts', 'src/utils/__tests__/atendimentos-ia-cadeia-do-sim.test.ts',
      'src/utils/__tests__/resgate-do-orcamento.test.ts', 'src/utils/__tests__/atendimentos-ia-levantamento-por-nome.test.ts',
@@ -50,10 +55,12 @@ M = [
  (RO, "        const o = ordenados.filter((x) => x.levantamentoId === id)[k]", "        const o = ordenados.filter((x) => x.levantamentoId === id)[0]"),
  (RO, "familias: familia ? [rotulos.get(familia) ?? familia] : familiasDoLevantamento(levantamentoId),", "familias: familiasDoLevantamento(levantamentoId),"),
  (RO, "return `${k + 1}) ${o.nome}, nº ${o.numeroExibido}${", "return `${k + 1}) ${o.nome}, nº ${o.numero}${"),
- (CV, "                    if (orcamentos.length === 1) return await mandarOrcamento(orcamentos[0], true)", "                    if (orcamentos.length > 0) return await mandarOrcamento(orcamentos[0], true)"),
+ (CV, "return await mandarOrcamento(orcamentos[orcamentos.length - 1], true, orcamentos.slice(0, -1))", "return await mandarOrcamento(orcamentos[0], true)"),
+ (CV, "                if (alteracaoPendente) return await responder(comAvisos(FRASE_ALTERACAO_FORA_DO_ORCAMENTO)", "                if (alteracaoPendente) return await responder((FRASE_ALTERACAO_FORA_DO_ORCAMENTO)"),
  (CV, "        const orcamentos = orcamentosDaLista(p.levantamentos, await lerOrcamentosDosLevantamentos(tenantId, citados))",
       "        const lidos0 = await lerOrcamentosDosLevantamentos(tenantId, citados)\n        const orcamentos = p.levantamentos.map((id) => lidos0.find((o) => o.levantamentoId === id)).filter((o): o is OpcaoDoOrcamento => !!o)"),
 ]
+M = [x for x in M if os.environ.get('SO', '') in x[1]]
 for arq, a, b in M:
     n = open(R + arq).read().count(a)
     if n != 1: print('ABORTA', arq, a[:70], n); sys.exit(3)

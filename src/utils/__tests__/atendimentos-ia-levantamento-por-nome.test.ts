@@ -7457,6 +7457,41 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         expect(estado.documentosDoOrcamento).toHaveLength(3)
         expect((estado.db.orcamentista_pergunta_em_aberto ?? []) as Linha[]).toEqual([])
     })
+    it('UM ORÇAMENTO POR FAMÍLIA (23/11/2026): com a alteração esperando o "sim", o pedido traz TODOS os orçamentos do levantamento — um arquivo por família — e a confirmação continua em aberto', async () => {
+        await fecharDp02('Daiane Pilger')
+        const pvc = ((estado.db.orcamentista_orcamento ?? []) as Linha[])[0]
+        pvc.familia = 'PVC'
+        ;(estado.db.orcamentista_orcamento as Linha[]).push({ ...pvc, id: 'orc-alu', numero: Number(pvc.numero) + 1, familia: 'ALUMINIO', criado_em: new Date(new Date(String(pvc.criado_em)).getTime() + 1000).toISOString() })
+        const arquivoDoPvc = (estado.db.orcamentista_orcamento_arquivo as Linha[]).find((a) => a.orcamento_id === pvc.id) as Linha
+        ;(estado.db.orcamentista_orcamento_arquivo as Linha[]).push({ ...arquivoDoPvc, id: 'arq-alu', orcamento_id: 'orc-alu' })
+        estado.db.orcamentista_familia_catalogo = [{ chave: 'PVC', rotulo: 'PVC Wolf', sigla: 'PVC' }, { chave: 'ALUMINIO', rotulo: 'Alumínio', sigla: 'ALU' }]
+        const lev = levantamentos().find((l) => l.nome === 'Daiane Pilger') as Linha
+        llmResponde({ nome: 'Daiane Pilger', itens: [{ ...DP02, quantidade: 2 }] })
+        await chamar('Daiane Pilger: a DP-02 1200 x 1000 são 2 unidades, branco, temperado 5mm')
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Daiane Pilger')).toBe(true)
+        const documentos = estado.documentosDoOrcamento.length
+        llmResponde({ nome: 'daiane pilger' })
+        await chamar('Quero o orcamento daiane pilger')
+        expect(estado.documentosDoOrcamento.slice(documentos).map((d) => d.corpo.FileName).sort()).toEqual([`Orcamento ${lev.numero}-ALU - Daiane Pilger.pdf`, `Orcamento ${lev.numero}-PVC - Daiane Pilger.pdf`])
+        expect(ultimoEnviado()).toBe(conversa.FRASE_ALTERACAO_FORA_DO_ORCAMENTO)
+        expect((estado.db.orcamentista_pergunta_em_aberto ?? []) as Linha[]).toEqual([expect.objectContaining({ pergunta: 'CONFIRMAR_APANHADO' })])
+    })
+    it('UM ORÇAMENTO POR FAMÍLIA: o orçamento de uma família SEM arquivo é dito junto do aviso da alteração — nunca calado', async () => {
+        await fecharDp02('Daiane Pilger')
+        const pvc = ((estado.db.orcamentista_orcamento ?? []) as Linha[])[0]
+        pvc.familia = 'PVC'
+        ;(estado.db.orcamentista_orcamento as Linha[]).push({ ...pvc, id: 'orc-alu', numero: Number(pvc.numero) + 1, familia: 'ALUMINIO', criado_em: new Date(new Date(String(pvc.criado_em)).getTime() + 1000).toISOString() })
+        // o do ALU é o mais recente (vai primeiro) e não tem arquivo; o do PVC, o último, vai
+        estado.db.orcamentista_familia_catalogo = [{ chave: 'PVC', rotulo: 'PVC Wolf', sigla: 'PVC' }, { chave: 'ALUMINIO', rotulo: 'Alumínio', sigla: 'ALU' }]
+        const lev = levantamentos().find((l) => l.nome === 'Daiane Pilger') as Linha
+        llmResponde({ nome: 'Daiane Pilger', itens: [{ ...DP02, quantidade: 2 }] })
+        await chamar('Daiane Pilger: a DP-02 1200 x 1000 são 2 unidades, branco, temperado 5mm')
+        llmResponde({ nome: 'daiane pilger' })
+        await chamar('Quero o orcamento daiane pilger')
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const R = require('@/lib/atendimentos-ia/resgate-do-orcamento') as typeof import('@/lib/atendimentos-ia/resgate-do-orcamento')
+        expect(ultimoEnviado()).toBe(`${R.fraseDoOrcamentoSemArquivo(`${lev.numero}-ALU`, 'Daiane Pilger')}\n\n${conversa.FRASE_ALTERACAO_FORA_DO_ORCAMENTO}`)
+    })
     it('sem alteração esperando o "sim", o orçamento existente vai SÓ como arquivo — sem a linha da alteração', async () => {
         await fecharDp02('Daiane Pilger')
         const envios = estado.envios.length

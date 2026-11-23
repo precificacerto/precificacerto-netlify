@@ -816,6 +816,16 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
         expect(escritas()).toHaveLength(antes)
     })
 
+    it('atualizarOrcamento no orçamento DE ANTES (sem família) com o levantamento agora em duas famílias: recusa nomeada e nada gravado — nunca os itens das duas num orçamento só', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        comFamilia('PVC')
+        orcamento1().familia = null
+        estado.db.orcamentista_levantamento_item.find((l) => l.id === 'li-2')!.familia = 'ALUMINIO'
+        const antes = escritas().length
+        await expect(atualizarOrcamento(T, LEV, String(orcamento1().id))).rejects.toThrow(fraseDoOrcamentoDeAntes(Number(orcamento1().numero), ['PVC', 'ALUMINIO']))
+        expect(escritas()).toHaveLength(antes)
+    })
+
     it('a recusa e a falha do cálculo param no cálculo, com o orçamento gravado, sem a etapa do preço, e não lançam', async () => {
         const { ErroDoCalculo } = jest.requireMock('@/lib/atendimentos-ia/orcamento-calculado') as { ErroDoCalculo: new (r: string[]) => Error }
         calculo.resposta = () => { throw new ErroDoCalculo(['o código 1023 sem preço']) }
