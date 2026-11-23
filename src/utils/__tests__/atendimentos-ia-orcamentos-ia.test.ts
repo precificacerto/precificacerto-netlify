@@ -418,7 +418,7 @@ describe('(8) a ação manual da travessia e o GET do orçamento do agente (dono
             levantamento({ id: 'lev-1', tenant_id: T, numero: 1, nome: 'Antonio Rock' }),
         ],
         orcamentista_levantamento_item: [
-            { id: 'li-9', tenant_id: T, levantamento_id: LEV9, ordem: 1, tipologia: 'DP-02', largura_mm: 1600, altura_mm: 1200, quantidade: 2, cor_perfil: 'Branco', vidro: 'incolor', ambientes: null, escolhas: null },
+            { id: 'li-9', tenant_id: T, levantamento_id: LEV9, familia: 'PVC', ordem: 1, tipologia: 'DP-02', largura_mm: 1600, altura_mm: 1200, quantidade: 2, cor_perfil: 'Branco', vidro: 'incolor', ambientes: null, escolhas: null },
         ],
     })
 
@@ -436,7 +436,9 @@ describe('(8) a ação manual da travessia e o GET do orçamento do agente (dono
         const r = await chamar(rotaDaTravessia, 'POST', { body: { levantamento_id: LEV9, tenant_id: OUTRO } })
         expect(r.status).toBe(201)
         const criado = estado.db.orcamentista_orcamento.find((o) => o.levantamento_id === LEV9)
-        expect(criado).toEqual(expect.objectContaining({ tenant_id: T, origem: 'agente', nome: 'Geraldo Huck' }))
+        expect(criado).toEqual(expect.objectContaining({ tenant_id: T, origem: 'agente', nome: 'Geraldo Huck', familia: 'PVC' }))
+        // um por família (23/11/2026): o corpo lista os criados
+        expect((r.corpo.orcamentos as Array<{ orcamento: { id: string } }>).map((o) => o.orcamento.id)).toEqual([criado?.id])
         expect(estado.db.orcamentista_orcamento_item.filter((i) => i.orcamento_id === criado?.id).map((i) => i.tenant_id)).toEqual([T])
     })
 
@@ -446,7 +448,7 @@ describe('(8) a ação manual da travessia e o GET do orçamento do agente (dono
         estado.ops = []
         const segundo = await chamar(rotaDaTravessia, 'POST', { body: { levantamento_id: LEV9 } })
         expect(segundo.status).toBe(409)
-        expect(segundo.corpo.orcamento).toEqual(primeiro.corpo.orcamento)
+        expect(segundo.corpo.orcamento).toEqual((primeiro.corpo.orcamentos as Array<{ orcamento: unknown }>)[0].orcamento)
         expect(escritas()).toEqual([])
     })
 

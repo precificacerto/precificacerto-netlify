@@ -163,8 +163,8 @@ const clicarNo = async (el: Element | null | undefined) => {
 const botaoCom = (texto: string) => Array.from(document.querySelectorAll('button')).find((b) => (b.textContent ?? '').trim() === texto) as HTMLButtonElement | undefined
 const ROTA_DA_TRAVESSIA = '/api/atendimentos-ia/orcamentos/atravessar'
 const LEVANTAMENTOS = [
-    { id: 'lev-11', numero: 11, nome: 'Geraldo Huck', orcamento: null },
-    { id: 'lev-9', numero: 9, nome: 'Antonio Rock', orcamento: { id: 'b', numero: 1 } },
+    { id: 'lev-11', numero: 11, nome: 'Geraldo Huck', orcamentos: [] },
+    { id: 'lev-9', numero: 9, nome: 'Antonio Rock', orcamentos: [{ id: 'b', numero: 1, familia: 'PVC' }] },
 ]
 async function abrirATravessia() {
     servidor.corpo = { orcamentos: LISTA }
@@ -194,11 +194,22 @@ describe('a travessia na lista', () => {
     it('atravessa UM: o POST leva só o escolhido, e a tela abre o orçamento criado', async () => {
         await abrirATravessia()
         await escolher('Levantamento 11 — Geraldo Huck')
-        servidor.porRota[`POST ${ROTA_DA_TRAVESSIA}`] = { status: 201, corpo: { orcamento: { id: 'novo', numero: 3 }, itens: 3, faltas: [] } }
+        servidor.porRota[`POST ${ROTA_DA_TRAVESSIA}`] = { status: 201, corpo: { orcamentos: [{ orcamento: { id: 'novo', numero: 3 }, familia: 'PVC', itens: 3, faltas: [] }] } }
         await clicarNo(botaoCom('Atravessar'))
         const posts = servidor.chamadas.filter((c) => c.url === ROTA_DA_TRAVESSIA && c.metodo === 'POST')
         expect(posts).toEqual([{ url: ROTA_DA_TRAVESSIA, metodo: 'POST', corpo: { levantamento_id: 'lev-11' } }])
         expect(rota.push).toHaveBeenCalledWith(expect.stringMatching(/\/novo\/precificacao$/))
+    })
+    it('DUAS famílias (23/11/2026): os dois orçamentos são criados, a mensagem nomeia os dois, e nenhum é aberto — a lista os mostra', async () => {
+        await abrirATravessia()
+        await escolher('Levantamento 11 — Geraldo Huck')
+        servidor.porRota[`POST ${ROTA_DA_TRAVESSIA}`] = { status: 201, corpo: { orcamentos: [
+            { orcamento: { id: 'a', numero: 3 }, familia: 'PVC', itens: 2, faltas: [] }, { orcamento: { id: 'b', numero: 4 }, familia: 'ALUMINIO', itens: 1, faltas: [] }] } }
+        await clicarNo(botaoCom('Atravessar'))
+        expect(rota.push).not.toHaveBeenCalled()
+        // a lista é relida depois do POST (é ela que mostra os dois)
+        const depois = servidor.chamadas.slice(servidor.chamadas.findIndex((c) => c.url === ROTA_DA_TRAVESSIA && c.metodo === 'POST') + 1)
+        expect(depois.some((c) => c.metodo === 'GET')).toBe(true)
     })
     it('o já atravessado (409): a frase que nomeia o orçamento, e nada é aberto', async () => {
         await abrirATravessia()
