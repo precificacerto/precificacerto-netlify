@@ -22,9 +22,10 @@ function consulta(tabela: string) {
     return q
 }
 jest.mock('@/supabase/admin', () => ({ supabaseAdmin: { from: (t: string) => consulta(t), rpc: (f: string) => { escritas.push(`rpc:${f}`); return Promise.resolve({ data: null, error: null }) } } }))
-jest.mock('@/lib/atendimentos-ia/tabelas-da-conta', () => ({
-    derivarTabelasDaConta: async () => ({ tabelas: [{ tabelaId: 'tab-perfil', vale: true }, { tabelaId: 'tab-velha', vale: false }] }),
-}))
+const TABELAS = {
+    lista: [] as Array<{ tabelaId: string; vale: boolean; familiaChave: string | null }>,
+}
+jest.mock('@/lib/atendimentos-ia/tabelas-da-conta', () => ({ derivarTabelasDaConta: async () => ({ tabelas: TABELAS.lista }) }))
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const S = () => require('@/lib/atendimentos-ia/barras-do-pedido-servidor') as typeof import('@/lib/atendimentos-ia/barras-do-pedido-servidor')
@@ -32,6 +33,7 @@ const S = () => require('@/lib/atendimentos-ia/barras-do-pedido-servidor') as ty
 const T = 'tenant-1'
 beforeEach(() => {
     escritas.length = 0; selects.length = 0
+    TABELAS.lista = [{ tabelaId: 'tab-perfil', vale: true, familiaChave: 'PVC' }, { tabelaId: 'tab-velha', vale: false, familiaChave: 'PVC' }]
     db.orcamentista_orcamento = [{ id: 'o-12', tenant_id: T, deleted_at: null, aproveitamento_modo: 'SEM' }]
     db.orcamentista_orcamento_item = [
         { id: 'i-1', tenant_id: T, orcamento_id: 'o-12', ordem: 1, calculo_id: 'c-1', familia: 'PVC', removido_em: null, tipologia: 'DP-72', cor_perfil: 'Branco' },
@@ -70,4 +72,25 @@ it('o peso vem só da tabela que VALE (0,101 kg/m, não os 9,9 da que não vale)
     if ('semMigracao' in r) throw new Error('sem migração')
     expect(r.perfis[0].peso_kg_m).toBe(0.101)
     expect(r.codigosSemPeso).toEqual([])
+})
+
+it('UM ORÇAMENTO POR FAMÍLIA (23/11/2026): a tabela que vale de OUTRA família não entra no peso — o mesmo código nela não vira "dois pesos"; a de qualquer linha (sem família) entra', async () => {
+    TABELAS.lista = [{ tabelaId: 'tab-perfil', vale: true, familiaChave: 'PVC' }, { tabelaId: 'tab-alu', vale: true, familiaChave: 'ALUMINIO' }]
+    db.orcamentista_tabela_item.push({ tabela_id: 'tab-alu', codigo: '1023', peso: 0.5, medida_barra_m: 6 })
+    const r = await S().lerBarrasDoPedido(T, 'o-12')
+    if ('semMigracao' in r) throw new Error('sem migração')
+    expect(r.perfis[0].peso_kg_m).toBe(0.101)
+    // a de qualquer linha com o mesmo código e outro peso: ela vale para a família, e os dois pesos não são escolhidos — sem peso, nomeado
+    TABELAS.lista.push({ tabelaId: 'tab-qualquer', vale: true, familiaChave: null })
+    db.orcamentista_tabela_item.push({ tabela_id: 'tab-qualquer', codigo: '1023', peso: 0.2, medida_barra_m: 6 })
+    const q = await S().lerBarrasDoPedido(T, 'o-12')
+    if ('semMigracao' in q) throw new Error('sem migração')
+    expect(q.codigosSemPeso).toEqual(['1023'])
+})
+
+it('o orçamento DE ANTES (itens sem família): o peso vem de todas as tabelas que valem, como antes da família', async () => {
+    for (const i of db.orcamentista_orcamento_item) i.familia = null
+    const r = await S().lerBarrasDoPedido(T, 'o-12')
+    if ('semMigracao' in r) throw new Error('sem migração')
+    expect(r.perfis[0].peso_kg_m).toBe(0.101)
 })

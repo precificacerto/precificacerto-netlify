@@ -33,6 +33,8 @@ describe('o PDF do relatório de materiais', () => {
         const t = textoDoPdf(pdfDoRelatorioDeMateriais(materiais, cab))
         expect(t[0]).toBe('Relatório de materiais')
         expect(t).toContain('Orçamento 8 — Cristiano Fernandes')
+        // o NÚMERO EXIBIDO (23/11/2026) no cabeçalho do PDF
+        expect(textoDoPdf(pdfDoRelatorioDeMateriais(materiais, { ...cab, numero: '27-PVC' }))).toContain('Orçamento 27-PVC — Cristiano Fernandes')
         expect(t.indexOf('Perfil')).toBeLessThan(t.indexOf('Reforço metálico'))
         expect(t.indexOf('Reforço metálico')).toBeLessThan(t.indexOf('Em mais de uma categoria'))
         expect(t.indexOf('Em mais de uma categoria')).toBeLessThan(t.indexOf('Sem categoria'))
@@ -94,6 +96,8 @@ describe('o nome do arquivo', () => {
     it('sem acento nem caractere estranho, com o número e o cliente', () => {
         expect(nomeDoRelatorio('materiais', 8, 'José da Conceição / Obra')).toBe('Relatorio_de_materiais_8_-_Jose_da_Conceicao_Obra.pdf')
         expect(nomeDoRelatorio('corte', 3, '  ')).toBe('Relatorio_de_corte_3.pdf')
+        // o NÚMERO EXIBIDO (23/11/2026): o do orçamento por família
+        expect(nomeDoRelatorio('orientativo_de_montagem', '27-PVC', 'Ana')).toBe('Relatorio_de_orientativo_de_montagem_27-PVC_-_Ana.pdf')
     })
 })
 

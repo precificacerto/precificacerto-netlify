@@ -12,6 +12,8 @@ Object.defineProperty(window, 'matchMedia', {
     value: (q: string) => ({ matches: false, media: q, onchange: null as unknown, addListener: () => {}, removeListener: () => {}, addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => false }),
 })
 jest.mock('next/router', () => ({ useRouter: () => ({ pathname: '/', asPath: '/', query: {}, push: jest.fn(), replace: () => {}, events: { on: () => {}, off: () => {} } }) }))
+// o download do PDF é do navegador: o teste só vê o NOME do arquivo pedido
+jest.mock('@/lib/atendimentos-ia/relatorios-em-pdf', () => ({ ...jest.requireActual('@/lib/atendimentos-ia/relatorios-em-pdf'), baixarPdf: jest.fn() }))
 jest.mock('@/components/layout/layout.component', () => ({ Layout: ({ children, title }: { children: React.ReactNode; title: string }) => <div data-titulo={title}>{children}</div> }))
 
 const servidor = { status: 200, corpo: {} as Record<string, unknown>, chamadas: [] as string[] }
@@ -87,16 +89,29 @@ describe('os Relatórios I.A.', () => {
         expect(host.querySelector('[data-aba-do-relatorio]')).toBeNull()
     })
     it('o NÚMERO EXIBIDO (23/11/2026): a lista e o cabeçalho do cliente aberto dizem <levantamento>-<SIGLA>', async () => {
-        servidor.corpo = { orcamentos: [{ id: 'o-1', numero: 1, numero_exibido: '27-PVC', nome: 'Geraldo Huck', criado_em: '2026-11-16T12:00:00Z', itens: 3 }] }
+        servidor.corpo = { orcamentos: [{ id: 'o-1', numero: 1, numero_exibido: '27-PVC', familia_rotulo: 'PVC Wolf', nome: 'Geraldo Huck', criado_em: '2026-11-16T12:00:00Z', itens: 3 }] }
         const host = await montar(<Relatorios />)
         const linha = host.querySelector('[data-cliente]') as HTMLElement
         expect(linha.querySelector('td')?.textContent).toBe('27-PVC')
+        // a FAMÍLIA de cada orçamento, na sua coluna (os relatórios por família, PR4)
+        const colunas = Array.from(host.querySelectorAll('thead th')).map((t) => (t.textContent ?? '').trim())
+        expect(Array.from(linha.querySelectorAll('td')).map((t) => t.textContent)[colunas.indexOf('Família')]).toBe('PVC Wolf')
         servidor.corpo = { relatorio: { categorias: [], semCategoria: [], ambiguos: [], itensSemCalculo: [] } }
         // eslint-disable-next-line testing-library/no-unnecessary-act
         await act(async () => { linha.click() })
         // eslint-disable-next-line testing-library/no-unnecessary-act
         await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
-        expect(host.querySelector('[data-cliente-aberto]')?.textContent).toBe('Orçamento 27-PVC — Geraldo Huck')
+        expect(host.querySelector('[data-cliente-aberto]')?.textContent).toBe('Orçamento 27-PVC — Geraldo Huck · PVC Wolf')
+        // e o PDF do relatório leva o número exibido no nome do arquivo
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const P = require('@/lib/atendimentos-ia/relatorios-em-pdf') as typeof import('@/lib/atendimentos-ia/relatorios-em-pdf')
+        const baixar = P.baixarPdf as jest.Mock
+        baixar.mockClear()
+        // eslint-disable-next-line testing-library/no-unnecessary-act
+        await act(async () => { (host.querySelector('[data-baixar-pdf="materiais"]') as HTMLElement).click() })
+        // eslint-disable-next-line testing-library/no-unnecessary-act
+        await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
+        expect(baixar.mock.calls.map((c) => c[1])).toEqual(['Relatorio_de_materiais_27-PVC_-_Geraldo_Huck.pdf'])
     })
     it('todos os clientes listados na página (número, cliente, data, itens); clicar num abre as abas dele, com o botão de PDF', async () => {
         servidor.corpo = { orcamentos: [

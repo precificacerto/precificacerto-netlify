@@ -106,5 +106,6 @@ export async function lerOrientativoDeMontagem(tenantId: string, orcamentoId: st
         }
     })
     const codigos = [...new Set(entradas.flatMap((e) => [...e.gravadas.map((g) => g.codigo), ...('pecas' in e.recalculo ? e.recalculo.pecas.map((q) => q.codigo) : [])]))]
-    return montarOrientativo(entradas, await pesosNasTabelasQueValem(tenantId, codigos), itensSemCalculo)
+    // o peso pelas tabelas da FAMÍLIA dos itens (23/11/2026), como nas barras do pedido
+    return montarOrientativo(entradas, await pesosNasTabelasQueValem(tenantId, codigos, [...new Set(calculados.map((i) => i.familia).filter((f): f is string => !!f))]), itensSemCalculo)
 }

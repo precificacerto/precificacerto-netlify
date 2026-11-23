@@ -55,7 +55,7 @@ function BlocoDoCodigo({ c }: { c: CodigoDoCorte }) {
     )
 }
 
-export function RelatorioDeCorte({ orcamentoId, numero, cliente, vistaInicial = VISTA_PADRAO }: { orcamentoId: string; numero: number; cliente: string; vistaInicial?: VistaDoRelatorio }) {
+export function RelatorioDeCorte({ orcamentoId, numero, cliente, vistaInicial = VISTA_PADRAO }: { orcamentoId: string; numero: number | string; cliente: string; vistaInicial?: VistaDoRelatorio }) {
     const [estado, setEstado] = useState<Estado>({ tipo: 'carregando' })
     // a FOLHA A4 é a vista padrão (dono do produto, 22/11/2026): o próprio PDF, pela mesma função do "Baixar PDF"
     const [vista, setVista] = useState<VistaDoRelatorio>(vistaInicial)

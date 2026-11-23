@@ -48,3 +48,12 @@ export async function siglasDasFamilias(familias: readonly string[]): Promise<Ma
     for (const x of (data ?? []) as Array<{ chave: string; sigla?: string | null }>) { const s = texto(x.sigla); if (s !== null) m.set(x.chave, s) }
     return m
 }
+
+/** Os RÓTULOS das famílias dadas, do catálogo — o nome que a tela mostra (23/11/2026, os relatórios por família). */
+export async function rotulosDasFamilias(familias: readonly (string | null | undefined)[]): Promise<Map<string, string>> {
+    const chaves = [...new Set(familias.map(texto).filter((x): x is string => x !== null))]
+    if (!chaves.length) return new Map()
+    const { data, error } = await db().from('orcamentista_familia_catalogo').select('chave, rotulo').in('chave', chaves)
+    if (error) throw new Error(`orcamentista_familia_catalogo: ${error.message}`)
+    return new Map(((data ?? []) as Array<{ chave: string; rotulo?: string | null }>).filter((x) => texto(x.rotulo) !== null).map((x) => [x.chave, texto(x.rotulo) as string]))
+}

@@ -628,6 +628,11 @@ describe('(E) AS DECISÕES DE 11/11/2026 — a interna gravada, a faixa dos iten
         expect(host.querySelector('[data-tipo-do-orcamento]')?.textContent).not.toContain('Produzido')
         expect(host.textContent).not.toContain('Tempo total de produção da obra')
         expect(host.querySelector('[data-valor-da-mao-de-obra]')).toBeNull()
+        // a tabela dos itens NÃO tem a coluna do tempo (a Fabricação): "revenda não terá tempo de fabricação" — nunca "0 min"
+        const cabecalhos = Array.from(host.querySelectorAll('thead th')).map((t) => (t.textContent ?? '').trim())
+        expect(cabecalhos).toEqual(expect.arrayContaining(['Item', 'Quantidade', 'Bruto', 'Líquido', 'Total']))
+        expect(cabecalhos.filter((c) => c === 'Fabricação')).toEqual([])
+        expect(host.textContent).not.toContain(`${(0).toLocaleString('pt-BR')} min`)
         mockCelular = true
         const celular = await montar({ orcamento: rev(), onSalvarOrcamento: jest.fn() })
         expect(celular.textContent).not.toContain('Tempo total de produção da obra')
