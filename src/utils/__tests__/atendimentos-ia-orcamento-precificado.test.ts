@@ -89,7 +89,7 @@ const item = (k: number, extra: Partial<ItemNaPrecificacao> = {}): ItemNaPrecifi
 })
 const totais = { valor_total_bruto: 845, valor_total_liquido: 745 }
 
-function montar(extra: Linha = {}, itens: Linha[] = [{ ...item(1), tenant_id: 'T', orcamento_id: ID }]) {
+function montar(extra: Linha = {}, itens: Linha[] = [{ ...item(1), familia: 'PVC', tenant_id: 'T', orcamento_id: ID }]) {
     arquivo.chamadas = []
     arquivo.recusa = null
     arquivo.falha = null
@@ -105,6 +105,8 @@ function montar(extra: Linha = {}, itens: Linha[] = [{ ...item(1), tenant_id: 'T
             { id: ID, tenant_id: 'OUTRA', numero: 7, nome: 'De outra empresa' },
         ],
         orcamentista_orcamento_item: itens,
+        // o formato da família (23/11/2026): a do orçamento é FABRICACAO — e a de outra empresa, REVENDA, não pode valer aqui
+        orcamentista_materia_prima: [{ tenant_id: 'T', familia: 'PVC', formato: 'FABRICACAO' }, { tenant_id: 'OUTRA', familia: 'PVC', formato: 'REVENDA' }],
     }
 }
 async function chamar(method: string, id: string, body: unknown = {}) {
@@ -166,7 +168,8 @@ describe('(3b) o preset da comercialização e a referência do tenant (dono do 
         expect(PRESET_DA_COMERCIALIZACAO).toEqual({ sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null, ncm_code: null })
     })
     const orcCompleto: Parameters<typeof faltasDaPrecificacao>[0]['orcamento'] = { id: 'o', numero: 1, nome: 'x', comissao_percentual: 0, reserva_tecnica_percentual: 0,
-        lucro_projetado_percentual: 0, ...totais, valor_venda: null, valor_operacao_interna: null, ncm_code: null, sale_scope: null, buyer_type: null, uf_destino: null, itens: [item(1)] }
+        lucro_projetado_percentual: 0, ...totais, valor_venda: null, valor_operacao_interna: null, ncm_code: null, sale_scope: null, buyer_type: null, uf_destino: null, itens: [item(1)],
+        formato: { formato: 'FABRICACAO' as const } }
     const fiscal = { ncm_code: null as string | null, sale_scope: 'INTRAESTADUAL' as const, buyer_type: 'CONSUMIDOR_FINAL' as const, uf_destino: null as string | null }
     it('sem NCM e SEM a referência do tenant: a falta nomeada, e o preço não se grava (nunca um zero inventado)', () => {
         expect(faltasDaPrecificacao({ orcamento: orcCompleto, fiscal, aliquotaDoNcm: false, referenciaDoTenant: false, custoDoMotor: 745 })).toEqual([FALTA_DA_REFERENCIA_DO_TENANT])
@@ -249,8 +252,32 @@ describe('(4) a rota da precificação', () => {
         expect(r.corpo.cliente).toEqual({ nome: 'Cliente', telFixo: null, celular: '(51) 99999-0000', email: null, tel2: null, endereco: 'Porto Alegre', ieRg: null, cep: null, cnpjCpf: null })
         for (const op of doOrcamento()) expect(op.filtros).toContainEqual(['tenant_id', 'T'])
     })
+    it('o FORMATO (23/11/2026) é o da família na base DESTA empresa — o REVENDA da outra não vale aqui — e a leitura leva o tenant', async () => {
+        montar()
+        const r = await chamar('GET', ID)
+        expect((r.corpo.orcamento as Record<string, unknown>).formato).toEqual({ formato: 'FABRICACAO' })
+        const daMp = estado.ops.filter((o) => o.tabela === 'orcamentista_materia_prima')
+        expect(daMp.length).toBe(1)
+        expect(daMp[0].filtros).toContainEqual(['tenant_id', 'T'])
+        estado.db.orcamentista_materia_prima[0].formato = 'REVENDA'
+        expect(((await chamar('GET', ID)).corpo.orcamento as Record<string, unknown>).formato).toEqual({ formato: 'REVENDA' })
+    })
+    it('duas instâncias da família com formatos diferentes, ou a família sem formato: recusa nomeada no formato — e o PATCH não grava (409)', async () => {
+        montar()
+        estado.db.orcamentista_materia_prima.push({ tenant_id: 'T', familia: 'PVC', formato: 'REVENDA' })
+        const f = ((await chamar('GET', ID)).corpo.orcamento as Record<string, unknown>).formato as { recusa: string }
+        expect(f.recusa).toBe('o formato da família PVC: as instâncias dela na base de conhecimento têm formatos diferentes')
+        estado.ops = []
+        const p = await chamar('PATCH', ID, CORPO_BOM)
+        expect(p.status).toBe(409)
+        expect(escritas()).toEqual([])
+        montar()
+        estado.db.orcamentista_materia_prima[0].formato = null
+        expect((((await chamar('GET', ID)).corpo.orcamento as Record<string, unknown>).formato as { recusa: string }).recusa)
+            .toBe('o formato (fabricação ou revenda) da família PVC: escolha-o na base de conhecimento da empresa')
+    })
     it('o item REMOVIDO (a marca da 20261113000002) não chega à precificação: nem nos itens, nem na faixa do arquivo', async () => {
-        montar({}, [{ ...item(1), tenant_id: 'T', orcamento_id: ID }, { ...item(2), id: 'i-removido', tenant_id: 'T', orcamento_id: ID, removido_em: '2026-11-13T12:00:00.000Z' }])
+        montar({}, [{ ...item(1), familia: 'PVC', tenant_id: 'T', orcamento_id: ID }, { ...item(2), familia: 'PVC', id: 'i-removido', tenant_id: 'T', orcamento_id: ID, removido_em: '2026-11-13T12:00:00.000Z' }])
         const r = await chamar('GET', ID)
         expect(((r.corpo.orcamento as Record<string, unknown>).itens as Linha[]).map((i) => i.ordem)).toEqual([1])
     })
@@ -282,7 +309,7 @@ describe('(4) a rota da precificação', () => {
         expect(c.dados).toMatchObject({ operacaoInterna: 3105.8, valorVenda: 3105.8, rateio: [{ ordem: 1, quantidade: 1, unitario: 310580, total: 310580 }] })
     })
     it('o rateio que não fecha: o PREÇO fica salvo, o arquivo NÃO sai, e a resposta diz por quê (nunca um arquivo com centavo errado)', async () => {
-        montar({}, [{ ...item(1, { quantidade: 2 }), tenant_id: 'T', orcamento_id: ID }, { ...item(2, { quantidade: 2 }), tenant_id: 'T', orcamento_id: ID }])
+        montar({}, [{ ...item(1, { quantidade: 2 }), familia: 'PVC', tenant_id: 'T', orcamento_id: ID }, { ...item(2, { quantidade: 2 }), familia: 'PVC', tenant_id: 'T', orcamento_id: ID }])
         const r = await chamar('PATCH', ID, { ...CORPO_BOM, valor_venda: 10.01, valor_operacao_interna: 10.01 })
         expect(r.status).toBe(200)
         expect(escritas()).toHaveLength(1)

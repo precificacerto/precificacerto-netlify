@@ -61,7 +61,45 @@ export type OrcamentoNaPrecificacao = {
     buyer_type: TipoDeComprador | null
     uf_destino: string | null
     itens: ItemNaPrecificacao[]
+    /**
+     * O FORMATO do orçamento (dono do produto, 23/11/2026): o das famílias dos itens — REVENDA espelha o produto de revenda da tela de produto
+     * (sem mão de obra de produção, com a margem de contribuição); FABRICACAO é o de sempre. Sem formato que valha, a recusa nomeada.
+     */
+    formato: FormatoDoOrcamento
 }
+
+/** O formato que vale, ou a razão de não haver um. Para separar as duas formas, use `'recusa' in f`. */
+export type FormatoDoOrcamento = { formato: 'FABRICACAO' | 'REVENDA' } | { recusa: string }
+export const FRASE_ITEM_SEM_FAMILIA = (ordens: readonly number[]) =>
+    `${ordens.length > 1 ? `os itens ${ordens.join(', ')} não têm` : `o item ${ordens[0]} não tem`} família gravada: recalcule o orçamento`
+export const fraseDaFamiliaSemFormato = (familias: readonly string[]) =>
+    `o formato (fabricação ou revenda) da família ${familias.join(', ')}: escolha-o na base de conhecimento da empresa`
+export const fraseDosFormatosMisturados = (fabricacao: readonly string[], revenda: readonly string[]) =>
+    `o orçamento junta família de fabricação (${fabricacao.join(', ')}) e de revenda (${revenda.join(', ')}): cada uma é precificada no seu orçamento`
+export const FRASE_ORCAMENTO_SEM_ITEM_PARA_O_FORMATO = 'o formato do orçamento: ele não tem item'
+
+/**
+ * O FORMATO do orçamento pelas famílias dos itens. `formatos` é o da família na conta (`orcamentista_materia_prima.formato`): ausente no mapa,
+ * ou null, é "não escolhido" — recusa, nunca a fabricação por omissão. Duas instâncias da mesma família com formatos diferentes já vêm como
+ * recusa da leitura. Fabricação e revenda no mesmo orçamento é recusa: o preço é formado uma vez por orçamento, com um tipo de produto só.
+ */
+export function formatoDoOrcamento(
+    itens: ReadonlyArray<{ ordem: number; familia: string | null }>,
+    formatos: ReadonlyMap<string, 'FABRICACAO' | 'REVENDA' | null>,
+): FormatoDoOrcamento {
+    if (itens.length === 0) return { recusa: FRASE_ORCAMENTO_SEM_ITEM_PARA_O_FORMATO }
+    const semFamilia = itens.filter((i) => i.familia === null || i.familia === '').map((i) => i.ordem)
+    if (semFamilia.length) return { recusa: FRASE_ITEM_SEM_FAMILIA(semFamilia) }
+    const familias = [...new Set(itens.map((i) => i.familia as string))].sort()
+    const semFormato = familias.filter((f) => (formatos.get(f) ?? null) === null)
+    if (semFormato.length) return { recusa: fraseDaFamiliaSemFormato(semFormato) }
+    const de = (x: 'FABRICACAO' | 'REVENDA') => familias.filter((f) => formatos.get(f) === x)
+    if (de('FABRICACAO').length && de('REVENDA').length) return { recusa: fraseDosFormatosMisturados(de('FABRICACAO'), de('REVENDA')) }
+    return { formato: de('REVENDA').length ? 'REVENDA' : 'FABRICACAO' }
+}
+/** O tipo do produto que a precificação usa: o da tela de produto — Revenda (produto acabado) na família de revenda, Produzido no resto. */
+export const tipoDoProdutoDoOrcamento = (o: Pick<OrcamentoNaPrecificacao, 'formato'>): 'PRODUZIDO' | 'REVENDA' =>
+    ('formato' in o.formato && o.formato.formato === 'REVENDA' ? 'REVENDA' : 'PRODUZIDO')
 
 /** O cabeçalho fixo do orçamento na tela (decisão 1): só leitura, e nunca gravado em `products`. */
 export const CABECALHO_FIXO = { tipo: 'Produzido', unidade: 'UN', secao: 'Orçamentos I.A.' } as const
@@ -237,6 +275,8 @@ export function faltasDaPrecificacao(args: {
     const faltas: string[] = []
     const estado = estadoDoCalculo(args.orcamento)
     if (estado !== 'completo') faltas.push(FRASE_DO_ESTADO[estado])
+    // o formato que não vale (23/11/2026): a falta nomeada; o orçamento sem item já tem a dele
+    if ('recusa' in args.orcamento.formato && estado !== 'sem_itens') faltas.push(args.orcamento.formato.recusa)
     faltas.push(...faltasDoFiscal(args.fiscal))
     const ncm = args.fiscal.ncm_code?.trim() ?? ''
     if (args.aliquotaDoNcm === false && FORMA_DO_NCM.test(ncm)) faltas.push(faltaDaAliquotaDoNcm(ncm))

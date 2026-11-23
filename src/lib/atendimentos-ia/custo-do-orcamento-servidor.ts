@@ -54,7 +54,8 @@ export type FaltaDoOrcamento = {
 }
 export type CustoDoLevantamento =
     | {
-        ok: true; itens: CustoDoItem[]; maoDeObra: MaoDeObraDaEmpresa; faltas: FaltaDoOrcamento[]
+        /** null só quando nenhum item fabrica (o orçamento só de revenda, 23/11/2026): não há mão de obra da empresa a usar. */
+        ok: true; itens: CustoDoItem[]; maoDeObra: MaoDeObraDaEmpresa | null; faltas: FaltaDoOrcamento[]
         /** As peças de perfil de cada item, na ordem de `itens` (o relatório de corte, 16/11/2026): o que o cálculo levantou e com que barra e serra. */
         pecasPorItem: PecaDoCorte[][]
         /**
@@ -261,6 +262,7 @@ export async function custoDoLevantamento(tenantId: string, fonte: FamiliasDaEmp
                 return {
                     referencia: `item ${calculo.d.esquadrias[j].numero} (${e.tipologia})`,
                     minutos: m && 'minutosPorUnidade' in m ? m.minutosPorUnidade * m.quantidade : null,
+                    revenda: g.familia.formato === 'REVENDA',
                     pecas: e.pecas.map((p) => ({ codigo: p.codigo, comprimento_mm: p.comprimento_mm, quantidade: p.quantidade })),
                     insumos: e.insumos.map((i) => ({ codigo: i.codigo, quantidade: i.quantidade * e.quantidade })),
                     // a área: largura × altura (mm → m²) × os panos por esquadria × as esquadrias
@@ -298,6 +300,7 @@ export async function custoDoLevantamento(tenantId: string, fonte: FamiliasDaEmp
         }
     })
     if (recusas.length) return { ok: false, recusas }
-    if (maoDeObra === null || porItem.some((i) => i === undefined)) return { ok: false, recusas: ['o custo de todos os itens: algum ficou sem cálculo'] }
+    const algumFabrica = c.grupos.some((g) => g.familia.formato !== 'REVENDA')
+    if ((algumFabrica && maoDeObra === null) || porItem.some((i) => i === undefined)) return { ok: false, recusas: ['o custo de todos os itens: algum ficou sem cálculo'] }
     return { ok: true, itens: porItem as CustoDoItem[], maoDeObra, faltas, pecasPorItem, montagemPorItem }
 }

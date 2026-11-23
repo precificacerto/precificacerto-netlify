@@ -23,7 +23,7 @@ import { resolveMonthlyWorkload } from '@/utils/resolve-monthly-workload'
 import type { CalcBaseType } from '@/types/calc-base.type'
 import type { LoggedUser } from '@/types/logged-user.type'
 import {
-    entradaDoMotor, faltasDaPrecificacao, internaParaGravar, PRESET_DA_COMERCIALIZACAO, somaDasLinhas,
+    entradaDoMotor, faltasDaPrecificacao, internaParaGravar, PRESET_DA_COMERCIALIZACAO, somaDasLinhas, tipoDoProdutoDoOrcamento,
     type OrcamentoNaPrecificacao,
 } from './precificacao-do-orcamento'
 
@@ -57,6 +57,9 @@ export function formarPrecoDoOrcamento(orcamento: OrcamentoNaPrecificacao, empre
     const isLRorLP = isLucroReal || isLucroPresumido
     const isLRorLPorSH = isLRorLP || regime === 'SIMPLES_HIBRIDO'
     const modo = { tipo: 'orcamento' as const, itens: orcamento.itens }
+    // O TIPO DO PRODUTO pelo formato das famílias (23/11/2026): a REVENDA espelha o produto de revenda da tela de produto — o motor zera a mão
+    // de obra de produção e os minutos, e aplica a margem de contribuição. O formato que não vale é falta (`faltasDaPrecificacao`), abaixo
+    const productType = tipoDoProdutoDoOrcamento(orcamento)
 
     const inicial = {
         ...PRODUCT_PRICE_INFO_BASE,
@@ -67,12 +70,12 @@ export function formarPrecoDoOrcamento(orcamento: OrcamentoNaPrecificacao, empre
     }
     // o bloqueio da carga horária da tela (`isWorkloadBlocking`): a industrialização com minutos e sem a carga da equipe
     const carga = resolveMonthlyWorkload(usuario.monthlyWorkloadInMinutes, usuario.unitMeasure, usuario.numProductiveSectorEmployee)
-    if (carga.isUnset && tipoDeCalculoEfetivo('PRODUZIDO', usuario.calcType) !== 'REVENDA' && inicial.productWorkloadInMinutes > 0) {
+    if (carga.isUnset && tipoDeCalculoEfetivo(productType, usuario.calcType) !== 'REVENDA' && inicial.productWorkloadInMinutes > 0) {
         return { faltas: [FALTA_DA_CARGA_HORARIA] }
     }
 
     const conta = calcularNoMotorDoProduto({
-        currentUser: usuario, calcBase, productType: 'PRODUZIDO', productPriceInfo: inicial, additionalIrpjPercent: 0, customTaxPercent: null,
+        currentUser: usuario, calcBase, productType, productPriceInfo: inicial, additionalIrpjPercent: 0, customTaxPercent: null,
         isLRorLP, modo, itemsPriceSum: 0,
     })
     const info = conta ? { ...inicial, ...conta.campos, ...conta.porProdutoDoServico(inicial) } : inicial

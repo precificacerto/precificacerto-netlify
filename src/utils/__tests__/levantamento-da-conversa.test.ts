@@ -51,6 +51,9 @@ jest.mock('@/supabase/admin', () => ({
             let contar = false
             let faixa: [number, number] | null = null
             const ordem: string[] = []
+            // a PROJEÇÃO do select, como o PostgREST — só na leitura das famílias (23/11/2026): sem ela, um select que esquecesse `formato`
+            // passaria com a linha inteira (`teste-que-nao-exercita.md`)
+            let colunas: string[] | null = null
             // o banco dá id a toda linha; as fixtures de item não o escrevem (a leitura do cálculo pagina por id, 12/11/2026)
             if (tabela === 'orcamentista_tabela_item') for (const l of banco.db[tabela] ?? []) if (!('id' in l)) l.id = `item-${String(++sequenciaDeItem).padStart(6, '0')}`
             // a ligação motor ↔ família (20261029000003): sem ela declarada no caso, a das ETAPAS — toda etapa que aponta um motor exige que ele
@@ -73,10 +76,15 @@ jest.mock('@/supabase/admin', () => ({
                 if (ordem.length) linhas = [...linhas].sort((a, b) => ordem.reduce((r, c) => r || compara(a[c], b[c]), 0))
                 const total = linhas.length
                 if (faixa) linhas = linhas.slice(faixa[0], faixa[1] + 1)
+                if (colunas) { const cs = colunas; linhas = linhas.map((l) => Object.fromEntries(cs.filter((c) => c in l).map((c) => [c, l[c]]))) }
                 return { data: linhas, error: null, count: contar ? total : null }
             }
             const q: Record<string, unknown> = {}
-            q.select = (_c?: string, o?: { count?: string }) => { contar = o?.count === 'exact'; return q }
+            q.select = (c?: string, o?: { count?: string }) => {
+                contar = o?.count === 'exact'
+                if (tabela === 'orcamentista_materia_prima' && typeof c === 'string' && c !== '*') colunas = c.split(',').map((x) => x.trim())
+                return q
+            }
             q.eq = (c: string, v: unknown) => { predicados.push((l) => l[c] === v); return q }
             q.in = (c: string, vs: unknown[]) => { predicados.push((l) => vs.includes(l[c])); return q }
             q.contains = (c: string, vs: unknown[]) => { predicados.push((l) => Array.isArray(l[c]) && vs.every((v) => (l[c] as unknown[]).includes(v))); return q }
@@ -118,7 +126,7 @@ function montar() {
     banco.ausentes = new Set()
     banco.db = {
         // A FAMÍLIA da conta é a da base de conhecimento (PR D, 02/11/2026): a família-instância, e as etapas 1 e 2 dela com o motor
-        orcamentista_materia_prima: [{ id: 'mp-pvc', tenant_id: TENANT, nome: 'Esquadrias de PVC', familia: 'PVC' }],
+        orcamentista_materia_prima: [{ id: 'mp-pvc', tenant_id: TENANT, nome: 'Esquadrias de PVC', familia: 'PVC', formato: 'FABRICACAO' }],
         // as ETAPAS DECLARADAS (04/11/2026): 1 levantamento (GERAR_LEVANTAMENTO) e 2 cálculo (CALCULAR_BARRAS), o mesmo motor — a De Paula
         orcamentista_familia_etapa: etapasPadrao(TENANT, 'mp-pvc', MOTOR),
         orcamentista_etapa_catalogo: CATALOGO_DE_ETAPAS.map((c) => ({ ...c })),
@@ -211,7 +219,7 @@ describe('(1) a família da conta, o motor dela e as tipologias candidatas (PR D
             { numero: 1, rotulo: 'Apanhado e levantamento de esquadrias', acao: 'GERAR_LEVANTAMENTO', executor: 'levantamento', instrucao: '', motor: WOLF },
             { numero: 2, rotulo: 'Relação de barras, materiais e tempo', acao: 'CALCULAR_BARRAS', executor: 'calculo', instrucao: '', motor: WOLF },
         ],
-        levantamento: WOLF, calculo: WOLF, instrucaoDoLevantamento: null as unknown, descricaoDoLevantamento: null as unknown, instrucoesSemEfeito: [] as unknown[], tabelasDePreco: [TABELA],
+        levantamento: WOLF, calculo: WOLF, instrucaoDoLevantamento: null as unknown, descricaoDoLevantamento: null as unknown, instrucoesSemEfeito: [] as unknown[], formato: 'FABRICACAO', tabelasDePreco: [TABELA],
     }
 
     it('DE PAULA — 1 família: é ela, sem perguntar; a lista vem do motor da etapa 1, POR motor_id, em ordem de código', async () => {
@@ -255,7 +263,7 @@ describe('(1) a família da conta, o motor dela e as tipologias candidatas (PR D
     })
 
     it('duas instâncias da MESMA família com o MESMO motor: uma família só, sem perguntar', async () => {
-        banco.db.orcamentista_materia_prima.push({ id: 'mp-pvc-2', tenant_id: TENANT, nome: 'PVC da obra', familia: 'PVC' })
+        banco.db.orcamentista_materia_prima.push({ id: 'mp-pvc-2', tenant_id: TENANT, nome: 'PVC da obra', familia: 'PVC', formato: 'FABRICACAO' })
         banco.db.orcamentista_familia_etapa.push(...etapasPadrao(TENANT, 'mp-pvc-2', MOTOR))
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         if (!('candidatos' in t)) throw new Error('era para ler a lista: ' + t.frase)
@@ -323,7 +331,7 @@ describe('(1) a família da conta, o motor dela e as tipologias candidatas (PR D
         })
 
         it('duas instâncias da mesma família com MOTORES DIFERENTES na mesma etapa: erro de configuração', async () => {
-            banco.db.orcamentista_materia_prima.push({ id: 'mp-pvc-2', tenant_id: TENANT, nome: 'PVC da obra', familia: 'PVC' })
+            banco.db.orcamentista_materia_prima.push({ id: 'mp-pvc-2', tenant_id: TENANT, nome: 'PVC da obra', familia: 'PVC', formato: 'FABRICACAO' })
             banco.db.orcamentista_familia_etapa.push(etapa(TENANT, 'mp-pvc-2', 1, ITEM_DO_LEVANTAMENTO, MOTOR), etapa(TENANT, 'mp-pvc-2', 2, ITEM_DO_CALCULO, 'motor-outro'))
             // a divergência é dita pela AÇÃO (o papel), não pelo número (04/11/2026)
             expect(await falta()).toEqual(['MOTORES_DIVERGENTES', 'Falta de configuração — as famílias Esquadrias de PVC e PVC da obra (PVC) apontam motores diferentes na etapa de cálculo: verifique o catálogo em Base de conhecimento › Etapas da família.'])
@@ -349,7 +357,7 @@ describe('(1) a família da conta, o motor dela e as tipologias candidatas (PR D
      * qual motor é. A segunda família tem motor PRÓPRIO (Motor_Sul_ALU, do fornecedor Perfis Sul) e tabela de preço própria.
      */
     const comOutraFamilia = () => {
-        banco.db.orcamentista_materia_prima.push({ id: 'mp-alu', tenant_id: TENANT, nome: 'Esquadrias de alumínio', familia: 'ALUMINIO' })
+        banco.db.orcamentista_materia_prima.push({ id: 'mp-alu', tenant_id: TENANT, nome: 'Esquadrias de alumínio', familia: 'ALUMINIO', formato: 'FABRICACAO' })
         banco.db.orcamentista_familia_etapa.push(...etapasPadrao(TENANT, 'mp-alu', MOTOR_SUL))
         banco.db.orcamentista_motor.push({ id: MOTOR_SUL, nome: 'Motor_Sul_ALU', fornecedor_id: 'f-sul', arquivado_em: null })
         banco.db.orcamentista_mp_categoria_fornecedor.push({ tenant_id: TENANT, mp_categoria_id: 'c-perfil', fornecedor_id: 'f-sul' })
@@ -560,7 +568,7 @@ describe('(1f) as etapas declaradas: a ação decide o papel, e toda falta é no
     })
 
     it('duas instâncias da MESMA família que não declaram as MESMAS etapas (uma só levanta, a outra calcula): não escolho — falta nomeada', async () => {
-        banco.db.orcamentista_materia_prima.push({ id: 'mp-pvc-2', tenant_id: TENANT, nome: 'PVC da obra', familia: 'PVC' })
+        banco.db.orcamentista_materia_prima.push({ id: 'mp-pvc-2', tenant_id: TENANT, nome: 'PVC da obra', familia: 'PVC', formato: 'FABRICACAO' })
         banco.db.orcamentista_familia_etapa.push(etapa(TENANT, 'mp-pvc-2', 1, ITEM_DO_LEVANTAMENTO, MOTOR))
         expect(await falta()).toEqual(['MOTORES_DIVERGENTES', 'Falta de configuração — as famílias Esquadrias de PVC e PVC da obra (PVC) não declaram as mesmas etapas: verifique o catálogo em Base de conhecimento › Etapas da família.'])
     })
@@ -607,7 +615,7 @@ describe('(1f) as etapas declaradas: a ação decide o papel, e toda falta é no
         })
 
         it('com duas famílias, uma que calcula e uma que só levanta: o bloco de cada uma, e "o que o preço cobre" uma vez, pela que calculou', async () => {
-            banco.db.orcamentista_materia_prima.push({ id: 'mp-alu', tenant_id: TENANT, nome: 'Esquadrias de alumínio', familia: 'ALUMINIO' })
+            banco.db.orcamentista_materia_prima.push({ id: 'mp-alu', tenant_id: TENANT, nome: 'Esquadrias de alumínio', familia: 'ALUMINIO', formato: 'FABRICACAO' })
             banco.db.orcamentista_familia_etapa.push(etapa(TENANT, 'mp-alu', 1, ITEM_DO_LEVANTAMENTO, MOTOR_SUL))
             banco.db.orcamentista_motor.push({ id: MOTOR_SUL, nome: 'Motor_Sul_ALU', fornecedor_id: 'f-sul', arquivado_em: null })
             banco.db.orcamentista_mp_categoria_fornecedor.push({ tenant_id: TENANT, mp_categoria_id: 'c-perfil', fornecedor_id: 'f-sul' })
@@ -628,7 +636,7 @@ describe('(1f) as etapas declaradas: a ação decide o papel, e toda falta é no
         })
 
         it('com duas famílias que SÓ levantam: dois blocos sem número e NENHUM "o que o preço cobre" — não há preço a cobrir', async () => {
-            banco.db.orcamentista_materia_prima.push({ id: 'mp-alu', tenant_id: TENANT, nome: 'Esquadrias de alumínio', familia: 'ALUMINIO' })
+            banco.db.orcamentista_materia_prima.push({ id: 'mp-alu', tenant_id: TENANT, nome: 'Esquadrias de alumínio', familia: 'ALUMINIO', formato: 'FABRICACAO' })
             banco.db.orcamentista_familia_etapa.push(etapa(TENANT, 'mp-alu', 1, ITEM_DO_LEVANTAMENTO, MOTOR_SUL))
             banco.db.orcamentista_motor.push({ id: MOTOR_SUL, nome: 'Motor_Sul_ALU', fornecedor_id: 'f-sul', arquivado_em: null })
             banco.db.orcamentista_mp_categoria_fornecedor.push({ tenant_id: TENANT, mp_categoria_id: 'c-perfil', fornecedor_id: 'f-sul' })
@@ -1702,5 +1710,80 @@ describe('(19) a PEÇA QUE NINGUÉM PEDIU no cálculo (dono do produto, 19/11/20
         comTravessa()
         const r = await calcular({ ARI: 4, ARE: 1, MAE: 2, UT: 1 })
         expect(r.texto).toContain('TRV')
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('(RV) a família de REVENDA (dono do produto, 23/11/2026): espelha a fabricação, sem tempo e sem mão de obra', () => {
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    const S = () => require('@/lib/atendimentos-ia/custo-do-orcamento-servidor') as typeof import('@/lib/atendimentos-ia/custo-do-orcamento-servidor')
+    const MF = () => require('@/lib/atendimentos-ia/motor-da-familia') as typeof import('@/lib/atendimentos-ia/motor-da-familia')
+    /* eslint-enable @typescript-eslint/no-require-imports */
+    const FECHA = { escolhas: { ARI: 4, ARE: 1, MAE: 2 } }
+    const revenda = () => { banco.db.orcamentista_materia_prima[0].formato = 'REVENDA' }
+
+    it('REVENDA SEM tempo cadastrado: fecha — a linha diz que a mão de obra não entra, sem minutos, e o "o que cobre" é o da revenda', async () => {
+        revenda()
+        banco.db.orcamentista_motor_tipologia_tempo = []
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev(FECHA))
+        expect(r.desfecho).toBe('levantou')
+        expect(r.texto).toContain(M().LINHA_DA_REVENDA)
+        expect(r.texto).toContain(M().O_QUE_O_PRECO_COBRE_NA_REVENDA)
+        expect(r.texto).not.toContain(M().O_QUE_O_PRECO_COBRE)
+        expect(r.texto).not.toMatch(/min por unidade|perfis \+ mão de obra/)
+        expect(r.texto).toContain('Perfis por barra inteira:')
+    })
+
+    it('CONTRASTE: a mesma família em FABRICACAO sem tempo recusa pelo tempo', async () => {
+        banco.db.orcamentista_motor_tipologia_tempo = []
+        const r = await M().mensagemDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), lev(FECHA))
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto).toContain('o tempo de fabricação de DP-02')
+    })
+
+    it('o custo do orçamento da revenda: sem mão de obra da empresa (nem configurada), cada item com fabricação 0 e valor do minuto nulo', async () => {
+        revenda()
+        banco.db.orcamentista_motor_tipologia_tempo = []
+        banco.db.tenant_settings[0].monthly_workload = 0
+        const r = await S().custoDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), lev(FECHA))
+        if ('recusas' in r) throw new Error('recusou: ' + r.recusas.join(' | '))
+        expect(r.maoDeObra).toBeNull()
+        expect(r.itens.map((i) => [i.tempo_fabricacao_min, i.custo_fabricacao, i.valor_minuto])).toEqual([[0, 0, null]])
+        expect(r.itens[0].custo_liquido_total).toBeCloseTo(r.itens[0].custo_liquido_materiais, 12)
+    })
+
+    it('CONTRASTE do custo: a FABRICACAO com a mão de obra da empresa sem fechar recusa', async () => {
+        banco.db.tenant_settings[0].monthly_workload = 0
+        const r = await S().custoDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), lev(FECHA))
+        expect('recusas' in r).toBe(true)
+    })
+
+    it('formato NÃO escolhido: recusa nomeando a família — nunca calcula como fabricação', async () => {
+        banco.db.orcamentista_materia_prima[0].formato = null
+        const r = await M().mensagemDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), lev(FECHA))
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto).toContain(M().fraseDoFormatoNaoEscolhido('PVC'))
+        expect(r.etapa?.faltou).toEqual(expect.arrayContaining(['SEM_FORMATO']))
+    })
+
+    it('o formato não escolhido NÃO impede a leitura das famílias (o levantamento conversa; só o cálculo recusa)', async () => {
+        banco.db.orcamentista_materia_prima[0].formato = null
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        expect('candidatos' in t && t.familias.map((f) => f.formato)).toEqual([null])
+    })
+
+    it('duas instâncias da MESMA família com formatos diferentes: falta de configuração nomeando as duas', async () => {
+        banco.db.orcamentista_materia_prima.push({ id: 'mp-pvc-2', tenant_id: TENANT, nome: 'PVC da obra', familia: 'PVC', formato: 'REVENDA' })
+        banco.db.orcamentista_familia_etapa.push(...banco.db.orcamentista_familia_etapa.filter((e) => e.materia_prima_id === 'mp-pvc').map((e) => ({ ...e, id: `${e.id}-2`, materia_prima_id: 'mp-pvc-2' })))
+        const r = await MF().lerMotoresDaConta(TENANT)
+        expect(r).toMatchObject({ ok: false, motivo: 'FORMATOS_DIVERGENTES', frase: MF().fraseDosFormatosDivergentes(['Esquadrias de PVC', 'PVC da obra'], 'PVC') })
+    })
+
+    it('o formato fora da lista (texto qualquer) é "não escolhido", não um formato', () => {
+        expect(MF().formatoLido('PRODUZIDO')).toBeNull()
+        expect(MF().formatoLido(undefined)).toBeNull()
+        expect(MF().formatoLido('REVENDA')).toBe('REVENDA')
+        expect(MF().formatoLido('FABRICACAO')).toBe('FABRICACAO')
     })
 })

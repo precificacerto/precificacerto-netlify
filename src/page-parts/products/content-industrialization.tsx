@@ -77,6 +77,11 @@ interface ContentIndustrializationProps {
    * o campo de incluir item e com os minutos travados; mudar é no orçamento, e recalcular.
    */
   somenteLeitura?: boolean
+  /**
+   * O orçamento de REVENDA (dono do produto, 23/11/2026): a linha da mão de obra produtiva SOME — a revenda não fabrica, e uma linha com
+   * "0 minutos" afirmaria um tempo que não existe (`ausente-vs-falso.md`). O preço é o do motor com o tipo Revenda.
+   */
+  semMaoDeObra?: boolean
 }
 export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   itemsForm,
@@ -122,6 +127,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   onPrecoNaoFormado,
   advancedTaxesSection,
   workloadAlert,
+  semMaoDeObra = false,
   advancedTaxParams,
   mobileItemsList,
   somenteLeitura = false,
@@ -190,7 +196,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
             da tabela "Itens do produto" — minutos sob "QTD. POR UNIDADE", valor sob "LÍQUIDO".
             Relatório 30/07 (mobile #2): no celular a linha vira 2 colunas na MESMA linha —
             minutos à ESQUERDA, valor em R$ à DIREITA — abaixo do rótulo. */}
-        {isMobile ? (
+        {semMaoDeObra ? null : isMobile ? (
           <section className="p-1 mt-3">
             <div style={{ fontWeight: 500, marginBottom: 6 }}>{somenteLeitura ? ROTULO_DO_TEMPO_DA_OBRA : 'Mão de obra produtiva'}</div>
             {/* Relatório mobile #3: o campo de MINUTOS ocupa no MÁXIMO 50% da largura; o valor

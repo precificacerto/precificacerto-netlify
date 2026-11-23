@@ -140,7 +140,7 @@ const orcamento = (extra: Partial<OrcamentoNaPrecificacao> = {}): OrcamentoNaPre
         id: 'o-1', numero: 42, nome: 'Geronimo Silva', comissao_percentual: 5, reserva_tecnica_percentual: 3, lucro_projetado_percentual: 10,
         valor_total_bruto: itens.reduce((t, i) => t + (i.custo_bruto_materiais ?? 0) + (i.custo_fabricacao ?? 0), 0),
         valor_total_liquido: itens.reduce((t, i) => t + (i.custo_liquido_total ?? 0), 0),
-        valor_venda: null, valor_operacao_interna: null, ncm_code: '7610.10.00', sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null,
+        valor_venda: null, valor_operacao_interna: null, ncm_code: '7610.10.00', sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null, formato: { formato: 'FABRICACAO' },
         ...extra, itens,
     }
 }
@@ -617,6 +617,17 @@ describe('(E) AS DECISÕES DE 11/11/2026 — a interna gravada, a faixa dos iten
         expect(doOrcamento.querySelector('[data-valor-da-mao-de-obra]')?.textContent).toBe('')
         const doProduto = await montar({ product: PRODUTO_1008, itemsFromApi: ITENS_DA_API })
         expect(doProduto.querySelector('[data-valor-da-mao-de-obra]')?.textContent).toMatch(/^R\$ [\d.]+,\d{2}$/)
+    })
+    it('o orçamento da família de REVENDA (23/11/2026): o tipo diz Revenda, e a linha da mão de obra SOME — no computador e no celular', async () => {
+        const rev = () => orcamento({ formato: { formato: 'REVENDA' }, itens: [{ ...item(1, 1000, 0), valor_minuto: null, custo_fabricacao: 0, custo_liquido_total: 1000 }] })
+        const host = await montar({ orcamento: rev(), onSalvarOrcamento: jest.fn() })
+        expect(host.querySelector('[data-tipo-do-orcamento]')?.textContent).toContain('Revenda')
+        expect(host.querySelector('[data-tipo-do-orcamento]')?.textContent).not.toContain('Produzido')
+        expect(host.textContent).not.toContain('Tempo total de produção da obra')
+        expect(host.querySelector('[data-valor-da-mao-de-obra]')).toBeNull()
+        mockCelular = true
+        const celular = await montar({ orcamento: rev(), onSalvarOrcamento: jest.fn() })
+        expect(celular.textContent).not.toContain('Tempo total de produção da obra')
     })
     it('NO CELULAR também: o orçamento não mostra o valor da mão de obra; o produto mostra', async () => {
         mockCelular = true
