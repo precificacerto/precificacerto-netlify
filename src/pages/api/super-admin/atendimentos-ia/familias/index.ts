@@ -1,6 +1,7 @@
 /**
  * GET  /api/super-admin/atendimentos-ia/familias — as famílias do catálogo, NA ORDEM, cada uma com as RAMIFICAÇÕES que declara, na ordem dela.
- * POST /api/super-admin/atendimentos-ia/familias — `{ rotulo, ramificacoes }`: acrescenta uma família no FIM da lista.
+ * POST /api/super-admin/atendimentos-ia/familias — `{ rotulo, sigla, ramificacoes }`: acrescenta uma família no FIM da lista. A SIGLA (3 letras,
+ *      23/11/2026) é obrigatória e não se repete; nunca é deduzida do nome.
  *
  * A FAMÍLIA (dono do produto, 26/10/2026; migração 20261026000004) é o primeiro degrau da cascata FAMÍLIA -> LINHA -> TIPOLOGIA, e uma entrada
  * por LINHA de produto (28/10/2026). Ela é o NOME e as RAMIFICAÇÕES (29/10/2026, migração 20261029000004): a base de conhecimento mostra, numa
@@ -15,7 +16,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { requireSuperAdmin } from '@/lib/get-caller-tenant'
 import { codigoDoErro, criarFamilia, falhaInterna, listarFamilias } from '@/lib/atendimentos-ia/repositorio'
 import { familiasDoCatalogo, fraseDaRamificacaoForaDoCatalogo, ramificacoesForaDoCatalogo } from '@/lib/atendimentos-ia/familias-do-catalogo'
-import { fraseDaFamiliaComNomeRepetido, lerFamiliaNova, recusada } from '@/utils/atendimentos-ia-catalogo'
+import { fraseDaFamiliaComNomeRepetido, fraseDaSiglaRepetida, lerFamiliaNova, recusada } from '@/utils/atendimentos-ia-catalogo'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET' && req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
@@ -33,7 +34,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const leitura = lerFamiliaNova(req.body)
   if (recusada(leitura)) return res.status(400).json({ error: leitura.erro })
-  const { rotulo, chave, ramificacoes } = leitura.corpo
+  const { rotulo, chave, sigla, ramificacoes } = leitura.corpo
   try {
     const atuais = await listarFamilias()
     if (atuais.some((f) => f.chave === chave)) return res.status(409).json({ error: `A família "${chave}" já está na lista.` })
@@ -41,9 +42,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // diferentes (PVC e PVC_WOLF) com o mesmo nome exibido seriam duas famílias que ninguém distingue na tela
     const igual = atuais.find((f) => f.rotulo.trim().toLocaleLowerCase('pt-BR') === rotulo.toLocaleLowerCase('pt-BR'))
     if (igual) return res.status(409).json({ error: fraseDaFamiliaComNomeRepetido(igual.rotulo) })
+    const daSigla = atuais.find((f) => f.sigla === sigla)
+    if (daSigla) return res.status(409).json({ error: fraseDaSiglaRepetida(sigla, daSigla.rotulo) })
     const fora = await ramificacoesForaDoCatalogo(ramificacoes)
     if (fora.length > 0) return res.status(400).json({ error: fraseDaRamificacaoForaDoCatalogo(fora) })
-    return res.status(201).json(await criarFamilia({ por: caller.user_id, chave, rotulo, ramificacoes }))
+    return res.status(201).json(await criarFamilia({ por: caller.user_id, chave, rotulo, sigla, ramificacoes }))
   } catch (e) {
     const codigo = codigoDoErro(e)
     if (codigo === '42501') return res.status(403).json({ error: 'Só o super admin altera o catálogo.' })

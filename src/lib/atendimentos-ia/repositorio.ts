@@ -207,7 +207,7 @@ export async function atualizarFornecedor(id: string, f: { nome: string; nicho_i
 // ── Famílias (migração 20261026000004) ───────────────────────────────────────────────────────
 /** O catálogo das famílias, SEM ordem — quem ordena é a rota. */
 export async function listarFamilias(): Promise<Familia[]> {
-    return q(db().from('orcamentista_familia_catalogo').select('chave, rotulo, ordem'))
+    return q(db().from('orcamentista_familia_catalogo').select('chave, rotulo, ordem, sigla'))
 }
 
 /** As ramificações de TODAS as famílias, sem ordem — quem agrupa e ordena é a rota. */
@@ -240,8 +240,8 @@ export async function caminhosDoIndiceDeDesenhos(): Promise<string[]> {
     }
 }
 
-export const criarFamilia = (a: { por: string; chave: string; rotulo: string; ramificacoes: string[] }) =>
-    rpc('superadmin_criar_familia', { p_por: a.por, p_chave: a.chave, p_rotulo: a.rotulo, p_ramificacoes: a.ramificacoes })
+export const criarFamilia = (a: { por: string; chave: string; rotulo: string; sigla: string; ramificacoes: string[] }) =>
+    rpc('superadmin_criar_familia', { p_por: a.por, p_chave: a.chave, p_rotulo: a.rotulo, p_ramificacoes: a.ramificacoes, p_sigla: a.sigla })
 export const editarFamilia = (a: { por: string; chave: string; rotulo: string; ramificacoes: string[] }) =>
     rpc('superadmin_editar_familia', { p_por: a.por, p_chave: a.chave, p_rotulo: a.rotulo, p_ramificacoes: a.ramificacoes })
 

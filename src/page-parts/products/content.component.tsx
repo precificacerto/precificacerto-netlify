@@ -2047,7 +2047,7 @@ export const Content: FC<ContentProps> = ({
       <header className="flex justify-between mb-4">
         <div>
           <h1 className={isMobile ? 'text-xl' : 'text-3xl'}>
-            {orcamento ? `Precificação do orçamento ${orcamento.numero}` : product ? PAGE_TITLES.EDIT_PRODUCT : PAGE_TITLES.NEW_PRODUCT}
+            {orcamento ? `Precificação do orçamento ${orcamento.numero_exibido ?? orcamento.numero}` : product ? PAGE_TITLES.EDIT_PRODUCT : PAGE_TITLES.NEW_PRODUCT}
           </h1>
           {isMobile && (
             <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>

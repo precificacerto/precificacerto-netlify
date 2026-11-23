@@ -92,6 +92,20 @@ describe('a etapa do preço', () => {
         // 4.3 (12/11/2026): o número que recebeu o arquivo — a conversa cala quando foi quem disse "sim"
         expect(r.enviadoPara).toBe('5551999990000')
     })
+    it('o NÚMERO EXIBIDO (23/11/2026): o texto ao vendedor diz o número exibido; a leitura que falha cai no número próprio', async () => {
+        const d = deps(gravado(true), { numeroExibido: jest.fn(async () => '27-PVC') })
+        expect((await C.etapaDoPreco(T, ORC, d)).paraOVendedor).toBe(C.fraseDoOrcamentoEnviado('27-PVC', 'Geraldo Huck'))
+        expect(d.numeroExibido).toHaveBeenCalledWith(T, ORC)
+        const f = deps({ faltas: ['x'], orcamento: { numero: 7, nome: 'Geraldo Huck' } }, { numeroExibido: jest.fn(async () => '27-PVC') })
+        expect((await C.etapaDoPreco(T, ORC, f)).paraOVendedor).toBe(C.fraseDoPrecoQueNaoSaiu('27-PVC', 'Geraldo Huck', ['x']))
+        const caiu = deps(gravado(true), { numeroExibido: jest.fn(async () => { throw new Error('o banco caiu') }) })
+        expect((await C.etapaDoPreco(T, ORC, caiu)).paraOVendedor).toBe(C.fraseDoOrcamentoEnviado(7, 'Geraldo Huck'))
+        // o reenvio: o texto e o NOME DO ARQUIVO com o número exibido
+        const re = deps(gravado(true), { numeroExibido: jest.fn(async () => '27-PVC') })
+        const r = await C.reenviarOArquivo(T, { id: ORC, numero: 7, nome: 'Geraldo Huck' }, re)
+        expect(re.enviar).toHaveBeenCalledWith('5551999990000', 'Orcamento 27-PVC - Geraldo Huck.pdf', PDF)
+        expect(r.paraOVendedor).toBe(C.fraseDoOrcamentoEnviado('27-PVC', 'Geraldo Huck'))
+    })
     it('o enviadoPara é o número que o canal ACEITOU, quando há; e não existe quando o envio falha', async () => {
         const aceito = await C.etapaDoPreco(T, ORC, deps(gravado(true), { enviar: jest.fn(async () => ({ ok: true, status: 200, prazoEsgotado: false, destino: '55519999990000' })) }))
         expect(aceito.enviadoPara).toBe('55519999990000')

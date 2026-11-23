@@ -31,10 +31,12 @@ import { calcularOrcamento, ErroDoCalculo, faltaDoParcial, type FaltaDoParcial }
 import { VERSAO_DO_CALCULO } from './custo-do-orcamento'
 import type { ResultadoDaEtapa } from './cadeia-do-sim'
 import { fraseDoArquivoQueNaoChegou } from './arquivo-que-nao-chegou'
+import { numeroExibido } from './numero-do-orcamento'
+import { siglasDasFamilias } from './numero-do-orcamento-servidor'
 import {
-    CABECALHO_SINCRONIZADO, diferencaDoOrcamento, ESTADO_COMPLETO, ErroDaTravessia, ErroJaAtravessado, ErroOrcamentoArquivado, faltasDoCongelado, origemNaTela, planoDaTravessia, PERCENTUAIS_COM_ZERO,
+    CABECALHO_SINCRONIZADO, diferencaDoOrcamento, ESTADO_COMPLETO, ErroDaTravessia, ErroJaAtravessado, ErroOrcamentoArquivado, faltasDoCongelado, fraseDoOrcamentoDeAntes, orcamentoDaFamilia, origemNaTela, separarPorFamilia, planoDaTravessia, PERCENTUAIS_COM_ZERO,
     type ClienteDoLevantamento, type ItemAtivoDoOrcamento, type ItemDaTravessia, type ItemDoLevantamentoNaTravessia, type LevantamentoNaTravessia, type ModoDaBase,
-    type OrigensDosPercentuais, type PercentualComZero, type PercentualNaTela,
+    type OrcamentoExistente, type OrigensDosPercentuais, type PercentualComZero, type PercentualNaTela,
 } from './travessia-do-levantamento-plano'
 
 export * from './travessia-do-levantamento-plano'
@@ -56,8 +58,11 @@ function falhou(tabela: string, error: { code?: string; message: string }): neve
 }
 const COLUNAS_DO_LEVANTAMENTO = 'id, tenant_id, numero, nome, estado, comissao_percentual, comissao_modo, reserva_tecnica_percentual, reserva_tecnica_responsavel, lucro_projetado_percentual, vendedor_employee_id'
 const COLUNAS_DO_ITEM_DO_LEVANTAMENTO = 'id, ordem, tipologia, largura_mm, altura_mm, quantidade, cor_perfil, vidro, ambientes, escolhas, familia'
-/** O índice que faz "um orçamento por levantamento" no banco: a violação dele é a segunda travessia que perdeu a corrida. */
-const INDICE_UM_POR_LEVANTAMENTO = 'orcamentista_orcamento_um_por_levantamento'
+/**
+ * Os índices que fazem a unicidade no banco: o de antes (um por levantamento, sai na 20261123000003, depois do merge) e o novo (um por
+ * levantamento E família, 20261123000002). A violação de qualquer um é a segunda travessia que perdeu a corrida.
+ */
+const INDICES_DA_TRAVESSIA = ['orcamentista_orcamento_um_por_levantamento', 'orcamentista_orcamento_um_por_familia'] as const
 
 /**
  * O modo de aproveitamento da base de conhecimento para o orçamento. A base NÃO tem o campo hoje (medido em 10/11/2026): não há o que ler,
@@ -68,19 +73,42 @@ export async function modoDaBaseDeConhecimento(_tenantId: string): Promise<ModoD
     return null
 }
 
-export type ResultadoDaTravessia = { orcamento: { id: string; numero: number }; itens: number; faltas: string[]; retomada: boolean; origens: OrigensDosPercentuais }
+export type ResultadoDaTravessia = { orcamento: { id: string; numero: number }; familia: string; itens: number; faltas: string[]; retomada: boolean; origens: OrigensDosPercentuais }
 
-/** O orçamento que já existe para o levantamento, com quantos itens tem. */
-async function orcamentoDoLevantamento(tenantId: string, levantamentoId: string): Promise<{ id: string; numero: number; itens: number } | null> {
-    const { data, error } = await db().from(TABELA_DO_ORCAMENTO).select('id, numero').eq('tenant_id', tenantId).eq('levantamento_id', levantamentoId).maybeSingle()
+/** Os orçamentos que já existem para o levantamento (um por família; o de antes, com a família nula), com quantos itens cada um tem. */
+async function orcamentosDoLevantamento(tenantId: string, levantamentoId: string): Promise<OrcamentoExistente[]> {
+    const { data, error } = await db().from(TABELA_DO_ORCAMENTO).select('id, numero, familia').eq('tenant_id', tenantId).eq('levantamento_id', levantamentoId)
     if (error) falhou(TABELA_DO_ORCAMENTO, error)
-    if (!data) return null
+    const orcs = (data ?? []) as Array<{ id: string; numero: number; familia?: string | null }>
+    if (orcs.length === 0) return []
     // TODOS os itens, os removidos também (medido pela mutação L5, 13/11/2026): esta contagem só reconhece a travessia que parou entre as duas
     // escritas — o orçamento SEM item nenhum. O orçamento com todos os itens removidos é um orçamento real: vai à ATUALIZAÇÃO (que confere o
     // arquivado, relê os percentuais e avisa da edição manual), nunca à retomada, que só insere
-    const r = await db().from(TABELA_DO_ITEM).select('id').eq('tenant_id', tenantId).eq('orcamento_id', data.id)
+    const r = await db().from(TABELA_DO_ITEM).select('id, orcamento_id').eq('tenant_id', tenantId).in('orcamento_id', orcs.map((o) => o.id))
     if (r.error) falhou(TABELA_DO_ITEM, r.error)
-    return { id: data.id as string, numero: data.numero as number, itens: (r.data ?? []).length }
+    const itens = (r.data ?? []) as Array<{ orcamento_id: string }>
+    return orcs.map((o) => ({ id: o.id, numero: Number(o.numero), familia: textoOuNulo(o.familia), itens: itens.filter((i) => i.orcamento_id === o.id).length }))
+}
+
+/** A segunda família de um levantamento enquanto o banco ainda tem o índice de antes (um orçamento por levantamento). */
+export const fraseDoIndiceDeAntes = (familia: string) =>
+    `o orçamento da família ${familia}: o banco ainda aceita um orçamento só por levantamento (falta aplicar a migração 20261123000003)`
+
+/** O levantamento separado por família, com os orçamentos que já existem: o que a travessia manual e o "sim" percorrem. */
+async function familiasDoLevantamento(tenantId: string, levantamentoId: string) {
+    const lido = await lerPlanoDoLevantamento(tenantId, levantamentoId)
+    const sep = separarPorFamilia(lido.plano.itens, lido.familias)
+    if ('recusas' in sep) throw new ErroDaTravessia(sep.recusas)
+    const existentes = await orcamentosDoLevantamento(tenantId, levantamentoId)
+    const chaves = sep.grupos.map((g) => g.familia)
+    return {
+        ...lido,
+        grupos: sep.grupos.map((g) => {
+            const e = orcamentoDaFamilia(existentes, g.familia, chaves)
+            if (e !== null && 'recusa' in e) throw new ErroDaTravessia([e.recusa])
+            return { familia: g.familia, plano: { ...lido.plano, itens: g.itens, orcamento: { ...lido.plano.orcamento, familia: g.familia } }, existente: e as OrcamentoExistente | null }
+        }),
+    }
 }
 
 async function gravarItens(tenantId: string, orcamentoId: string, itens: readonly ItemDaTravessia[]) {
@@ -90,14 +118,23 @@ async function gravarItens(tenantId: string, orcamentoId: string, itens: readonl
 }
 
 /**
- * Atravessa o levantamento `levantamentoId` da empresa `tenantId`. Recusa nomeada (`ErroDaTravessia`), já atravessado (`ErroJaAtravessado`),
- * ou o orçamento criado. Só LÊ o levantamento; só ESCREVE em `orcamentista_orcamento` e `orcamentista_orcamento_item`.
+ * Atravessa o levantamento `levantamentoId` da empresa `tenantId`: UM ORÇAMENTO POR FAMÍLIA (dono do produto, 23/11/2026), cada um com o seu
+ * número próprio e a família gravada. Recusa nomeada (`ErroDaTravessia`), já atravessado (`ErroJaAtravessado`: TODAS as famílias já têm o seu),
+ * ou os orçamentos criados (a família nova num levantamento já atravessado ganha o dela). Só LÊ o levantamento; só ESCREVE em
+ * `orcamentista_orcamento` e `orcamentista_orcamento_item`.
  */
-export async function atravessarLevantamento(tenantId: string, levantamentoId: string): Promise<ResultadoDaTravessia> {
-    const { lev, plano } = await lerPlanoDoLevantamento(tenantId, levantamentoId)
-    const existente = await orcamentoDoLevantamento(tenantId, levantamentoId)
-    if (existente && existente.itens > 0) throw new ErroJaAtravessado(lev.numero, existente.id, existente.numero)
-    return criarOuRetomar(tenantId, levantamentoId, lev, plano, existente)
+export async function atravessarLevantamento(tenantId: string, levantamentoId: string): Promise<ResultadoDaTravessia[]> {
+    const { lev, grupos } = await familiasDoLevantamento(tenantId, levantamentoId)
+    const criados: ResultadoDaTravessia[] = []
+    for (const g of grupos) {
+        if (g.existente && g.existente.itens > 0) continue
+        criados.push(await criarOuRetomar(tenantId, levantamentoId, lev, g.familia, g.plano, g.existente, grupos.map((x) => x.familia)))
+    }
+    if (criados.length === 0) {
+        const primeiro = grupos[0].existente as OrcamentoExistente
+        throw new ErroJaAtravessado(lev.numero, primeiro.id, primeiro.numero)
+    }
+    return criados
 }
 
 /** O levantamento lido e o PLANO dele (o que a primeira travessia grava), e a família de cada item — o mesmo para criar e para atualizar. */
@@ -122,14 +159,15 @@ async function lerPlanoDoLevantamento(tenantId: string, levantamentoId: string) 
     return { lev: lev as LevantamentoNaTravessia, plano, familias, temVidroCodigo: vidroCodigo.size > 0 }
 }
 
+type PlanoDaFamilia = Awaited<ReturnType<typeof lerPlanoDoLevantamento>>['plano'] & { orcamento: { familia: string } }
 async function criarOuRetomar(
-    tenantId: string, levantamentoId: string, lev: LevantamentoNaTravessia,
-    plano: Awaited<ReturnType<typeof lerPlanoDoLevantamento>>['plano'], existente: { id: string; numero: number; itens: number } | null,
+    tenantId: string, levantamentoId: string, lev: LevantamentoNaTravessia, familia: string,
+    plano: PlanoDaFamilia, existente: OrcamentoExistente | null, familiasDoLevantamento: readonly string[],
 ): Promise<ResultadoDaTravessia> {
     if (existente) {
         // a travessia que parou entre as duas escritas: o orçamento existe sem item nenhum, e recebe os itens agora
         await gravarItens(tenantId, existente.id, plano.itens)
-        return { orcamento: { id: existente.id, numero: existente.numero }, itens: plano.itens.length, faltas: plano.faltas, retomada: true, origens: plano.origens }
+        return { orcamento: { id: existente.id, numero: existente.numero }, familia, itens: plano.itens.length, faltas: plano.faltas, retomada: true, origens: plano.origens }
     }
     for (let tentativa = 1; tentativa <= TENTATIVAS_DO_NUMERO; tentativa++) {
         const { data: ultimo, error: e1 } = await db().from(TABELA_DO_ORCAMENTO).select('numero').eq('tenant_id', tenantId).order('numero', { ascending: false }).limit(1)
@@ -142,11 +180,14 @@ async function criarOuRetomar(
             } catch (e) {
                 throw new Error(`o orçamento ${criado.numero} foi criado sem os itens (atravesse de novo para gravá-los): ${e instanceof Error ? e.message : e}`)
             }
-            return { orcamento: { id: criado.id, numero: criado.numero }, itens: plano.itens.length, faltas: plano.faltas, retomada: false, origens: plano.origens }
+            return { orcamento: { id: criado.id, numero: criado.numero }, familia, itens: plano.itens.length, faltas: plano.faltas, retomada: false, origens: plano.origens }
         }
-        if (e2.code === '23505' && `${e2.message} ${e2.details ?? ''}`.includes(INDICE_UM_POR_LEVANTAMENTO)) {
-            const outro = await orcamentoDoLevantamento(tenantId, levantamentoId)
-            if (outro) throw new ErroJaAtravessado(lev.numero, outro.id, outro.numero)
+        if (e2.code === '23505' && INDICES_DA_TRAVESSIA.some((x) => `${e2.message} ${e2.details ?? ''}`.includes(x))) {
+            const outro = orcamentoDaFamilia(await orcamentosDoLevantamento(tenantId, levantamentoId), familia, familiasDoLevantamento)
+            if (outro !== null && 'recusa' in outro) throw new ErroDaTravessia([outro.recusa])
+            if (outro) throw new ErroJaAtravessado(lev.numero, (outro as OrcamentoExistente).id, (outro as OrcamentoExistente).numero)
+            // o índice DE ANTES ainda no banco (a 20261123000003 entra depois do merge): a segunda família não cabe — recusa nomeada, nunca "falhou"
+            if (`${e2.message} ${e2.details ?? ''}`.includes(INDICES_DA_TRAVESSIA[0])) throw new ErroDaTravessia([fraseDoIndiceDeAntes(familia)])
         }
         if (e2.code === '23505' && tentativa < TENTATIVAS_DO_NUMERO) continue
         falhou(TABELA_DO_ORCAMENTO, e2)
@@ -154,16 +195,16 @@ async function criarOuRetomar(
     throw new Error(`${TABELA_DO_ORCAMENTO}: o número não foi reservado em ${TENTATIVAS_DO_NUMERO} tentativas`)
 }
 
-/** Os levantamentos COMPLETOS da empresa, com o orçamento de cada um (nulo quando ainda não atravessou) — para a ação manual escolher UM. */
-export async function levantamentosParaAtravessar(tenantId: string): Promise<Array<{ id: string; numero: number; nome: string; orcamento: { id: string; numero: number } | null }>> {
+/** Os levantamentos COMPLETOS da empresa, com os orçamentos de cada um (um por família; vazio quando ainda não atravessou) — para a ação manual. */
+export async function levantamentosParaAtravessar(tenantId: string): Promise<Array<{ id: string; numero: number; nome: string; orcamentos: Array<{ id: string; numero: number; familia: string | null }> }>> {
     const { data, error } = await db().from('orcamentista_levantamento').select('id, numero, nome').eq('tenant_id', tenantId).eq('estado', ESTADO_COMPLETO).order('numero', { ascending: false })
     if (error) falhou('orcamentista_levantamento', error)
     const levs = (data ?? []) as Array<{ id: string; numero: number; nome: string }>
     if (levs.length === 0) return []
-    const o = await db().from(TABELA_DO_ORCAMENTO).select('id, numero, levantamento_id').eq('tenant_id', tenantId).in('levantamento_id', levs.map((l) => l.id))
+    const o = await db().from(TABELA_DO_ORCAMENTO).select('id, numero, levantamento_id, familia').eq('tenant_id', tenantId).in('levantamento_id', levs.map((l) => l.id))
     if (o.error) falhou(TABELA_DO_ORCAMENTO, o.error)
-    const porLev = new Map(((o.data ?? []) as Array<{ id: string; numero: number; levantamento_id: string }>).map((x) => [x.levantamento_id, { id: x.id, numero: x.numero }]))
-    return levs.map((l) => ({ ...l, orcamento: porLev.get(l.id) ?? null }))
+    const orcs = ((o.data ?? []) as Array<{ id: string; numero: number; levantamento_id: string; familia?: string | null }>).sort((a, b) => a.numero - b.numero)
+    return levs.map((l) => ({ ...l, orcamentos: orcs.filter((x) => x.levantamento_id === l.id).map((x) => ({ id: x.id, numero: x.numero, familia: textoOuNulo(x.familia) })) }))
 }
 
 const COLUNAS_DO_CLIENTE = 'numero, nome, telefone, email, endereco, edificacao, obs_obra, data_entrega, vendedor_nome, vendedor_employee_id'
@@ -241,7 +282,7 @@ export const edicaoManualMaisNova = (o: { editado_manualmente_em?: unknown; atua
  * edição manual NÃO é apagada (nem a data nem o autor): `atualizado_em` passa a ser o mais novo, e o aviso para sozinho.
  */
 export async function atualizarOrcamento(tenantId: string, levantamentoId: string, orcamentoId: string, agora: Date = new Date()): Promise<ResultadoDaAtualizacao> {
-    const colunas = `id, numero, deleted_at, editado_manualmente_em, atualizado_em, ${CABECALHO_SINCRONIZADO.join(', ')}`
+    const colunas = `id, numero, familia, deleted_at, editado_manualmente_em, atualizado_em, ${CABECALHO_SINCRONIZADO.join(', ')}`
     // sem a 20261116000002 a coluna não existe: lê-se sem ela, e a versão fica nula — "de antes", que recalcula
     let { data: orc, error } = await db().from(TABELA_DO_ORCAMENTO)
         .select(`${colunas}, calculo_versao`).eq('tenant_id', tenantId).eq('id', orcamentoId).maybeSingle()
@@ -251,7 +292,15 @@ export async function atualizarOrcamento(tenantId: string, levantamentoId: strin
     if (error) falhou(TABELA_DO_ORCAMENTO, error)
     if (!orc) throw new ErroNaoEncontrado()
     if (orc.deleted_at) throw new ErroOrcamentoArquivado(Number(orc.numero))
-    const { plano, familias, temVidroCodigo } = await lerPlanoDoLevantamento(tenantId, levantamentoId)
+    const lido = await lerPlanoDoLevantamento(tenantId, levantamentoId)
+    const { familias, temVidroCodigo } = lido
+    // UM ORÇAMENTO POR FAMÍLIA (23/11/2026): o orçamento compara SÓ com os itens da família dele — os de outra família são do orçamento dela, não
+    // "novos" deste. O de antes (família nula) é o do levantamento inteiro quando ele tem uma família só; com mais de uma, recusa nomeada
+    const sep = separarPorFamilia(lido.plano.itens, familias)
+    if ('recusas' in sep) throw new ErroDaTravessia(sep.recusas)
+    const daFamilia = textoOuNulo((orc as { familia?: unknown }).familia)
+    if (daFamilia === null && sep.grupos.length > 1) throw new ErroDaTravessia([fraseDoOrcamentoDeAntes(Number(orc.numero), sep.grupos.map((g) => g.familia))])
+    const plano = { ...lido.plano, itens: daFamilia === null ? lido.plano.itens : (sep.grupos.find((g) => g.familia === daFamilia)?.itens ?? []) }
     const r = await db().from(TABELA_DO_ITEM).select(COLUNAS_DO_ITEM_ATIVO).eq('tenant_id', tenantId).eq('orcamento_id', orcamentoId).is('removido_em', null)
     if (r.error) falhou(TABELA_DO_ITEM, r.error)
     const ativos = (r.data ?? []) as ItemAtivoDoOrcamento[]
@@ -309,16 +358,16 @@ export type ResultadoDoSim = { rastro: string; paraOVendedor: string | null; env
  */
 const naoChegou = fraseDoArquivoQueNaoChegou
 /** O orçamento arquivado: a falta nomeada, e ele continua arquivado (nada é reativado). */
-export const fraseDoOrcamentoArquivado = (numero: number) =>
+export const fraseDoOrcamentoArquivado = (numero: number | string) =>
     naoChegou(null, `o orçamento ${numero} está arquivado: a atualização não foi feita, e ele continua arquivado`)
 /** O "sim" sem mudança: o orçamento já está atualizado, e o arquivo que existe vai de novo. */
-export const fraseDoOrcamentoJaAtualizado = (numero: number) =>
+export const fraseDoOrcamentoJaAtualizado = (numero: number | string) =>
     `O orçamento ${numero} já está atualizado: nada mudou no levantamento desde a última vez. O arquivo dele vai de novo.`
 /** A edição manual substituída — dita, nunca em silêncio. */
-export const fraseDaEdicaoManualSubstituida = (numero: number) =>
+export const fraseDaEdicaoManualSubstituida = (numero: number | string) =>
     `O orçamento ${numero} tinha edição manual na seção Orçamentos I.A., e ela foi substituída por esta atualização do levantamento.`
 /** Os questionamentos de um orçamento PARCIAL: uma linha por código, com o que falta. Sem falta, nulo — nada a perguntar. */
-export function fraseDosQuestionamentos(numero: number, faltas: ReadonlyArray<{ codigo_do_motor: string; frase: string; esquadria: number }>): string | null {
+export function fraseDosQuestionamentos(numero: number | string, faltas: ReadonlyArray<{ codigo_do_motor: string; frase: string; esquadria: number }>): string | null {
     if (faltas.length === 0) return null
     const { codigos, linhas } = linhasDasFaltas(faltas)
     return [`O orçamento ${numero} saiu PARCIAL — ${codigos > 1 ? `faltam ${codigos} valores` : 'falta 1 valor'}. Para completar, preciso de:`, ...linhas].join('\n')
@@ -343,7 +392,7 @@ function linhasDasFaltas(faltas: ReadonlyArray<{ codigo_do_motor: string; frase:
  * O PARCIAL que CONTINUA no "sim" sem mudança (dono do produto, 13/11/2026): nada é recalculado, o arquivo vai de novo, e o que continua
  * faltando vai NOMEADO — nunca o "já está atualizado" seco, que esconde a razão.
  */
-export function fraseDoParcialQueContinua(numero: number, faltas: ReadonlyArray<{ codigo_do_motor: string; frase: string; esquadria: number }>, recusas: readonly string[] = []): string {
+export function fraseDoParcialQueContinua(numero: number | string, faltas: ReadonlyArray<{ codigo_do_motor: string; frase: string; esquadria: number }>, recusas: readonly string[] = []): string {
     const { codigos, linhas } = linhasDasFaltas(faltas)
     const quantos = codigos > 1 ? `${codigos} valores continuam` : '1 valor continua'
     return [
@@ -352,17 +401,75 @@ export function fraseDoParcialQueContinua(numero: number, faltas: ReadonlyArray<
         ['Para completar, preciso de:', ...linhas].join('\n'),
     ].join('\n')
 }
+/**
+ * O "SIM" DA CONVERSA, UM ORÇAMENTO POR FAMÍLIA (dono do produto, 23/11/2026): cada família do levantamento percorre a cadeia de sempre — criar
+ * ou atualizar, calcular, precificar e mandar o arquivo DELA — e a resposta junta as das famílias, na ordem. Com uma família só, a resposta é
+ * exatamente a de antes.
+ */
 export async function atravessarNoSim(tenantId: string, levantamentoId: string, etapaDoPreco: EtapaDoPrecoNoSim, reenviar?: ReenvioNoSim): Promise<ResultadoDoSim> {
+    let lido: Awaited<ReturnType<typeof familiasDoLevantamento>>
+    try {
+        lido = await familiasDoLevantamento(tenantId, levantamentoId)
+    } catch (e) {
+        return recusaDaTravessia(e)
+    }
+    // a sigla de cada família, para o NÚMERO EXIBIDO nos textos (23/11/2026); sem ela, vale o número próprio do orçamento
+    let siglas: Map<string, string>
+    try {
+        siglas = await siglasDasFamilias(lido.grupos.map((x) => x.familia))
+    } catch {
+        siglas = new Map()
+    }
+    const resultados: Array<{ familia: string; r: ResultadoDoSim }> = []
+    for (const g of lido.grupos) {
+        const familiaDoOrcamento = g.existente ? g.existente.familia : g.familia
+        const exibido = (numero: number) => numeroExibido({ numero, levantamentoNumero: lido.lev.numero, sigla: familiaDoOrcamento ? siglas.get(familiaDoOrcamento) ?? null : null })
+        resultados.push({ familia: g.familia, r: await simDaFamilia(tenantId, levantamentoId, lido.lev, g, lido.grupos.map((x) => x.familia), etapaDoPreco, exibido, reenviar) })
+    }
+    return juntarResultados(resultados)
+}
+
+/** As respostas das famílias juntas: uma só, intacta; várias, cada texto em bloco e o rastro com a família de cada um. */
+export function juntarResultados(resultados: ReadonlyArray<{ familia: string; r: ResultadoDoSim }>): ResultadoDoSim {
+    if (resultados.length === 1) return resultados[0].r
+    const textos = (f: (r: ResultadoDoSim) => string | null | undefined) => {
+        const xs = resultados.map((x) => f(x.r)).filter((t): t is string => typeof t === 'string' && t.trim() !== '')
+        return xs.length ? xs.join('\n\n') : null
+    }
+    const enviado = resultados.find((x) => x.r.enviadoPara)
+    const questionamentos = textos((r) => r.questionamentos)
+    const aviso = textos((r) => r.aviso)
+    return {
+        rastro: resultados.map((x) => `familia=${x.familia} ${x.r.rastro}`).join(' | '),
+        paraOVendedor: textos((r) => r.paraOVendedor),
+        ...(enviado ? { enviadoPara: enviado.r.enviadoPara, idDoEnvio: enviado.r.idDoEnvio ?? null } : {}),
+        ...(questionamentos ? { questionamentos } : {}),
+        ...(aviso ? { aviso } : {}),
+    }
+}
+
+function recusaDaTravessia(e: unknown, exibido: (numero: number) => string | number = (x) => x): ResultadoDoSim {
+    if (e instanceof ErroOrcamentoArquivado) return { rastro: `orcamento=${e.orcamentoNumero} atualizacao=arquivado parou=travessia`, paraOVendedor: fraseDoOrcamentoArquivado(exibido(e.orcamentoNumero)) }
+    if (e instanceof ErroDaTravessia) {
+        return { rastro: `recusou=${e.recusas.length} parou=travessia`, paraOVendedor: naoChegou(null, `o levantamento não passou para o orçamento. Falta: ${e.recusas.join('; ')}. Corrija isso no levantamento: o arquivo volta para você conferir, e o "sim" faz o orçamento`) }
+    }
+    return { rastro: `falhou parou=travessia motivo="${motivoDoLog(e)}"`, paraOVendedor: naoChegou(null, 'a passagem do levantamento para o orçamento falhou. Para tentar de novo, diga o nome do levantamento: o arquivo volta para você conferir, e o "sim" faz o orçamento') }
+}
+
+type GrupoDoLevantamento = Awaited<ReturnType<typeof familiasDoLevantamento>>['grupos'][number]
+async function simDaFamilia(
+    tenantId: string, levantamentoId: string, lev: LevantamentoNaTravessia, g: GrupoDoLevantamento, familias: readonly string[],
+    etapaDoPreco: EtapaDoPrecoNoSim, exibido: (numero: number) => string, reenviar?: ReenvioNoSim,
+): Promise<ResultadoDoSim> {
     let r: ResultadoDaTravessia
     let atualizacao: ResultadoDaAtualizacao | null = null
     let parcial: FaltaDoParcial | null = null
     try {
-        try {
-            r = await atravessarLevantamento(tenantId, levantamentoId)
-        } catch (e) {
-            if (!(e instanceof ErroJaAtravessado)) throw e
+        if (!g.existente || g.existente.itens === 0) {
+            r = await criarOuRetomar(tenantId, levantamentoId, lev, g.familia, g.plano, g.existente, familias)
+        } else {
             // O ORÇAMENTO N JÁ EXISTE: a parada de antes é o caminho da ATUALIZAÇÃO, com o mesmo número (13/11/2026)
-            atualizacao = await atualizarOrcamento(tenantId, levantamentoId, e.orcamentoId)
+            atualizacao = await atualizarOrcamento(tenantId, levantamentoId, g.existente.id)
             const a = atualizacao
             if (a.semMudanca && reenviar) {
                 // SEM MUDANÇA: o COMPLETO é fotografia — nada recalculado, nada gerado, o arquivo que existe vai de novo. O PARCIAL cujas faltas
@@ -377,20 +484,20 @@ export async function atravessarNoSim(tenantId: string, levantamentoId: string, 
                         return {
                             rastro: `orcamento=${a.orcamento.numero} atualizacao=sem_mudanca${p ? ` parcial=continua faltas_de_preco=${p.continuam.length}/${p.nomeadas}` : ''} ${env.rastro}`,
                             paraOVendedor: env.paraOVendedor,
-                            aviso: p ? fraseDoParcialQueContinua(a.orcamento.numero, p.continuam, p.recusas) : fraseDoOrcamentoJaAtualizado(a.orcamento.numero),
+                            aviso: p ? fraseDoParcialQueContinua(exibido(a.orcamento.numero), p.continuam, p.recusas) : fraseDoOrcamentoJaAtualizado(exibido(a.orcamento.numero)),
                             ...(env.enviadoPara ? { enviadoPara: env.enviadoPara, idDoEnvio: env.idDoEnvio ?? null } : {}),
                         }
                     }
                 }
             }
-            r = { orcamento: { id: a.orcamento.id, numero: a.orcamento.numero }, itens: a.itens, faltas: [], retomada: false, origens: a.origens }
+            r = { orcamento: { id: a.orcamento.id, numero: a.orcamento.numero }, familia: g.familia, itens: a.itens, faltas: [], retomada: false, origens: a.origens }
         }
     } catch (e) {
-        if (e instanceof ErroOrcamentoArquivado) return { rastro: `orcamento=${e.orcamentoNumero} atualizacao=arquivado parou=travessia`, paraOVendedor: fraseDoOrcamentoArquivado(e.orcamentoNumero) }
-        if (e instanceof ErroDaTravessia) {
-            return { rastro: `recusou=${e.recusas.length} parou=travessia`, paraOVendedor: naoChegou(null, `o levantamento não passou para o orçamento. Falta: ${e.recusas.join('; ')}. Corrija isso no levantamento: o arquivo volta para você conferir, e o "sim" faz o orçamento`) }
+        if (e instanceof ErroJaAtravessado) {
+            // a corrida: outra travessia criou o desta família no meio — o "sim" seguinte o atualiza
+            return { rastro: `orcamento=${e.orcamentoNumero} atravessado_em_paralelo parou=travessia`, paraOVendedor: naoChegou(null, `o orçamento ${exibido(e.orcamentoNumero)} acabou de ser criado por outro caminho. Diga "sim" de novo para ele seguir`) }
         }
-        return { rastro: `falhou parou=travessia motivo="${motivoDoLog(e)}"`, paraOVendedor: naoChegou(null, 'a passagem do levantamento para o orçamento falhou. Para tentar de novo, diga o nome do levantamento: o arquivo volta para você conferir, e o "sim" faz o orçamento') }
+        return recusaDaTravessia(e, exibido)
     }
     const origens = PERCENTUAIS_COM_ZERO.map((p) => `${ROTULO_NO_LOG[p]}:${r.origens[p]}`).join(',')
     const doAtualizado = atualizacao
@@ -398,16 +505,17 @@ export async function atravessarNoSim(tenantId: string, levantamentoId: string, 
         : ''
     const travessia = `orcamento=${r.orcamento.numero} itens=${r.itens} faltas=${r.faltas.length}${r.retomada ? ' retomada=sim' : ''}${doAtualizado} origens=${origens}`
     // a EDIÇÃO MANUAL substituída é dita, em todo desfecho daqui para frente (13/11/2026: "Nunca em silêncio")
-    const comAviso = <T extends ResultadoDoSim>(x: T): T => (atualizacao?.edicaoManualSubstituida ? { ...x, aviso: fraseDaEdicaoManualSubstituida(atualizacao.orcamento.numero) } : x)
+    const comAviso = <T extends ResultadoDoSim>(x: T): T => (atualizacao?.edicaoManualSubstituida ? { ...x, aviso: fraseDaEdicaoManualSubstituida(exibido(atualizacao.orcamento.numero)) } : x)
+    const n = exibido(r.orcamento.numero)
     let doCalculo: string
     let questionamentos: string | null = null
     try {
         const c = await calcularOrcamento(tenantId, r.orcamento.id)
         doCalculo = `${travessia} calculo=ok liquido=${c.valor_total_liquido.toFixed(2)}${c.parcial ? ` parcial=sim faltas_de_preco=${c.faltas.length}` : ''}`
-        questionamentos = fraseDosQuestionamentos(r.orcamento.numero, c.faltas)
+        questionamentos = fraseDosQuestionamentos(n, c.faltas)
     } catch (e) {
-        if (e instanceof ErroDoCalculo) return comAviso({ rastro: `${travessia} calculo=recusou recusas=${e.recusas.length} parou=calculo motivo="${e.recusas.join(' | ').slice(0, 120)}"`, paraOVendedor: naoChegou(null, `o cálculo do orçamento ${r.orcamento.numero} recusou. Falta: ${e.recusas.join('; ')}. Com isso cadastrado, abra o orçamento ${r.orcamento.numero} na seção Orçamentos I.A. e use Calcular`) })
-        return comAviso({ rastro: `${travessia} calculo=falhou parou=calculo motivo="${motivoDoLog(e)}"`, paraOVendedor: naoChegou(null, `o cálculo do orçamento ${r.orcamento.numero} falhou. Para tentar de novo, abra o orçamento ${r.orcamento.numero} na seção Orçamentos I.A. e use Calcular`) })
+        if (e instanceof ErroDoCalculo) return comAviso({ rastro: `${travessia} calculo=recusou recusas=${e.recusas.length} parou=calculo motivo="${e.recusas.join(' | ').slice(0, 120)}"`, paraOVendedor: naoChegou(null, `o cálculo do orçamento ${n} recusou. Falta: ${e.recusas.join('; ')}. Com isso cadastrado, abra o orçamento ${n} na seção Orçamentos I.A. e use Calcular`) })
+        return comAviso({ rastro: `${travessia} calculo=falhou parou=calculo motivo="${motivoDoLog(e)}"`, paraOVendedor: naoChegou(null, `o cálculo do orçamento ${n} falhou. Para tentar de novo, abra o orçamento ${n} na seção Orçamentos I.A. e use Calcular`) })
     }
     try {
         const etapa = await etapaDoPreco(r.orcamento.id)
@@ -416,7 +524,7 @@ export async function atravessarNoSim(tenantId: string, levantamentoId: string, 
             ...(etapa.enviadoPara ? { enviadoPara: etapa.enviadoPara, idDoEnvio: etapa.idDoEnvio ?? null } : {}), ...(questionamentos ? { questionamentos } : {}),
         })
     } catch (e) {
-        return comAviso({ rastro: `${doCalculo} precificacao=falhou parou=precificacao motivo="${motivoDoLog(e)}"`, paraOVendedor: naoChegou(null, `a precificação do orçamento ${r.orcamento.numero} falhou. Para tentar de novo, abra o orçamento ${r.orcamento.numero} na seção Orçamentos I.A. e use Precificar`) })
+        return comAviso({ rastro: `${doCalculo} precificacao=falhou parou=precificacao motivo="${motivoDoLog(e)}"`, paraOVendedor: naoChegou(null, `a precificação do orçamento ${n} falhou. Para tentar de novo, abra o orçamento ${n} na seção Orçamentos I.A. e use Precificar`) })
     }
 }
 const ROTULO_NO_LOG: Readonly<Record<PercentualComZero, string>> = { comissao_percentual: 'comissao', reserva_tecnica_percentual: 'rt', lucro_projetado_percentual: 'lucro' }

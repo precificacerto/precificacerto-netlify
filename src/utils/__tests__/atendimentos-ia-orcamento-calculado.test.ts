@@ -13,7 +13,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 
 type Linha = Record<string, unknown>
-interface Operacao { tabela: string; op: string; carga?: unknown; filtros: [string, string, unknown][] }
+interface Operacao { tabela: string; op: string; carga?: unknown; filtros: [string, string, unknown][]; colunas?: string | null }
 
 const T = 'tenant-da-conta'
 const OUTRO = 'tenant-de-outra-conta'
@@ -36,7 +36,7 @@ const estado = {
 }
 
 function executar(tabela: string, op: string, carga: unknown, filtros: [string, string, unknown][], colunas: string | null, ordem: [string, boolean] | null) {
-    estado.ops.push({ tabela, op, carga, filtros })
+    estado.ops.push({ tabela, op, carga, filtros, colunas })
     const erro = estado.erros[`${tabela}:${op}`]?.shift()
     if (erro) return { data: null as unknown, error: erro }
     const linhas = (estado.db[tabela] ??= [])
@@ -232,7 +232,9 @@ describe('(1) a ordem da escrita e o que cada passo grava', () => {
         })
         // regravá-los do levantamento devolvia o nulo que a regra do zero resolveu e apagava a alteração feita no orçamento
         for (const c of ['comissao_percentual', 'comissao_modo', 'reserva_tecnica_percentual', 'reserva_tecnica_responsavel', 'lucro_projetado_percentual']) expect(Object.keys(carga)).not.toContain(c)
-        expect(estado.ops.some((o) => o.tabela === 'orcamentista_levantamento')).toBe(false)
+        // do levantamento, só o NÚMERO (para o número exibido do orçamento, 23/11/2026): nenhuma escrita e nenhum percentual relido
+        expect(estado.ops.filter((o) => o.tabela === 'orcamentista_levantamento').map((o) => [o.op, o.colunas])).toEqual(
+            estado.ops.filter((o) => o.tabela === 'orcamentista_levantamento').map(() => ['select', 'id, numero']))
         expect('valor_venda' in carga).toBe(false)
         expect('editado_manualmente_em' in carga).toBe(false)
     })

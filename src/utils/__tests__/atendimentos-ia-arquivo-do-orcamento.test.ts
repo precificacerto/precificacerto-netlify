@@ -41,7 +41,7 @@ const rateio = () => {
 const dados = (extra: Partial<DadosDoArquivoDoOrcamento> = {}): DadosDoArquivoDoOrcamento => ({
     empresa: { razaoSocial: 'ESQUADRIAS DE PAULA LTDA', endereco: 'Rua das Flores, 100', cidadeUf: 'Porto Alegre/RS', cep: '90000-000', telefone: null, telefone2: null,
         cnpj: '12.345.678/0001-90', ie: '0960000000', site: null, email: null, logo: null },
-    numero: 1, vendedor: 'Cristiano Fernandes', contato: null, emailDoVendedor: 'cristiano@exemplo.com',
+    numero: 1, numeroExibido: '1', vendedor: 'Cristiano Fernandes', contato: null, emailDoVendedor: 'cristiano@exemplo.com',
     cliente: { nome: 'Geraldo Huck', telFixo: null, celular: '(51) 99999-0000', email: null, tel2: null, endereco: 'Porto Alegre', ieRg: null, cep: null, cnpjCpf: null },
     dataEntrega: null, itens: ITENS, observacoesGerais: null, condicoesComerciais: null, operacaoInterna: INTERNA, valorVenda: INTERNA, rateio: rateio(), faltas: [],
     geradoEm: new Date('2026-11-11T15:30:00Z'), ...extra,
@@ -103,7 +103,7 @@ describe('o dinheiro: o rateio exato, e nada que não é do cliente', () => {
     })
     it('o tipo dos dados nem carrega custo, margem ou imposto (a fixture tem só o que o cliente vê)', () => {
         const campos = Object.keys(dados()).sort()
-        expect(campos).toEqual(['cliente', 'condicoesComerciais', 'contato', 'dataEntrega', 'emailDoVendedor', 'empresa', 'faltas', 'geradoEm', 'itens', 'numero', 'observacoesGerais',
+        expect(campos).toEqual(['cliente', 'condicoesComerciais', 'contato', 'dataEntrega', 'emailDoVendedor', 'empresa', 'faltas', 'geradoEm', 'itens', 'numero', 'numeroExibido', 'observacoesGerais',
             'operacaoInterna', 'rateio', 'valorVenda', 'vendedor'])
     })
 })
@@ -260,6 +260,14 @@ describe('determinismo e paginação', () => {
         expect(Buffer.from(gerar().pdf).equals(Buffer.from(gerar().pdf))).toBe(true)
         expect(nomeDoArquivo(1151, 'Ana / Bia: "obra"')).toBe('Orcamento 1151 - Ana Bia obra .pdf'.replace(' .pdf', '.pdf'))
     })
+    it('o NÚMERO EXIBIDO (23/11/2026): o do orçamento por família vai no campo Número, no título e no nome do arquivo — o próprio fica de identidade', () => {
+        const r = gerarArquivoDoOrcamento(dados({ numero: 12, numeroExibido: '27-PVC' }))
+        if (!r.ok) throw new Error((r as { recusas: string[] }).recusas.join(' | '))
+        expect(r.nomeDoArquivo).toBe('Orcamento 27-PVC - Geraldo Huck.pdf')
+        const t = textoDoPdf(r.pdf)
+        expect(t[t.indexOf('Número:') + 1]).toBe('27-PVC')
+        expect(cru(r.pdf).replace(/\0/g, '')).toContain('/Title (þÿOrçamento 27-PVC')
+    })
     it('muitos itens: mais de uma página, numeradas, e o fecho na última', () => {
         const muitos = Array.from({ length: 14 }, (_, k) => item(k + 1))
         const r = ratearOperacaoInterna(14000, muitos.map((i) => ({ ordem: i.ordem, quantidade: 1, peso: 1 })))
@@ -341,8 +349,8 @@ describe('O ARQUIVO VAI AO VENDEDOR (12/11/2026, o comando único)', () => {
     })
     it('1.5 — a GUARDA do envio ao cliente está escrita e DESLIGADA: ligada, o parcial não vai ao cliente', () => {
         expect(GUARDA_DO_ENVIO_AO_CLIENTE_LIGADA).toBe(false)
-        expect(recusaDoEnvioAoCliente({ numero: 7, faltas: FALTAS })).toBeNull()
-        expect(recusaDoEnvioAoCliente({ numero: 7, faltas: FALTAS }, true)).toBe('o orçamento 7 está PARCIAL (faltam 2 valores): ele vai ao vendedor, não ao cliente, até as faltas serem resolvidas')
-        expect(recusaDoEnvioAoCliente({ numero: 7, faltas: [] }, true)).toBeNull()
+        expect(recusaDoEnvioAoCliente({ numeroExibido: '7', faltas: FALTAS })).toBeNull()
+        expect(recusaDoEnvioAoCliente({ numeroExibido: '7', faltas: FALTAS }, true)).toBe('o orçamento 7 está PARCIAL (faltam 2 valores): ele vai ao vendedor, não ao cliente, até as faltas serem resolvidas')
+        expect(recusaDoEnvioAoCliente({ numeroExibido: '7', faltas: [] }, true)).toBeNull()
     })
 })

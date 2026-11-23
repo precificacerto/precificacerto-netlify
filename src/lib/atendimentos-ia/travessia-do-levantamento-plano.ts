@@ -220,6 +220,43 @@ export function planoDaTravessia(lev: LevantamentoNaTravessia, itens: readonly I
     }
 }
 
+// ── UM ORÇAMENTO POR FAMÍLIA (dono do produto, 23/11/2026; migração 20261123000002) ──────────────────────────────────────────────
+/**
+ * Os itens do plano separados pela FAMÍLIA de cada um (a do item do levantamento), na ordem do primeiro item de cada família. O item sem
+ * família é recusa nomeada — nunca vai para a família de outro. A ordem do item é a do levantamento (o "item 3" da conversa continua o 3).
+ */
+export const fraseDoItemSemFamilia = (ordens: readonly number[]) =>
+    `a família ${ordens.length > 1 ? `dos itens ${ordens.join(', ')}` : `do item ${ordens[0]}`} do levantamento: sem ela não sei a qual orçamento ${ordens.length > 1 ? 'eles vão' : 'ele vai'}`
+export function separarPorFamilia(itens: readonly ItemDaTravessia[], familias: ReadonlyMap<string, string | null>):
+    { grupos: Array<{ familia: string; itens: ItemDaTravessia[] }> } | { recusas: string[] } {
+    const semFamilia = itens.filter((i) => (familias.get(String(i.levantamento_item_id)) ?? null) === null).map((i) => i.ordem)
+    if (semFamilia.length) return { recusas: [fraseDoItemSemFamilia(semFamilia)] }
+    const grupos = new Map<string, ItemDaTravessia[]>()
+    for (const i of [...itens].sort((a, b) => a.ordem - b.ordem)) {
+        const f = familias.get(String(i.levantamento_item_id)) as string
+        grupos.set(f, [...(grupos.get(f) ?? []), i])
+    }
+    return { grupos: [...grupos.entries()].map(([familia, xs]) => ({ familia, itens: xs })) }
+}
+
+export type OrcamentoExistente = { id: string; numero: number; familia: string | null; itens: number }
+/** O orçamento de antes (sem família) num levantamento de mais de uma família: não escolho de qual família ele é. */
+export const fraseDoOrcamentoDeAntes = (numero: number, familias: readonly string[]) =>
+    `o orçamento ${numero} é de antes do orçamento por família, e o levantamento agora tem mais de uma família (${familias.join(', ')}): arquive-o na seção Orçamentos I.A. para que cada família ganhe o seu`
+/**
+ * O orçamento que já existe para a família `familia` do levantamento: o dela; senão o de ANTES (família nula), só quando o levantamento tem
+ * uma família só — é ele, como sempre foi. Com mais de uma família, o de antes é recusa nomeada. Nenhum: nulo (a travessia cria).
+ */
+export function orcamentoDaFamilia(existentes: readonly OrcamentoExistente[], familia: string, familiasDoLevantamento: readonly string[]):
+    OrcamentoExistente | null | { recusa: string } {
+    const dela = existentes.find((o) => o.familia === familia)
+    if (dela) return dela
+    const deAntes = existentes.find((o) => o.familia === null)
+    if (!deAntes) return null
+    if (familiasDoLevantamento.length === 1) return deAntes
+    return { recusa: fraseDoOrcamentoDeAntes(deAntes.numero, familiasDoLevantamento) }
+}
+
 /** O cliente e o vendedor do orçamento do agente, LIDOS do levantamento de origem (não são copiados — decisão de 10/11/2026). */
 export type ClienteDoLevantamento = {
     levantamento_numero: number

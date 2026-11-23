@@ -7314,7 +7314,7 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         llmResponde({ nome: 'Ana' })
         await chamar('me manda o orçamento da Ana')
         const lista = R.ordemDoOrcamento([orcamentoDe('Ana Souza'), orcamentoDe('Ana Lima')].map((o) => ({
-            orcamentoId: String(o.id), levantamentoId: String(o.levantamento_id), numero: Number(o.numero), nome: String(o.nome), criado_em: String(o.criado_em),
+            orcamentoId: String(o.id), levantamentoId: String(o.levantamento_id), numero: Number(o.numero), numeroExibido: String(o.numero), nome: String(o.nome), criado_em: String(o.criado_em),
             cidade: o.levantamento_id === levantamentoDe('Ana Souza').id ? 'Sapiranga' : 'Novo Hamburgo', valor: Number(o.valor_venda), familias: ['PVC'],
         })))
         expect(ultimoEnviado()).toBe(R.fraseDeQualOrcamento('Ana', lista))
@@ -7327,6 +7327,44 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         expect(estado.documentosDoOrcamento).toHaveLength(documentos + 1)
         expect(linhaIa().pop()).toContain(`levantamento=${lista[1].levantamentoId} rota=ORCAMENTO`)
         expect(estado.db.orcamentista_pergunta_em_aberto ?? []).toEqual([])
+    })
+
+    it('UM ORÇAMENTO POR FAMÍLIA (23/11/2026): o levantamento com dois orçamentos lista os dois, com o número exibido e a família — e "o 2" manda o da segunda', async () => {
+        await fecharDp02('Ana Souza')
+        const pvc = orcamentoDe('Ana Souza')
+        pvc.familia = 'PVC'
+        const alu: Linha = { ...pvc, id: 'orc-alu', numero: Number(pvc.numero) + 1, familia: 'ALUMINIO', criado_em: new Date(new Date(String(pvc.criado_em)).getTime() + 1000).toISOString() }
+        ;(estado.db.orcamentista_orcamento as Linha[]).push(alu)
+        const arquivoDoPvc = (estado.db.orcamentista_orcamento_arquivo as Linha[]).find((a) => a.orcamento_id === pvc.id) as Linha
+        ;(estado.db.orcamentista_orcamento_arquivo as Linha[]).push({ ...arquivoDoPvc, id: 'arq-alu', orcamento_id: 'orc-alu' })
+        estado.db.orcamentista_familia_catalogo = [{ chave: 'PVC', rotulo: 'PVC Wolf', sigla: 'PVC' }, { chave: 'ALUMINIO', rotulo: 'Alumínio', sigla: 'ALU' }]
+        const lev = levantamentoDe('Ana Souza')
+        llmResponde({ nome: 'Ana Souza' })
+        await chamar('me manda o orçamento da Ana Souza')
+        expect(ultimoEnviado()).toContain(`1) Ana Souza, nº ${lev.numero}-ALU`)
+        expect(ultimoEnviado()).toContain(`2) Ana Souza, nº ${lev.numero}-PVC`)
+        expect(ultimoEnviado()).toContain('Alumínio')
+        expect((estado.db.orcamentista_pergunta_em_aberto as Linha[])[0]).toEqual(expect.objectContaining({ pergunta: 'QUAL_ORCAMENTO', levantamentos: [lev.id, lev.id] }))
+        const documentos = estado.documentosDoOrcamento.length
+        llmResponde({ opcao: 2 })
+        await chamar('o segundo')
+        expect(estado.documentosDoOrcamento).toHaveLength(documentos + 1)
+        // o arquivo que foi é o do PVC (o segundo da lista), pelo nome do arquivo com o número exibido
+        expect(estado.documentosDoOrcamento[estado.documentosDoOrcamento.length - 1].corpo.FileName).toBe(`Orcamento ${lev.numero}-PVC - Ana Souza.pdf`)
+    })
+
+    it('UM ORÇAMENTO POR FAMÍLIA: a família nova criada depois da pergunta ANULA a lista guardada — a posição mandaria o orçamento de outra família', async () => {
+        await fecharDp02('Ana Souza')
+        await fecharDp02('Ana Lima')
+        llmResponde({ nome: 'Ana' })
+        await chamar('me manda o orçamento da Ana')
+        expect((estado.db.orcamentista_pergunta_em_aberto as Linha[])[0]).toEqual(expect.objectContaining({ pergunta: 'QUAL_ORCAMENTO' }))
+        const souza = orcamentoDe('Ana Souza')
+        ;(estado.db.orcamentista_orcamento as Linha[]).push({ ...souza, id: 'orc-novo', numero: 99, familia: 'ALUMINIO' })
+        const documentos = estado.documentosDoOrcamento.length
+        llmResponde({ opcao: 2 })
+        await chamar('o segundo')
+        expect(estado.documentosDoOrcamento).toHaveLength(documentos)
     })
 
     it('só entram orçamentos COM VALOR e NÃO ARQUIVADOS: o sem valor e o arquivado ficam fora, e o que sobra vai sozinho', async () => {
@@ -7418,6 +7456,41 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         await chamar('sim')
         expect(estado.documentosDoOrcamento).toHaveLength(3)
         expect((estado.db.orcamentista_pergunta_em_aberto ?? []) as Linha[]).toEqual([])
+    })
+    it('UM ORÇAMENTO POR FAMÍLIA (23/11/2026): com a alteração esperando o "sim", o pedido traz TODOS os orçamentos do levantamento — um arquivo por família — e a confirmação continua em aberto', async () => {
+        await fecharDp02('Daiane Pilger')
+        const pvc = ((estado.db.orcamentista_orcamento ?? []) as Linha[])[0]
+        pvc.familia = 'PVC'
+        ;(estado.db.orcamentista_orcamento as Linha[]).push({ ...pvc, id: 'orc-alu', numero: Number(pvc.numero) + 1, familia: 'ALUMINIO', criado_em: new Date(new Date(String(pvc.criado_em)).getTime() + 1000).toISOString() })
+        const arquivoDoPvc = (estado.db.orcamentista_orcamento_arquivo as Linha[]).find((a) => a.orcamento_id === pvc.id) as Linha
+        ;(estado.db.orcamentista_orcamento_arquivo as Linha[]).push({ ...arquivoDoPvc, id: 'arq-alu', orcamento_id: 'orc-alu' })
+        estado.db.orcamentista_familia_catalogo = [{ chave: 'PVC', rotulo: 'PVC Wolf', sigla: 'PVC' }, { chave: 'ALUMINIO', rotulo: 'Alumínio', sigla: 'ALU' }]
+        const lev = levantamentos().find((l) => l.nome === 'Daiane Pilger') as Linha
+        llmResponde({ nome: 'Daiane Pilger', itens: [{ ...DP02, quantidade: 2 }] })
+        await chamar('Daiane Pilger: a DP-02 1200 x 1000 são 2 unidades, branco, temperado 5mm')
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Daiane Pilger')).toBe(true)
+        const documentos = estado.documentosDoOrcamento.length
+        llmResponde({ nome: 'daiane pilger' })
+        await chamar('Quero o orcamento daiane pilger')
+        expect(estado.documentosDoOrcamento.slice(documentos).map((d) => d.corpo.FileName).sort()).toEqual([`Orcamento ${lev.numero}-ALU - Daiane Pilger.pdf`, `Orcamento ${lev.numero}-PVC - Daiane Pilger.pdf`])
+        expect(ultimoEnviado()).toBe(conversa.FRASE_ALTERACAO_FORA_DO_ORCAMENTO)
+        expect((estado.db.orcamentista_pergunta_em_aberto ?? []) as Linha[]).toEqual([expect.objectContaining({ pergunta: 'CONFIRMAR_APANHADO' })])
+    })
+    it('UM ORÇAMENTO POR FAMÍLIA: o orçamento de uma família SEM arquivo é dito junto do aviso da alteração — nunca calado', async () => {
+        await fecharDp02('Daiane Pilger')
+        const pvc = ((estado.db.orcamentista_orcamento ?? []) as Linha[])[0]
+        pvc.familia = 'PVC'
+        ;(estado.db.orcamentista_orcamento as Linha[]).push({ ...pvc, id: 'orc-alu', numero: Number(pvc.numero) + 1, familia: 'ALUMINIO', criado_em: new Date(new Date(String(pvc.criado_em)).getTime() + 1000).toISOString() })
+        // o do ALU é o mais recente (vai primeiro) e não tem arquivo; o do PVC, o último, vai
+        estado.db.orcamentista_familia_catalogo = [{ chave: 'PVC', rotulo: 'PVC Wolf', sigla: 'PVC' }, { chave: 'ALUMINIO', rotulo: 'Alumínio', sigla: 'ALU' }]
+        const lev = levantamentos().find((l) => l.nome === 'Daiane Pilger') as Linha
+        llmResponde({ nome: 'Daiane Pilger', itens: [{ ...DP02, quantidade: 2 }] })
+        await chamar('Daiane Pilger: a DP-02 1200 x 1000 são 2 unidades, branco, temperado 5mm')
+        llmResponde({ nome: 'daiane pilger' })
+        await chamar('Quero o orcamento daiane pilger')
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const R = require('@/lib/atendimentos-ia/resgate-do-orcamento') as typeof import('@/lib/atendimentos-ia/resgate-do-orcamento')
+        expect(ultimoEnviado()).toBe(`${R.fraseDoOrcamentoSemArquivo(`${lev.numero}-ALU`, 'Daiane Pilger')}\n\n${conversa.FRASE_ALTERACAO_FORA_DO_ORCAMENTO}`)
     })
     it('sem alteração esperando o "sim", o orçamento existente vai SÓ como arquivo — sem a linha da alteração', async () => {
         await fecharDp02('Daiane Pilger')

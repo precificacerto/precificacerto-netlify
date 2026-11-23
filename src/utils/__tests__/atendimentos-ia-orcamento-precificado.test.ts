@@ -245,7 +245,9 @@ describe('(4) a rota da precificação', () => {
         expect(o.comissao_percentual).toBe(5)
         expect(o.valor_total_liquido).toBe(745)
         expect((o.itens as Linha[])[0].custo_liquido_materiais).toBe(700)
-        expect(doOrcamento().length).toBe(2)
+        // o orçamento, os itens e o NÚMERO EXIBIDO (23/11/2026, relido pelo id): três leituras, nenhuma escrita
+        expect(doOrcamento().map((x) => x.op)).toEqual(['select', 'select', 'select'])
+        expect(o.numero_exibido).toBe(String(o.numero))
         // e os itens como o arquivo os mostra (a faixa antes do salvar)
         expect(r.corpo.itens_do_arquivo).toEqual([{ ordem: 1, quantidade: 1 }])
         // e o TOPO: o cliente do levantamento, com os campos sem dado nulos (a tela os mostra em branco) — 11/11/2026

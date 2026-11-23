@@ -25,7 +25,9 @@ const LEV_OUTRO = '10000000-0000-4000-8000-000000000099'
 
 const estado = { db: {} as Record<string, Linha[]>, ops: [] as Operacao[], erros: {} as Record<string, Array<{ code: string; message: string }>>,
     /** roda no instante do INSERT no orçamento: o outro chamador que gravou entre a leitura e o INSERT deste */
-    antesDoInsert: null as null | (() => void) }
+    antesDoInsert: null as null | (() => void),
+    /** o índice de antes (um orçamento por levantamento) ainda no banco: até a 20261123000003 */
+    indiceDeAntes: true }
 let seq = 0
 function executar(tabela: string, op: string, carga: unknown, filtros: [string, string, unknown][], colunas: string | null, ordem: [string, boolean] | null, limite: number | null) {
     estado.ops.push({ tabela, op, carga, filtros })
@@ -45,9 +47,12 @@ function executar(tabela: string, op: string, carga: unknown, filtros: [string, 
     if (op === 'delete') { estado.db[tabela] = linhas.filter((l) => !casa(l)); return { data: null, error: null } }
     if (op === 'insert' && tabela === 'orcamentista_orcamento' && estado.antesDoInsert) { const f = estado.antesDoInsert; estado.antesDoInsert = null; f() }
     const novas = ((Array.isArray(carga) ? carga : [carga]) as Linha[]).map((l): Linha => ({ id: `novo-${++seq}`, ...l }))
-    // o índice parcial do banco: um orçamento por levantamento
-    if (tabela === 'orcamentista_orcamento' && novas.some((n) => n.levantamento_id && linhas.some((l) => l.levantamento_id === n.levantamento_id))) {
+    // os índices parciais do banco: o de antes (um por levantamento), enquanto a 20261123000003 não sai, e o novo (um por levantamento E família)
+    if (tabela === 'orcamentista_orcamento' && estado.indiceDeAntes && novas.some((n) => n.levantamento_id && linhas.some((l) => l.levantamento_id === n.levantamento_id))) {
         return { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "orcamentista_orcamento_um_por_levantamento"' } }
+    }
+    if (tabela === 'orcamentista_orcamento' && novas.some((n) => n.levantamento_id && linhas.some((l) => l.levantamento_id === n.levantamento_id && (l.familia ?? '') === (n.familia ?? '')))) {
+        return { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "orcamentista_orcamento_um_por_familia"' } }
     }
     // a UNIQUE (tenant_id, numero) do banco
     if (tabela === 'orcamentista_orcamento' && novas.some((n) => linhas.some((l) => l.tenant_id === n.tenant_id && l.numero === n.numero))) {
@@ -112,7 +117,7 @@ jest.mock('@/lib/atendimentos-ia/orcamento-calculado', () => {
 import {
     atravessarLevantamento, atravessarNoSim, aproveitamentoDaTravessia, ErroDaTravessia, ErroJaAtravessado, faltasDoCongelado, faltasDoOrcamento, fraseDosQuestionamentos,
     fraseJaAtravessado, fraseNaoCompleto, fraseSemItens, fraseSemQuantidade, lerClienteDoLevantamento, levantamentosParaAtravessar, planoDaTravessia,
-    FALTA_DO_MODO_DA_COMISSAO, origemNaTela, percentuaisDoOrcamento, resolverPercentual,
+    FALTA_DO_MODO_DA_COMISSAO, fraseDoIndiceDeAntes, fraseDoItemSemFamilia, fraseDoOrcamentoDeAntes, juntarResultados, origemNaTela, percentuaisDoOrcamento, resolverPercentual,
     type ItemDoLevantamentoNaTravessia, type LevantamentoNaTravessia,
 } from '@/lib/atendimentos-ia/travessia-do-levantamento'
 import { ErroNaoEncontrado, LIMITE_DO_NOME as LIMITE_DO_NOME_DO_ORCAMENTO } from '@/lib/atendimentos-ia/orcamentos-ia'
@@ -140,10 +145,11 @@ function semear(lev: Partial<LevantamentoNaTravessia> = {}, itens = ITENS) {
     const l = { ...GERALDO, ...lev }
     estado.db.orcamentista_levantamento = [{ ...l, telefone: '51 99999-0000', email: null, endereco: 'Rua A, 10', edificacao: '', obs_obra: null, data_entrega: '2026-12-01', vendedor_nome: 'Paulo', vendedor_employee_id: 'emp-1' },
         { ...GERALDO, id: LEV_OUTRO, tenant_id: OUTRO, numero: 3, nome: 'Da outra empresa' }]
-    estado.db.orcamentista_levantamento_item = [...itens.map((i) => ({ ...i, tenant_id: l.tenant_id, levantamento_id: l.id })),
+    // a família do item (todos os completos de produção a têm, medido em 23/11/2026): PVC, salvo quando o caso diz outra
+    estado.db.orcamentista_levantamento_item = [...itens.map((i) => ({ familia: 'PVC', ...i, tenant_id: l.tenant_id, levantamento_id: l.id })),
         { id: 'li-outra', ordem: 1, tenant_id: OUTRO, levantamento_id: LEV_OUTRO, tipologia: 'DP-02', largura_mm: 1, altura_mm: 1, quantidade: 1, cor_perfil: null, vidro: null, ambientes: null, escolhas: null }]
 }
-beforeEach(() => { estado.db = {}; estado.ops = []; estado.erros = {}; estado.antesDoInsert = null; seq = 0; semear(); calculo.chamadas = []; calculo.resposta = null; calculo.versaoGravada = VERSAO_DO_CALCULO })
+beforeEach(() => { estado.db = {}; estado.ops = []; estado.erros = {}; estado.antesDoInsert = null; estado.indiceDeAntes = true; seq = 0; semear(); calculo.chamadas = []; calculo.resposta = null; calculo.versaoGravada = VERSAO_DO_CALCULO })
 const escritas = () => estado.ops.filter((o) => o.op !== 'select')
 
 describe('(0) a comparação do levantamento com o orçamento (13/11/2026), pura', () => {
@@ -296,7 +302,7 @@ describe('(1b) a REGRA DO ZERO: levantamento, senão a pré-definição do vende
             { tenant_id: T, employee_id: 'emp-2', comissao_percentual: 40, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: 40, lucro_projetado_percentual: 40 },
             { tenant_id: T, employee_id: 'emp-1', comissao_percentual: 3, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: null, lucro_projetado_percentual: 15 },
         ]
-        const r = await atravessarLevantamento(T, LEV)
+        const [r] = await atravessarLevantamento(T, LEV)
         expect(r.origens).toEqual({ comissao_percentual: 'base_de_conhecimento', reserva_tecnica_percentual: 'zero_por_ausencia', lucro_projetado_percentual: 'base_de_conhecimento' })
         expect(estado.db.orcamentista_orcamento[0]).toEqual(expect.objectContaining({ comissao_percentual: 3, reserva_tecnica_percentual: 0, lucro_projetado_percentual: 15 }))
         expect(estado.ops.filter((o) => o.tabela === 'orcamentista_vendedor_perfil').every((o) => o.filtros.some(([, c, v]) => c === 'tenant_id' && v === T))).toBe(true)
@@ -357,8 +363,10 @@ describe('(3) a escrita', () => {
     it('o orçamento do agente e os 3 itens; só nessas duas tabelas, e o levantamento intacto', async () => {
         const antes = JSON.stringify([estado.db.orcamentista_levantamento, estado.db.orcamentista_levantamento_item])
         const r = await atravessarLevantamento(T, LEV)
-        expect(r).toEqual({ orcamento: { id: expect.any(String), numero: 1 }, itens: 3, faltas: [], retomada: false,
-            origens: { comissao_percentual: 'levantamento', reserva_tecnica_percentual: 'levantamento', lucro_projetado_percentual: 'levantamento' } })
+        expect(r).toEqual([{ orcamento: { id: expect.any(String), numero: 1 }, familia: 'PVC', itens: 3, faltas: [], retomada: false,
+            origens: { comissao_percentual: 'levantamento', reserva_tecnica_percentual: 'levantamento', lucro_projetado_percentual: 'levantamento' } }])
+        // o orçamento leva a FAMÍLIA (23/11/2026)
+        expect(estado.db.orcamentista_orcamento[0].familia).toBe('PVC')
         expect(new Set(escritas().map((o) => `${o.tabela}:${o.op}`))).toEqual(new Set(['orcamentista_orcamento:insert', 'orcamentista_orcamento_item:insert']))
         expect(JSON.stringify([estado.db.orcamentista_levantamento, estado.db.orcamentista_levantamento_item])).toBe(antes)
         const [o] = estado.db.orcamentista_orcamento
@@ -368,7 +376,7 @@ describe('(3) a escrita', () => {
     })
     it('o número é o seguinte DA EMPRESA (o de outra empresa não conta)', async () => {
         estado.db.orcamentista_orcamento = [{ id: 'o-outra', tenant_id: OUTRO, numero: 40, levantamento_id: null }, { id: 'o-7', tenant_id: T, numero: 7, levantamento_id: null }]
-        expect((await atravessarLevantamento(T, LEV)).orcamento.numero).toBe(8)
+        expect((await atravessarLevantamento(T, LEV))[0].orcamento.numero).toBe(8)
     })
 })
 
@@ -378,14 +386,14 @@ describe('(4) idempotente', () => {
         estado.ops = []
         const e = await atravessarLevantamento(T, LEV).catch((x) => x)
         expect(e).toBeInstanceOf(ErroJaAtravessado)
-        expect(e.message).toBe(fraseJaAtravessado(11, primeira.orcamento.numero))
+        expect(e.message).toBe(fraseJaAtravessado(11, primeira[0].orcamento.numero))
         expect(escritas()).toEqual([])
         expect(estado.db.orcamentista_orcamento).toHaveLength(1)
     })
     it('o orçamento que existe SEM itens (a travessia interrompida) recebe os itens, sem orçamento novo', async () => {
         estado.db.orcamentista_orcamento = [{ id: 'o-meio', tenant_id: T, numero: 5, levantamento_id: LEV }]
         const r = await atravessarLevantamento(T, LEV)
-        expect(r).toEqual(expect.objectContaining({ orcamento: { id: 'o-meio', numero: 5 }, itens: 3, retomada: true }))
+        expect(r).toEqual([expect.objectContaining({ orcamento: { id: 'o-meio', numero: 5 }, itens: 3, retomada: true })])
         expect(estado.db.orcamentista_orcamento).toHaveLength(1)
         expect(estado.db.orcamentista_orcamento_item.map((i) => i.orcamento_id)).toEqual(['o-meio', 'o-meio', 'o-meio'])
     })
@@ -406,7 +414,7 @@ describe('(4) idempotente', () => {
 describe('(4b) a corrida no NÚMERO', () => {
     it('outro orçamento da empresa toma o número entre a leitura e o INSERT: tenta de novo com o seguinte', async () => {
         estado.antesDoInsert = () => { estado.db.orcamentista_orcamento.push({ id: 'o-manual', tenant_id: T, numero: 1, levantamento_id: null }) }
-        const r = await atravessarLevantamento(T, LEV)
+        const [r] = await atravessarLevantamento(T, LEV)
         expect(r.orcamento.numero).toBe(2)
         expect(estado.db.orcamentista_orcamento.map((o) => o.numero)).toEqual([1, 2])
     })
@@ -423,10 +431,10 @@ describe('(5) isolamento de tenant', () => {
         for (const o of estado.ops.filter((x) => x.op === 'select')) expect(o.filtros).toContainEqual(['eq', 'tenant_id', T])
         for (const o of escritas()) for (const l of (Array.isArray(o.carga) ? o.carga : [o.carga]) as Linha[]) expect(l.tenant_id).toBe(T)
     })
-    it('a lista da ação manual: só os COMPLETOS da empresa, com o orçamento de cada um', async () => {
+    it('a lista da ação manual: só os COMPLETOS da empresa, com os orçamentos de cada um (um por família, em ordem de número)', async () => {
         estado.db.orcamentista_levantamento.push({ ...GERALDO, id: 'lev-montagem', numero: 12, nome: 'Em montagem', estado: 'EM_MONTAGEM' })
-        estado.db.orcamentista_orcamento = [{ id: 'o-1', tenant_id: T, numero: 1, levantamento_id: LEV }]
-        expect(await levantamentosParaAtravessar(T)).toEqual([{ id: LEV, numero: 11, nome: 'Geraldo Huck', orcamento: { id: 'o-1', numero: 1 } }])
+        estado.db.orcamentista_orcamento = [{ id: 'o-2', tenant_id: T, numero: 2, levantamento_id: LEV, familia: 'ALUMINIO' }, { id: 'o-1', tenant_id: T, numero: 1, levantamento_id: LEV }]
+        expect(await levantamentosParaAtravessar(T)).toEqual([{ id: LEV, numero: 11, nome: 'Geraldo Huck', orcamentos: [{ id: 'o-1', numero: 1, familia: null }, { id: 'o-2', numero: 2, familia: 'ALUMINIO' }] }])
     })
 })
 
@@ -496,6 +504,19 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
         etapa.resposta = () => Promise.reject(new Error('storage fora do ar'))
         expect(await atravessarNoSim(T, LEV, naEtapa)).toEqual({ rastro: `${TRAVESSIA} calculo=ok liquido=5240.40 precificacao=falhou parou=precificacao motivo="storage fora do ar"`, paraOVendedor: fraseDoArquivoQueNaoChegou(null, 'a precificação do orçamento 1 falhou. Para tentar de novo, abra o orçamento 1 na seção Orçamentos I.A. e use Precificar') })
         expect(estado.db.orcamentista_orcamento).toHaveLength(1)
+    })
+    it('o NÚMERO EXIBIDO (23/11/2026): com a sigla da família no catálogo, o texto ao vendedor diz <levantamento>-<SIGLA>; o rastro fica com o número próprio', async () => {
+        comFamilia('PVC')
+        estado.db.orcamentista_familia_catalogo = [{ chave: 'PVC', sigla: 'PVC' }]
+        etapa.resposta = () => Promise.reject(new Error('storage fora do ar'))
+        const r = await atravessarNoSim(T, LEV, naEtapa)
+        expect(r.paraOVendedor).toBe(fraseDoArquivoQueNaoChegou(null, `a precificação do orçamento ${GERALDO.numero}-PVC falhou. Para tentar de novo, abra o orçamento ${GERALDO.numero}-PVC na seção Orçamentos I.A. e use Precificar`))
+        expect(r.rastro).toMatch(/^orcamento=1 /)
+        // a família sem sigla (e o orçamento de antes, sem família): o número próprio, nunca uma sigla deduzida
+        estado.db.orcamentista_familia_catalogo = [{ chave: 'PVC', sigla: null }]
+        estado.db.orcamentista_orcamento = []
+        estado.db.orcamentista_orcamento_item = []
+        expect((await atravessarNoSim(T, LEV, naEtapa)).paraOVendedor).toContain('a precificação do orçamento 1 falhou')
     })
     it('o já atravessado para na travessia e NÃO recalcula nem reenvia; a recusa e a falha da travessia também param nela', async () => {
         await atravessarNoSim(T, LEV, naEtapa)
@@ -571,15 +592,77 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
         expect(orcamento1()).toEqual(expect.objectContaining({ numero: 1, comissao_percentual: 7, nome: 'Geraldo Huck Filho' }))
         nenhumDelete()
     })
-    it('a FAMÍLIA do item: a do levantamento diferente da que o orçamento usou, ou NULA, é mudança — e recalcula', async () => {
+    it('a FAMÍLIA do item gravada NULA no orçamento é mudança — e recalcula', async () => {
         await atravessarNoSim(T, LEV, naEtapa)
-        comFamilia('PVC')
-        estado.db.orcamentista_levantamento_item.find((l) => l.id === 'li-2')!.familia = 'Alumínio'
-        expect((await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)).rastro).toContain('mudados=1')
         comFamilia('PVC')
         estado.db.orcamentista_orcamento_item.find((i) => i.levantamento_item_id === 'li-3')!.familia = null
         expect((await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)).rastro).toContain('mudados=1')
         expect(reenvio.chamadas).toEqual([])
+    })
+    it('UM ORÇAMENTO POR FAMÍLIA (23/11/2026): o item que muda de família SAI do orçamento da família de antes e vai para o da nova', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        comFamilia('PVC')
+        estado.db.orcamentista_levantamento_item.find((l) => l.id === 'li-2')!.familia = 'ALUMINIO'
+        // com o índice DE ANTES no banco (antes da 20261123000003): a segunda família é recusa NOMEADA — nunca "falhou"
+        const antes = await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)
+        expect(antes.rastro).toContain('familia=PVC orcamento=1')
+        expect(antes.rastro).toContain('removidos=1')
+        expect(antes.rastro).toContain('familia=ALUMINIO recusou=1 parou=travessia')
+        expect(antes.paraOVendedor).toContain(fraseDoIndiceDeAntes('ALUMINIO'))
+        // sem ele: o ALUMINIO ganha o orçamento DELE, com número próprio, e o item 2 está lá
+        estado.indiceDeAntes = false
+        const depois = await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)
+        expect(depois.rastro).toMatch(/familia=ALUMINIO orcamento=2 itens=1/)
+        expect(estado.db.orcamentista_orcamento.map((o) => [o.numero, o.familia])).toEqual([[1, 'PVC'], [2, 'ALUMINIO']])
+        // O ACORDO DO PO (23/11/2026): cada orçamento carrega OS SEUS percentuais de comissão e de lucro — os do levantamento/vendedor,
+        // congelados em CADA um, nunca somados nem divididos entre as famílias; e a margem de contribuição (da empresa) não é gravada aqui.
+        const lev = estado.db.orcamentista_levantamento.find((l) => l.id === LEV)!
+        expect(lev.comissao_percentual).not.toBeNull()
+        for (const o of estado.db.orcamentista_orcamento) {
+            expect([o.comissao_percentual, o.lucro_projetado_percentual, o.reserva_tecnica_percentual]).toEqual([lev.comissao_percentual, lev.lucro_projetado_percentual, lev.reserva_tecnica_percentual])
+            expect(Object.keys(o).filter((k) => /margem|contribui/i.test(k))).toEqual([])
+        }
+        const doAlu = estado.db.orcamentista_orcamento_item.filter((i) => i.orcamento_id === estado.db.orcamentista_orcamento[1].id)
+        expect(doAlu.map((i) => i.levantamento_item_id)).toEqual(['li-2'])
+        // o sim seguinte, sem mudança, não cria terceiro nem quarto
+        await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)
+        expect(estado.db.orcamentista_orcamento).toHaveLength(2)
+    })
+    it('o orçamento DE ANTES (família nula) num levantamento de DUAS famílias: recusa nomeada, nada gravado', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        estado.db.orcamentista_orcamento[0].familia = null
+        estado.db.orcamentista_levantamento_item.find((l) => l.id === 'li-2')!.familia = 'ALUMINIO'
+        estado.ops = []
+        const r = await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)
+        expect(r.paraOVendedor).toContain(fraseDoOrcamentoDeAntes(1, ['PVC', 'ALUMINIO']))
+        expect(escritas()).toEqual([])
+    })
+    it('o orçamento DE ANTES num levantamento de UMA família é o dela, como sempre: atualiza, sem criar outro', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        estado.db.orcamentista_orcamento[0].familia = null
+        estado.indiceDeAntes = false
+        await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)
+        expect(estado.db.orcamentista_orcamento).toHaveLength(1)
+    })
+    it('o item SEM família no levantamento: recusa nomeada, nenhum orçamento', async () => {
+        estado.db.orcamentista_levantamento_item.find((l) => l.id === 'li-2')!.familia = null
+        const e = await atravessarLevantamento(T, LEV).catch((x) => x)
+        expect(e).toBeInstanceOf(ErroDaTravessia)
+        expect(e.recusas).toEqual([fraseDoItemSemFamilia([2])])
+        expect(escritas()).toEqual([])
+    })
+    it('a ação manual com duas famílias (sem o índice de antes): um orçamento por família, cada um com o seu número e os seus itens', async () => {
+        estado.indiceDeAntes = false
+        estado.db.orcamentista_levantamento_item.find((l) => l.id === 'li-3')!.familia = 'ALUMINIO'
+        const r = await atravessarLevantamento(T, LEV)
+        expect(r.map((x) => [x.familia, x.orcamento.numero, x.itens])).toEqual([['PVC', 1, 2], ['ALUMINIO', 2, 1]])
+        expect(estado.db.orcamentista_orcamento_item.filter((i) => i.orcamento_id === r[1].orcamento.id).map((i) => i.ordem)).toEqual([3])
+    })
+    it('juntar as respostas: uma família devolve a dela intacta; várias juntam os textos e o rastro com a família', () => {
+        const um = { rastro: 'a', paraOVendedor: 'x', enviadoPara: '51', idDoEnvio: 'i' }
+        expect(juntarResultados([{ familia: 'PVC', r: um }])).toBe(um)
+        expect(juntarResultados([{ familia: 'PVC', r: um }, { familia: 'ALUMINIO', r: { rastro: 'b', paraOVendedor: null, questionamentos: 'q' } }]))
+            .toEqual({ rastro: 'familia=PVC a | familia=ALUMINIO b', paraOVendedor: 'x', enviadoPara: '51', idDoEnvio: 'i', questionamentos: 'q' })
     })
     it('a EDIÇÃO MANUAL mais nova que a última atualização: a atualização vale e AVISA; a data e o autor ficam; depois, o aviso para sozinho', async () => {
         await atravessarNoSim(T, LEV, naEtapa)
@@ -730,6 +813,16 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
         const antes = escritas().length
         const a = await atualizarOrcamento(T, LEV, String(orcamento1().id))
         expect(a).toEqual(expect.objectContaining({ semMudanca: true, novos: 0, mudados: 0, removidos: 0, cabecalhoMudou: false, edicaoManualSubstituida: false }))
+        expect(escritas()).toHaveLength(antes)
+    })
+
+    it('atualizarOrcamento no orçamento DE ANTES (sem família) com o levantamento agora em duas famílias: recusa nomeada e nada gravado — nunca os itens das duas num orçamento só', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        comFamilia('PVC')
+        orcamento1().familia = null
+        estado.db.orcamentista_levantamento_item.find((l) => l.id === 'li-2')!.familia = 'ALUMINIO'
+        const antes = escritas().length
+        await expect(atualizarOrcamento(T, LEV, String(orcamento1().id))).rejects.toThrow(fraseDoOrcamentoDeAntes(Number(orcamento1().numero), ['PVC', 'ALUMINIO']))
         expect(escritas()).toHaveLength(antes)
     })
 

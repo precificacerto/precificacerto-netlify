@@ -15,6 +15,7 @@ import {
 } from '@/lib/atendimentos-ia/orcamento-precificado'
 import { itensDoArquivo, lerClienteDoOrcamento } from '@/lib/atendimentos-ia/arquivo-do-orcamento-servidor'
 import { fiscalDivergente } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
+import { numeroExibidoDoOrcamento } from '@/lib/atendimentos-ia/numero-do-orcamento-servidor'
 import { tabelaDoVendedorDoOrcamento, type DestinoDoOrcamento } from '@/lib/atendimentos-ia/tabela-do-vendedor'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -32,7 +33,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             const [itens, cliente] = await Promise.all([itensDoArquivo(caller.tenant_id, id), lerClienteDoOrcamento(caller.tenant_id, id)])
             // o TOPO do orçamento (11/11/2026): as credenciais do cliente, as mesmas do PDF
             // o fiscal gravado fora do preset (só por fora do código): a tela avisa, e o salvar o sobrescreve registrando (11/11/2026)
-            return res.status(200).json({ orcamento, cliente, fiscal_divergente: fiscalDivergente(orcamento), itens_do_arquivo: 'recusa' in itens ? null : itens.itens, recusa_dos_itens: 'recusa' in itens ? itens.recusa : null })
+            const numero_exibido = await numeroExibidoDoOrcamento(caller.tenant_id, id).catch(() => String(orcamento.numero))
+            return res.status(200).json({ orcamento: { ...orcamento, numero_exibido }, cliente, fiscal_divergente: fiscalDivergente(orcamento), itens_do_arquivo: 'recusa' in itens ? null : itens.itens, recusa_dos_itens: 'recusa' in itens ? itens.recusa : null })
         }
         const corpo = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>
         const r = await gravarPrecificacao(caller.tenant_id, id, corpo, caller.user_id)

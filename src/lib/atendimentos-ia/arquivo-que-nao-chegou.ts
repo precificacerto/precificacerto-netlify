@@ -4,7 +4,7 @@
  * medidas, barras, aproveitamento, mão de obra, preço, o que o preço cobre): ele diz que o arquivo não chegou, e por quê — a falta nomeada,
  * e nada mais. Função pura: a conversa, a travessia e a etapa do preço a usam.
  */
-export type OrcamentoNaFrase = { numero: number; nome: string }
+export type OrcamentoNaFrase = { numero: number | string; nome: string }
 
 export const fraseDoArquivoQueNaoChegou = (orcamento: OrcamentoNaFrase | null, motivo: string) =>
     `O arquivo do orçamento${orcamento ? ` ${orcamento.numero} (${orcamento.nome})` : ''} não chegou a você: ${motivo.replace(/\.$/, '')}.`

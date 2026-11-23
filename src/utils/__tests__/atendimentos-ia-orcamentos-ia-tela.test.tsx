@@ -112,6 +112,22 @@ describe('a lista', () => {
     })
 })
 
+describe('o NÚMERO EXIBIDO (23/11/2026)', () => {
+    it('a lista mostra o número exibido na coluna Nº e no botão; sem ele (servidor de antes), o número próprio', async () => {
+        servidor.corpo = { orcamentos: [{ ...LISTA[1], numero_exibido: '27-PVC' }, LISTA[0]] }
+        const host = await montar(<Lista />)
+        const celulas = Array.from(host.querySelectorAll('tbody tr.ant-table-row')).map((tr) => tr.querySelector('td')?.textContent)
+        expect(celulas).toEqual(['27-PVC', '2'])
+        expect(botoes(host)).toContain('Editar o orçamento 27-PVC')
+    })
+    it('a edição mostra "Orçamento <exibido>" no título do cartão', async () => {
+        rota.query = { id: 'b' }
+        servidor.corpo = { orcamento: { id: 'b', numero: 1, numero_exibido: '27-PVC', origem: 'agente', levantamento_id: 'lev', nome: 'Antonio Rock', obs: null, editado_manualmente_em: null, criado_em: '2026-11-08T21:00:00Z', itens: [] } }
+        const host = await montar(<Edicao />)
+        expect(host.textContent).toContain('Orçamento 27-PVC')
+    })
+})
+
 describe('a edição', () => {
     const ORC: Record<string, unknown> = {
         id: 'b', numero: 1, origem: 'agente', levantamento_id: 'lev', nome: 'Antonio Rock', obs: null, editado_manualmente_em: null, criado_em: '2026-11-08T21:00:00Z',
@@ -163,8 +179,8 @@ const clicarNo = async (el: Element | null | undefined) => {
 const botaoCom = (texto: string) => Array.from(document.querySelectorAll('button')).find((b) => (b.textContent ?? '').trim() === texto) as HTMLButtonElement | undefined
 const ROTA_DA_TRAVESSIA = '/api/atendimentos-ia/orcamentos/atravessar'
 const LEVANTAMENTOS = [
-    { id: 'lev-11', numero: 11, nome: 'Geraldo Huck', orcamento: null },
-    { id: 'lev-9', numero: 9, nome: 'Antonio Rock', orcamento: { id: 'b', numero: 1 } },
+    { id: 'lev-11', numero: 11, nome: 'Geraldo Huck', orcamentos: [] },
+    { id: 'lev-9', numero: 9, nome: 'Antonio Rock', orcamentos: [{ id: 'b', numero: 1, familia: 'PVC' }] },
 ]
 async function abrirATravessia() {
     servidor.corpo = { orcamentos: LISTA }
@@ -194,11 +210,22 @@ describe('a travessia na lista', () => {
     it('atravessa UM: o POST leva só o escolhido, e a tela abre o orçamento criado', async () => {
         await abrirATravessia()
         await escolher('Levantamento 11 — Geraldo Huck')
-        servidor.porRota[`POST ${ROTA_DA_TRAVESSIA}`] = { status: 201, corpo: { orcamento: { id: 'novo', numero: 3 }, itens: 3, faltas: [] } }
+        servidor.porRota[`POST ${ROTA_DA_TRAVESSIA}`] = { status: 201, corpo: { orcamentos: [{ orcamento: { id: 'novo', numero: 3 }, familia: 'PVC', itens: 3, faltas: [] }] } }
         await clicarNo(botaoCom('Atravessar'))
         const posts = servidor.chamadas.filter((c) => c.url === ROTA_DA_TRAVESSIA && c.metodo === 'POST')
         expect(posts).toEqual([{ url: ROTA_DA_TRAVESSIA, metodo: 'POST', corpo: { levantamento_id: 'lev-11' } }])
         expect(rota.push).toHaveBeenCalledWith(expect.stringMatching(/\/novo\/precificacao$/))
+    })
+    it('DUAS famílias (23/11/2026): os dois orçamentos são criados, a mensagem nomeia os dois, e nenhum é aberto — a lista os mostra', async () => {
+        await abrirATravessia()
+        await escolher('Levantamento 11 — Geraldo Huck')
+        servidor.porRota[`POST ${ROTA_DA_TRAVESSIA}`] = { status: 201, corpo: { orcamentos: [
+            { orcamento: { id: 'a', numero: 3 }, familia: 'PVC', itens: 2, faltas: [] }, { orcamento: { id: 'b', numero: 4 }, familia: 'ALUMINIO', itens: 1, faltas: [] }] } }
+        await clicarNo(botaoCom('Atravessar'))
+        expect(rota.push).not.toHaveBeenCalled()
+        // a lista é relida depois do POST (é ela que mostra os dois)
+        const depois = servidor.chamadas.slice(servidor.chamadas.findIndex((c) => c.url === ROTA_DA_TRAVESSIA && c.metodo === 'POST') + 1)
+        expect(depois.some((c) => c.metodo === 'GET')).toBe(true)
     })
     it('o já atravessado (409): a frase que nomeia o orçamento, e nada é aberto', async () => {
         await abrirATravessia()

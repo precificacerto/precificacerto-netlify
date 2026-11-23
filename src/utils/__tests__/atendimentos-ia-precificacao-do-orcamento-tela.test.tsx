@@ -274,6 +274,9 @@ describe('(C) OS DOIS MODOS SÃO O MESMO CÁLCULO, e cada um fica no seu ramo', 
     it('o cabeçalho é o do orçamento, fixo e só leitura: código = o número, o cliente, Produzido, UN, Orçamentos I.A.', async () => {
         const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn() })
         expect(host.textContent).toContain('Precificação do orçamento 42')
+        // o NÚMERO EXIBIDO (23/11/2026) no título, quando o servidor o manda
+        const comExibido = await montar({ orcamento: { ...orcamento(), numero_exibido: '27-PVC' }, onSalvarOrcamento: jest.fn() })
+        expect(comExibido.textContent).toContain('Precificação do orçamento 27-PVC')
         expect(host.querySelector('[data-tipo-do-orcamento]')?.textContent).toContain('Produzido')
         const campo = (rotulo: string) => host.querySelector(`input[aria-label="${rotulo}"]`) as HTMLInputElement
         expect(campo('Código').value).toBe('42')

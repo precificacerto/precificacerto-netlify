@@ -22,6 +22,7 @@ import { ROUTES } from '@/constants/routes'
 export type LinhaDoOrcamento = {
     id: string
     numero: number
+    numero_exibido?: string
     origem: 'agente' | 'manual'
     nome: string
     itens: number
@@ -36,11 +37,11 @@ type Estado =
     | { tipo: 'erro'; mensagem: string }
     | { tipo: 'pronto'; orcamentos: LinhaDoOrcamento[] }
 
-/** O levantamento COMPLETO da empresa, com o orçamento dele (nulo enquanto não atravessou) — a lista da ação manual. */
-export type LevantamentoParaAtravessar = { id: string; numero: number; nome: string; orcamento: { id: string; numero: number } | null }
+/** O levantamento COMPLETO da empresa, com os orçamentos dele (um por família; vazio enquanto não atravessou) — a lista da ação manual. */
+export type LevantamentoParaAtravessar = { id: string; numero: number; nome: string; orcamentos: Array<{ id: string; numero: number; familia: string | null }> }
 /** O que a travessia grava, dito ANTES do clique (dono do produto, 10/11/2026: um levantamento por vez, nada alterado nele). */
 export const O_QUE_A_TRAVESSIA_GRAVA = [
-    'Um orçamento do agente, com o nome do cliente e os percentuais (comissão, reserva técnica e lucro): os do levantamento; o que ele não tem vem da pré-definição do vendedor na base de conhecimento; o que nenhum dos dois tem é ZERO, e a tela do orçamento mostra de onde cada um veio.',
+    'Um orçamento do agente POR FAMÍLIA do levantamento, com o nome do cliente e os percentuais (comissão, reserva técnica e lucro): os do levantamento; o que ele não tem vem da pré-definição do vendedor na base de conhecimento; o que nenhum dos dois tem é ZERO, e a tela do orçamento mostra de onde cada um veio.',
     'Um item do orçamento por item do levantamento: tipologia, medidas, quantidade, cor, vidro, ambientes e escolhas.',
     'O aproveitamento SEM (barra inteira), porque a base de conhecimento ainda não tem o modo.',
     'Sem preço: o valor de venda fica vazio até a precificação. O levantamento não é alterado. O custo só é calculado no botão Calcular do orçamento.',
@@ -57,7 +58,7 @@ const semAcento = (t: string) => t.normalize('NFD').replace(/\p{M}/gu, '').toLow
 export function filtrarOrcamentos(lista: readonly LinhaDoOrcamento[], busca: string): LinhaDoOrcamento[] {
     const b = semAcento(busca.trim())
     if (b === '') return [...lista]
-    return lista.filter((o) => semAcento(o.nome).includes(b) || String(o.numero) === b.replace(/^#/, ''))
+    return lista.filter((o) => semAcento(o.nome).includes(b) || String(o.numero) === b.replace(/^#/, '') || semAcento(o.numero_exibido ?? '') === b.replace(/^#/, ''))
 }
 
 function OrcamentosIA() {
@@ -126,24 +127,27 @@ function OrcamentosIA() {
         setRespostaDaTravessia(null)
         try {
             const r = await fetch('/api/atendimentos-ia/orcamentos/atravessar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ levantamento_id: escolhido }) })
-            const corpo = (await r.json().catch(() => ({}))) as { orcamento?: { id: string; numero: number }; faltas?: string[]; error?: string; recusas?: string[] }
-            if (!r.ok || !corpo.orcamento || r.status === 409) {
+            const corpo = (await r.json().catch(() => ({}))) as { orcamentos?: Array<{ orcamento: { id: string; numero: number; numero_exibido?: string }; faltas?: string[] }>; error?: string; recusas?: string[] }
+            const criados = corpo.orcamentos ?? []
+            if (!r.ok || criados.length === 0 || r.status === 409) {
                 setRespostaDaTravessia({ tipo: 'erro', linhas: [corpo.error ?? 'Não foi possível atravessar o levantamento.', ...(corpo.recusas ?? [])] })
                 return
             }
-            const faltas = corpo.faltas ?? []
-            message.success(`Orçamento ${corpo.orcamento.numero} criado${faltas.length ? ` — ${faltas.length} falta(s) a completar na precificação` : ''}.`)
+            const faltas = criados.reduce((t, c) => t + (c.faltas ?? []).length, 0)
+            const numeros = criados.map((c) => c.orcamento.numero_exibido ?? c.orcamento.numero).join(', ')
+            message.success(`${criados.length > 1 ? `Orçamentos ${numeros} criados` : `Orçamento ${numeros} criado`}${faltas ? ` — ${faltas} falta(s) a completar na precificação` : ''}.`)
             setAtravessando(false)
             await carregar()
-            await abrir(corpo.orcamento.id)
+            // com um só, abre-o; com vários, a lista os mostra
+            if (criados.length === 1) await abrir(criados[0].orcamento.id)
         } finally {
             setEnviandoTravessia(false)
         }
     }
-    const semOrcamento = (levantamentos ?? []).filter((l) => l.orcamento === null)
+    const semOrcamento = (levantamentos ?? []).filter((l) => l.orcamentos.length === 0)
 
     const colunas: ColumnsType<LinhaDoOrcamento> = [
-        { title: 'Nº', dataIndex: 'numero', key: 'numero', width: 80 },
+        { title: 'Nº', key: 'numero', width: 100, render: (_: unknown, o: LinhaDoOrcamento) => o.numero_exibido ?? o.numero },
         { title: 'Cliente', dataIndex: 'nome', key: 'nome' },
         {
             title: 'Origem', dataIndex: 'origem', key: 'origem', width: 130,
@@ -159,7 +163,7 @@ function OrcamentosIA() {
             title: '', key: 'acoes', width: 70, align: 'center',
             render: (_: unknown, o: LinhaDoOrcamento) => (
                 <Tooltip title="Editar">
-                    <Button type="text" size="small" icon={<EditOutlined />} aria-label={`Editar o orçamento ${o.numero}`} onClick={() => abrir(o.id)} />
+                    <Button type="text" size="small" icon={<EditOutlined />} aria-label={`Editar o orçamento ${o.numero_exibido ?? o.numero}`} onClick={() => abrir(o.id)} />
                 </Tooltip>
             ),
         },

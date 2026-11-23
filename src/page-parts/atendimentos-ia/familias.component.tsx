@@ -15,13 +15,14 @@
 import React, { useState } from 'react'
 import { Alert, Button, Card, Checkbox, Empty, Input, Modal, Space, Table, Tag, Typography } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
-import { FAMILIA_SEM_RAMIFICACAO, LIMITE_DO_ROTULO_DA_FAMILIA, familiaNaoMudou, type Categoria, type FamiliaDoCatalogo } from '@/utils/atendimentos-ia-catalogo'
+import { FAMILIA_SEM_RAMIFICACAO, FRASE_DA_SIGLA_FORA_DA_FORMA, FRASE_SEM_SIGLA, LIMITE_DO_ROTULO_DA_FAMILIA, familiaNaoMudou, type Categoria, type FamiliaDoCatalogo } from '@/utils/atendimentos-ia-catalogo'
 import { RemocaoDoCatalogo, type AlvoDaRemocao } from '@/page-parts/atendimentos-ia/remocao-do-catalogo.component'
 
 export const TITULO_DAS_FAMILIAS = 'Famílias'
 export const SEM_FAMILIA_NO_CATALOGO = 'Nenhuma família no catálogo.'
 
-export interface DadosDaFamilia { rotulo: string; ramificacoes: string[] }
+/** `sigla` só na criação (é imutável depois, 23/11/2026); a edição manda o rótulo e as ramificações. */
+export interface DadosDaFamilia { rotulo: string; ramificacoes: string[]; sigla?: string }
 
 interface Props {
     familias: FamiliaDoCatalogo[]
@@ -42,6 +43,7 @@ export function FamiliasCard({ familias, categorias, onCriar, onEditar, onRemovi
 
     const [edicao, setEdicao] = useState<Edicao | null>(null)
     const [rotulo, setRotulo] = useState('')
+    const [sigla, setSigla] = useState('')
     const [marcadas, setMarcadas] = useState<string[]>([])
     const [erro, setErro] = useState<string | null>(null)
     const [salvando, setSalvando] = useState(false)
@@ -49,13 +51,16 @@ export function FamiliasCard({ familias, categorias, onCriar, onEditar, onRemovi
 
     // as marcadas vão na ORDEM DO CATÁLOGO de categorias, não na ordem do clique
     const ramificacoes = catalogo.map((c) => c.chave).filter((c) => marcadas.includes(c))
-    const dados: DadosDaFamilia = { rotulo: rotulo.trim(), ramificacoes }
+    const criando = edicao?.modo !== 'editar'
+    const dados: DadosDaFamilia = criando ? { rotulo: rotulo.trim(), ramificacoes, sigla: sigla.trim().toUpperCase() } : { rotulo: rotulo.trim(), ramificacoes }
     const mudou = edicao?.modo !== 'editar' || !familiaNaoMudou(edicao.familia, dados)
-    const podeSalvar = dados.rotulo !== '' && ramificacoes.length > 0 && mudou && !salvando
+    const siglaValida = !criando || /^[A-Z]{3}$/.test(dados.sigla ?? '')
+    const podeSalvar = dados.rotulo !== '' && ramificacoes.length > 0 && siglaValida && mudou && !salvando
 
     function abrir(e: Edicao) {
         setErro(null)
         setRotulo(e.modo === 'editar' ? e.familia.rotulo : '')
+        setSigla('')
         setMarcadas(e.modo === 'editar' ? [...e.familia.ramificacoes] : [])
         setEdicao(e)
     }
@@ -82,6 +87,7 @@ export function FamiliasCard({ familias, categorias, onCriar, onEditar, onRemovi
                 onRow={(f) => ({ 'data-familia-do-catalogo': f.chave } as React.HTMLAttributes<HTMLElement>)}
                 columns={[
                     { title: 'Família', dataIndex: 'rotulo' },
+                    { title: 'Sigla', dataIndex: 'sigla', render: (_: unknown, f: FamiliaDoCatalogo) => <span data-sigla-da-familia={f.chave}>{f.sigla}</span> },
                     {
                         title: 'Categorias',
                         render: (_, f) => (f.ramificacoes.length === 0
@@ -104,6 +110,13 @@ export function FamiliasCard({ familias, categorias, onCriar, onEditar, onRemovi
                 okText="Salvar" onOk={salvar} okButtonProps={{ disabled: !podeSalvar, loading: salvando }} destroyOnClose>
                 <Space direction="vertical" style={{ width: '100%' }} data-modal-da-familia>
                     <Input placeholder="Nome da família" value={rotulo} maxLength={LIMITE_DO_ROTULO_DA_FAMILIA} onChange={(e) => setRotulo(e.target.value)} aria-label="Nome da família" />
+                    {edicao?.modo === 'editar'
+                        ? <Typography.Text type="secondary" data-sigla-fixa>Sigla: {edicao.familia.sigla} (não muda: vai no número dos orçamentos)</Typography.Text>
+                        : (<>
+                            <Input placeholder="Sigla (3 letras, ex.: PVC, ALU)" value={sigla} maxLength={3} onChange={(e) => setSigla(e.target.value.toUpperCase())} aria-label="Sigla da família" />
+                            {sigla.trim() !== '' && !siglaValida && <Typography.Text type="danger" style={{ fontSize: 12 }} data-sigla-fora-da-forma>{FRASE_DA_SIGLA_FORA_DA_FORMA}</Typography.Text>}
+                            {sigla.trim() === '' && <Typography.Text type="secondary" style={{ fontSize: 12 }} data-sem-sigla>{FRASE_SEM_SIGLA}</Typography.Text>}
+                        </>)}
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>Categorias que a base de conhecimento mostra nesta família:</Typography.Text>
                     <Checkbox.Group value={marcadas} onChange={(v) => setMarcadas(v as string[])} aria-label="Categorias da família">
                         <Space direction="vertical">
