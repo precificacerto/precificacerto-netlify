@@ -33,7 +33,7 @@ import React from 'react'
 import { Alert, AutoComplete, Button, Card, Input, InputNumber, Radio, Select, Space, Tag, Typography } from 'antd'
 import type { ErroNomeado } from '@/lib/atendimentos-ia/base-de-conhecimento'
 import { ROTULO_DOS_TRES_ESTADOS, deTresEstados, paraTresEstados, type Par, type TresEstados } from '@/page-parts/atendimentos-ia/base-de-conhecimento/formulario'
-import { LIMITE_DA_INSTRUCAO, caracteresDaInstrucao } from '@/lib/atendimentos-ia/base-de-conhecimento'
+import { LIMITE_DA_INSTRUCAO, caracteresDaInstrucao, FORMATO_COM_PENDENCIA, FORMATO_NAO_ESCOLHIDO, opcoesDoFormato, type FormatoDaFamilia } from '@/lib/atendimentos-ia/base-de-conhecimento'
 import {
     ADICIONAR_MATERIA_PRIMA, AJUDA_DA_INSTRUCAO, CAMPO_DA_LINHA, EM_BRANCO_DA_OPCAO, NOVO_FORNECEDOR, ROTULO_DA_INSTRUCAO, SEM_PRINCIPAL_DO_PERFIL, TITULO_DO_CARTAO,
     FAMILIA_COM_PENDENCIA, FAMILIA_DEPOIS_DE_SALVAR, fraseDasInstanciasIguais, instanciasIguais, SEM_FAMILIA_NA_MATERIA_PRIMA, categoriasForaDaFamilia, familiaDeclaraRamificacao, fraseCategoriaForaDaFamilia, fraseFamiliaSemRamificacao,
@@ -274,6 +274,35 @@ function TituloDaMateriaPrima({ m, doTitulo }: { m: MateriaPrimaDoFormulario; do
 
 /** O que a matéria-prima precisa para escolher a família: o que fazer, se está travada por pendência e a recusa da última tentativa. */
 type DaFamilia = { aoMudar: (materiaPrimaId: string, familia: string | null) => Promise<void>; travada: boolean; erro: string | null }
+/** O que a matéria-prima precisa para escolher o formato (23/11/2026): o que fazer, se está travada, a recusa da última tentativa. */
+type DoFormato = { aoMudar: (materiaPrimaId: string, formato: FormatoDaFamilia) => Promise<void>; travado: boolean; erro: string | null }
+
+/**
+ * O FORMATO da família (dono do produto, 23/11/2026): Principal (o modelo da conta) ou Secundário (o outro). Só aparece com a matéria-prima
+ * gravada e a migração aplicada (`formato` presente na leitura); não escolhido é aviso, nunca o principal por omissão.
+ */
+function FormatoDaMateriaPrima({ m, arvore, doFormato }: { m: MateriaPrimaDoFormulario; arvore: ArvoreLida; doFormato: DoFormato | null }) {
+    const [gravando, setGravando] = React.useState(false)
+    if (m.id === null || !doFormato || m.formato === undefined) return null
+    async function trocar(v: FormatoDaFamilia) {
+        if (!m.id || !doFormato) return
+        setGravando(true)
+        try { await doFormato.aoMudar(m.id, v) } finally { setGravando(false) }
+    }
+    return (
+        <div data-formato-da-materia-prima style={{ marginBottom: 12 }}>
+            <Space wrap align="center">
+                <Typography.Text strong>Formato:</Typography.Text>
+                <Select aria-label={`Formato de ${m.nome}`} style={{ minWidth: 220 }} placeholder="Não escolhido" loading={gravando}
+                    disabled={doFormato.travado || gravando} value={(m.formato ?? undefined) as FormatoDaFamilia | undefined} onChange={trocar}
+                    options={opcoesDoFormato(arvore.modelo_da_conta)} />
+                {doFormato.travado && <Typography.Text type="secondary" style={{ fontSize: 12 }} data-formato-travado>{FORMATO_COM_PENDENCIA}</Typography.Text>}
+            </Space>
+            {doFormato.erro && <div style={{ marginTop: 8 }} data-erro-do-formato><Alert type="error" showIcon message="O formato não foi salvo." description={doFormato.erro} /></div>}
+            {m.formato === null && <div style={{ marginTop: 8 }} data-formato-nao-escolhido><Alert type="info" showIcon message={FORMATO_NAO_ESCOLHIDO} /></div>}
+        </div>
+    )
+}
 
 /** A FAMÍLIA da matéria-prima: o combo da lista, os avisos de sem família / família sem ramificação, e a categoria que ficou por ter dado. */
 function FamiliaDaMateriaPrima({ m, arvore, daFamilia }: { m: MateriaPrimaDoFormulario; arvore: ArvoreLida; daFamilia: DaFamilia | null }) {
@@ -314,8 +343,9 @@ function FamiliaDaMateriaPrima({ m, arvore, daFamilia }: { m: MateriaPrimaDoForm
     )
 }
 
-function BlocoDaMateriaPrima({ m, i, arvore, mudarEstado, erros, erroDaFuncao, daFamilia, doTitulo, etapasDaFamilia }: {
+function BlocoDaMateriaPrima({ m, i, arvore, mudarEstado, erros, erroDaFuncao, daFamilia, doFormato = null, doTitulo, etapasDaFamilia }: {
     m: MateriaPrimaDoFormulario; i: number; arvore: ArvoreLida; mudarEstado: Mudar; erros: string[]; erroDaFuncao: { categoria: string; mensagem: string } | null; daFamilia: DaFamilia | null
+    doFormato?: DoFormato | null
     doTitulo: DoTitulo | null; etapasDaFamilia: ((m: MateriaPrimaDoFormulario) => React.ReactNode) | null
 }) {
     const mudarMp = (f: (x: MateriaPrimaDoFormulario) => MateriaPrimaDoFormulario) =>
@@ -335,6 +365,7 @@ function BlocoDaMateriaPrima({ m, i, arvore, mudarEstado, erros, erroDaFuncao, d
                 <Button danger style={{ marginLeft: 'auto' }} onClick={remover} data-remover-familia>{REMOVER_FAMILIA}</Button>
             </div>
             <FamiliaDaMateriaPrima m={m} arvore={arvore} daFamilia={daFamilia} />
+            <FormatoDaMateriaPrima m={m} arvore={arvore} doFormato={doFormato} />
             {/* AS ETAPAS DESTA FAMÍLIA, ACIMA DA RAMIFICAÇÃO 1 e antes dos fornecedores: cada uma seleciona o seu motor do catálogo */}
             {m.id && m.familia && etapasDaFamilia && (
                 <div data-etapas-da-materia-prima style={{ marginBottom: 12 }}>
@@ -355,7 +386,7 @@ function BlocoDaMateriaPrima({ m, i, arvore, mudarEstado, erros, erroDaFuncao, d
 }
 
 // ── O cartão ───────────────────────────────────────────────────────────────────────────────
-export function MateriasPrimas({ arvore, erroAoLer, estado, mudar, erros, erroDaRota, naoEnviado, aoMudarAFamilia, familiaTravada = false, erroDaFamilia = null, aoRenomear, erroDoNome = null, etapasDaFamilia }: {
+export function MateriasPrimas({ arvore, erroAoLer, estado, mudar, erros, erroDaRota, naoEnviado, aoMudarAFamilia, familiaTravada = false, erroDaFamilia = null, aoMudarOFormato, erroDoFormato = null, aoRenomear, erroDoNome = null, etapasDaFamilia }: {
     arvore: ArvoreLida | null
     erroAoLer: string | null
     estado: EstadoDaArvore
@@ -372,6 +403,10 @@ export function MateriasPrimas({ arvore, erroAoLer, estado, mudar, erros, erroDa
     familiaTravada?: boolean
     /** A recusa da última troca de família, com a matéria-prima onde ela aconteceu. */
     erroDaFamilia?: { materiaPrimaId: string; mensagem: string } | null
+    /** Grava o formato da família (rota própria, 23/11/2026) e relê a árvore. Sem isto, o seletor não aparece. */
+    aoMudarOFormato?: (materiaPrimaId: string, formato: FormatoDaFamilia) => Promise<void>
+    /** A recusa da última troca de formato, com a matéria-prima onde ela aconteceu. */
+    erroDoFormato?: { materiaPrimaId: string; mensagem: string } | null
     /** Renomeia a matéria-prima (o título da família, digitado) por rota própria e relê a base. Sem isto o título é só leitura. */
     aoRenomear?: (materiaPrimaId: string, nome: string) => Promise<void>
     /** A recusa do último renomear, com a matéria-prima onde ela aconteceu. */
@@ -400,6 +435,7 @@ export function MateriasPrimas({ arvore, erroAoLer, estado, mudar, erros, erroDa
                             erros={erros.filter((e) => e.campo === `materia:${m.local}`).map((e) => e.mensagem)}
                             erroDaFuncao={onde && onde.local === m.local && erroDaRota ? { categoria: onde.categoria, mensagem: erroDaRota.message } : null}
                             daFamilia={aoMudarAFamilia ? { aoMudar: aoMudarAFamilia, travada: familiaTravada, erro: erroDaFamilia && erroDaFamilia.materiaPrimaId === m.id ? erroDaFamilia.mensagem : null } : null}
+                            doFormato={aoMudarOFormato ? { aoMudar: aoMudarOFormato, travado: familiaTravada, erro: erroDoFormato && erroDoFormato.materiaPrimaId === m.id ? erroDoFormato.mensagem : null } : null}
                             doTitulo={aoRenomear ? { aoRenomear, travado: familiaTravada, erro: erroDoNome && erroDoNome.materiaPrimaId === m.id ? erroDoNome.mensagem : null } : null}
                             etapasDaFamilia={etapasDaFamilia ?? null} />
                     ))}

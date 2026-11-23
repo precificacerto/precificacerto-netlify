@@ -326,6 +326,8 @@ export function categoriasDasTabelas(tabelas: ReadonlyArray<{ categoria_chave?: 
  */
 export async function lerArvoreDaEmpresa(tenantId: string) {
     const nicho = await nichoDaEmpresa(tenantId)
+    // O MODELO DA CONTA (23/11/2026): é o formato PRINCIPAL das famílias; o secundário é o outro. Só lido, para a tela nomear os dois.
+    const daConta = await ler<{ modelo: string | null } | null>('orcamentista_config', db().from('orcamentista_config').select('modelo').eq('tenant_id', tenantId).maybeSingle())
     const categoriasDoCatalogo = (await ler<Linha[]>('orcamentista_categoria_catalogo', db().from('orcamentista_categoria_catalogo').select('*'))).sort(porOrdem)
     // AS RAMIFICAÇÕES DA FAMÍLIA (27/10/2026): cada família declara as categorias que usa, na ordem. A lista de TODAS
     // as categorias é o catálogo; quem diz quais valem para uma matéria-prima é a família dela. Falha ao ler é erro —
@@ -363,6 +365,7 @@ export async function lerArvoreDaEmpresa(tenantId: string) {
     return {
         tenant_id: tenantId,
         nicho,
+        modelo_da_conta: daConta?.modelo ?? null,
         catalogo: { categorias: categoriasDoCatalogo, campos, familias, ramificacoes },
         fornecedores_do_nicho: fornecedoresDoNicho,
         linhas_por_fornecedor: await linhasPorFornecedor(tenantId),
