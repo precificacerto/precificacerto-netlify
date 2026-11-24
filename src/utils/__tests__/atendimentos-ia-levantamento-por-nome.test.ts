@@ -567,6 +567,8 @@ function comoFluxo(m: Record<string, unknown>): string {
         sse += ev('content_block_stop', { index })
     })
     if (estado.fluxoComErro) sse += ev('error', { error: estado.fluxoComErro })
+    // o erro no meio do fluxo de UMA resposta só (24/11/2026): a continuação que a API abandona
+    if (m.erro_no_fluxo) sse += ev('error', { error: m.erro_no_fluxo })
     sse += ev('message_delta', { delta: { stop_reason: m.stop_reason ?? 'end_turn', stop_sequence: null }, usage: { output_tokens: output_tokens ?? 1, ...(output_tokens_details ? { output_tokens_details } : {}) } })
     sse += ev('message_stop', {})
     return sse
@@ -4444,6 +4446,18 @@ describe('(33b) a resposta cortada em max_tokens: a continuação é pedida, as 
         expect(enviados()).toEqual([conversa.FALHA_DA_IA])
         expect(escritasNoEstado()).toEqual([])
         expect(linhaIa()[0]).toContain(' ia_continuacoes=1')
+        // a chamada que falhou não trouxe `usage`: a soma é só a da primeira (não repete os tokens dela)
+        expect(linhaIa()[0]).toContain(' ia_entrada=2015 ia_saida=2000 ia_raciocinio=871 ')
+    })
+
+    it('a continuação que a API ABANDONA no meio do fluxo (sem `usage`): a falha é a dela, e a soma dos tokens é só a da primeira chamada — não a repete', async () => {
+        cortada('Casa do João', [1, 2])
+        estado.respostasDaLlm.push({ status: 200, corpo: { ...respostaComFerramenta({}), content: [], erro_no_fluxo: { type: 'overloaded_error', message: 'Overloaded' } } })
+        await chamar(MSG)
+        expect(enviados()).toEqual([conversa.FALHA_DA_IA])
+        expect(escritasNoEstado()).toEqual([])
+        expect(linhaIa()[0]).toContain(' ia_entrada=2015 ia_saida=2000 ia_raciocinio=871 ')
+        expect(linhaIa()[0]).toContain(' ia_continuacoes=1')
     })
 
     it('max_tokens com a ferramenta FECHADA (o JSON veio inteiro): não é corte da lista — segue como resposta normal, sem continuação', async () => {
@@ -4470,6 +4484,12 @@ describe('(33c) as esquadrias inteiras do JSON cortado', () => {
         expect(inteiras('{"escolhas":[{"esquadria":1,"variavel":"MAE"}],"itens":[{"a":1}')).toEqual([{ a: 1 }])
         expect(inteiras('{"cliente":{"itens":[{"x":1}]},"itens":[{"a":1},{"a"')).toEqual([{ a: 1 }])
         expect(inteiras('{"escolhas":[{"itens":[{"x":1}]}')).toEqual([])
+        // o `itens` de DENTRO de outro objeto não é a lista — nem o que vem depois dele na mesma profundidade
+        expect(inteiras('{"cliente":{"itens":[1],"endereco":{"a":1}},"x')).toEqual([])
+        // o `itens` que não é lista (um objeto): nada dele é esquadria
+        expect(inteiras('{"itens":{"lista":[1],"z":{"a":1}},"x')).toEqual([])
+        // fechado o array da lista, o que vem depois (as escolhas, com objetos na mesma profundidade) NÃO é esquadria
+        expect(inteiras('{"itens":[{"a":1}],"escolhas":[{"b":2}],"x')).toEqual([{ a: 1 }])
     })
     it('chaves, colchetes, aspas e barras DENTRO de um texto não confundem o leitor', () => {
         expect(inteiras('{"itens":[{"vidro":"temperado } ] { [ \\"8mm\\" \\\\","obs":"a, b: c"},{"vidro":"x')).toEqual([{ vidro: 'temperado } ] { [ "8mm" \\', obs: 'a, b: c' }])

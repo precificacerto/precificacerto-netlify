@@ -56,8 +56,8 @@ export function itensCompletosDoJsonCortado(json: string): Array<Record<string, 
     let escape = false
     let inicioDaString = -1
     let ultimaString: string | null = null
-    /** A chave da raiz que acabou de ser lida e espera o valor (`"itens":`). */
-    let chaveDaRaiz: string | null = null
+    /** A última chave lida (o texto antes do último `:`): na raiz, é a chave do valor que vem a seguir (`"itens":`). */
+    let ultimaChave: string | null = null
     let noArray = false
     let inicioDoItem = -1
     for (let k = 0; k < json.length; k++) {
@@ -69,9 +69,10 @@ export function itensCompletosDoJsonCortado(json: string): Array<Record<string, 
             continue
         }
         if (ch === '"') { naString = true; inicioDaString = k; continue }
-        if (ch === ':' && profundidade === 1) { chaveDaRaiz = ultimaString; continue }
+        if (ch === ':') { ultimaChave = ultimaString; continue }
         if (ch === '{' || ch === '[') {
-            if (ch === '[' && profundidade === 1 && chaveDaRaiz === 'itens') noArray = true
+            // só o `itens` da RAIZ: o `[` na profundidade 1 vem sempre logo depois da chave dele
+            if (ch === '[' && profundidade === 1 && ultimaChave === 'itens') noArray = true
             else if (ch === '{' && noArray && profundidade === 2) inicioDoItem = k
             profundidade += 1
             continue
@@ -88,7 +89,6 @@ export function itensCompletosDoJsonCortado(json: string): Array<Record<string, 
             if (ch === ']' && noArray && profundidade === 1) return itens
             continue
         }
-        if (ch === ',' && profundidade === 1) chaveDaRaiz = null
     }
     return itens
 }
