@@ -126,9 +126,16 @@ export type ItemLido = CategoriaDoFornecedor & BlocoTributario & {
     /**
      * A REFERÊNCIA do item, da coluna `codigo_wvetro` do layout único (dono do produto, 24/11/2026: "a referência única do vidro é a coluna
      * codigo_wvetro"; migração 20261124000001). Tipo + cor + espessura (VFIN05 = Float INcolor 05), a mesma grafia em todos os fornecedores.
-     * Só a tabela de VIDRO a grava (`referenciasDaCategoria`); nas outras categorias segue sem destino. O layout de antes não tem a coluna: NULL.
+     * Só a tabela de VIDRO a grava nesta coluna (`referenciasDaCategoria`); nas outras categorias ela é a referência do PERFIL (abaixo). O layout
+     * de antes não tem a coluna: NULL.
      */
     codigo_wvetro: string | null
+    /**
+     * A REFERÊNCIA DO PERFIL (dono do produto, 24/11/2026; migração 20261124000002): o nome que o motor pede, sem o sufixo do fornecedor (`HF88S`
+     * para o `HF88S/WOLFF`), vindo da MESMA coluna `codigo_wvetro` do arquivo nas tabelas que não são de vidro. Repete-se por cor: com a `cor`,
+     * acha UM item. O leitor a deixa nula; quem a preenche é `referenciasDaCategoria`, com a categoria da tabela.
+     */
+    referencia_perfil: string | null
 }
 
 /** Uma linha de `orcamentista_motor_regra`, sem `id` e `tabela_id`. A categoria vem em `CategoriaDoFornecedor`. */
@@ -406,6 +413,7 @@ function lerPreco(ws: ExcelJS.Worksheet): LeituraDoPreco {
             // o layout de antes não tem a coluna da cor nem a da referência
             cor: null,
             codigo_wvetro: null,
+            referencia_perfil: null,
             codigo,
             descricao: l.texto(r, COL_PRECO.descricao),
             medida_barra_m: l.numero(r, COL_PRECO.medida_barra_m),
@@ -526,25 +534,59 @@ export const COLUNAS_SEM_DESTINO_DO_LAYOUT_UNICO = ['linha', 'valor_kg', 'multip
 /**
  * A REFERÊNCIA DO VIDRO (dono do produto, 24/11/2026): a coluna `codigo_wvetro` da tabela de VIDRO é a referência única do vidro — é por ela que
  * o padrão da empresa e o vidro escolhido acham a linha de preço. Só a categoria `CATEGORIA_COM_REFERENCIA` a grava: perfil e insumo têm a ponte
- * no motor (`orcamentista_motor_regra.codigo_wvetro`, onde o mesmo perfil se repete por cor), e nas outras a coluna continua sem destino, com o
- * aviso de sempre. Estender a outra categoria é decisão do dono do produto. Por isso a coluna NÃO está em `COLUNAS_SEM_DESTINO_DO_LAYOUT_UNICO`:
- * o item lido a traz, e quem decide o destino dela é `referenciasDaCategoria`, com a categoria da tabela.
+ * no motor (`orcamentista_motor_regra.codigo_wvetro`, onde o mesmo perfil se repete por cor). Por isso a coluna NÃO está em
+ * `COLUNAS_SEM_DESTINO_DO_LAYOUT_UNICO`: o item lido a traz, e quem decide o destino dela é `referenciasDaCategoria`, com a categoria da tabela.
+ *
+ * A REFERÊNCIA DO PERFIL (dono do produto, 24/11/2026; migração 20261124000002): "coluna de referência do perfil no item da tabela (mesmo desenho
+ * da codigo_wvetro)". Nas tabelas com categoria declarada que NÃO são de vidro, a mesma coluna `codigo_wvetro` do arquivo é a referência do
+ * perfil — o nome que o motor pede, sem o sufixo do fornecedor (`HF88S`) — e vai para `referencia_perfil`, não para `codigo_wvetro`: a mesma
+ * referência se repete por cor (o HF112 tem uma linha por cor), e a do vidro é única por tabela. Vale para toda categoria que não é vidro
+ * porque os perfis que o motor pede pelo nome estão em três tabelas da Wolf (PERFIL, INSTALACAO e PERSIANAS; medido em 24/11/2026). A tabela
+ * SEM categoria declarada (as de antes) continua sem destino para a coluna, com o aviso.
  */
 export const CATEGORIA_COM_REFERENCIA = 'VIDRO'
 export const COLUNA_DA_REFERENCIA_DO_ITEM = 'codigo_wvetro'
 export const fraseDaReferenciaRepetida = (repetidas: ReadonlyArray<{ referencia: string; codigos: readonly string[] }>) =>
     `traz a mesma referência (${COLUNA_DA_REFERENCIA_DO_ITEM}) em mais de um item — ${repetidas.map((r) => `${r.referencia} em ${r.codigos.join(' e ')}`).join('; ')}. `
     + 'A referência acha UM vidro: corrija o arquivo para cada item ter a sua. Nada foi alterado.'
+export const COLUNA_DA_REFERENCIA_DO_PERFIL = 'referencia_perfil'
+export const fraseDaReferenciaComBarra = (cs: ReadonlyArray<{ codigo: string; referencia: string }>) =>
+    `traz a referência do perfil (${COLUNA_DA_REFERENCIA_DO_ITEM}) com barra em ${cs.length} ${cs.length === 1 ? 'item' : 'itens'} — ${cs.slice(0, 10).map((c) => `${c.codigo} = "${c.referencia}"`).join('; ')}${cs.length > 10 ? `; e mais ${cs.length - 10}` : ''}. `
+    + 'O sufixo do fornecedor ("/WOLFF") não entra na referência: escreva só o nome que o motor pede (HF88S). Nada foi alterado.'
+export const fraseDaReferenciaDoPerfilRepetida = (repetidas: ReadonlyArray<{ referencia: string; cor: string | null; codigos: readonly string[] }>) =>
+    `traz a mesma referência do perfil (${COLUNA_DA_REFERENCIA_DO_ITEM}) na mesma cor em mais de um item — ${repetidas.slice(0, 10).map((r) => `${r.referencia} ${r.cor === null ? 'sem cor' : `em ${r.cor}`}: ${r.codigos.join(' e ')}`).join('; ')}${repetidas.length > 10 ? `; e mais ${repetidas.length - 10}` : ''}. `
+    + 'A referência + a cor acham UM item: corrija o arquivo. Nada foi alterado.'
+/** A cor para comparar, como a resolução a compara (sem acento, sem caixa, só letras e números); a vazia é "sem cor". */
+export const corParaComparar = (cor: string | null) => (cor ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim()
 export const fraseDosItensSemReferencia = (codigos: readonly string[]) =>
     `${codigos.length} ${codigos.length === 1 ? 'item veio' : 'itens vieram'} sem a referência (${COLUNA_DA_REFERENCIA_DO_ITEM}) — ${nomeados(codigos)}: `
     + `${codigos.length === 1 ? 'ele não é achado' : 'eles não são achados'} pelo vidro padrão nem pelo vidro escolhido, só pelo que o vendedor disser.`
 /**
  * A referência conforme a categoria DA TABELA (a do cadastro), antes de montar o payload. Na de vidro: a referência repetida no arquivo é RECUSA
  * nomeada (devolve a frase; o índice único do banco recusaria a gravação inteira sem dizer qual), a coluna sai do aviso de "sem destino" e os
- * itens sem referência são nomeados. Nas outras: a referência lida NÃO vai para o payload (fica nula) e as linhas que a traziam entram no aviso
- * de "sem destino" — nada some em silêncio.
+ * itens sem referência são nomeados. Nas outras COM categoria declarada: a coluna é a REFERÊNCIA DO PERFIL — vai para `referencia_perfil` (e
+ * `codigo_wvetro` fica nula); a referência com barra (o sufixo do fornecedor) e a mesma referência na mesma cor em dois itens são RECUSA nomeada.
+ * Na tabela SEM categoria declarada: a referência lida NÃO vai para o payload (fica nula) e as linhas que a traziam entram no aviso de "sem
+ * destino" — nada some em silêncio.
  */
 export function referenciasDaCategoria(lida: { itens: ItemLido[]; avisos: Aviso[] }, categoria: string | null | undefined): string | null {
+    if (typeof categoria === 'string' && categoria.trim() !== '' && categoria !== CATEGORIA_COM_REFERENCIA) {
+        const comBarra = lida.itens.filter((i) => i.codigo_wvetro !== null && i.codigo_wvetro.includes('/')).map((i) => ({ codigo: i.codigo, referencia: i.codigo_wvetro as string }))
+        if (comBarra.length > 0) return fraseDaReferenciaComBarra(comBarra)
+        const porChave = new Map<string, { referencia: string; cor: string | null; codigos: string[] }>()
+        for (const i of lida.itens) {
+            if (i.codigo_wvetro === null) continue
+            const cor = corParaComparar(i.cor)
+            const chave = JSON.stringify([i.codigo_wvetro, cor])
+            const g = porChave.get(chave) ?? { referencia: i.codigo_wvetro, cor: cor === '' ? null : i.cor, codigos: [] }
+            g.codigos.push(i.codigo)
+            porChave.set(chave, g)
+        }
+        const repetidas = [...porChave.values()].filter((g) => g.codigos.length > 1)
+        if (repetidas.length > 0) return fraseDaReferenciaDoPerfilRepetida(repetidas)
+        for (const i of lida.itens) { i.referencia_perfil = i.codigo_wvetro; i.codigo_wvetro = null }
+        return null
+    }
     if (categoria !== CATEGORIA_COM_REFERENCIA) {
         const comValor = lida.itens.filter((i) => i.codigo_wvetro !== null).length
         for (const i of lida.itens) i.codigo_wvetro = null
@@ -678,6 +720,8 @@ function lerItensDoLayoutUnico(ws: ExcelJS.Worksheet): LeituraDoPreco {
             cor: texto('cor'),
             // a referência (20261124000001), como a célula é lida (`valorDaCelula` já apara as pontas e faz da vazia nula): ela é identidade
             codigo_wvetro: texto('codigo_wvetro'),
+            // a referência do perfil sai da mesma célula, conforme a categoria da tabela (`referenciasDaCategoria`)
+            referencia_perfil: null,
             medida_barra_m: numero('medida_barra_m'),
             unidade: texto('unidade'),
             ncm: texto('ncm'),

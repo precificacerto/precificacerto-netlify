@@ -550,6 +550,12 @@ const semAColunaDaCor = (e: { code?: string; message?: string } | null) => !!e &
 export const COLUNA_DA_REFERENCIA_DO_ITEM = 'codigo_wvetro'
 const semAColunaDaReferencia = (e: { code?: string; message?: string } | null) => !!e && (e.code === '42703' || e.code === 'PGRST204') && /\bcodigo_wvetro\b/.test(e.message ?? '')
 /**
+ * A REFERÊNCIA DO PERFIL do item (20261124000002, `referencia_perfil`: com a cor, é por ela que o motor acha o perfil). Antes de a migração
+ * entrar a coluna não existe: a leitura volta SEM ela (o perfil é achado pela escada de antes) e o código não quebra pela ordem de aplicação.
+ */
+export const COLUNA_DA_REFERENCIA_DO_PERFIL = 'referencia_perfil'
+const semAColunaDaReferenciaDoPerfil = (e: { code?: string; message?: string } | null) => !!e && (e.code === '42703' || e.code === 'PGRST204') && /\breferencia_perfil\b/.test(e.message ?? '')
+/**
  * OS ITENS NO ESCOPO DA RESOLUÇÃO (dono do produto, 12/11/2026: "escopo primeiro, sempre"): das tabelas que valem para a família, só os itens
  * das do FORNECEDOR e de uma FAMÍLIA do motor (`tabelaNoEscopo`). PROVA: o 8384 da tabela é uma cremona da Celsus; o 8384/WOLFF do motor é a
  * persiana da Wolf. Os itens vêm INTEIROS (todos os códigos das tabelas, não só os exatos), porque a resolução precisa ver o código com e sem
@@ -561,7 +567,7 @@ export type ItemDaFamilia = ItemDaTabela & { tabela_id: string; fornecedor_id: s
 export type ItensDaFamilia = { noEscopoDoMotor: ItemDaTabela[]; todos: ItemDaFamilia[]; fornecedorDoMotor: string | null }
 async function lerItensNoEscopo(motorId: string, tabelaIds: readonly string[]): Promise<ItensDaFamilia> {
     if (tabelaIds.length === 0) return { noEscopoDoMotor: [], todos: [], fornecedorDoMotor: null }
-    let colunas = `${COLUNAS_DO_ITEM_DA_TABELA}, ${COLUNA_DA_COR_DO_ITEM}, ${COLUNA_DA_REFERENCIA_DO_ITEM}, tabela_id`
+    let colunas = `${COLUNAS_DO_ITEM_DA_TABELA}, ${COLUNA_DA_COR_DO_ITEM}, ${COLUNA_DA_REFERENCIA_DO_ITEM}, ${COLUNA_DA_REFERENCIA_DO_PERFIL}, tabela_id`
     const pagina = (de: number) => supabaseAdmin
         .from('orcamentista_tabela_item').select(colunas)
         .in('tabela_id', [...tabelaIds]).order('id', { ascending: true }).range(de, de + PAGINA - 1)
@@ -575,7 +581,11 @@ async function lerItensNoEscopo(motorId: string, tabelaIds: readonly string[]): 
     if (motor.error) throw new Error(`orcamentista_motor: ${motor.error.message}`)
     if (fams.error) throw new Error(`orcamentista_motor_familia: ${fams.error.message}`)
     if (tabelas.error) throw new Error(`orcamentista_tabela: ${tabelas.error.message}`)
-    // as migrações entram em ordem: sem a referência (a mais nova), tenta com a cor; sem a cor, nenhuma das duas
+    // as migrações entram em ordem: sem a referência do perfil (a mais nova), tenta com a do vidro e a cor; sem a do vidro, só a cor; sem a cor, nenhuma
+    if (semAColunaDaReferenciaDoPerfil(primeira.error)) {
+        colunas = `${COLUNAS_DO_ITEM_DA_TABELA}, ${COLUNA_DA_COR_DO_ITEM}, ${COLUNA_DA_REFERENCIA_DO_ITEM}, tabela_id`
+        primeira = await pagina(0)
+    }
     if (semAColunaDaReferencia(primeira.error)) {
         colunas = `${COLUNAS_DO_ITEM_DA_TABELA}, ${COLUNA_DA_COR_DO_ITEM}, tabela_id`
         primeira = await pagina(0)

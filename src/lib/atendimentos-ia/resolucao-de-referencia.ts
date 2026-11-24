@@ -39,6 +39,20 @@
  * O CÓDIGO DO MOTOR NÃO SE NORMALIZA (`docs/regras/codigo-do-motor-nao-se-normaliza.md`): nenhum degrau tira zero, caixa, ponto ou espaço do
  * código. Só sai o sufixo do fornecedor, que é marca de formato, e só o do código do motor.
  *
+ * A REFERÊNCIA DO PERFIL VEM ANTES DA ESCADA (dono do produto, 24/11/2026; migração 20261124000002): "o casamento do motor passa a ser
+ * referência do perfil + cor, igual, nunca pelo parecido nem pelo código do fornecedor. O sufixo /WOLFF do motor não entra na referência."
+ * A tabela do fornecedor identifica o perfil por número interno POR COR (9641 = "HF88S - MARCO CORRER DUPLO COM ABA - BRANCO"), e o motor pede
+ * `HF88S/WOLFF`; a coluna `referencia_perfil` do item traz o `HF88S`, e a coluna `cor`, a cor. `resolverPelaReferencia`:
+ *   - a referência é o código do motor SEM o sufixo do fornecedor, comparada IGUAL (crua: nem caixa, nem zero, nem espaço);
+ *   - a cor pedida e a cor do item são comparadas como TODA cor deste módulo (`descricaoNormalizada`: sem acento e sem caixa — a conversa grava
+ *     "Branco", a tabela "BRANCO");
+ *   - UM item da referência na cor pedida → é ele (`referencia`), sem o guarda da descrição: a referência é identidade, não semelhança;
+ *   - a referência que NÃO TEM COR em nenhum item dela (a peça sem cor, como o reforço de aço) serve a qualquer cor pedida;
+ *   - a referência existe mas não na cor pedida → falta nomeada com as cores que ela tem (`REFERENCIA_SEM_A_COR`); sem cor pedida → `SEM_COR`.
+ * O ITEM QUE TEM REFERÊNCIA SÓ É ACHADO POR ELA: a escada (ponte, exato, cor, nome técnico) roda só sobre os itens SEM referência — o item com
+ * referência nunca é achado pelo código do fornecedor nem pelo nome parecido na descrição. Enquanto a tabela não é reimportada com a referência
+ * (todas as linhas de hoje), nenhum item a tem, e a escada segue como era: nada quebra pela ordem do deploy e da reimportação.
+ *
  * Para separar as duas formas do resultado, use `'item' in r`: com `strictNullChecks: false`, o tsc não estreita a união pelo booleano.
  * Puro: não lê banco. Quem chama traz os itens já no escopo e a tabela de cores do fornecedor.
  */
@@ -61,8 +75,11 @@ export interface ReferenciaProcurada {
     /** A cor da conversa (`cor_perfil`); null quando não foi dita. */
     corPedida: string | null
 }
-/** O mínimo que a resolução lê de um item: o código e a descrição. O resto do item viaja junto. */
-export interface ItemResolvivel { codigo: string; descricao?: string | null }
+/**
+ * O mínimo que a resolução lê de um item: o código e a descrição — e, quando a tabela os traz, a referência do perfil e a cor
+ * (20261124000002). O resto do item viaja junto.
+ */
+export interface ItemResolvivel { codigo: string; descricao?: string | null; referencia_perfil?: string | null; cor?: string | null }
 /** Uma linha de `orcamentista_fornecedor_cor`. */
 export interface CorDoFornecedor { grupo: string; codigo: string; nome: string }
 /** O que a resolução precisa além dos itens: a tabela de cores do fornecedor e o grupo de cor do que se procura (perfil ou acessório). */
@@ -70,11 +87,14 @@ export interface ContextoDaResolucao { cores: readonly CorDoFornecedor[]; grupoD
 /** Os grupos da aba CORES da Wolff, como gravados (20261112000006). */
 export const GRUPO_DE_COR = { perfil: 'PERFIS DE PVC', insumo: 'ACESSORIOS' } as const
 
-export type ComoAchou = 'ponte' | 'exato' | 'cor' | 'nome_tecnico'
+/** Os degraus da ESCADA (os itens sem referência). */
+export type DegrauDaEscada = 'ponte' | 'exato' | 'cor' | 'nome_tecnico'
+/** Como o item foi achado: pela referência do perfil + cor (antes da escada), ou por um degrau dela. */
+export type ComoAchou = 'referencia' | DegrauDaEscada
 /** A ordem da escada. É ela que decide qual degrau vale; os de baixo não são tentados. */
-export const COMO_ACHOU: readonly ComoAchou[] = ['ponte', 'exato', 'cor', 'nome_tecnico']
-export type MotivoDaFalta = 'NAO_ACHADA' | 'AMBIGUA' | 'DESCRICAO_NAO_CONCORDA' | 'SEM_COR' | 'COR_FORA_DA_TABELA' | 'SEM_TABELA_DE_CORES' | 'DESCRICAO_DO_MOTOR_AUSENTE'
-export const MOTIVOS_DA_FALTA: readonly MotivoDaFalta[] = ['NAO_ACHADA', 'AMBIGUA', 'DESCRICAO_NAO_CONCORDA', 'SEM_COR', 'COR_FORA_DA_TABELA', 'SEM_TABELA_DE_CORES', 'DESCRICAO_DO_MOTOR_AUSENTE']
+export const COMO_ACHOU: readonly DegrauDaEscada[] = ['ponte', 'exato', 'cor', 'nome_tecnico']
+export type MotivoDaFalta = 'NAO_ACHADA' | 'AMBIGUA' | 'DESCRICAO_NAO_CONCORDA' | 'SEM_COR' | 'COR_FORA_DA_TABELA' | 'SEM_TABELA_DE_CORES' | 'DESCRICAO_DO_MOTOR_AUSENTE' | 'REFERENCIA_SEM_A_COR'
+export const MOTIVOS_DA_FALTA: readonly MotivoDaFalta[] = ['NAO_ACHADA', 'AMBIGUA', 'DESCRICAO_NAO_CONCORDA', 'SEM_COR', 'COR_FORA_DA_TABELA', 'SEM_TABELA_DE_CORES', 'DESCRICAO_DO_MOTOR_AUSENTE', 'REFERENCIA_SEM_A_COR']
 type Pulo = 'SEM_COR' | 'COR_FORA_DA_TABELA' | 'SEM_TABELA_DE_CORES'
 
 export interface CandidataRecusada<I> { item: I; porque: string }
@@ -83,6 +103,7 @@ export type ResolucaoDeReferencia<I> =
     | { achada: false; motivo: MotivoDaFalta; procurado: string; candidatas: Array<CandidataRecusada<I>>; frase: string }
 
 export const ROTULO_DO_COMO: Record<ComoAchou, string> = {
+    referencia: 'referência do perfil + cor',
     ponte: 'ponte do motor',
     exato: 'código exato',
     cor: 'código + cor do fornecedor',
@@ -251,10 +272,10 @@ function peloCodigo<I extends ItemResolvivel>(procurado: string, sufixo: string 
     return itens.filter((i) => i.codigo === procurado || semOSufixo(i.codigo, sufixo ?? sufixoDoFornecedor(i.codigo)) === sem)
 }
 
-type Degrau<I> = { como: ComoAchou; candidatas: I[]; pulado?: Pulo }
+type Degrau<I> = { como: DegrauDaEscada; candidatas: I[]; pulado?: Pulo }
 
 /** Os itens que cada degrau acha, ANTES do guarda. Exportada para o teste provar degrau a degrau. */
-export function candidatasDoDegrau<I extends ItemResolvivel>(como: ComoAchou, ref: ReferenciaProcurada, itens: readonly I[], ctx: ContextoDaResolucao): Degrau<I> {
+export function candidatasDoDegrau<I extends ItemResolvivel>(como: DegrauDaEscada, ref: ReferenciaProcurada, itens: readonly I[], ctx: ContextoDaResolucao): Degrau<I> {
     const sufixo = sufixoDoFornecedor(ref.codigoDoMotor)
     if (como === 'ponte') return { como, candidatas: ref.codigoDaPonte === null ? [] : peloCodigo(ref.codigoDaPonte, sufixo, itens) }
     if (como === 'exato') return { como, candidatas: peloCodigo(ref.codigoDoMotor, sufixo, itens) }
@@ -284,8 +305,49 @@ export function candidatasDoDegrau<I extends ItemResolvivel>(como: ComoAchou, re
     return { como, candidatas: itens.filter((i) => nomeTecnicoNaDescricao(base, i.descricao).casou && semOSufixo(i.codigo, sufixoDoFornecedor(i.codigo)).endsWith('.1') === pedidoComPonto) }
 }
 
-/** A resolução de UMA referência, no escopo já filtrado. */
-export function resolverReferencia<I extends ItemResolvivel>(ref: ReferenciaProcurada, itens: readonly I[], ctx: ContextoDaResolucao): ResolucaoDeReferencia<I> {
+// ── a referência do perfil + cor (antes da escada) ────────────────────────────────────────────────────────────────────────────────────
+/** O item traz a referência do perfil: só é achado por ela (a escada não o vê). */
+export const temReferencia = (i: ItemResolvivel): boolean => i.referencia_perfil !== undefined && i.referencia_perfil !== null
+/** A referência que o motor pede: o código dele SEM o sufixo do fornecedor (`HF88S/WOLFF` → `HF88S`), cru. */
+export const referenciaDoMotor = (codigoDoMotor: string): string => semOSufixo(codigoDoMotor, sufixoDoFornecedor(codigoDoMotor))
+/** A cor para comparar (como toda cor deste módulo); a vazia é "sem cor". */
+const corParaComparar = (cor: string | null | undefined): string | null => { const c = descricaoNormalizada(cor); return c === '' ? null : c }
+/**
+ * A resolução PELA REFERÊNCIA DO PERFIL + COR. `null` quando NENHUM item do escopo traz a referência pedida — só então a escada roda (sobre os
+ * itens sem referência). Com a referência no escopo, o resultado é final: o item, ou a falta nomeada; nunca o parecido.
+ */
+export function resolverPelaReferencia<I extends ItemResolvivel>(ref: Pick<ReferenciaProcurada, 'codigoDoMotor' | 'descricaoDoMotor' | 'corPedida'>, itens: readonly I[]): ResolucaoDeReferencia<I> | null {
+    const referencia = referenciaDoMotor(ref.codigoDoMotor)
+    const daReferencia = itens.filter((i) => i.referencia_perfil === referencia)
+    if (daReferencia.length === 0) return null
+    const quem = `${ref.codigoDoMotor}${ref.descricaoDoMotor ? ` (${ref.descricaoDoMotor})` : ''}${ref.corPedida ? ` em ${ref.corPedida}` : ''}`
+    const lista = (xs: readonly I[]) => xs.map((i) => `${i.codigo}${i.cor ? ` (${i.cor})` : ''}`).join('; ')
+    const faltou = (motivo: MotivoDaFalta, frase: string, porque: string, candidatas: readonly I[] = daReferencia): ResolucaoDeReferencia<I> =>
+        ({ achada: false, motivo, procurado: ref.codigoDoMotor, candidatas: candidatas.map((item) => ({ item, porque })), frase })
+    const ambigua = (xs: readonly I[], onde: string) => faltou('AMBIGUA',
+        `${quem} tem ${xs.length} itens com a referência ${referencia}${onde} na tabela de preço, e nenhum é escolhido: ${lista(xs)}`, `${xs.length} itens com a mesma referência${onde}: nenhum é escolhido`, xs)
+    // a referência sem cor em NENHUM item dela é a peça que não tem cor: serve a qualquer cor pedida
+    if (daReferencia.every((i) => corParaComparar(i.cor) === null)) {
+        return daReferencia.length === 1 ? { achada: true, como: 'referencia', item: daReferencia[0] } : ambigua(daReferencia, ' e sem cor')
+    }
+    const pedida = corParaComparar(ref.corPedida)
+    if (pedida === null) {
+        return faltou('SEM_COR', `${ref.codigoDoMotor}${ref.descricaoDoMotor ? ` (${ref.descricaoDoMotor})` : ''}: a cor não foi dita, e a referência ${referencia} tem um item por cor — não se assume branco`, 'a cor não foi dita')
+    }
+    const daCor = daReferencia.filter((i) => corParaComparar(i.cor) === pedida)
+    if (daCor.length === 1) return { achada: true, como: 'referencia', item: daCor[0] }
+    if (daCor.length > 1) return ambigua(daCor, ` na cor ${ref.corPedida}`)
+    const cores = [...new Set(daReferencia.map((i) => (corParaComparar(i.cor) === null ? '(sem cor)' : String(i.cor))))]
+    return faltou('REFERENCIA_SEM_A_COR', `${quem}: a referência ${referencia} existe na tabela de preço, mas não na cor ${ref.corPedida} — as cores dela: ${cores.join(', ')}`, `é da referência ${referencia}, em outra cor`)
+}
+
+/** A resolução de UMA referência, no escopo já filtrado: a referência do perfil + cor primeiro; sem ela no escopo, a escada sobre os itens sem referência. */
+export function resolverReferencia<I extends ItemResolvivel>(ref: ReferenciaProcurada, todos: readonly I[], ctx: ContextoDaResolucao): ResolucaoDeReferencia<I> {
+    const pelaReferencia = resolverPelaReferencia(ref, todos)
+    if (pelaReferencia !== null) return pelaReferencia
+    // o item que tem referência só é achado por ela: a escada não o vê (nunca pelo código do fornecedor, nunca pelo parecido)
+    const itens = todos.filter((i) => !temReferencia(i))
+    const haReferencias = itens.length !== todos.length
     const sufixo = sufixoDoFornecedor(ref.codigoDoMotor)
     const nome = semOSufixo(ref.codigoDoMotor, sufixo)
     const motor = palavrasSignificativas(ref.descricaoDoMotor, ctx.cores, nome)
@@ -341,14 +403,14 @@ export function resolverReferencia<I extends ItemResolvivel>(ref: ReferenciaProc
     if (pulos.includes('SEM_COR')) return falta(ref, 'SEM_COR', [])
     if (pulos.includes('COR_FORA_DA_TABELA')) return falta(ref, 'COR_FORA_DA_TABELA', [])
     if (pulos.includes('SEM_TABELA_DE_CORES')) return falta(ref, 'SEM_TABELA_DE_CORES', [])
-    return falta(ref, 'NAO_ACHADA', [])
+    return falta(ref, 'NAO_ACHADA', [], haReferencias)
 }
 
-function falta<I extends ItemResolvivel>(ref: ReferenciaProcurada, motivo: MotivoDaFalta, candidatas: Array<CandidataRecusada<I>>): ResolucaoDeReferencia<I> {
+function falta<I extends ItemResolvivel>(ref: ReferenciaProcurada, motivo: Exclude<MotivoDaFalta, 'REFERENCIA_SEM_A_COR'>, candidatas: Array<CandidataRecusada<I>>, haReferencias = false): ResolucaoDeReferencia<I> {
     const lista = candidatas.map((c) => `${c.item.codigo}${c.item.descricao ? ` (${c.item.descricao})` : ''}`).join('; ')
     const quem = `${ref.codigoDoMotor}${ref.descricaoDoMotor ? ` (${ref.descricaoDoMotor})` : ''}${ref.corPedida ? ` em ${ref.corPedida}` : ''}`
     const frase =
-        motivo === 'NAO_ACHADA' ? `${quem} não está na tabela de preço: nem pelo código, nem pela cor, nem pelo nome técnico na descrição`
+        motivo === 'NAO_ACHADA' ? `${quem} não está na tabela de preço: ${haReferencias ? `nem pela referência do perfil (${referenciaDoMotor(ref.codigoDoMotor)}), ` : ''}nem pelo código, nem pela cor, nem pelo nome técnico na descrição`
         : motivo === 'AMBIGUA' ? `${quem} tem ${candidatas.length} candidatos na tabela de preço, e nenhum é escolhido: ${lista}`
         : motivo === 'DESCRICAO_NAO_CONCORDA' ? `${quem}: os itens achados não são a mesma peça — ${candidatas.map((c) => `${c.item.codigo}${c.item.descricao ? ` (${c.item.descricao})` : ''}: ${c.porque}`).join('; ')}`
         : motivo === 'SEM_COR' ? `${ref.codigoDoMotor}${ref.descricaoDoMotor ? ` (${ref.descricaoDoMotor})` : ''}: a cor não foi dita, e o código do fornecedor depende dela — não se assume branco`

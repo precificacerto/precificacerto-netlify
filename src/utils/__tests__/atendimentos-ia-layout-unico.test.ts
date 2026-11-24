@@ -19,7 +19,7 @@ import ExcelJS from 'exceljs'
 import {
     ABAS_DA_IMPORTACAO, ABAS_DO_LAYOUT_UNICO, CAMPOS_DO_CABECALHO_UNICO, COLUNA_DA_CATEGORIA_DO_FORNECEDOR, COLUNAS_DO_LAYOUT_UNICO,
     COLUNAS_SEM_DESTINO_DO_LAYOUT_UNICO,
-    FRASE_DO_CABECALHO_DOS_ITENS_NAO_RECONHECIVEL, lerArquivosDaImportacao, montarPayloadDaImportacao, referenciasDaCategoria,
+    FRASE_DO_CABECALHO_DOS_ITENS_NAO_RECONHECIVEL, corParaComparar, lerArquivosDaImportacao, montarPayloadDaImportacao, referenciasDaCategoria,
     type Aviso, type ColunaDoLayoutUnico, type ResultadoDaLeitura,
 } from '@/utils/atendimentos-ia-importacao'
 import { COLUNAS_DO_BLOCO_TRIBUTARIO } from '@/utils/atendimentos-ia-bloco-tributario'
@@ -479,10 +479,11 @@ describe('a referência (codigo_wvetro): o leitor a traz, e a categoria da tabel
         expect(referencias(r)).toEqual(['VFIN05', 'vfin05'])
     })
 
-    it.each([['FERRAGENS'], ['PERFIL'], [null], [undefined]])('tabela de %s: a referência NÃO vai para o payload (nula), nem repetida é recusa, e as linhas que a traziam entram no aviso de sem destino', async (categoria) => {
+    it.each([[null], [undefined], [''], ['  ']])('tabela SEM categoria declarada (%p): a referência NÃO vai para o payload (nula nas duas colunas), nem repetida é recusa, e as linhas que a traziam entram no aviso de sem destino', async (categoria) => {
         const r = await lerVidros([vidro('A', '9681'), vidro('B', '9681'), vidro('C', null), vidro('D', '9711', { valor_kg: 3 })])
         expect(referenciasDaCategoria(r, categoria)).toBeNull()
         expect(referencias(r)).toEqual([null, null, null, null])
+        expect(r.itens.map((i) => i.referencia_perfil)).toEqual([null, null, null, null])
         expect(avisosDo(r, 'itens_sem_referencia')).toEqual([])
         const a = avisosDo(r, 'colunas_sem_destino_no_layout_unico')
         expect(a).toHaveLength(1)
@@ -492,10 +493,10 @@ describe('a referência (codigo_wvetro): o leitor a traz, e a categoria da tabel
 
     it('fora do vidro e SEM referência no arquivo: nenhum aviso nasce; com referência e sem outra coluna sem destino, o aviso nasce só com ela', async () => {
         const sem = await lerVidros([vidro('A', null), vidro('B', null)])
-        expect(referenciasDaCategoria(sem, 'FERRAGENS')).toBeNull()
+        expect(referenciasDaCategoria(sem, null)).toBeNull()
         expect(avisosDo(sem, 'colunas_sem_destino_no_layout_unico')).toEqual([])
         const com = await lerVidros([vidro('A', '9681'), vidro('B', null)])
-        expect(referenciasDaCategoria(com, 'FERRAGENS')).toBeNull()
+        expect(referenciasDaCategoria(com, null)).toBeNull()
         expect(avisosDo(com, 'colunas_sem_destino_no_layout_unico').map((a) => [a.aba, a.colunas])).toEqual([['ITENS', { codigo_wvetro: 1 }]])
     })
 
@@ -503,5 +504,62 @@ describe('a referência (codigo_wvetro): o leitor a traz, e a categoria da tabel
         const r = await ler({ [ABAS_DA_IMPORTACAO.preco]: [{ 1: 'LAMINADOS' }, { 2: 'CÓDIGO', 13: 'VALOR METRO 18%', 15: 'VALOR BARRA 18%' }, { 2: 'IL4237', 13: 10 }] })
         if (r.ok === false) throw new Error(erroDe(r))
         expect((r as Lida).itens.map((i) => [i.codigo, i.codigo_wvetro])).toEqual([['IL4237', null]])
+    })
+})
+
+// ── A REFERÊNCIA DO PERFIL: referencia_perfil (dono do produto, 24/11/2026; migração 20261124000002) ──
+describe('a referência do perfil: fora do vidro, a coluna codigo_wvetro do arquivo vai para referencia_perfil', () => {
+    const perfil = (codigo: string, referencia: ExcelJS.CellValue, cor: ExcelJS.CellValue, extra: Linha = {}): Linha => ({ ...PERSIANAS[0], codigo, descricao: `PERFIL ${codigo}`, codigo_wvetro: referencia, cor, ...extra })
+    const lerPerfis = async (itens: Linha[]) => lida({ [ABAS_DO_LAYOUT_UNICO.itens]: abaItens(itens) })
+    const HF88 = [perfil('9641', 'HF88', 'BRANCO'), perfil('96420', 'HF88', 'PRETO TEXTURADO'), perfil('96421', 'HF88', 'AMADEIRADO GOLDEN OAK')]
+
+    it.each([['PERFIL'], ['INSTALACAO'], ['PERSIANAS'], ['FERRAGENS']])('tabela de %s: a referência vai para referencia_perfil, a MESMA em várias cores entra, codigo_wvetro fica nula e nenhum aviso de sem destino nasce', async (categoria) => {
+        const r = await lerPerfis([...HF88, perfil('8432', '8432', null), perfil('SEM', null, 'BRANCO')])
+        // o leitor NÃO decide: antes da categoria, a referência do perfil é nula em todos
+        expect(r.itens.map((i) => i.referencia_perfil)).toEqual([null, null, null, null, null])
+        expect(referenciasDaCategoria(r, categoria)).toBeNull()
+        expect(r.itens.map((i) => [i.codigo, i.referencia_perfil, i.cor, i.codigo_wvetro])).toEqual([
+            ['9641', 'HF88', 'BRANCO', null], ['96420', 'HF88', 'PRETO TEXTURADO', null], ['96421', 'HF88', 'AMADEIRADO GOLDEN OAK', null], ['8432', '8432', null, null], ['SEM', null, 'BRANCO', null]])
+        expect((montarPayloadDaImportacao(r, null).itens as Array<{ referencia_perfil: string | null }>).map((i) => i.referencia_perfil)).toEqual(['HF88', 'HF88', 'HF88', '8432', null])
+        expect(avisosDo(r, 'colunas_sem_destino_no_layout_unico')).toEqual([])
+        expect(avisosDo(r, 'itens_sem_referencia')).toEqual([])
+    })
+
+    it('a tabela de VIDRO não ganha referência do perfil: a coluna continua sendo a do vidro', async () => {
+        const r = await lerPerfis([perfil('LJ-VFIN05', 'VFIN05', 'INCOLOR')])
+        expect(referenciasDaCategoria(r, 'VIDRO')).toBeNull()
+        expect(r.itens.map((i) => [i.codigo_wvetro, i.referencia_perfil])).toEqual([['VFIN05', null]])
+    })
+
+    it('a MESMA referência na MESMA cor em dois itens: recusa NOMEADA (a referência, a cor e os códigos), e nada é mexido — a cor é comparada sem caixa e sem acento', async () => {
+        const r = await lerPerfis([perfil('9641', 'HF88', 'BRANCO'), perfil('9641B', 'HF88', 'Branco'), perfil('96420', 'HF88', 'PRETO TEXTURADO'), perfil('R1', '8432', null), perfil('R2', '8432', null)])
+        expect(referenciasDaCategoria(r, 'PERFIL')).toBe(
+            'traz a mesma referência do perfil (codigo_wvetro) na mesma cor em mais de um item — HF88 em BRANCO: 9641 e 9641B; 8432 sem cor: R1 e R2. '
+            + 'A referência + a cor acham UM item: corrija o arquivo. Nada foi alterado.')
+        // recusado: nada foi movido para a coluna do perfil
+        expect(r.itens.map((i) => i.referencia_perfil)).toEqual([null, null, null, null, null])
+        expect(r.itens.map((i) => i.codigo_wvetro)).toEqual(['HF88', 'HF88', 'HF88', '8432', '8432'])
+    })
+
+    it('a referência é identidade (crua): HF88 e hf88 na mesma cor são DUAS referências, e as duas entram', async () => {
+        const r = await lerPerfis([perfil('A', 'HF88', 'BRANCO'), perfil('B', 'hf88', 'BRANCO')])
+        expect(referenciasDaCategoria(r, 'PERFIL')).toBeNull()
+        expect(r.itens.map((i) => i.referencia_perfil)).toEqual(['HF88', 'hf88'])
+    })
+
+    it('a referência com BARRA (o sufixo do fornecedor): recusa NOMEADA com cada item — o sufixo não entra na referência; no vidro a barra não é recusada por esta regra', async () => {
+        const r = await lerPerfis([perfil('9641', 'HF88/WOLFF', 'BRANCO'), perfil('9681', 'SF66', 'BRANCO'), perfil('X', 'A/B', 'BRANCO')])
+        expect(referenciasDaCategoria(r, 'PERFIL')).toBe(
+            'traz a referência do perfil (codigo_wvetro) com barra em 2 itens — 9641 = "HF88/WOLFF"; X = "A/B". '
+            + 'O sufixo do fornecedor ("/WOLFF") não entra na referência: escreva só o nome que o motor pede (HF88S). Nada foi alterado.')
+        expect(r.itens.map((i) => i.referencia_perfil)).toEqual([null, null, null])
+        const vidro = await lerPerfis([perfil('LJ-X', 'V/1', 'INCOLOR')])
+        expect(referenciasDaCategoria(vidro, 'VIDRO')).toBeNull()
+    })
+
+    it('a cor para comparar é a MESMA da resolução (`descricaoNormalizada`): sem acento, sem caixa, só letras e números', async () => {
+        const { descricaoNormalizada } = await import('@/lib/atendimentos-ia/resolucao-de-referencia')
+        for (const cor of ['Branco', ' PRETO  TEXTURADO ', 'Amadeirado Golden-Oak', 'Fumê', 'EXTERNO PRETO LISO', '', '  ', null]) expect(corParaComparar(cor)).toBe(descricaoNormalizada(cor))
+        expect(corParaComparar('Fumê')).toBe('FUME')
     })
 })

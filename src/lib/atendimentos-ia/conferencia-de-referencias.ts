@@ -37,6 +37,9 @@ export interface ReferenciaDoMotor {
 export interface ItemParaConferir {
     codigo: string
     descricao: string | null
+    /** A referência do perfil e a cor do item (20261124000002): a resolução acha por elas o item que as tem. Ausentes: sem referência. */
+    referencia_perfil?: string | null
+    cor?: string | null
     custo: number | null
     valor_barra_interno: number | null
     valor_metro_interno: number | null
