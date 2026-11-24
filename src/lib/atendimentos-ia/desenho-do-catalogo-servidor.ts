@@ -103,7 +103,7 @@ export async function desenhosDosItens(itens: readonly ItemComDesenho[], catalog
     const caminhos = [...new Set(escolhas.flatMap((e) => ('caminho' in e ? [e.caminho] : [])))]
     const baixados = new Map<string, ImagemDoDesenho | null>()
     for (const c of caminhos) baixados.set(c, await baixarDesenho(c))
-    return escolhas.map((e, k) => {
+    return escolhas.map((e) => {
         if (!('caminho' in e)) return { frase: e.frase }
         const imagem = baixados.get(e.caminho) ?? null
         return imagem === null ? { frase: fraseDoArquivoQueNaoBaixou() } : { imagem, degrau: e.degrau }
