@@ -688,13 +688,13 @@ describe('TABELA DE PREÇO PURO — sem arquivo de motor (Reforço, Acessórios�
     })
 
     // ── A REFERÊNCIA DO VIDRO (codigo_wvetro; dono do produto, 24/11/2026) ──
-    const comReferencias = async (categoria: string, itens: Array<[string, string | null]>) => {
+    const comReferencias = async (categoria: string, itens: Array<[string, string | null] | [string, string | null, string | null]>) => {
         semMotor(categoria)
         const colunas: readonly string[] = COLUNAS_DO_LAYOUT_UNICO
         const linha = (v: Record<string, ExcelJS.CellValue>) => Object.fromEntries(Object.entries(v).map(([c, x]) => [colunas.indexOf(c) + 1, x]))
         objetos[TABELA.arquivo_path] = await planilha({ ITENS: [
             Object.fromEntries(colunas.map((c, k) => [k + 1, c])),
-            ...itens.map(([codigo, referencia]) => linha({ codigo, descricao: `VIDRO ${codigo}`, [COLUNA_DA_CATEGORIA_DO_FORNECEDOR]: 'Float', cor: 'INCOLOR', vendido_por: 'unidade', custo_bruto: 90, ...(referencia === null ? {} : { codigo_wvetro: referencia }) })),
+            ...itens.map(([codigo, referencia, cor = 'INCOLOR']) => linha({ codigo, descricao: `VIDRO ${codigo}`, [COLUNA_DA_CATEGORIA_DO_FORNECEDOR]: 'Float', ...(cor === null ? {} : { cor }), vendido_por: 'unidade', custo_bruto: 90, ...(referencia === null ? {} : { codigo_wvetro: referencia }) })),
         ] })
     }
     it('tabela de VIDRO: a referência (codigo_wvetro) vai no payload de cada item, como veio; o item sem ela vai nulo e é nomeado no aviso', async () => {
@@ -714,19 +714,51 @@ describe('TABELA DE PREÇO PURO — sem arquivo de motor (Reforço, Acessórios�
         expect(repo.codigosDosItensGravados).not.toHaveBeenCalled()
         expect(repo.importarTabela).not.toHaveBeenCalled()
     })
-    it('a referência é SÓ do vidro: a mesma planilha numa tabela de FERRAGENS grava a referência NULA (mesmo repetida), e o aviso diz que a coluna não foi gravada', async () => {
-        await comReferencias('FERRAGENS', [['A', '9681'], ['B', '9681']])
+    // ── A REFERÊNCIA DO PERFIL (referencia_perfil; dono do produto, 24/11/2026): fora do vidro, a MESMA coluna do arquivo é a referência do perfil ──
+    it('tabela de PERFIL: a coluna codigo_wvetro do arquivo vai para referencia_perfil (a MESMA referência em várias cores entra), e codigo_wvetro vai nula', async () => {
+        await comReferencias('PERFIL', [['9641', 'HF88', 'BRANCO'], ['96420', 'HF88', 'PRETO TEXTURADO'], ['8432', '8432', null], ['SEM', null, 'BRANCO']])
         const r = await chamar('POST')
         expect(r.status).toBe(200)
-        expect(repo.importarTabela.mock.calls[0][0].payload.itens.map((i: any) => i.codigo_wvetro)).toEqual([null, null])
-        expect(r.json.avisos.filter((a: any) => a.tipo === 'colunas_sem_destino_no_layout_unico').map((a: any) => a.colunas)).toEqual([{ codigo_wvetro: 2 }])
+        expect(repo.importarTabela.mock.calls[0][0].payload.itens.map((i: any) => [i.codigo, i.referencia_perfil, i.cor, i.codigo_wvetro]))
+            .toEqual([['9641', 'HF88', 'BRANCO', null], ['96420', 'HF88', 'PRETO TEXTURADO', null], ['8432', '8432', null, null], ['SEM', null, 'BRANCO', null]])
+        expect(r.json.avisos.map((a: any) => a.tipo)).not.toContain('colunas_sem_destino_no_layout_unico')
     })
-    it('tabela SEM categoria declarada: não é tratada como de vidro — a referência repetida não recusa, e vai NULA', async () => {
+    it('a referência do perfil vale para TODA categoria que não é vidro (os perfis do motor estão também em INSTALACAO e PERSIANAS)', async () => {
+        for (const categoria of ['INSTALACAO', 'PERSIANAS', 'FERRAGENS']) {
+            repo.importarTabela.mockClear()
+            await comReferencias(categoria, [['10501', 'BZ0006', 'BRANCO']])
+            expect((await chamar('POST')).status).toBe(200)
+            expect(repo.importarTabela.mock.calls[0][0].payload.itens.map((i: any) => [i.referencia_perfil, i.codigo_wvetro])).toEqual([['BZ0006', null]])
+        }
+    })
+    it('tabela de VIDRO: a referência do vidro NÃO vai para referencia_perfil', async () => {
+        await comReferencias('VIDRO', [['LJ-VFIN05', 'VFIN05']])
+        expect((await chamar('POST')).status).toBe(200)
+        expect(repo.importarTabela.mock.calls[0][0].payload.itens.map((i: any) => [i.codigo_wvetro, i.referencia_perfil])).toEqual([['VFIN05', null]])
+    })
+    it('tabela de PERFIL com a MESMA referência na MESMA cor em dois itens: 422 com a referência, a cor e os códigos — e NADA é conferido nem gravado', async () => {
+        await comReferencias('PERFIL', [['9641', 'HF88', 'BRANCO'], ['9641B', 'HF88', 'Branco'], ['96420', 'HF88', 'PRETO TEXTURADO']])
+        const r = await chamar('POST')
+        expect(r.status).toBe(422)
+        expect(r.json.error).toContain(TABELA.arquivo_nome)
+        expect(r.json.error).toContain('traz a mesma referência do perfil (codigo_wvetro) na mesma cor em mais de um item — HF88 em BRANCO: 9641 e 9641B.')
+        expect(repo.codigosDosItensGravados).not.toHaveBeenCalled()
+        expect(repo.importarTabela).not.toHaveBeenCalled()
+    })
+    it('tabela de PERFIL com o SUFIXO DO FORNECEDOR na referência ("HF88/WOLFF"): 422 nomeando o item — o sufixo não entra na referência', async () => {
+        await comReferencias('PERFIL', [['9641', 'HF88/WOLFF', 'BRANCO'], ['9681', 'SF66', 'BRANCO']])
+        const r = await chamar('POST')
+        expect(r.status).toBe(422)
+        expect(r.json.error).toContain('traz a referência do perfil (codigo_wvetro) com barra em 1 item — 9641 = "HF88/WOLFF".')
+        expect(repo.importarTabela).not.toHaveBeenCalled()
+    })
+    it('tabela SEM categoria declarada: não é tratada como de vidro nem como de perfil — a referência repetida não recusa, e vai NULA nas duas colunas', async () => {
         await comReferencias('VIDRO', [['A', '9681'], ['B', '9681']])
         repo.obterArquivosDaTabela.mockImplementation(async () => { ordem.push('obterArquivosDaTabela'); return { ...TABELA, motor_path: null, motor_nome: null, categoria_chave: null } })
         const r = await chamar('POST')
         expect(r.status).toBe(200)
-        expect(repo.importarTabela.mock.calls[0][0].payload.itens.map((i: any) => i.codigo_wvetro)).toEqual([null, null])
+        expect(repo.importarTabela.mock.calls[0][0].payload.itens.map((i: any) => [i.codigo_wvetro, i.referencia_perfil])).toEqual([[null, null], [null, null]])
+        expect(r.json.avisos.filter((a: any) => a.tipo === 'colunas_sem_destino_no_layout_unico').map((a: any) => a.colunas)).toEqual([{ codigo_wvetro: 2 }])
     })
 
     it('o LAYOUT ÚNICO (CABECALHO + ITENS, colunas por nome; 02/11/2026): a resposta diz o layout e devolve a aba CABECALHO como veio, e o payload leva as 12 do bloco', async () => {

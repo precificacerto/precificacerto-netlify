@@ -75,7 +75,7 @@ import type { CategoriaDoFornecedor } from '@/utils/atendimentos-ia-importacao-c
  */
 import { avaliarTipologia, faltaDoVidroSemBaguete, type AvisoDoAvaliador, type FaltaDoAvaliador, type InsumoAvaliado, type OrigemNoMotor, type Tipologia, type VidroAvaliado } from './avaliador-de-formulas'
 import { agruparEmBarras, milimetrosDaBarra, type BarraDoCodigo, type ResultadoDoCodigo, type TotalDoLevantamento } from './agrupador-de-barras'
-import { GRUPO_DE_COR, candidatasDoDegrau, resolverReferencia, type ComoAchou, type CorDoFornecedor } from './resolucao-de-referencia'
+import { GRUPO_DE_COR, candidatasDoDegrau, resolverPelaReferencia, resolverReferencia, type ComoAchou, type CorDoFornecedor } from './resolucao-de-referencia'
 
 
 // ── A entrada ─────────────────────────────────────────────────────────────────────────────
@@ -99,6 +99,8 @@ export type ItemDaTabela = {
     cor?: string | null
     /** A referência (20261124000001): no vidro, é por ela que o padrão e o vidro escolhido acham o item. Ausente ou nula: sem referência. */
     codigo_wvetro?: string | null
+    /** A referência do perfil (20261124000002): com a cor, é por ela que o motor acha o item. Ausente ou nula: sem referência (a escada de antes). */
+    referencia_perfil?: string | null
     medida_barra_m: number | null
     valor_barra_interno: number | null
     valor_metro_interno: number | null
@@ -479,21 +481,27 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
         const faltar = (motivo: string, frase: string, candidatas: Array<{ codigo: string; descricao: string | null }> = []) => {
             for (const esquadria of esquadrias) faltas.push({ caminho: 'perfil', codigo_do_motor: perfil, descricao_do_motor: descricao, cor, tipologia: tipologiaDa.get(esquadria) ?? '', esquadria, motivo, frase, candidatas })
         }
-        const p = ponte(perfil, cor, entrada.regras)
+        // A REFERÊNCIA DO PERFIL + COR VEM ANTES DE TUDO (24/11/2026): com a referência na tabela, a ponte do motor (que dá o código do fornecedor)
+        // nem é consultada — nem as recusas dela valem
+        const pelaReferencia = resolverPelaReferencia({ codigoDoMotor: perfil, descricaoDoMotor: descricao, corPedida: cor }, entrada.itens)
         let codigoDaPonte: string | null = null
-        if (!('recusa' in p)) codigoDaPonte = p.codigo
-        else if (p.recusa.motivo === 'COR_EM_DUAS_GRAFIAS') { for (const esquadria of esquadrias) parciais.push({ ...p.recusa, esquadria }); continue }
-        else if (p.recusa.motivo === 'DOIS_CODIGOS') {
-            // a tabela do fornecedor desempata: o candidato que ela não tem não é candidato (ver `desempatarPelaTabela`)
-            const d = desempatarPelaTabela(p.recusa, entrada.itens)
-            if (d.desfecho === 'um') codigoDaPonte = d.codigo
-            else if (d.desfecho === 'varios') {
-                const r = completarDoisCodigos(d.recusa, entrada.itens, entrada.regras)
-                faltar('PONTE_AMBIGUA', r.texto, (r.candidatos ?? []).map((c) => ({ codigo: c.codigo, descricao: c.descricao })))
-                continue
+        if (pelaReferencia === null) {
+            const p = ponte(perfil, cor, entrada.regras)
+            if (!('recusa' in p)) codigoDaPonte = p.codigo
+            else if (p.recusa.motivo === 'COR_EM_DUAS_GRAFIAS') { for (const esquadria of esquadrias) parciais.push({ ...p.recusa, esquadria }); continue }
+            else if (p.recusa.motivo === 'DOIS_CODIGOS') {
+                // a tabela do fornecedor desempata: o candidato que ela não tem não é candidato (ver `desempatarPelaTabela`)
+                const d = desempatarPelaTabela(p.recusa, entrada.itens)
+                if (d.desfecho === 'um') codigoDaPonte = d.codigo
+                else if (d.desfecho === 'varios') {
+                    const r = completarDoisCodigos(d.recusa, entrada.itens, entrada.regras)
+                    faltar('PONTE_AMBIGUA', r.texto, (r.candidatos ?? []).map((c) => ({ codigo: c.codigo, descricao: c.descricao })))
+                    continue
+                }
+                // 'nenhum': segue sem ponte; a escada resolve ou nomeia a falta com a frase que corresponde ao que achou
             }
-            // 'nenhum': segue sem ponte; a escada resolve ou nomeia a falta com a frase que corresponde ao que achou
         }
+        // a resolução roda a referência de novo antes da escada (é a mesma função): com a referência na tabela, o resultado é o dela
         const r = resolverReferencia({ codigoDoMotor: perfil, codigoDaPonte, ponteDoCodigo: entrada.regras.filter((x) => x.codigo_wvetro === perfil).map((x) => ({ codigo: x.codigo, cor: x.cor })), descricaoDoMotor: descricao, corPedida: cor }, entrada.itens, contexto)
         if (!('item' in r)) {
             faltar(r.motivo, `${maiuscula(r.frase)}.`, r.candidatas.map((c) => ({ codigo: c.item.codigo, descricao: c.item.descricao ?? null })))
@@ -503,7 +511,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
         // zero é valor; ausente é falta (`ausente-vs-falso.md`)
         const semValor = ([['valor_barra_interno', 'da barra'], ['valor_metro_interno', 'do metro']] as const).filter(([campo]) => !Number.isFinite(it[campo] as number))
         if (semValor.length) {
-            faltar('SEM_VALOR', `o item ${it.codigo} da tabela de preço (achado para ${perfil}${descricao ? `, ${descricao}` : ''}, pela ${r.como.replace('_', ' ')}) está sem o valor ${semValor.map(([, n]) => n).join(' e sem o valor ')}.`)
+            faltar('SEM_VALOR', `o item ${it.codigo} da tabela de preço (achado para ${perfil}${descricao ? `, ${descricao}` : ''}, pela ${r.como === 'referencia' ? 'referência' : r.como.replace('_', ' ')}) está sem o valor ${semValor.map(([, n]) => n).join(' e sem o valor ')}.`)
             continue
         }
         const codigo = codigoDaPonte !== null && r.como === 'ponte' ? codigoDaPonte : it.codigo

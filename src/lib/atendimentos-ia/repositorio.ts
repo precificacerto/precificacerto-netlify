@@ -519,6 +519,8 @@ export async function lerParaConferirReferencias(motorId: string): Promise<{
         codigo: string; descricao: string | null; custo: number | null; valor_barra_interno: number | null; valor_metro_interno: number | null
         cred_icms_pct: number | null; cred_pis_cofins_pct: number | null; cred_ipi_pct: number | null; nc_ipi_pct: number | null; ncm: string | null
         tabela_id: string; tabela_arquivo: string | null; fornecedor_id: string; fornecedor: string | null; familia: string | null; categoria: string | null
+        /** A referência do perfil e a cor (20261124000002): é por elas que a resolução acha o item que as tem. Sem a coluna no banco, nulas. */
+        referencia_perfil: string | null; cor: string | null
     }>
 } | null> {
     const ms = await q(db().from('orcamentista_motor').select('id, nome, arquivado_em, fornecedor_id').eq('id', motorId))
@@ -534,9 +536,14 @@ export async function lerParaConferirReferencias(motorId: string): Promise<{
         }
     }
     const regras = await todas((de) => db().from('orcamentista_motor_regra').select('codigo, codigo_wvetro, descricao, cor, tipologias').eq('motor_id', motorId).order('id').range(de, de + PAGINA - 1))
-    const itens = await todas((de) => db().from('orcamentista_tabela_item')
-        .select('codigo, descricao, custo, valor_barra_interno, valor_metro_interno, cred_icms_pct, cred_pis_cofins_pct, cred_ipi_pct, nc_ipi_pct, ncm, tabela_id')
-        .order('id').range(de, de + PAGINA - 1))
+    const COLUNAS_DO_ITEM = 'codigo, descricao, custo, valor_barra_interno, valor_metro_interno, cred_icms_pct, cred_pis_cofins_pct, cred_ipi_pct, nc_ipi_pct, ncm, tabela_id'
+    const itensCom = (colunas: string) => todas((de) => db().from('orcamentista_tabela_item').select(colunas).order('id').range(de, de + PAGINA - 1))
+    // a referência do perfil e a cor (20261124000002): antes de a migração entrar a coluna não existe, e a conferência segue sem ela (a escada de antes)
+    const itens = await itensCom(`${COLUNAS_DO_ITEM}, cor, referencia_perfil`).catch((e: unknown) => {
+        const erro = e as { code?: string; message?: string }
+        if ((erro.code === '42703' || erro.code === 'PGRST204') && /\breferencia_perfil\b/.test(erro.message ?? '')) return itensCom(COLUNAS_DO_ITEM)
+        throw e
+    })
     const tabelas = await q(db().from('orcamentista_tabela').select('id, arquivo_nome, categoria_chave, fornecedor_id, familia'))
     const fornecedores = await q(db().from('orcamentista_fornecedor').select('id, nome'))
     const nomeDo = new Map(fornecedores.map((f: Linha) => [f.id as string, f.nome as string]))
@@ -553,6 +560,7 @@ export async function lerParaConferirReferencias(motorId: string): Promise<{
                 cred_icms_pct: numero(i.cred_icms_pct), cred_pis_cofins_pct: numero(i.cred_pis_cofins_pct), cred_ipi_pct: numero(i.cred_ipi_pct), nc_ipi_pct: numero(i.nc_ipi_pct),
                 ncm: i.ncm ?? null, tabela_id: i.tabela_id, tabela_arquivo: t?.arquivo_nome ?? null,
                 fornecedor_id: t?.fornecedor_id ?? '', fornecedor: t ? nomeDo.get(t.fornecedor_id) ?? null : null, familia: t?.familia ?? null, categoria: t?.categoria_chave ?? null,
+                referencia_perfil: i.referencia_perfil ?? null, cor: i.cor ?? null,
             }
         }),
     }

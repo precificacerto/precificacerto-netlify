@@ -381,6 +381,59 @@ describe('(4) o código do item: um valor por código', () => {
     })
 })
 
+describe('(4b) A REFERÊNCIA DO PERFIL + COR vem antes da ponte e da escada (dono do produto, 24/11/2026)', () => {
+    // a tabela de produção com a referência no arquivo: o 9641 é o HF88 em BRANCO; uma linha por cor
+    type ItemComReferencia = Item & { referencia_perfil?: string | null; cor?: string | null }
+    const comReferencia = (x: Record<string, [string, string | null]>): ItemComReferencia[] => ITENS.map((i) => (x[i.codigo] ? { ...i, referencia_perfil: x[i.codigo][0], cor: x[i.codigo][1] } : i))
+    const HF88_PRETO: ItemComReferencia = { codigo: '96420', descricao: 'HF88S - MARCO CORRER DUPLO COM ABA - PRETO TEXTURADO', medida_barra_m: 6, valor_barra_interno: 500, valor_metro_interno: 83, referencia_perfil: 'HF88', cor: 'PRETO TEXTURADO' }
+    const TABELA = [...comReferencia({ '9641': ['HF88', 'BRANCO'], '9681': ['SF66', 'BRANCO'] }), HF88_PRETO]
+
+    it('o HF88/WOLFF em BRANCO sai no 9641 pela REFERÊNCIA — e o total é o mesmo de antes (o item é o mesmo)', () => {
+        const r = ok([esquadria()], { itens: TABELA })
+        expect(r.resolucoes['9641'].como).toBe('referencia')
+        expect(r.resolucoes['9681'].como).toBe('referencia')
+        // os que não têm referência continuam pela ponte
+        expect(r.resolucoes['10511'].como).toBe('ponte')
+        expect(r.faltas).toEqual([])
+        expect(r.total.total_por_barra_inteira).toBeCloseTo(1342.0875, 6)
+    })
+    it('em PRETO TEXTURADO, o HF88 sai no 96420 pela referência — antes era FALTA (a ponte não tem a cor, e o nome técnico não casa "HF88S")', () => {
+        const r = ok([esquadria()], { itens: TABELA, cor: 'PRETO TEXTURADO' })
+        expect(r.resolucoes['96420']).toMatchObject({ como: 'referencia', item: { codigo: '96420' } })
+        expect(r.total.barras_por_codigo['96420']).toBe(1)
+        expect(r.total.barras_por_codigo['9641']).toBeUndefined()
+        // a SF66 só tem BRANCO na tabela: falta nomeada com as cores dela, e o branco não entra
+        const sf66 = r.faltas.find((f) => f.codigo_do_motor === 'SF66/WOLFF')
+        expect(sf66).toMatchObject({ caminho: 'perfil', motivo: 'REFERENCIA_SEM_A_COR' })
+        expect(sf66!.frase).toContain('a referência SF66 existe na tabela de preço, mas não na cor PRETO TEXTURADO — as cores dela: BRANCO')
+        expect(r.total.barras_por_codigo['9681']).toBeUndefined()
+    })
+    it('a referência decide SEM consultar a ponte: com DOIS CÓDIGOS na ponte para o mesmo perfil e cor (que seria PONTE_AMBIGUA), o item da referência sai, sem falta', () => {
+        const regras = [...REGRAS, { codigo: '9641X', codigo_wvetro: 'HF88/WOLFF', cor: 'BRANCO' }]
+        const itens = [...TABELA, { codigo: '9641X', descricao: 'HF88S - OUTRO', medida_barra_m: 6, valor_barra_interno: 1, valor_metro_interno: 1 }]
+        const r = ok([esquadria()], { regras, itens })
+        expect(r.resolucoes['9641'].como).toBe('referencia')
+        expect(faltasDe(r).filter(([, perfil]) => perfil === 'HF88/WOLFF')).toEqual([])
+        // o controle: a mesma ponte com o 9641 SEM a referência é a falta de sempre
+        const semReferencia = ok([esquadria()], { regras, itens: [...ITENS, itens[itens.length - 1]] })
+        expect(faltasDe(semReferencia).filter(([, perfil]) => perfil === 'HF88/WOLFF')).toEqual([['PONTE_AMBIGUA', 'HF88/WOLFF', 1]])
+    })
+    it('o item que tem OUTRA referência não é achado pela ponte (o código do fornecedor): o HF88 vira falta nomeada, e o 9641 não entra', () => {
+        const r = ok([esquadria()], { itens: comReferencia({ '9641': ['HF88S', 'BRANCO'] }) })
+        const hf88 = r.faltas.find((f) => f.codigo_do_motor === 'HF88/WOLFF')
+        expect(hf88).toMatchObject({ motivo: 'NAO_ACHADA' })
+        expect(hf88!.frase).toContain('nem pela referência do perfil (HF88)')
+        expect(r.total.barras_por_codigo['9641']).toBeUndefined()
+    })
+    it('o item achado pela referência SEM o valor da barra: falta SEM_VALOR que diz "pela referência"', () => {
+        const itens = TABELA.map((i) => (i.codigo === '9641' ? { ...i, valor_barra_interno: null } : i))
+        const r = ok([esquadria()], { itens })
+        const hf88 = r.faltas.find((f) => f.codigo_do_motor === 'HF88/WOLFF')
+        expect(hf88).toMatchObject({ motivo: 'SEM_VALOR' })
+        expect(hf88!.frase).toContain('pela referência) está sem o valor da barra')
+    })
+})
+
 describe('(5) o item da tabela de preço', () => {
     it('ITEM AUSENTE na tabela de preço: FALTA nomeada com o perfil; as outras peças evoluem', () => {
         const r = ok([esquadria()], { itens: ITENS.filter((i) => i.codigo !== '10511') })
