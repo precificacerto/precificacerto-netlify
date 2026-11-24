@@ -26,7 +26,9 @@ function montarBloco(b: Bloco): Record<string, unknown> {
     if (b.type === 'tool_use') {
         let input: unknown = {}
         try { input = b.jsonParcial === '' ? {} : JSON.parse(b.jsonParcial) } catch { input = null }
-        return { type: 'tool_use', id: b.id, name: b.name, input }
+        // o JSON que não fecha (a resposta cortada em `max_tokens`, 24/11/2026) segue CRU ao lado do `input` nulo: quem chama guarda as
+        // esquadrias que vieram inteiras nele e pede a continuação (`itensCompletosDoJsonCortado`)
+        return input === null ? { type: 'tool_use', id: b.id, name: b.name, input, json_cortado: b.jsonParcial } : { type: 'tool_use', id: b.id, name: b.name, input }
     }
     if (b.type === 'text') return { type: 'text', text: b.texto }
     return { type: b.type }

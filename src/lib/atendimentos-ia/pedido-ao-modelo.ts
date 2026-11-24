@@ -11,11 +11,87 @@
  */
 
 /**
- * O TETO DE SAÍDA da 1ª chamada: a resposta é UMA chamada da ferramenta. Medido nos 21 turnos de produção (03/11/2026): 86 a 574 tokens de saída.
- * 2.000 é mais de três vezes o maior medido e cabe a mensagem de dez esquadrias; o que passar disso pára em `max_tokens`, e a linha [IA] diz.
- * Antes era 16.000 — folga para um raciocínio que não deveria existir.
+ * O TETO DE SAÍDA da 1ª chamada É O MÁXIMO DO MODELO (dono do produto, 24/11/2026: "o vendedor vai mandar o arquivo que ele tiver e o agente tem
+ * que fazer a leitura. Não precisa ter limite."). A lista do vendedor NÃO pode ser cortada por uma constante nossa: 40 esquadrias numa obra é
+ * normal.
+ *
+ * O CASO, medido em produção em 24/11/2026 20h07 UTC, duas vezes seguidas: uma tabela de 14 esquadrias, `ia_saida=2000 ia_raciocinio=871
+ * ia_parada=max_tokens` — o teto era 2.000 (de 05/11, calibrado para "dez esquadrias"), 871 foram para o raciocínio, a chamada da ferramenta
+ * veio cortada no meio do JSON, a etapa 1 devolveu `faltou=ia` e o vendedor leu "o serviço de IA não respondeu". Às 20h03, uma de 9 passou.
+ *
+ * 128.000 é o teto de saída do `claude-sonnet-5-5` (`MODELO_PADRAO_DA_IA`); a chamada já é em fluxo, que é o que esse tamanho pede. O teto não
+ * é gasto: só se paga o que o modelo escreve. Trocando o modelo, este número acompanha o do modelo novo.
+ *
+ * O RACIOCÍNIO NÃO DISPUTA MAIS O ORÇAMENTO DA LISTA: neste modelo o raciocínio é adaptativo e sai do MESMO `max_tokens` — a API não aceita
+ * um orçamento separado para ele (`budget_tokens` é recusado) nem desligá-lo (`disabled` é recusado; o `between_tools`, que o desliga, foi
+ * medido aqui em 05/11 e saiu: mais lento, e degenerava a ferramenta). Com o teto no máximo do modelo, sobra espaço para os dois; o
+ * `effort: low` continua segurando o raciocínio curto, e a linha [IA] continua dizendo quanto ele gastou (`ia_raciocinio=`).
  */
-export const MAX_TOKENS_DA_PRIMEIRA_CHAMADA = 2_000
+export const MAX_TOKENS_DA_PRIMEIRA_CHAMADA = 128_000
+
+/**
+ * A RESPOSTA CORTADA NUNCA VIRA "NÃO RESPONDEU" (dono do produto, 24/11/2026). Com `stop_reason=max_tokens` a conversa guarda as esquadrias
+ * que vieram INTEIRAS no JSON cortado, pede de novo SÓ as que faltam e junta as partes — até `CONTINUACOES_DA_LISTA_CORTADA` vezes, dentro do
+ * mesmo prazo da chamada. Só depois disso o vendedor é avisado, com a verdade: a lista é grande demais para uma resposta só.
+ */
+export const CONTINUACOES_DA_LISTA_CORTADA = 2
+
+/** O que o pedido de continuação diz ao modelo: quantas esquadrias já estão guardadas, e que ele devolva só as seguintes. */
+export const instrucaoDaContinuacao = (guardadas: number): string => (guardadas > 0
+    ? `ATENÇÃO: a sua resposta anterior a ESTA MESMA mensagem foi cortada pelo limite de tamanho depois de ${guardadas} ${guardadas === 1 ? 'esquadria' : 'esquadrias'}. `
+        + `As ${guardadas} primeiras esquadrias da lista, na ordem em que aparecem, JÁ ESTÃO GUARDADAS: não as repita. Chame a ferramenta de novo com todos os outros campos como antes `
+        + `e, em "itens", SÓ as esquadrias a partir da de número ${guardadas + 1} da lista, na mesma ordem, até a última.`
+    : 'ATENÇÃO: a sua resposta anterior a ESTA MESMA mensagem foi cortada pelo limite de tamanho antes de trazer a primeira esquadria. '
+        + 'Chame a ferramenta de novo, sem texto antes, com a lista inteira em "itens".')
+
+/**
+ * As esquadrias que vieram INTEIRAS no JSON CORTADO da ferramenta: os objetos completos do array `itens` da raiz, na ordem. O objeto que o corte
+ * pegou no meio NÃO entra (nenhum campo dele é aproveitado: uma medida cortada seria outra medida). Sem o array, ou com o corte antes dele: vazio.
+ * Um leitor de caracteres, não um `JSON.parse` do todo — o todo é inválido por definição.
+ */
+export function itensCompletosDoJsonCortado(json: string): Array<Record<string, unknown>> {
+    const itens: Array<Record<string, unknown>> = []
+    let profundidade = 0
+    let naString = false
+    let escape = false
+    let inicioDaString = -1
+    let ultimaString: string | null = null
+    /** A chave da raiz que acabou de ser lida e espera o valor (`"itens":`). */
+    let chaveDaRaiz: string | null = null
+    let noArray = false
+    let inicioDoItem = -1
+    for (let k = 0; k < json.length; k++) {
+        const ch = json[k]
+        if (naString) {
+            if (escape) escape = false
+            else if (ch === '\\') escape = true
+            else if (ch === '"') { naString = false; ultimaString = json.slice(inicioDaString + 1, k) }
+            continue
+        }
+        if (ch === '"') { naString = true; inicioDaString = k; continue }
+        if (ch === ':' && profundidade === 1) { chaveDaRaiz = ultimaString; continue }
+        if (ch === '{' || ch === '[') {
+            if (ch === '[' && profundidade === 1 && chaveDaRaiz === 'itens') noArray = true
+            else if (ch === '{' && noArray && profundidade === 2) inicioDoItem = k
+            profundidade += 1
+            continue
+        }
+        if (ch === '}' || ch === ']') {
+            profundidade -= 1
+            if (ch === '}' && noArray && profundidade === 2 && inicioDoItem >= 0) {
+                try {
+                    const item = JSON.parse(json.slice(inicioDoItem, k + 1)) as unknown
+                    if (item && typeof item === 'object' && !Array.isArray(item)) itens.push(item as Record<string, unknown>)
+                } catch { /* o objeto que não fecha num JSON válido não é uma esquadria inteira */ }
+                inicioDoItem = -1
+            }
+            if (ch === ']' && noArray && profundidade === 1) return itens
+            continue
+        }
+        if (ch === ',' && profundidade === 1) chaveDaRaiz = null
+    }
+    return itens
+}
 
 /**
  * O CACHE DO PREFIXO: o bloco estável do sistema (e, por vir antes dele, a ferramenta) é marcado; o que vem depois do marcador não entra.
