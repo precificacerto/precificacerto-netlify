@@ -62,7 +62,7 @@ M = [
  (RT, "  const referenciaRecusada = referenciasDaCategoria(lida, declarada)", "  const referenciaRecusada = referenciasDaCategoria(lida, 'VIDRO')"),
  (RT, "  const referenciaRecusada = referenciasDaCategoria(lida, declarada)", "  const referenciaRecusada = referenciasDaCategoria(lida, declarada ?? 'VIDRO')"),
  # a leitura dos itens do custo
- (LC, "    let colunas = `${COLUNAS_DO_ITEM_DA_TABELA}, ${COLUNA_DA_COR_DO_ITEM}, ${COLUNA_DA_REFERENCIA_DO_ITEM}, tabela_id`", "    let colunas = `${COLUNAS_DO_ITEM_DA_TABELA}, ${COLUNA_DA_COR_DO_ITEM}, tabela_id`"),
+ (LC, "    let colunas = `${COLUNAS_DO_ITEM_DA_TABELA}, ${COLUNA_DA_COR_DO_ITEM}, ${COLUNA_DA_REFERENCIA_DO_ITEM}, ${COLUNA_DA_REFERENCIA_DO_PERFIL}, tabela_id`", "    let colunas = `${COLUNAS_DO_ITEM_DA_TABELA}, ${COLUNA_DA_COR_DO_ITEM}, ${COLUNA_DA_REFERENCIA_DO_PERFIL}, tabela_id`"),
  (LC, "    if (semAColunaDaReferencia(primeira.error)) {", "    if (false) {"),
  (LC, "    if (semAColunaDaReferencia(primeira.error)) {\n        colunas = `${COLUNAS_DO_ITEM_DA_TABELA}, ${COLUNA_DA_COR_DO_ITEM}, tabela_id`", "    if (semAColunaDaReferencia(primeira.error)) {\n        colunas = `${COLUNAS_DO_ITEM_DA_TABELA}, tabela_id`"),
 ]
