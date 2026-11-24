@@ -84,7 +84,7 @@ export function vidroDoItem(descricao: string | null | undefined): VidroDoItem {
  */
 export type ItemDeVidro = { codigo: string; descricao?: string | null; cor?: string | null; codigo_wvetro?: string | null } & Partial<CategoriaDoFornecedor>
 /** A referência do item (`codigo_wvetro`), crua: é identidade, não se apara nem se troca a caixa. Sem ela, null. */
-export const referenciaDo = (i: ItemDeVidro): string | null => (i.codigo_wvetro === undefined || i.codigo_wvetro === null || i.codigo_wvetro === '' ? null : i.codigo_wvetro)
+export const referenciaDo = (i: ItemDeVidro): string | null => i.codigo_wvetro ?? null
 const varianteDo = (i: ItemDeVidro) => i[COLUNA_DA_CATEGORIA_DO_FORNECEDOR]
 export type MotivoDoVidro = 'VIDRO_NAO_DITO' | 'VIDRO_NAO_TRADUZIDO' | 'VIDRO_AMBIGUO' | 'VIDRO_SEM_CADASTRO' | 'VIDRO_CODIGO_FORA_DA_TABELA'
 export type TraducaoDoVidro<I> = { item: I; como: 'codigo' | 'texto' | 'padrao' } | { motivo: MotivoDoVidro; frase: string; candidatos: I[] }
