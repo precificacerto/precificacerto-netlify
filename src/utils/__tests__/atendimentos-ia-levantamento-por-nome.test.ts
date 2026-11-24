@@ -7517,6 +7517,45 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         expect(linhaIa().pop()).toMatch(/ sem_peca_nao_pedida=1(\s|$)/)
         // sem a UT no motor, nada se acrescenta
     })
+    // A QUANTIDADE DE MÓDULOS É GRAVADA (dono do produto, 24/11/2026; pedido 0023): "o agente grava em escolhas todas as variáveis que decidiu, N
+    // entre elas, inclusive quando usa o padrão". Sintética: a N na DP-02 da fixture, com a forma do motor 259035a9 (Padrão 1, sem opções)
+    const comModulosNoMotor = () => {
+        const modelo = (estado.db.orcamentista_motor_variavel as Linha[]).find((v) => v.tipologia === 'DP-02') as Linha
+        ;(estado.db.orcamentista_motor_variavel as Linha[]).push({ ...modelo, id: 'v-n', variavel: 'N', descricao: 'QUANTIDADE DE MÓDULOS HORIZONTAIS', padrao: '1', opcoes: null, condicao: 'sempre', min_max: null, ordem: 9998 })
+    }
+    const escolhasDoItem = (nome: string) => itensDe((levantamentos().find((l) => l.nome === nome) as Linha).id).map((i) => i.escolhas as Record<string, number> | null)
+    const MSG_DA_DAIANE = 'Levantamento Daiane Pilger: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50'
+    it('OS MÓDULOS NÃO DITOS: o item gravado leva N = 1 nas escolhas (antes ficava sem nada), e o rastro diz de onde veio', async () => {
+        comModulosNoMotor()
+        llmResponde({ nome: 'Daiane Pilger', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar(MSG_DA_DAIANE)
+        expect(escolhasDoItem('Daiane Pilger').map((e) => e?.N)).toEqual([1])
+        expect(erros.filter((l) => l.startsWith('[ETAPA 2 ')).pop()).toContain('N=1/padrao_do_apanhado')
+    })
+    it('OS MÓDULOS DITOS ("2 módulos"): vale a quantidade dita, e o um não a sobrescreve', async () => {
+        comModulosNoMotor()
+        llmResponde({ nome: 'Daiane Pilger', itens: [{ ...DP02 }], escolhas: [...ESCOLHAS_QUE_FECHAM, { variavel: 'N', opcao: 2 }] })
+        await chamar(`${MSG_DA_DAIANE}, 2 módulos`)
+        expect(escolhasDoItem('Daiane Pilger').map((e) => e?.N)).toEqual([2])
+        expect(erros.filter((l) => l.startsWith('[ETAPA 2 ')).pop()).not.toContain('N=1/padrao_do_apanhado')
+    })
+    it('a quantidade de módulos que não vale (zero) é descartada e contada — e o item fica com um', async () => {
+        comModulosNoMotor()
+        llmResponde({ nome: 'Daiane Pilger', itens: [{ ...DP02 }], escolhas: [...ESCOLHAS_QUE_FECHAM, { variavel: 'N', opcao: 0 }] })
+        await chamar(MSG_DA_DAIANE)
+        expect(escolhasDoItem('Daiane Pilger').map((e) => e?.N)).toEqual([1])
+    })
+    it('sem a variável de módulos na tipologia, as escolhas do item não ganham N — nem quando o modelo a manda', async () => {
+        llmResponde({ nome: 'Daiane Pilger', itens: [{ ...DP02 }], escolhas: [...ESCOLHAS_QUE_FECHAM, { variavel: 'N', opcao: 2 }] })
+        await chamar(MSG_DA_DAIANE)
+        expect(escolhasDoItem('Daiane Pilger').map((e) => 'N' in (e ?? {}))).toEqual([false])
+    })
+    it('o prompt diz ao modelo que NÃO pergunte os módulos e que só mande a quantidade DITA', async () => {
+        llmResponde({})
+        await chamar('oi')
+        const sistema = textoDoSistema((estado.chamadasDaLlm[0].corpo as { system: unknown }).system)
+        expect(sistema).toContain('- MÓDULOS (maxim-ar e fixo): NÃO pergunte quantos módulos. Sem o vendedor dizer, é UM módulo, e você NÃO manda nada.')
+    })
     it('sem a UT na tipologia, as escolhas do item não ganham nada e a linha [IA] não diz sem_peca_nao_pedida', async () => {
         llmResponde({ nome: 'Daiane Pilger', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
         await chamar('Levantamento Daiane Pilger: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
