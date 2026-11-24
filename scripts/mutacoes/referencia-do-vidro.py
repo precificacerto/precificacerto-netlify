@@ -1,5 +1,6 @@
 import subprocess, sys, os
 # MUTACOES da referencia unica do vidro (codigo_wvetro; dono do produto, 24/11/2026). Roda SOZINHO na arvore (nada le a arvore enquanto roda).
+# 1a passada 42/46: duas vivas eram codigo redundante (o trim da referencia, que a leitura da celula ja faz) e sairam; as outras duas ganharam teste.
 # SO=<trecho> roda so as mutacoes cujo texto contem o trecho. O trecho que nao aparece UMA vez aborta (codigo 3) antes de rodar suite.
 R = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')) + '/'
 U = 'src/utils/__tests__/'
@@ -47,9 +48,7 @@ M = [
  (CO, "        opcoes: f.vidros.map((v) => v.referencia), rotulos:", "        opcoes: [], rotulos:"),
  (CO, "rotulos: Object.fromEntries(f.vidros.flatMap((v) => (v.descricao ? [[v.referencia, v.descricao]] : []))),", "rotulos: {},"),
  # a importacao
- (IM, "            codigo_wvetro: texto('codigo_wvetro')?.trim() || null,", "            codigo_wvetro: null,"),
- (IM, "            codigo_wvetro: texto('codigo_wvetro')?.trim() || null,", "            codigo_wvetro: texto('codigo_wvetro') || null,"),
- (IM, "            codigo_wvetro: texto('codigo_wvetro')?.trim() || null,", "            codigo_wvetro: texto('codigo_wvetro')?.trim() ?? null,"),
+ (IM, "            codigo_wvetro: texto('codigo_wvetro'),", "            codigo_wvetro: null,"),
  (IM, "    if (categoria !== CATEGORIA_COM_REFERENCIA) {", "    if (false) {"),
  (IM, "        for (const i of lida.itens) i.codigo_wvetro = null\n", ""),
  (IM, "        if (comValor === 0) return null\n", ""),

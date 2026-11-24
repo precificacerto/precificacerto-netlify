@@ -88,6 +88,8 @@ describe('a gravação recusa a referência que a tabela do principal não tem',
         referencias = []
         expect(await recusaDoVidroDaLinha('conta-1', { ...linha({ variavel: 'ARI', opcao_padrao: 'BZ1770' }), formato: null })).toBeNull()
         expect(await recusaDoVidroDaLinha('conta-1', linha({ natureza: 'ITEM', opcao_padrao: null }))).toBeNull()
+        // a natureza decide, não a presença da opção: a linha de ITEM que chegasse com opção também não é conferida aqui (quem a recusa é a leitura do corpo)
+        expect(await recusaDoVidroDaLinha('conta-1', linha({ natureza: 'ITEM', opcao_padrao: 'VIN05' }))).toBeNull()
         expect(pedidos).toEqual([])
     })
 })

@@ -721,6 +721,13 @@ describe('TABELA DE PREÇO PURO — sem arquivo de motor (Reforço, Acessórios�
         expect(repo.importarTabela.mock.calls[0][0].payload.itens.map((i: any) => i.codigo_wvetro)).toEqual([null, null])
         expect(r.json.avisos.filter((a: any) => a.tipo === 'colunas_sem_destino_no_layout_unico').map((a: any) => a.colunas)).toEqual([{ codigo_wvetro: 2 }])
     })
+    it('tabela SEM categoria declarada: não é tratada como de vidro — a referência repetida não recusa, e vai NULA', async () => {
+        await comReferencias('VIDRO', [['A', '9681'], ['B', '9681']])
+        repo.obterArquivosDaTabela.mockImplementation(async () => { ordem.push('obterArquivosDaTabela'); return { ...TABELA, motor_path: null, motor_nome: null, categoria_chave: null } })
+        const r = await chamar('POST')
+        expect(r.status).toBe(200)
+        expect(repo.importarTabela.mock.calls[0][0].payload.itens.map((i: any) => i.codigo_wvetro)).toEqual([null, null])
+    })
 
     it('o LAYOUT ÚNICO (CABECALHO + ITENS, colunas por nome; 02/11/2026): a resposta diz o layout e devolve a aba CABECALHO como veio, e o payload leva as 12 do bloco', async () => {
         semMotor('PERSIANAS')

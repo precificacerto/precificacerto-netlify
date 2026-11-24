@@ -676,8 +676,8 @@ function lerItensDoLayoutUnico(ws: ExcelJS.Worksheet): LeituraDoPreco {
             descricao: texto('descricao'),
             // a cor, como veio (20261123000004): o vidro casa variante + cor + espessura
             cor: texto('cor'),
-            // a referência (20261124000001), sem espaço nas pontas — ela é identidade: o valor gravado é o valor comparado; vazia é não informada
-            codigo_wvetro: texto('codigo_wvetro')?.trim() || null,
+            // a referência (20261124000001), como a célula é lida (`valorDaCelula` já apara as pontas e faz da vazia nula): ela é identidade
+            codigo_wvetro: texto('codigo_wvetro'),
             medida_barra_m: numero('medida_barra_m'),
             unidade: texto('unidade'),
             ncm: texto('ncm'),
