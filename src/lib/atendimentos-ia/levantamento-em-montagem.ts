@@ -36,7 +36,7 @@ import { NADA_DITO, PERGUNTA_DO_CAMPO, perguntasDaTipologia, valorValido, type J
 import { formaCanonicaDoVidro } from '@/lib/atendimentos-ia/vidro'
 import type { AmbienteDoItem } from '@/lib/atendimentos-ia/dados-do-levantamento'
 import {
-    escolhaPedida, lerEscolhasGravadas, nomeDaVariavelSemPadrao, perguntaDaEscolha, validarEscolha, validarValorDaVariavel, variaveisAPerguntar,
+    escolhaPedida, lerEscolhasGravadas, nomeDaVariavelSemPadrao, perguntaDaEscolha, validarEscolha, validarModulos, validarValorDaVariavel, variaveisAPerguntar,
     type EscolhaPendente, type VariaveisDaTipologia, type VariavelSemPadrao,
 } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
@@ -327,6 +327,9 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
         // o VALOR de uma variável sem padrão da tipologia (06/11/2026): o mesmo par { variavel, opcao }, com o valor no lugar da opção
         const valor = validarValorDaVariavel(definicao, bruta)
         if (valor) { propostos += 1; alvo.escolhas = { ...(alvo.escolhas ?? {}), [valor.variavel]: valor.valor }; continue }
+        // a QUANTIDADE DE MÓDULOS dita (24/11/2026): o mesmo par, com a quantidade no lugar da opção
+        const modulos = validarModulos(definicao, bruta)
+        if (modulos) { propostos += 1; alvo.escolhas = { ...(alvo.escolhas ?? {}), [modulos.variavel]: modulos.valor }; continue }
         const r = validarEscolha(definicao, lerEscolhasGravadas(alvo.escolhas), bruta)
         propostos += r.propostos
         descartados += r.descartados

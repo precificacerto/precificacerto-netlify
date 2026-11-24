@@ -222,7 +222,7 @@ import { lerTextosDoCaminho } from '@/lib/atendimentos-ia/textos-do-caminho-serv
 import { blocoDasDescricoesDasEtapas, blocoDasInstrucoesDasEtapas, type InstrucaoDaEtapa } from '@/lib/atendimentos-ia/motor-da-familia'
 import { aberturaDita, cabeNosLimites, filtrarPeloAcumulado, filtrarPorAbertura, fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, linhaDaEsquadria, medidasNaOrdemEscrita, numeroOuNulo, palavrasDeAbertura } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { lerPoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa-servidor'
-import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, semAsPecasNaoPedidas, variaveisSemPadraoNoPrompt, variaveisSemPadraoParaOPrompt } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
+import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, modulosNaoDitos, semAsPecasNaoPedidas, variaveisSemPadraoNoPrompt, variaveisSemPadraoParaOPrompt } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { permissaoDoRemetente, type Permissao } from '@/lib/atendimentos-ia/permissao-do-remetente'
 import {
     gerarArquivoDoLevantamento, lerLevantamentoDoArquivo, type Funcionario, lerNomeDaEmpresa, lerPerfilDoVendedor, lerVendedorDoRemetente, funcionariosPeloNome,
@@ -749,6 +749,8 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
         '- quantidade: só a dita. Não dita é 1 — NUNCA pergunte quantas.',
         '- ARREMATE e GUARNIÇÃO: NÃO pergunte. O padrão da tipologia já vale sem ninguém dizer. NUNCA escolha sozinho: em `escolhas`, só o arremate que o vendedor DISSE, em palavras, com o código da variável e o número da opção que corresponde (lista abaixo). Se ele pedir para ver as opções, ou quiser trocar sem dizer por qual, ponha o código da variável em `opcoes_de`.',
         '- FECHAMENTO (MFI, MFE): NÃO pergunte; a política da empresa já vale. Só quando o vendedor DISSER (ex.: "com chave"), em `escolhas`, com o código da variável e o número da opção daquele item (lista abaixo). Se a tipologia não tiver a opção que ele disse, não escolha outra.',
+        // A QUANTIDADE DE MÓDULOS (24/11/2026; pedido 0023): sem o vendedor dizer, é um módulo — gravado pelo código, não pelo modelo
+        '- MÓDULOS (maxim-ar e fixo): NÃO pergunte quantos módulos. Sem o vendedor dizer, é UM módulo, e você NÃO manda nada. Só quando ele DISSER quantos ("2 módulos", "3 módulos na horizontal", "2 na vertical"), em `escolhas`: `variavel` N para os horizontais ou V para os verticais e, em `opcao`, a QUANTIDADE dita. Um módulo dito também vai (N com 1).',
         ...(c.variasFamilias ? ['- familia e fornecedor: a mesma tipologia pode estar no motor de mais de uma família da empresa. SÓ o que o vendedor disse — a família, o fornecedor, ou os dois —, escrito EXATAMENTE como está na lista. NUNCA escolha sozinho.'] : []),
         '- Os códigos das variáveis (ex.: ARI), os números das opções e os códigos de fornecedor (ex.: BZ0010) são INTERNOS: nunca os escreva em `pergunta`.',
         '- NUNCA pergunte nada sobre os padrões da empresa.',
@@ -2173,10 +2175,16 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             const def = item.tipologia !== null ? definicao(item) : null
             if (!def || item.tipologia === null) return item
             const acrescentadas = semAsPecasNaoPedidas(def, item.escolhas, detalhe(item.tipologia, item.familia ?? null)?.descricao ?? null)
-            if (Object.keys(acrescentadas).length === 0) return item
-            rastro.pecasNaoPedidas += 1
-            assumir(item.ordem, Object.entries(acrescentadas).map(([atributo, valor]) => ({ atributo, valor: String(valor), origem: 'padrao_da_tipologia' as const })))
-            return { ...item, escolhas: { ...(item.escolhas ?? {}), ...acrescentadas } }
+            if (Object.keys(acrescentadas).length > 0) {
+                rastro.pecasNaoPedidas += 1
+                assumir(item.ordem, Object.entries(acrescentadas).map(([atributo, valor]) => ({ atributo, valor: String(valor), origem: 'padrao_da_tipologia' as const })))
+            }
+            // A QUANTIDADE DE MÓDULOS QUE NINGUÉM DISSE É UMA, E É GRAVADA (dono do produto, 24/11/2026; pedido 0023): "o agente grava em escolhas
+            // todas as variáveis que decidiu, N entre elas, inclusive quando usa o padrão" — a descrição que o vendedor lê sai do que está gravado
+            const modulos = modulosNaoDitos(def, item.escolhas)
+            if (Object.keys(modulos).length > 0) assumir(item.ordem, Object.entries(modulos).map(([atributo, valor]) => ({ atributo, valor: String(valor), origem: 'padrao_do_apanhado' as const })))
+            if (Object.keys(acrescentadas).length === 0 && Object.keys(modulos).length === 0) return item
+            return { ...item, escolhas: { ...(item.escolhas ?? {}), ...acrescentadas, ...modulos } }
         })
         const agrupamento = agruparIguais(resolvidos, {
             gravadas: new Set(alvo ? alvo.itens.map((i) => i.ordem) : []), quantidadePadrao: new Set(proposta_.quantidadesPadrao),
