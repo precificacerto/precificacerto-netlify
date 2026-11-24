@@ -67,6 +67,8 @@ describe('as peças da leitura', () => {
         expect(trechosDaDescricao('A | BANDEIRA FIXA | MODULAÇÃO TRAVESSA | MOD COLUNA | PERFIL COLUNA | X  Y |EUROPA 42'))
             .toEqual({ principal: 'A', tem: ['BANDEIRA FIXA', 'X Y'], modulacao: ['MODULAÇÃO TRAVESSA', 'MOD COLUNA', 'PERFIL COLUNA'], linha: 'EUROPA 42' })
         expect(trechosDaDescricao('  FIXO   COM  X ')).toEqual({ principal: 'FIXO COM X', tem: [], modulacao: [], linha: null })
+        // o trecho vazio entre duas barras não é coisa que a esquadria tenha
+        expect(trechosDaDescricao('A |  | BANDEIRA FIXA | | EUROPA 42').tem).toEqual(['BANDEIRA FIXA'])
         expect(trechosDaDescricao(null)).toEqual({ principal: '', tem: [], modulacao: [], linha: null })
         expect(tipoDeModulacao(DP128)).toBe('PERFIL MODULAÇÃO')
         expect(tipoDeModulacao(DP02)).toBe('')
@@ -92,7 +94,7 @@ describe('as peças da leitura', () => {
         expect(valoresDosModulos(DP128, null, padrao)).toEqual({ N: 1 })
         for (const escolhas of [{}, { N: 0 }, { N: 1.5 }, { N: '2' }, [], 'x']) expect(valoresDosModulos(DP128, escolhas, padrao)).toEqual({ N: 1 })
         expect(valoresDosModulos(DP128, {})).toEqual({})
-        for (const p of ['', 'x', '0', '1,5', null, undefined]) expect(valoresDosModulos(DP128, {}, () => p)).toEqual({})
+        for (const p of ['', 'x', '0', '1,5', '1.5', '2e1', null, undefined]) expect(valoresDosModulos(DP128, {}, () => p)).toEqual({})
         expect(valoresDosModulos('MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E "V" MÓDULOS VERTICAIS', { V: 2 }, padrao)).toEqual({ N: 1, V: 2 })
         expect(valoresDosModulos(DP02, { N: 2 }, padrao)).toEqual({})
     })

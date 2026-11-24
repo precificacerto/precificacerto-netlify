@@ -87,7 +87,7 @@ jest.mock('@/lib/atendimentos-ia/conversa-da-ia', () => ({
         // a maxim-ar de módulos (DP-128): o "N" com Padrão 1 na aba Variáveis; as outras não têm definição
         definicao: (i: { tipologia: string | null }): unknown => (i.tipologia === 'DP-128'
             ? { variaveis: [{ variavel: 'N', descricao: 'QUANTIDADE DE MÓDULOS HORIZONTAIS', padrao: '1', condicao: 'sempre', opcoes: null }], formulas: [] } : null),
-        detalhe: (tipologia: string, familia: string | null) => (tipologia === 'DP-128'
+        detalhe: (tipologia: string, familia: string | null) => (tipologia === 'SEM-DETALHE' ? null : tipologia === 'DP-128'
             ? { descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | PERFIL MODULAÇÃO | EUROPA 60', linha: 'EUROPA 60', tipo: 'Maxim-ar', fornecedor: 'Wolf' }
             : { descricao: `${tipologia} DA ${familia ?? 'SEM FAMÍLIA'} | EUROPA 60`, linha: 'EUROPA 60', tipo: 'Porta', fornecedor: 'Wolf' }),
     }),
@@ -134,6 +134,9 @@ describe('os itens do arquivo, montados do que está gravado', () => {
         expect(await descricao()).toBe('Maxim-ar')
         comN({ N: 2 })
         expect(await descricao()).toBe('Maxim-ar com 02 módulos horizontais')
+        // a tipologia que o motor não descreve fica sem descrição: o código dela não entra no lugar
+        estado.db.orcamentista_orcamento_item[0] = { ...estado.db.orcamentista_orcamento_item[0], tipologia: 'SEM-DETALHE' }
+        expect(await descricao()).toBeNull()
     })
     it('no tenant do chamador; a família do item de origem decide o detalhe; ambientes por extenso; sem medida, sem desenho', async () => {
         const r = await S.itensDoArquivo(T, ORC)

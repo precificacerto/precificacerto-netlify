@@ -4,7 +4,7 @@
  *
  * A tipologia do motor é PARAMÉTRICA: a `DP-128` é `MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | PERFIL MODULAÇÃO | EUROPA 60`,
  * e `N` é a variável "QUANTIDADE DE MÓDULOS HORIZONTAIS" (padrão 1). O que o vendedor lê é a descrição RESOLVIDA com o que foi escolhido:
- *   - SEM a linha de perfil (o ÚLTIMO trecho entre barras) e SEM o tipo de modulação (o trecho que diz "MODULAÇÃO", "MOD" ou "COLUNA");
+ *   - SEM a linha de perfil (o ÚLTIMO trecho entre barras) e SEM o tipo de modulação (o trecho que diz "MODULAÇÃO" ou "COLUNA");
  *   - COM o que a esquadria TEM, que o motor escreve nos trechos do meio e não é linha nem modulação — "BANDEIRA FIXA", "VENEZIANA",
  *     "02 VIDROS - 01 TELA", "TRILHO PVC EMBUTIDO" (medido nas 164 descrições do motor Wolff em 24/11/2026: 29 trechos distintos no meio,
  *     5 deles de modulação; o último é sempre a linha — EUROPA 42, EUROPA 60 ou DESIGN);
@@ -29,8 +29,8 @@ export type ModulosDaDescricao = { nome: string; horizontal: QuantidadeDeModulos
 const SENTIDO: Record<string, 'horizontal' | 'vertical'> = { HORIZONTAL: 'horizontal', HORIZONTAIS: 'horizontal', HZ: 'horizontal', VERTICAL: 'vertical', VERTICAIS: 'vertical', VT: 'vertical' }
 const PARTE = /^(?:"([A-Z][A-Z0-9]*)"|(\d+))\s+M[ÓO]DULOS?\s+(HORIZONTAL|HORIZONTAIS|HZ|VERTICAL|VERTICAIS|VT)$/
 
-/** O trecho que diz o TIPO DE MODULAÇÃO: "PERFIL MODULAÇÃO", "MODULAÇÃO TRAVESSA", "PERFIL COLUNA", "MOD COLUNA". */
-const DE_MODULACAO = /\bMODULA[ÇC][ÃA]O\b|\bMOD\b|\bCOLUNA\b/i
+/** O trecho que diz o TIPO DE MODULAÇÃO: "PERFIL MODULAÇÃO", "MODULAÇÃO TRAVESSA", "PERFIL COLUNA", "MOD COLUNA" (a palavra MODULAÇÃO ou COLUNA). */
+const DE_MODULACAO = /\bMODULA[ÇC][ÃA]O\b|\bCOLUNA\b/i
 
 /**
  * Os trechos da descrição, entre barras: o PRINCIPAL (o primeiro), o que a esquadria TEM (os do meio que não são modulação), o TIPO DE

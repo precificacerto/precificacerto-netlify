@@ -1878,6 +1878,13 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
         expect(ultimoEnviado()).toContain('Este item — Janela de correr 02 folhas móveis, 1.200 x 1.000 mm')
         expect(ultimoEnviado()).not.toContain(DP02.tipologia)
         expect(ultimoEnviado()).not.toMatch(/europa/i)
+        // os módulos que a proposta traz entram no nome; os que ninguém disse não se escrevem (ainda não é um item gravado)
+        const MAXIMAR = { descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | PERFIL MODULAÇÃO | EUROPA 60', linha: null as string | null }
+        const nome = conversa.nomePelaDetalhe(() => MAXIMAR)
+        expect(nome({ tipologia: 'DP-128', escolhas: [{ variavel: 'N', opcao: 2 }, { variavel: 'AM', opcao: 'x' }, null] })).toBe('Maxim-ar com 02 módulos horizontais')
+        expect(nome({ tipologia: 'DP-128' })).toBe('Maxim-ar')
+        expect(conversa.nomePelaDetalhe(() => null)({ tipologia: 'DP-999' })).toBeNull()
+        expect(conversa.esquadriaPorExtenso({ tipologia: 'DP-999' }, () => null)).toBe('tipologia sem descrição no motor')
         expect(itensDe(casa.id)).toHaveLength(1)
         expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'CONFIRMAR_ACRESCIMO', nome: null, levantamentos: [casa.id], itens: [{ ...DP02 }] })])
         await chamar('sim')
@@ -7541,6 +7548,8 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         llmResponde({ nome: 'Daiane Pilger', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
         await chamar(MSG_DA_DAIANE)
         expect(escolhasDoItem('Daiane Pilger').map((e) => e?.N)).toEqual([1])
+        // o N entra AO LADO do que o item já tinha escolhido (os arremates ditos): nada é apagado
+        expect(Object.keys(escolhasDoItem('Daiane Pilger')[0] ?? {}).filter((k) => k !== 'N').length).toBeGreaterThan(0)
         expect(erros.filter((l) => l.startsWith('[ETAPA 2 ')).pop()).toContain('N=1/padrao_do_apanhado')
     })
     it('OS MÓDULOS DITOS ("2 módulos"): vale a quantidade dita, e o um não a sobrescreve', async () => {

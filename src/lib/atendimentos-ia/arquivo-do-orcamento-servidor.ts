@@ -123,8 +123,9 @@ export async function itensDoArquivo(tenantId: string, orcamentoId: string):
         return {
             ordem: Number(l.ordem), quantidade: Number(l.quantidade), largura_mm: largura, altura_mm: altura, tipologia,
             // a descrição RESOLVIDA (dono do produto, 24/11/2026, pedido 0023): com os módulos gravados no item (no antigo, o Padrão do motor) — com um
-            // módulo não se escreve módulo —, sem a linha de perfil (ela tem o campo LINHA) e sem o tipo de modulação. Sem descrição no motor, a tipologia
-            descricao: descricaoParaOVendedor(d?.descricao, valoresDosModulos(d?.descricao, escolhas, (v) => def?.variaveis.find((x) => x.variavel === v)?.padrao)) ?? tipologia,
+            // módulo não se escreve módulo —, sem a linha de perfil (ela tem o campo LINHA) e sem o tipo de modulação. Sem descrição no motor, nada: o código
+            // da tipologia não entra no lugar
+            descricao: descricaoParaOVendedor(d?.descricao, valoresDosModulos(d?.descricao, escolhas, (v) => def?.variaveis.find((x) => x.variavel === v)?.padrao)),
             tipo: d?.tipo ?? null, fornecedor: d?.fornecedor ?? null, linha: d?.linha ?? null,
             ambientes, corPerfil: texto(l.cor_perfil), corAcessorio: tipologia ? texto(corDoAcessorio(base, contexto.definicao)) : null, vidro: texto(l.vidro),
             variaveis: variaveis.map(variavelNaFolha), obs: texto(l.obs), definicoes,
