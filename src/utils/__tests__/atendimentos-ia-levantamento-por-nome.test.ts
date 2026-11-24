@@ -4375,7 +4375,7 @@ describe('(33b) a resposta cortada em max_tokens: a continuação é pedida, as 
         // a continuação é a MESMA mensagem, com o aviso do que já está guardado — e a primeira chamada não o levava
         expect(textoDoPedido(estado.chamadasDaLlm[0].corpo as never)).toEqual([MSG])
         expect(textoDoPedido(estado.chamadasDaLlm[1].corpo as never)).toEqual([MSG, P().instrucaoDaContinuacao(2)])
-        expect(P().instrucaoDaContinuacao(2)).toContain('SÓ as esquadrias a partir da de número 3 da lista')
+        expect(P().instrucaoDaContinuacao(2)).toContain('SÓ os itens a partir do de número 3 da lista')
         // a medida SOMA as duas chamadas, diz quantas continuações houve, e a parada é a da que fechou
         expect(linhaIa()[0]).toContain(' ia_entrada=2115 ia_saida=2050 ia_raciocinio=871 ia_parada=tool_use ')
         expect(linhaIa()[0]).toContain(' ia_continuacoes=1')
@@ -4410,7 +4410,7 @@ describe('(33b) a resposta cortada em max_tokens: a continuação é pedida, as 
         await chamar(MSG)
         expect(estado.chamadasDaLlm).toHaveLength(1 + P().CONTINUACOES_DA_LISTA_CORTADA)
         expect(enviados()).toEqual([conversa.falhaDaListaCortada(3)])
-        expect(enviados()[0]).toBe('Não consegui ler a sua lista inteira: ela é grande demais para uma resposta só, e a leitura parou depois de 3 esquadrias. Nada foi gravado. Me mande a lista em duas partes, uma mensagem para cada metade.')
+        expect(enviados()[0]).toBe('Não consegui ler a sua lista inteira: ela é grande demais para uma resposta só, e a leitura parou depois de 3 itens. Nada foi gravado. Me mande a lista em duas partes, uma mensagem para cada metade.')
         expect(enviados()[0]).not.toContain('não respondeu')
         expect(escritasNoEstado()).toEqual([])
         expect(linhaIa()[0]).toContain('desfecho=lista-cortada')
@@ -4425,14 +4425,14 @@ describe('(33b) a resposta cortada em max_tokens: a continuação é pedida, as 
         llmResponde({ nome: 'Casa do João', itens: [esquadria(1)], escolhas: ESCOLHAS_QUE_FECHAM })
         await chamar(MSG)
         expect(textoDoPedido(estado.chamadasDaLlm[1].corpo as never)).toEqual([MSG, P().instrucaoDaContinuacao(0)])
-        expect(P().instrucaoDaContinuacao(0)).toContain('antes de trazer a primeira esquadria')
+        expect(P().instrucaoDaContinuacao(0)).toContain('antes de trazer o primeiro item da lista')
         expect(itensDe(levantamentos()[0].id).map((i) => i.largura_mm)).toEqual([1010])
     })
 
     it('cortada antes da primeira esquadria TODAS as vezes: a frase diz que parou antes da primeira, e nada é gravado', async () => {
         for (let k = 0; k <= P().CONTINUACOES_DA_LISTA_CORTADA; k++) estado.respostasDaLlm.push({ status: 200, corpo: { ...respostaComFerramenta({}), stop_reason: 'max_tokens', content: [{ type: 'text', text: 'Vou anotar' }] } })
         await chamar(MSG)
-        expect(enviados()).toEqual(['Não consegui ler a sua lista: ela é grande demais para uma resposta só, e a leitura parou antes da primeira esquadria. Nada foi gravado. Me mande a lista em duas partes, uma mensagem para cada metade.'])
+        expect(enviados()).toEqual(['Não consegui ler a sua lista: ela é grande demais para uma resposta só, e a leitura parou antes do primeiro item. Nada foi gravado. Me mande a lista em duas partes, uma mensagem para cada metade.'])
         expect(escritasNoEstado()).toEqual([])
         expect(linhaIa()[0]).toContain('desfecho=lista-cortada')
     })

@@ -565,8 +565,8 @@ export const FALHA_SEM_SALDO = 'Não consegui processar a sua mensagem: a conta 
  * O vendedor lê a VERDADE — não "o serviço de IA não respondeu": a IA respondeu, e a lista não coube. Nada é gravado pela metade.
  */
 export const falhaDaListaCortada = (lidas: number): string => (lidas > 0
-    ? `Não consegui ler a sua lista inteira: ela é grande demais para uma resposta só, e a leitura parou depois de ${lidas} ${lidas === 1 ? 'esquadria' : 'esquadrias'}. Nada foi gravado. Me mande a lista em duas partes, uma mensagem para cada metade.`
-    : 'Não consegui ler a sua lista: ela é grande demais para uma resposta só, e a leitura parou antes da primeira esquadria. Nada foi gravado. Me mande a lista em duas partes, uma mensagem para cada metade.')
+    ? `Não consegui ler a sua lista inteira: ela é grande demais para uma resposta só, e a leitura parou depois de ${lidas} ${lidas === 1 ? 'item' : 'itens'}. Nada foi gravado. Me mande a lista em duas partes, uma mensagem para cada metade.`
+    : 'Não consegui ler a sua lista: ela é grande demais para uma resposta só, e a leitura parou antes do primeiro item. Nada foi gravado. Me mande a lista em duas partes, uma mensagem para cada metade.')
 export const FALHA_DA_IA = 'Não consegui processar a sua mensagem: o serviço de IA não respondeu. Nada foi gravado; mande de novo em alguns minutos.'
 /** O prazo da 1ª chamada estourou (dono do produto, 04/11/2026: "não consegui processar agora, me mande de novo"). */
 export const FALHA_PRAZO_DA_IA = 'Não consegui processar a sua mensagem agora: o serviço de IA demorou demais para responder. Nada foi gravado; me mande de novo.'

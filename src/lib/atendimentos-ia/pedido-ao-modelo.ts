@@ -38,10 +38,10 @@ export const CONTINUACOES_DA_LISTA_CORTADA = 2
 
 /** O que o pedido de continuação diz ao modelo: quantas esquadrias já estão guardadas, e que ele devolva só as seguintes. */
 export const instrucaoDaContinuacao = (guardadas: number): string => (guardadas > 0
-    ? `ATENÇÃO: a sua resposta anterior a ESTA MESMA mensagem foi cortada pelo limite de tamanho depois de ${guardadas} ${guardadas === 1 ? 'esquadria' : 'esquadrias'}. `
-        + `As ${guardadas} primeiras esquadrias da lista, na ordem em que aparecem, JÁ ESTÃO GUARDADAS: não as repita. Chame a ferramenta de novo com todos os outros campos como antes `
-        + `e, em "itens", SÓ as esquadrias a partir da de número ${guardadas + 1} da lista, na mesma ordem, até a última.`
-    : 'ATENÇÃO: a sua resposta anterior a ESTA MESMA mensagem foi cortada pelo limite de tamanho antes de trazer a primeira esquadria. '
+    ? `ATENÇÃO: a sua resposta anterior a ESTA MESMA mensagem foi cortada pelo limite de tamanho depois de ${guardadas} ${guardadas === 1 ? 'item' : 'itens'} da lista. `
+        + `Os ${guardadas} primeiros itens da lista, na ordem em que aparecem, JÁ ESTÃO GUARDADOS: não os repita. Chame a ferramenta de novo com todos os outros campos como antes `
+        + `e, em "itens", SÓ os itens a partir do de número ${guardadas + 1} da lista, na mesma ordem, até o último.`
+    : 'ATENÇÃO: a sua resposta anterior a ESTA MESMA mensagem foi cortada pelo limite de tamanho antes de trazer o primeiro item da lista. '
         + 'Chame a ferramenta de novo, sem texto antes, com a lista inteira em "itens".')
 
 /**
