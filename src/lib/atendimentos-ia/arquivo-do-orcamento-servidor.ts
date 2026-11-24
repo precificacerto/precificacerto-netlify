@@ -19,6 +19,7 @@
  *   - PARA O VENDEDOR: o bloco SAIU em 16/11/2026, por decisão do dono do produto — o arquivo não traz mais as barras por código, o
  *     aproveitamento, os minutos nem o "o que este preço cobre".
  */
+import { descricaoParaOVendedor, valoresDosModulos } from '@/lib/atendimentos-ia/descricao-para-o-vendedor'
 import { createHash, randomUUID } from 'crypto'
 import { supabaseAdmin } from '@/supabase/admin'
 import { BUCKET_DO_CATALOGO } from '@/utils/atendimentos-ia-catalogo'
@@ -121,7 +122,10 @@ export async function itensDoArquivo(tenantId: string, orcamentoId: string):
         paraODesenho.push({ tipologia: tipologia ?? '', descricao: d?.descricao ?? tipologia, familia, valores: valoresDoDesenho(def, escolhas ?? {}) })
         return {
             ordem: Number(l.ordem), quantidade: Number(l.quantidade), largura_mm: largura, altura_mm: altura, tipologia,
-            descricao: d?.descricao ?? tipologia, tipo: d?.tipo ?? null, fornecedor: d?.fornecedor ?? null, linha: d?.linha ?? null,
+            // a descrição RESOLVIDA (dono do produto, 24/11/2026, pedido 0023): com os módulos gravados no item (no antigo, o Padrão do motor) — com um
+            // módulo não se escreve módulo —, sem a linha de perfil (ela tem o campo LINHA) e sem o tipo de modulação. Sem descrição no motor, a tipologia
+            descricao: descricaoParaOVendedor(d?.descricao, valoresDosModulos(d?.descricao, escolhas, (v) => def?.variaveis.find((x) => x.variavel === v)?.padrao)) ?? tipologia,
+            tipo: d?.tipo ?? null, fornecedor: d?.fornecedor ?? null, linha: d?.linha ?? null,
             ambientes, corPerfil: texto(l.cor_perfil), corAcessorio: tipologia ? texto(corDoAcessorio(base, contexto.definicao)) : null, vidro: texto(l.vidro),
             variaveis: variaveis.map(variavelNaFolha), obs: texto(l.obs), definicoes,
             desenho: largura && altura && largura > 0 && altura > 0 ? desenhoDaTipologia({ descricao: d?.descricao ?? '', largura_mm: largura, altura_mm: altura, variaveis }) : null,

@@ -84,8 +84,12 @@ jest.mock('@/supabase/admin', () => ({
 // o contexto da tipologia (definição e detalhe) é o da conversa, com portão próprio: aqui ele devolve a descrição, o tipo, a linha e o fornecedor
 jest.mock('@/lib/atendimentos-ia/conversa-da-ia', () => ({
     contextoDaFolhaDaEmpresa: async () => ({
-        definicao: (): null => null,
-        detalhe: (tipologia: string, familia: string | null) => ({ descricao: `${tipologia} DA ${familia ?? 'SEM FAMÍLIA'}`, linha: 'EUROPA 60', tipo: 'Porta', fornecedor: 'Wolf' }),
+        // a maxim-ar de módulos (DP-128): o "N" com Padrão 1 na aba Variáveis; as outras não têm definição
+        definicao: (i: { tipologia: string | null }) => (i.tipologia === 'DP-128'
+            ? { variaveis: [{ variavel: 'N', descricao: 'QUANTIDADE DE MÓDULOS HORIZONTAIS', padrao: '1', condicao: 'sempre', opcoes: null }], formulas: [] } : null),
+        detalhe: (tipologia: string, familia: string | null) => (tipologia === 'DP-128'
+            ? { descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | PERFIL MODULAÇÃO | EUROPA 60', linha: 'EUROPA 60', tipo: 'Maxim-ar', fornecedor: 'Wolf' }
+            : { descricao: `${tipologia} DA ${familia ?? 'SEM FAMÍLIA'} | EUROPA 60`, linha: 'EUROPA 60', tipo: 'Porta', fornecedor: 'Wolf' }),
     }),
 }))
 
@@ -120,11 +124,22 @@ beforeEach(() => {
 })
 
 describe('os itens do arquivo, montados do que está gravado', () => {
+    it('a DESCRIÇÃO é a resolvida (dono do produto, 24/11/2026, pedido 0023): os módulos do item, sem a linha e sem o tipo de modulação; um módulo não se escreve', async () => {
+        const comN = (escolhas: Record<string, number> | null) => { estado.db.orcamentista_orcamento_item[0] = { ...estado.db.orcamentista_orcamento_item[0], tipologia: 'DP-128', escolhas } }
+        const descricao = async () => { const r = await S.itensDoArquivo(T, ORC); if ('recusa' in r) throw new Error(r.recusa); return r.itens[0].descricao }
+        // o item antigo, sem N gravado: o Padrão do motor (1)
+        comN(null)
+        expect(await descricao()).toBe('Maxim-ar')
+        comN({ N: 1 })
+        expect(await descricao()).toBe('Maxim-ar')
+        comN({ N: 2 })
+        expect(await descricao()).toBe('Maxim-ar com 02 módulos horizontais')
+    })
     it('no tenant do chamador; a família do item de origem decide o detalhe; ambientes por extenso; sem medida, sem desenho', async () => {
         const r = await S.itensDoArquivo(T, ORC)
         if ('recusa' in r) throw new Error(r.recusa)
         expect(r.itens.map((i) => i.ordem)).toEqual([1, 2])
-        expect(r.itens[0]).toEqual(expect.objectContaining({ descricao: 'DP-39 DA PVC', tipo: 'Porta', fornecedor: 'Wolf', linha: 'EUROPA 60', ambientes: 'Sala (1)', vidro: 'comum 6 mm incolor' }))
+        expect(r.itens[0]).toEqual(expect.objectContaining({ descricao: 'Dp-39 da pvc', tipo: 'Porta', fornecedor: 'Wolf', linha: 'EUROPA 60', ambientes: 'Sala (1)', vidro: 'comum 6 mm incolor' }))
         expect(r.itens[0].desenho).toEqual(expect.objectContaining({ largura_mm: 2500, altura_mm: 2200 }))
         expect(r.itens[1]).toEqual(expect.objectContaining({ ambientes: null, obs: 'vão de gesso', desenho: null }))
         for (const o of estado.ops) expect(o.filtros).toContainEqual(['tenant_id', T])
