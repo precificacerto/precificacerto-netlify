@@ -687,6 +687,48 @@ describe('TABELA DE PREÇO PURO — sem arquivo de motor (Reforço, Acessórios�
         expect(r.json.contagens).toEqual(expect.objectContaining({ itens: 2, regras: 0, tipologias: 0, cruzam: 0, nao_cruzam: 0 }))
     })
 
+    // ── A REFERÊNCIA DO VIDRO (codigo_wvetro; dono do produto, 24/11/2026) ──
+    const comReferencias = async (categoria: string, itens: Array<[string, string | null]>) => {
+        semMotor(categoria)
+        const colunas: readonly string[] = COLUNAS_DO_LAYOUT_UNICO
+        const linha = (v: Record<string, ExcelJS.CellValue>) => Object.fromEntries(Object.entries(v).map(([c, x]) => [colunas.indexOf(c) + 1, x]))
+        objetos[TABELA.arquivo_path] = await planilha({ ITENS: [
+            Object.fromEntries(colunas.map((c, k) => [k + 1, c])),
+            ...itens.map(([codigo, referencia]) => linha({ codigo, descricao: `VIDRO ${codigo}`, [COLUNA_DA_CATEGORIA_DO_FORNECEDOR]: 'Float', cor: 'INCOLOR', vendido_por: 'unidade', custo_bruto: 90, ...(referencia === null ? {} : { codigo_wvetro: referencia }) })),
+        ] })
+    }
+    it('tabela de VIDRO: a referência (codigo_wvetro) vai no payload de cada item, como veio; o item sem ela vai nulo e é nomeado no aviso', async () => {
+        await comReferencias('VIDRO', [['LJ-VFIN05', 'VFIN05'], ['LJ-VTIN06', 'VTIN06'], ['LJ-DUP-ARG', null]])
+        const r = await chamar('POST')
+        expect(r.status).toBe(200)
+        expect(repo.importarTabela.mock.calls[0][0].payload.itens.map((i: any) => [i.codigo, i.codigo_wvetro])).toEqual([['LJ-VFIN05', 'VFIN05'], ['LJ-VTIN06', 'VTIN06'], ['LJ-DUP-ARG', null]])
+        expect(r.json.avisos.filter((a: any) => a.tipo === 'itens_sem_referencia').map((a: any) => a.codigos)).toEqual([['LJ-DUP-ARG']])
+        expect(r.json.avisos.map((a: any) => a.tipo)).not.toContain('colunas_sem_destino_no_layout_unico')
+    })
+    it('tabela de VIDRO com a referência REPETIDA: 422 com o arquivo, a referência e os códigos — e NADA é conferido nem gravado', async () => {
+        await comReferencias('VIDRO', [['LJ-VFIN05', 'VFIN05'], ['LJ-VFIN05B', 'VFIN05']])
+        const r = await chamar('POST')
+        expect(r.status).toBe(422)
+        expect(r.json.error).toContain(TABELA.arquivo_nome)
+        expect(r.json.error).toContain('traz a mesma referência (codigo_wvetro) em mais de um item — VFIN05 em LJ-VFIN05 e LJ-VFIN05B.')
+        expect(repo.codigosDosItensGravados).not.toHaveBeenCalled()
+        expect(repo.importarTabela).not.toHaveBeenCalled()
+    })
+    it('a referência é SÓ do vidro: a mesma planilha numa tabela de FERRAGENS grava a referência NULA (mesmo repetida), e o aviso diz que a coluna não foi gravada', async () => {
+        await comReferencias('FERRAGENS', [['A', '9681'], ['B', '9681']])
+        const r = await chamar('POST')
+        expect(r.status).toBe(200)
+        expect(repo.importarTabela.mock.calls[0][0].payload.itens.map((i: any) => i.codigo_wvetro)).toEqual([null, null])
+        expect(r.json.avisos.filter((a: any) => a.tipo === 'colunas_sem_destino_no_layout_unico').map((a: any) => a.colunas)).toEqual([{ codigo_wvetro: 2 }])
+    })
+    it('tabela SEM categoria declarada: não é tratada como de vidro — a referência repetida não recusa, e vai NULA', async () => {
+        await comReferencias('VIDRO', [['A', '9681'], ['B', '9681']])
+        repo.obterArquivosDaTabela.mockImplementation(async () => { ordem.push('obterArquivosDaTabela'); return { ...TABELA, motor_path: null, motor_nome: null, categoria_chave: null } })
+        const r = await chamar('POST')
+        expect(r.status).toBe(200)
+        expect(repo.importarTabela.mock.calls[0][0].payload.itens.map((i: any) => i.codigo_wvetro)).toEqual([null, null])
+    })
+
     it('o LAYOUT ÚNICO (CABECALHO + ITENS, colunas por nome; 02/11/2026): a resposta diz o layout e devolve a aba CABECALHO como veio, e o payload leva as 12 do bloco', async () => {
         semMotor('PERSIANAS')
         const colunas: readonly string[] = COLUNAS_DO_LAYOUT_UNICO

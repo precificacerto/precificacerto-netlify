@@ -123,6 +123,12 @@ export type ItemLido = CategoriaDoFornecedor & BlocoTributario & {
      * 20261123000004). Com a variante e a espessura, é o que acha a linha de preço do vidro. O layout de antes não tem a coluna: NULL.
      */
     cor: string | null
+    /**
+     * A REFERÊNCIA do item, da coluna `codigo_wvetro` do layout único (dono do produto, 24/11/2026: "a referência única do vidro é a coluna
+     * codigo_wvetro"; migração 20261124000001). Tipo + cor + espessura (VFIN05 = Float INcolor 05), a mesma grafia em todos os fornecedores.
+     * Só a tabela de VIDRO a grava (`referenciasDaCategoria`); nas outras categorias segue sem destino. O layout de antes não tem a coluna: NULL.
+     */
+    codigo_wvetro: string | null
 }
 
 /** Uma linha de `orcamentista_motor_regra`, sem `id` e `tabela_id`. A categoria vem em `CategoriaDoFornecedor`. */
@@ -182,6 +188,8 @@ export type Aviso =
     | { tipo: 'itens_sem_custo'; aba: string; itens: number; codigos: string[]; mensagem: string }
     | { tipo: 'tabela_sem_valor_por_barra'; aba: string; itens: number; codigos: string[]; mensagem: string }
     | { tipo: 'colunas_sem_destino_no_layout_unico'; aba: string; colunas: Record<string, number>; mensagem: string }
+    /** a tabela de vidro com item sem a referência `codigo_wvetro` (24/11/2026): o padrão e o vidro escolhido não o acham */
+    | { tipo: 'itens_sem_referencia'; itens: number; codigos: string[]; mensagem: string }
     | { tipo: 'coluna_de_12_ausente'; aba: string; colunas: string[]; mensagem: string }
     | { tipo: 'itens_sem_valor_de_12'; aba: string; coluna: string; itens: number; codigos: string[]; mensagem: string }
     // a coluna Cor do motor (dono do produto, 08/11/2026): o texto com espaço múltiplo, e a mesma cor em duas grafias — AVISO, nunca
@@ -395,8 +403,9 @@ function lerPreco(ws: ExcelJS.Worksheet): LeituraDoPreco {
         const codigo = l.codigo(r, COL_PRECO.codigo)
         if (codigo === null) continue
         const item: ItemLido = {
-            // o layout de antes não tem a coluna da cor
+            // o layout de antes não tem a coluna da cor nem a da referência
             cor: null,
+            codigo_wvetro: null,
             codigo,
             descricao: l.texto(r, COL_PRECO.descricao),
             medida_barra_m: l.numero(r, COL_PRECO.medida_barra_m),
@@ -513,7 +522,49 @@ export const fraseDosItensSemValorDe12 = (coluna: string, codigos: readonly stri
 /** Exigidas no cabeçalho e lidas, mas SEM coluna em `orcamentista_tabela_item` (medido em 02/11/2026): ficam fora da gravação nesta PR. */
 /** A categoria cuja coluna do fornecedor traz a VARIANTE do item, não a categoria (o vidro, dono do produto, 23/11/2026). */
 export const CATEGORIA_COM_VARIANTES = 'VIDRO'
-export const COLUNAS_SEM_DESTINO_DO_LAYOUT_UNICO = ['linha', 'codigo_wvetro', 'valor_kg', 'multiplo_compra'] as const
+export const COLUNAS_SEM_DESTINO_DO_LAYOUT_UNICO = ['linha', 'valor_kg', 'multiplo_compra'] as const
+/**
+ * A REFERÊNCIA DO VIDRO (dono do produto, 24/11/2026): a coluna `codigo_wvetro` da tabela de VIDRO é a referência única do vidro — é por ela que
+ * o padrão da empresa e o vidro escolhido acham a linha de preço. Só a categoria `CATEGORIA_COM_REFERENCIA` a grava: perfil e insumo têm a ponte
+ * no motor (`orcamentista_motor_regra.codigo_wvetro`, onde o mesmo perfil se repete por cor), e nas outras a coluna continua sem destino, com o
+ * aviso de sempre. Estender a outra categoria é decisão do dono do produto. Por isso a coluna NÃO está em `COLUNAS_SEM_DESTINO_DO_LAYOUT_UNICO`:
+ * o item lido a traz, e quem decide o destino dela é `referenciasDaCategoria`, com a categoria da tabela.
+ */
+export const CATEGORIA_COM_REFERENCIA = 'VIDRO'
+export const COLUNA_DA_REFERENCIA_DO_ITEM = 'codigo_wvetro'
+export const fraseDaReferenciaRepetida = (repetidas: ReadonlyArray<{ referencia: string; codigos: readonly string[] }>) =>
+    `traz a mesma referência (${COLUNA_DA_REFERENCIA_DO_ITEM}) em mais de um item — ${repetidas.map((r) => `${r.referencia} em ${r.codigos.join(' e ')}`).join('; ')}. `
+    + 'A referência acha UM vidro: corrija o arquivo para cada item ter a sua. Nada foi alterado.'
+export const fraseDosItensSemReferencia = (codigos: readonly string[]) =>
+    `${codigos.length} ${codigos.length === 1 ? 'item veio' : 'itens vieram'} sem a referência (${COLUNA_DA_REFERENCIA_DO_ITEM}) — ${nomeados(codigos)}: `
+    + `${codigos.length === 1 ? 'ele não é achado' : 'eles não são achados'} pelo vidro padrão nem pelo vidro escolhido, só pelo que o vendedor disser.`
+/**
+ * A referência conforme a categoria DA TABELA (a do cadastro), antes de montar o payload. Na de vidro: a referência repetida no arquivo é RECUSA
+ * nomeada (devolve a frase; o índice único do banco recusaria a gravação inteira sem dizer qual), a coluna sai do aviso de "sem destino" e os
+ * itens sem referência são nomeados. Nas outras: a referência lida NÃO vai para o payload (fica nula) e as linhas que a traziam entram no aviso
+ * de "sem destino" — nada some em silêncio.
+ */
+export function referenciasDaCategoria(lida: { itens: ItemLido[]; avisos: Aviso[] }, categoria: string | null | undefined): string | null {
+    if (categoria !== CATEGORIA_COM_REFERENCIA) {
+        const comValor = lida.itens.filter((i) => i.codigo_wvetro !== null).length
+        for (const i of lida.itens) i.codigo_wvetro = null
+        if (comValor === 0) return null
+        const k = lida.avisos.findIndex((a) => a.tipo === 'colunas_sem_destino_no_layout_unico')
+        const antes = k >= 0 ? (lida.avisos[k] as Extract<Aviso, { tipo: 'colunas_sem_destino_no_layout_unico' }>) : null
+        const colunas = { ...(antes?.colunas ?? {}), [COLUNA_DA_REFERENCIA_DO_ITEM]: comValor }
+        const aviso: Aviso = { tipo: 'colunas_sem_destino_no_layout_unico', aba: antes?.aba ?? ABAS_DO_LAYOUT_UNICO.itens, colunas, mensagem: fraseDasColunasSemDestino(colunas) }
+        if (k >= 0) lida.avisos[k] = aviso
+        else lida.avisos.push(aviso)
+        return null
+    }
+    const porReferencia = new Map<string, string[]>()
+    for (const i of lida.itens) if (i.codigo_wvetro !== null) porReferencia.set(i.codigo_wvetro, [...(porReferencia.get(i.codigo_wvetro) ?? []), i.codigo])
+    const repetidas = [...porReferencia].filter(([, cs]) => cs.length > 1).map(([referencia, codigos]) => ({ referencia, codigos }))
+    if (repetidas.length > 0) return fraseDaReferenciaRepetida(repetidas)
+    const sem = lida.itens.filter((i) => i.codigo_wvetro === null).map((i) => i.codigo)
+    if (sem.length > 0) lida.avisos.push({ tipo: 'itens_sem_referencia', itens: sem.length, codigos: sem, mensagem: fraseDosItensSemReferencia(sem) })
+    return null
+}
 /** As numéricas: texto nelas é recusa nomeada, como no bloco tributário (nunca vira 0 nem NULL). */
 type NumericaDoLayoutUnico = 'medida_barra_m' | 'peso_kg_por_m' | 'custo_bruto' | 'valor_metro' | ColunaOpcionalDoLayoutUnico | ColunaDoBlocoTributario
 
@@ -625,6 +676,8 @@ function lerItensDoLayoutUnico(ws: ExcelJS.Worksheet): LeituraDoPreco {
             descricao: texto('descricao'),
             // a cor, como veio (20261123000004): o vidro casa variante + cor + espessura
             cor: texto('cor'),
+            // a referência (20261124000001), como a célula é lida (`valorDaCelula` já apara as pontas e faz da vazia nula): ela é identidade
+            codigo_wvetro: texto('codigo_wvetro'),
             medida_barra_m: numero('medida_barra_m'),
             unidade: texto('unidade'),
             ncm: texto('ncm'),

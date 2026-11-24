@@ -39,7 +39,8 @@ const N = null as number | null
 const BLOCO = { cred_icms_pct: 12, cred_pis_cofins_pct: 9.25, cred_ipi_pct: 0, nc_ipi_pct: N, cred_ibs_pct: N, cred_cbs_pct: N }
 const ITENS = [
     { codigo: '10457', descricao: 'ROLDANA DUPLA', custo: 2.5, unidade: 'PC', medida_barra_m: N, valor_barra_interno: N, valor_metro_interno: N, tabela_id: 't1', fornecedor_id: 'detoni', categoria: 'FERRAGENS', ...BLOCO },
-    { codigo: 'VIN04', descricao: 'VIDRO COMUM INCOLOR 04MM', custo: 74.96, unidade: 'PC', medida_barra_m: N, valor_barra_interno: N, valor_metro_interno: N, tabela_id: 't2', fornecedor_id: 'estrela', categoria: 'VIDRO', ...BLOCO },
+    // a REFERÊNCIA (codigo_wvetro, 24/11/2026) é outra escrita que o código do fornecedor: é por ela que o escolhido e o padrão acham o item
+    { codigo: 'VIN04', codigo_wvetro: 'VFIN04', descricao: 'VIDRO COMUM INCOLOR 04MM', custo: 74.96, unidade: 'PC', medida_barra_m: N, valor_barra_interno: N, valor_metro_interno: N, tabela_id: 't2', fornecedor_id: 'estrela', categoria: 'VIDRO', ...BLOCO },
 ]
 function montar() {
     calculo.valor = {
@@ -87,17 +88,26 @@ describe('o custo pelos três caminhos, no servidor', () => {
         expect(r.faltas.map((f) => [f.caminho, f.codigo_do_motor, f.motivo, f.esquadria])).toEqual([['insumo', 'Q9', 'LINHA_NAO_AVALIADA', 1]])
     })
     it('o vidro ESCOLHIDO vence o texto', async () => {
-        ;(calculo.valor as { lev: { itens: Array<Record<string, unknown>> } }).lev.itens[0].vidro_codigo = 'VIN04'
+        ;(calculo.valor as { lev: { itens: Array<Record<string, unknown>> } }).lev.itens[0].vidro_codigo = 'VFIN04'
         ;(calculo.valor as { lev: { itens: Array<Record<string, unknown>> } }).lev.itens[0].vidro = 'qualquer coisa'
         const r = await ok()
-        expect(r.itens[0].materiais.find((m) => m.caminho === 'vidro')!.resolucao).toBe('vidro_escolhido')
+        // o escolhido guarda a REFERÊNCIA; o material sai com o código do FORNECEDOR do item achado
+        const l = r.itens[0].materiais.find((m) => m.caminho === 'vidro')!
+        expect([l.codigo, l.resolucao]).toEqual(['VIN04', 'vidro_escolhido'])
+    })
+    it('o vidro escolhido pelo CÓDIGO DO FORNECEDOR (o jeito de antes) não é achado: falta nomeada com a referência, e nenhum vidro entra', async () => {
+        ;(calculo.valor as { lev: { itens: Array<Record<string, unknown>> } }).lev.itens[0].vidro_codigo = 'VIN04'
+        const r = await ok()
+        expect(r.faltas.filter((f) => f.caminho === 'vidro').map((f) => [f.codigo_do_motor, f.motivo, f.frase])).toEqual([
+            ['VIN04', 'VIDRO_CODIGO_FORA_DA_TABELA', 'o vidro VIN04 não existe na tabela de vidro do fornecedor principal (a referência é a coluna codigo_wvetro)']])
+        expect(r.itens[0].materiais.some((m) => m.caminho === 'vidro')).toBe(false)
     })
 
     // O VIDRO NOMEADO SEM ESPESSURA (dono do produto, 15/11/2026): o texto bate com dois itens; o padrão da empresa desempata, e a
     // resolução gravada diz que foi por ele. Sem padrão, continua falta nomeada — nada se escolhe por ser o mais barato.
     const comDoisIncolores = () => {
         const c = calculo.valor as { lev: { itens: Array<Record<string, unknown>> }; calculos: Array<{ daFamilia: { todos: unknown[] } }> }
-        c.calculos[0].daFamilia.todos = [...ITENS, { ...ITENS[1], codigo: 'VIN06', descricao: 'VIDRO COMUM INCOLOR 06MM', custo: 90 }]
+        c.calculos[0].daFamilia.todos = [...ITENS, { ...ITENS[1], codigo: 'VIN06', codigo_wvetro: 'VFIN06', descricao: 'VIDRO COMUM INCOLOR 06MM', custo: 90 }]
         c.lev.itens[0].vidro = 'incolor'
     }
     /**
@@ -137,7 +147,7 @@ describe('o custo pelos três caminhos, no servidor', () => {
     })
     it('o PADRÃO da empresa desempata o vidro que bate com dois itens, e a resolução é vidro_padrao', async () => {
         comDoisIncolores()
-        padroes.codigos = ['VIN06']
+        padroes.codigos = ['VFIN06']
         const r = await ok()
         const l = r.itens[0].materiais.find((m) => m.caminho === 'vidro')!
         expect([l.codigo, l.resolucao]).toEqual(['VIN06', 'vidro_padrao'])
@@ -147,7 +157,7 @@ describe('o custo pelos três caminhos, no servidor', () => {
     // correr caía calado no VBO3,4 — o padrão da MAXIM-AR. Agora volta a ser falta nomeada (e o agente pergunta); na maxim-ar segue VBO3,4
     it('o padrão da MAXIM-AR não desempata o vidro de uma JANELA DE CORRER: continua falta nomeada (AMBÍGUO)', async () => {
         comDoisIncolores()
-        padroes.daMaximAr = ['VIN06']
+        padroes.daMaximAr = ['VFIN06']
         const r = await ok()
         expect(r.faltas.filter((f) => f.caminho === 'vidro').map((f) => f.motivo)).toEqual(['VIDRO_AMBIGUO'])
         expect(r.itens[0].materiais.some((m) => m.caminho === 'vidro')).toBe(false)
@@ -158,7 +168,7 @@ describe('o custo pelos três caminhos, no servidor', () => {
         c.lev.itens[0].tipologia = 'DP-01'
         c.calculos[0].d.esquadrias[0].tipologia = 'DP-01'
         c.calculos[0].r.esquadrias[0].tipologia = 'DP-01'
-        padroes.daMaximAr = ['VIN06']
+        padroes.daMaximAr = ['VFIN06']
         const r = await ok()
         const l = r.itens[0].materiais.find((m) => m.caminho === 'vidro')!
         expect([l.codigo, l.resolucao]).toEqual(['VIN06', 'vidro_padrao'])

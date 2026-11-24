@@ -4,685 +4,783 @@
   "descricao": "VIDRO FLOAT (COMUM) INCOLOR 03MM",
   "segmento": "Float",
   "cor": "INCOLOR",
-  "custo": 70
+  "custo": 70,
+  "codigo_wvetro": "VFIN03"
  },
  {
   "codigo": "LJ-VFIN04",
   "descricao": "VIDRO FLOAT (COMUM) INCOLOR 04MM",
   "segmento": "Float",
   "cor": "INCOLOR",
-  "custo": 77
+  "custo": 77,
+  "codigo_wvetro": "VFIN04"
  },
  {
   "codigo": "LJ-VFIN05",
   "descricao": "VIDRO FLOAT (COMUM) INCOLOR 05MM",
   "segmento": "Float",
   "cor": "INCOLOR",
-  "custo": 94.5
+  "custo": 94.5,
+  "codigo_wvetro": "VFIN05"
  },
  {
   "codigo": "LJ-VFIN06",
   "descricao": "VIDRO FLOAT (COMUM) INCOLOR 06MM",
   "segmento": "Float",
   "cor": "INCOLOR",
-  "custo": 114
+  "custo": 114,
+  "codigo_wvetro": "VFIN06"
  },
  {
   "codigo": "LJ-VFIN08",
   "descricao": "VIDRO FLOAT (COMUM) INCOLOR 08MM",
   "segmento": "Float",
   "cor": "INCOLOR",
-  "custo": 148
+  "custo": 148,
+  "codigo_wvetro": "VFIN08"
  },
  {
   "codigo": "LJ-VFIN10",
   "descricao": "VIDRO FLOAT (COMUM) INCOLOR 10MM",
   "segmento": "Float",
   "cor": "INCOLOR",
-  "custo": 196
+  "custo": 196,
+  "codigo_wvetro": "VFIN10"
  },
  {
   "codigo": "LJ-VTIN04",
   "descricao": "VIDRO TEMPERADO INCOLOR 04MM",
   "segmento": "Temperado",
   "cor": "INCOLOR",
-  "custo": 117
+  "custo": 117,
+  "codigo_wvetro": "VTIN04"
  },
  {
   "codigo": "LJ-VTIN05",
   "descricao": "VIDRO TEMPERADO INCOLOR 05MM",
   "segmento": "Temperado",
   "cor": "INCOLOR",
-  "custo": 118
+  "custo": 118,
+  "codigo_wvetro": "VTIN05"
  },
  {
   "codigo": "LJ-VTIN06",
   "descricao": "VIDRO TEMPERADO INCOLOR 06MM",
   "segmento": "Temperado",
   "cor": "INCOLOR",
-  "custo": 122
+  "custo": 122,
+  "codigo_wvetro": "VTIN06"
  },
  {
   "codigo": "LJ-VTIN08",
   "descricao": "VIDRO TEMPERADO INCOLOR 08MM",
   "segmento": "Temperado",
   "cor": "INCOLOR",
-  "custo": 148
+  "custo": 148,
+  "codigo_wvetro": "VTIN08"
  },
  {
   "codigo": "LJ-VTIN10",
   "descricao": "VIDRO TEMPERADO INCOLOR 10MM",
   "segmento": "Temperado",
   "cor": "INCOLOR",
-  "custo": 210
+  "custo": 210,
+  "codigo_wvetro": "VTIN10"
  },
  {
   "codigo": "LJ-VLIN3+3",
   "descricao": "VIDRO LAMINADO INCOLOR 3+3MM (6MM)",
   "segmento": "Laminado",
   "cor": "INCOLOR",
-  "custo": 185
+  "custo": 185,
+  "codigo_wvetro": "VLIN3+3"
  },
  {
   "codigo": "LJ-VLIN4+4",
   "descricao": "VIDRO LAMINADO INCOLOR 4+4MM (8MM)",
   "segmento": "Laminado",
   "cor": "INCOLOR",
-  "custo": 220
+  "custo": 220,
+  "codigo_wvetro": "VLIN4+4"
  },
  {
   "codigo": "LJ-VLIN5+5",
   "descricao": "VIDRO LAMINADO INCOLOR 5+5MM (10MM)",
   "segmento": "Laminado",
   "cor": "INCOLOR",
-  "custo": 272
+  "custo": 272,
+  "codigo_wvetro": "VLIN5+5"
  },
  {
   "codigo": "LJ-VLIN6+6",
   "descricao": "VIDRO LAMINADO INCOLOR 6+6MM (12MM)",
   "segmento": "Laminado",
   "cor": "INCOLOR",
-  "custo": 355
+  "custo": 355,
+  "codigo_wvetro": "VLIN6+6"
  },
  {
   "codigo": "LJ-VFVD04",
   "descricao": "VIDRO FLOAT (COMUM) VERDE 04MM",
   "segmento": "Float",
   "cor": "VERDE",
-  "custo": 99
+  "custo": 99,
+  "codigo_wvetro": "VFVD04"
  },
  {
   "codigo": "LJ-VFVD06",
   "descricao": "VIDRO FLOAT (COMUM) VERDE 06MM",
   "segmento": "Float",
   "cor": "VERDE",
-  "custo": 148
+  "custo": 148,
+  "codigo_wvetro": "VFVD06"
  },
  {
   "codigo": "LJ-VFVD08",
   "descricao": "VIDRO FLOAT (COMUM) VERDE 08MM",
   "segmento": "Float",
   "cor": "VERDE",
-  "custo": 209
+  "custo": 209,
+  "codigo_wvetro": "VFVD08"
  },
  {
   "codigo": "LJ-VFVD10",
   "descricao": "VIDRO FLOAT (COMUM) VERDE 10MM",
   "segmento": "Float",
   "cor": "VERDE",
-  "custo": 295
+  "custo": 295,
+  "codigo_wvetro": "VFVD10"
  },
  {
   "codigo": "LJ-VTVD04",
   "descricao": "VIDRO TEMPERADO VERDE 04MM",
   "segmento": "Temperado",
   "cor": "VERDE",
-  "custo": 130
+  "custo": 130,
+  "codigo_wvetro": "VTVD04"
  },
  {
   "codigo": "LJ-VTVD06",
   "descricao": "VIDRO TEMPERADO VERDE 06MM",
   "segmento": "Temperado",
   "cor": "VERDE",
-  "custo": 170
+  "custo": 170,
+  "codigo_wvetro": "VTVD06"
  },
  {
   "codigo": "LJ-VTVD08",
   "descricao": "VIDRO TEMPERADO VERDE 08MM",
   "segmento": "Temperado",
   "cor": "VERDE",
-  "custo": 231
+  "custo": 231,
+  "codigo_wvetro": "VTVD08"
  },
  {
   "codigo": "LJ-VTVD10",
   "descricao": "VIDRO TEMPERADO VERDE 10MM",
   "segmento": "Temperado",
   "cor": "VERDE",
-  "custo": 317
+  "custo": 317,
+  "codigo_wvetro": "VTVD10"
  },
  {
   "codigo": "LJ-VLVD4+4",
   "descricao": "VIDRO LAMINADO VERDE 4+4MM (8MM)",
   "segmento": "Laminado",
   "cor": "VERDE",
-  "custo": 295
+  "custo": 295,
+  "codigo_wvetro": "VLVD4+4"
  },
  {
   "codigo": "LJ-VFFM04",
   "descricao": "VIDRO FLOAT (COMUM) FUMÊ 04MM",
   "segmento": "Float",
   "cor": "FUMÊ",
-  "custo": 99
+  "custo": 99,
+  "codigo_wvetro": "VFFM04"
  },
  {
   "codigo": "LJ-VFFM06",
   "descricao": "VIDRO FLOAT (COMUM) FUMÊ 06MM",
   "segmento": "Float",
   "cor": "FUMÊ",
-  "custo": 148
+  "custo": 148,
+  "codigo_wvetro": "VFFM06"
  },
  {
   "codigo": "LJ-VFFM08",
   "descricao": "VIDRO FLOAT (COMUM) FUMÊ 08MM",
   "segmento": "Float",
   "cor": "FUMÊ",
-  "custo": 209
+  "custo": 209,
+  "codigo_wvetro": "VFFM08"
  },
  {
   "codigo": "LJ-VFFM10",
   "descricao": "VIDRO FLOAT (COMUM) FUMÊ 10MM",
   "segmento": "Float",
   "cor": "FUMÊ",
-  "custo": 295
+  "custo": 295,
+  "codigo_wvetro": "VFFM10"
  },
  {
   "codigo": "LJ-VTFM04",
   "descricao": "VIDRO TEMPERADO FUMÊ 04MM",
   "segmento": "Temperado",
   "cor": "FUMÊ",
-  "custo": 130
+  "custo": 130,
+  "codigo_wvetro": "VTFM04"
  },
  {
   "codigo": "LJ-VTFM06",
   "descricao": "VIDRO TEMPERADO FUMÊ 06MM",
   "segmento": "Temperado",
   "cor": "FUMÊ",
-  "custo": 170
+  "custo": 170,
+  "codigo_wvetro": "VTFM06"
  },
  {
   "codigo": "LJ-VTFM08",
   "descricao": "VIDRO TEMPERADO FUMÊ 08MM",
   "segmento": "Temperado",
   "cor": "FUMÊ",
-  "custo": 231
+  "custo": 231,
+  "codigo_wvetro": "VTFM08"
  },
  {
   "codigo": "LJ-VTFM10",
   "descricao": "VIDRO TEMPERADO FUMÊ 10MM",
   "segmento": "Temperado",
   "cor": "FUMÊ",
-  "custo": 317
+  "custo": 317,
+  "codigo_wvetro": "VTFM10"
  },
  {
   "codigo": "LJ-VLFM4+4",
   "descricao": "VIDRO LAMINADO FUMÊ 4+4MM (8MM)",
   "segmento": "Laminado",
   "cor": "FUMÊ",
-  "custo": 295
+  "custo": 295,
+  "codigo_wvetro": "VLFM4+4"
  },
  {
   "codigo": "LJ-VFHNI04",
   "descricao": "VIDRO FLOAT HABITAT NEUTRO INCOLOR 04MM",
   "segmento": "Float",
   "cor": "NEUTRO INCOLOR",
-  "custo": 138
+  "custo": 138,
+  "codigo_wvetro": "VFHNI04"
  },
  {
   "codigo": "LJ-VFHNI06",
   "descricao": "VIDRO FLOAT HABITAT NEUTRO INCOLOR 06MM",
   "segmento": "Float",
   "cor": "NEUTRO INCOLOR",
-  "custo": 192
+  "custo": 192,
+  "codigo_wvetro": "VFHNI06"
  },
  {
   "codigo": "LJ-VFHNI08",
   "descricao": "VIDRO FLOAT HABITAT NEUTRO INCOLOR 08MM",
   "segmento": "Float",
   "cor": "NEUTRO INCOLOR",
-  "custo": 234
+  "custo": 234,
+  "codigo_wvetro": "VFHNI08"
  },
  {
   "codigo": "LJ-VTHNI04",
   "descricao": "VIDRO TEMPERADO HABITAT NEUTRO INCOLOR 04MM",
   "segmento": "Temperado",
   "cor": "NEUTRO INCOLOR",
-  "custo": 163
+  "custo": 163,
+  "codigo_wvetro": "VTHNI04"
  },
  {
   "codigo": "LJ-VTHNI06",
   "descricao": "VIDRO TEMPERADO HABITAT NEUTRO INCOLOR 06MM",
   "segmento": "Temperado",
   "cor": "NEUTRO INCOLOR",
-  "custo": 217
+  "custo": 217,
+  "codigo_wvetro": "VTHNI06"
  },
  {
   "codigo": "LJ-VTHNI08",
   "descricao": "VIDRO TEMPERADO HABITAT NEUTRO INCOLOR 08MM",
   "segmento": "Temperado",
   "cor": "NEUTRO INCOLOR",
-  "custo": 259
+  "custo": 259,
+  "codigo_wvetro": "VTHNI08"
  },
  {
   "codigo": "LJ-VLHNI4+4",
   "descricao": "VIDRO LAMINADO HABITAT NEUTRO INCOLOR 4+4MM (8MM)",
   "segmento": "Laminado",
   "cor": "NEUTRO INCOLOR",
-  "custo": 282
+  "custo": 282,
+  "codigo_wvetro": "VLHNI4+4"
  },
  {
   "codigo": "LJ-VLHNI4+6",
   "descricao": "VIDRO LAMINADO HABITAT NEUTRO INCOLOR 4+6MM (10MM)",
   "segmento": "Laminado",
   "cor": "NEUTRO INCOLOR",
-  "custo": 355
+  "custo": 355,
+  "codigo_wvetro": "VLHNI4+6"
  },
  {
   "codigo": "LJ-VFHNC04",
   "descricao": "VIDRO FLOAT HABITAT NEUTRO CINZA 04MM",
   "segmento": "Float",
   "cor": "NEUTRO CINZA",
-  "custo": 138
+  "custo": 138,
+  "codigo_wvetro": "VFHNC04"
  },
  {
   "codigo": "LJ-VFHNC06",
   "descricao": "VIDRO FLOAT HABITAT NEUTRO CINZA 06MM",
   "segmento": "Float",
   "cor": "NEUTRO CINZA",
-  "custo": 192
+  "custo": 192,
+  "codigo_wvetro": "VFHNC06"
  },
  {
   "codigo": "LJ-VFHNC08",
   "descricao": "VIDRO FLOAT HABITAT NEUTRO CINZA 08MM",
   "segmento": "Float",
   "cor": "NEUTRO CINZA",
-  "custo": 234
+  "custo": 234,
+  "codigo_wvetro": "VFHNC08"
  },
  {
   "codigo": "LJ-VTHNC04",
   "descricao": "VIDRO TEMPERADO HABITAT NEUTRO CINZA 04MM",
   "segmento": "Temperado",
   "cor": "NEUTRO CINZA",
-  "custo": 163
+  "custo": 163,
+  "codigo_wvetro": "VTHNC04"
  },
  {
   "codigo": "LJ-VTHNC06",
   "descricao": "VIDRO TEMPERADO HABITAT NEUTRO CINZA 06MM",
   "segmento": "Temperado",
   "cor": "NEUTRO CINZA",
-  "custo": 217
+  "custo": 217,
+  "codigo_wvetro": "VTHNC06"
  },
  {
   "codigo": "LJ-VTHNC08",
   "descricao": "VIDRO TEMPERADO HABITAT NEUTRO CINZA 08MM",
   "segmento": "Temperado",
   "cor": "NEUTRO CINZA",
-  "custo": 259
+  "custo": 259,
+  "codigo_wvetro": "VTHNC08"
  },
  {
   "codigo": "LJ-VLHNC4+4",
   "descricao": "VIDRO LAMINADO HABITAT NEUTRO CINZA 4+4MM (8MM)",
   "segmento": "Laminado",
   "cor": "NEUTRO CINZA",
-  "custo": 282
+  "custo": 282,
+  "codigo_wvetro": "VLHNC4+4"
  },
  {
   "codigo": "LJ-VLHNC4+6",
   "descricao": "VIDRO LAMINADO HABITAT NEUTRO CINZA 4+6MM (10MM)",
   "segmento": "Laminado",
   "cor": "NEUTRO CINZA",
-  "custo": 355
+  "custo": 355,
+  "codigo_wvetro": "VLHNC4+6"
  },
  {
   "codigo": "LJ-VFHNCC04",
   "descricao": "VIDRO FLOAT HABITAT NEUTRO CINZA CLARO 04MM",
   "segmento": "Float",
   "cor": "NEUTRO CINZA CLARO",
-  "custo": 110
+  "custo": 110,
+  "codigo_wvetro": "VFHNCC04"
  },
  {
   "codigo": "LJ-VFHNCC06",
   "descricao": "VIDRO FLOAT HABITAT NEUTRO CINZA CLARO 06MM",
   "segmento": "Float",
   "cor": "NEUTRO CINZA CLARO",
-  "custo": 144
+  "custo": 144,
+  "codigo_wvetro": "VFHNCC06"
  },
  {
   "codigo": "LJ-VTHNCC04",
   "descricao": "VIDRO TEMPERADO HABITAT NEUTRO CINZA CLARO 04MM",
   "segmento": "Temperado",
   "cor": "NEUTRO CINZA CLARO",
-  "custo": 135
+  "custo": 135,
+  "codigo_wvetro": "VTHNCC04"
  },
  {
   "codigo": "LJ-VTHNCC06",
   "descricao": "VIDRO TEMPERADO HABITAT NEUTRO CINZA CLARO 06MM",
   "segmento": "Temperado",
   "cor": "NEUTRO CINZA CLARO",
-  "custo": 169
+  "custo": 169,
+  "codigo_wvetro": "VTHNCC06"
  },
  {
   "codigo": "LJ-VLHNCC4+4",
   "descricao": "VIDRO LAMINADO HABITAT NEUTRO CINZA CLARO 4+4MM (8MM)",
   "segmento": "Laminado",
   "cor": "NEUTRO CINZA CLARO",
-  "custo": 279
+  "custo": 279,
+  "codigo_wvetro": "VLHNCC4+4"
  },
  {
   "codigo": "LJ-VLHNCC4+6",
   "descricao": "VIDRO LAMINADO HABITAT NEUTRO CINZA CLARO 4+6MM (10MM)",
   "segmento": "Laminado",
   "cor": "NEUTRO CINZA CLARO",
-  "custo": 355
+  "custo": 355,
+  "codigo_wvetro": "VLHNCC4+6"
  },
  {
   "codigo": "LJ-VFHRCH04",
   "descricao": "VIDRO FLOAT HABITAT REFLETIVO CHAMPANHE 04MM",
   "segmento": "Float",
   "cor": "REFLETIVO CHAMPANHE",
-  "custo": 138
+  "custo": 138,
+  "codigo_wvetro": "VFHRCH04"
  },
  {
   "codigo": "LJ-VFHRCH06",
   "descricao": "VIDRO FLOAT HABITAT REFLETIVO CHAMPANHE 06MM",
   "segmento": "Float",
   "cor": "REFLETIVO CHAMPANHE",
-  "custo": 204
+  "custo": 204,
+  "codigo_wvetro": "VFHRCH06"
  },
  {
   "codigo": "LJ-VFHRCH08",
   "descricao": "VIDRO FLOAT HABITAT REFLETIVO CHAMPANHE 08MM",
   "segmento": "Float",
   "cor": "REFLETIVO CHAMPANHE",
-  "custo": 252
+  "custo": 252,
+  "codigo_wvetro": "VFHRCH08"
  },
  {
   "codigo": "LJ-VTHRCH04",
   "descricao": "VIDRO TEMPERADO HABITAT REFLETIVO CHAMPANHE 04MM",
   "segmento": "Temperado",
   "cor": "REFLETIVO CHAMPANHE",
-  "custo": 163
+  "custo": 163,
+  "codigo_wvetro": "VTHRCH04"
  },
  {
   "codigo": "LJ-VTHRCH06",
   "descricao": "VIDRO TEMPERADO HABITAT REFLETIVO CHAMPANHE 06MM",
   "segmento": "Temperado",
   "cor": "REFLETIVO CHAMPANHE",
-  "custo": 229
+  "custo": 229,
+  "codigo_wvetro": "VTHRCH06"
  },
  {
   "codigo": "LJ-VTHRCH08",
   "descricao": "VIDRO TEMPERADO HABITAT REFLETIVO CHAMPANHE 08MM",
   "segmento": "Temperado",
   "cor": "REFLETIVO CHAMPANHE",
-  "custo": 277
+  "custo": 277,
+  "codigo_wvetro": "VTHRCH08"
  },
  {
   "codigo": "LJ-VLHRCH4+4",
   "descricao": "VIDRO LAMINADO HABITAT REFLETIVO CHAMPANHE 4+4MM (8MM)",
   "segmento": "Laminado",
   "cor": "REFLETIVO CHAMPANHE",
-  "custo": 282
+  "custo": 282,
+  "codigo_wvetro": "VLHRCH4+4"
  },
  {
   "codigo": "LJ-VLHRCH4+6",
   "descricao": "VIDRO LAMINADO HABITAT REFLETIVO CHAMPANHE 4+6MM (10MM)",
   "segmento": "Laminado",
   "cor": "REFLETIVO CHAMPANHE",
-  "custo": 355
+  "custo": 355,
+  "codigo_wvetro": "VLHRCH4+6"
  },
  {
   "codigo": "LJ-VFHRCZ04",
   "descricao": "VIDRO FLOAT HABITAT REFLETIVO CINZA 04MM",
   "segmento": "Float",
   "cor": "REFLETIVO CINZA",
-  "custo": 138
+  "custo": 138,
+  "codigo_wvetro": "VFHRCZ04"
  },
  {
   "codigo": "LJ-VFHRCZ06",
   "descricao": "VIDRO FLOAT HABITAT REFLETIVO CINZA 06MM",
   "segmento": "Float",
   "cor": "REFLETIVO CINZA",
-  "custo": 218
+  "custo": 218,
+  "codigo_wvetro": "VFHRCZ06"
  },
  {
   "codigo": "LJ-VFHRCZ08",
   "descricao": "VIDRO FLOAT HABITAT REFLETIVO CINZA 08MM",
   "segmento": "Float",
   "cor": "REFLETIVO CINZA",
-  "custo": 258
+  "custo": 258,
+  "codigo_wvetro": "VFHRCZ08"
  },
  {
   "codigo": "LJ-VTHRCZ04",
   "descricao": "VIDRO TEMPERADO HABITAT REFLETIVO CINZA 04MM",
   "segmento": "Temperado",
   "cor": "REFLETIVO CINZA",
-  "custo": 163
+  "custo": 163,
+  "codigo_wvetro": "VTHRCZ04"
  },
  {
   "codigo": "LJ-VTHRCZ06",
   "descricao": "VIDRO TEMPERADO HABITAT REFLETIVO CINZA 06MM",
   "segmento": "Temperado",
   "cor": "REFLETIVO CINZA",
-  "custo": 243
+  "custo": 243,
+  "codigo_wvetro": "VTHRCZ06"
  },
  {
   "codigo": "LJ-VTHRCZ08",
   "descricao": "VIDRO TEMPERADO HABITAT REFLETIVO CINZA 08MM",
   "segmento": "Temperado",
   "cor": "REFLETIVO CINZA",
-  "custo": 283
+  "custo": 283,
+  "codigo_wvetro": "VTHRCZ08"
  },
  {
   "codigo": "LJ-VLHRCZ4+4",
   "descricao": "VIDRO LAMINADO HABITAT REFLETIVO CINZA 4+4MM (8MM)",
   "segmento": "Laminado",
   "cor": "REFLETIVO CINZA",
-  "custo": 282
+  "custo": 282,
+  "codigo_wvetro": "VLHRCZ4+4"
  },
  {
   "codigo": "LJ-VLHRCZ4+6",
   "descricao": "VIDRO LAMINADO HABITAT REFLETIVO CINZA 4+6MM (10MM)",
   "segmento": "Laminado",
   "cor": "REFLETIVO CINZA",
-  "custo": 355
+  "custo": 355,
+  "codigo_wvetro": "VLHRCZ4+6"
  },
  {
   "codigo": "LJ-VFHRES04",
   "descricao": "VIDRO FLOAT HABITAT REFLETIVO ESMERALDA 04MM",
   "segmento": "Float",
   "cor": "REFLETIVO ESMERALDA",
-  "custo": 138
+  "custo": 138,
+  "codigo_wvetro": "VFHRES04"
  },
  {
   "codigo": "LJ-VFHRES06",
   "descricao": "VIDRO FLOAT HABITAT REFLETIVO ESMERALDA 06MM",
   "segmento": "Float",
   "cor": "REFLETIVO ESMERALDA",
-  "custo": 218
+  "custo": 218,
+  "codigo_wvetro": "VFHRES06"
  },
  {
   "codigo": "LJ-VFHRES08",
   "descricao": "VIDRO FLOAT HABITAT REFLETIVO ESMERALDA 08MM",
   "segmento": "Float",
   "cor": "REFLETIVO ESMERALDA",
-  "custo": 258
+  "custo": 258,
+  "codigo_wvetro": "VFHRES08"
  },
  {
   "codigo": "LJ-VTHRES04",
   "descricao": "VIDRO TEMPERADO HABITAT REFLETIVO ESMERALDA 04MM",
   "segmento": "Temperado",
   "cor": "REFLETIVO ESMERALDA",
-  "custo": 163
+  "custo": 163,
+  "codigo_wvetro": "VTHRES04"
  },
  {
   "codigo": "LJ-VTHRES06",
   "descricao": "VIDRO TEMPERADO HABITAT REFLETIVO ESMERALDA 06MM",
   "segmento": "Temperado",
   "cor": "REFLETIVO ESMERALDA",
-  "custo": 243
+  "custo": 243,
+  "codigo_wvetro": "VTHRES06"
  },
  {
   "codigo": "LJ-VTHRES08",
   "descricao": "VIDRO TEMPERADO HABITAT REFLETIVO ESMERALDA 08MM",
   "segmento": "Temperado",
   "cor": "REFLETIVO ESMERALDA",
-  "custo": 283
+  "custo": 283,
+  "codigo_wvetro": "VTHRES08"
  },
  {
   "codigo": "LJ-VLHRES4+4",
   "descricao": "VIDRO LAMINADO HABITAT REFLETIVO ESMERALDA 4+4MM (8MM)",
   "segmento": "Laminado",
   "cor": "REFLETIVO ESMERALDA",
-  "custo": 282
+  "custo": 282,
+  "codigo_wvetro": "VLHRES4+4"
  },
  {
   "codigo": "LJ-VLHRES4+6",
   "descricao": "VIDRO LAMINADO HABITAT REFLETIVO ESMERALDA 4+6MM (10MM)",
   "segmento": "Laminado",
   "cor": "REFLETIVO ESMERALDA",
-  "custo": 355
+  "custo": 355,
+  "codigo_wvetro": "VLHRES4+6"
  },
  {
   "codigo": "LJ-VTLIN4+4",
   "descricao": "VIDRO TEMPERADO LAMINADO INCOLOR 4+4MM (8MM)",
   "segmento": "Temperado laminado",
   "cor": "INCOLOR",
-  "custo": 480
+  "custo": 480,
+  "codigo_wvetro": "VTLIN4+4"
  },
  {
   "codigo": "LJ-VTLIN5+5",
   "descricao": "VIDRO TEMPERADO LAMINADO INCOLOR 5+5MM (10MM)",
   "segmento": "Temperado laminado",
   "cor": "INCOLOR",
-  "custo": 494
+  "custo": 494,
+  "codigo_wvetro": "VTLIN5+5"
  },
  {
   "codigo": "LJ-VTLIN6+6",
   "descricao": "VIDRO TEMPERADO LAMINADO INCOLOR 6+6MM (12MM)",
   "segmento": "Temperado laminado",
   "cor": "INCOLOR",
-  "custo": 514
+  "custo": 514,
+  "codigo_wvetro": "VTLIN6+6"
  },
  {
   "codigo": "LJ-VLSIL5+5",
   "descricao": "VIDRO LAMINADO INCOLOR COM PVB SILENCE 5+5MM (10MM)",
   "segmento": "Laminado PVB silence",
   "cor": "INCOLOR",
-  "custo": null
+  "custo": null,
+  "codigo_wvetro": "VLSIL5+5"
  },
  {
   "codigo": "LJ-VAR06",
   "descricao": "VIDRO ARAMADO 06MM",
   "segmento": "Aramado",
   "cor": "INCOLOR",
-  "custo": 515
+  "custo": 515,
+  "codigo_wvetro": "VAR06"
  },
  {
   "codigo": "LJ-VPON04",
   "descricao": "VIDRO PONTILHADO 04MM",
   "segmento": "Pontilhado",
   "cor": "INCOLOR",
-  "custo": 126
+  "custo": 126,
+  "codigo_wvetro": "VPON04"
  },
  {
   "codigo": "LJ-VCAN04",
   "descricao": "VIDRO CANELADO 04MM",
   "segmento": "Canelado",
   "cor": "INCOLOR",
-  "custo": 184
+  "custo": 184,
+  "codigo_wvetro": "VCAN04"
  },
  {
   "codigo": "LJ-VBO04",
   "descricao": "VIDRO MINI BOREAL 04MM",
   "segmento": "Mini boreal",
   "cor": "INCOLOR",
-  "custo": 116
+  "custo": 116,
+  "codigo_wvetro": "VBO04"
  },
  {
   "codigo": "LJ-VLBO08",
   "descricao": "VIDRO LAMINADO MINI BOREAL 08MM",
   "segmento": "Laminado mini boreal",
   "cor": "INCOLOR",
-  "custo": 410
+  "custo": 410,
+  "codigo_wvetro": "VLBO08"
  },
  {
   "codigo": "LJ-VLOP06",
   "descricao": "VIDRO LAMINADO INCOLOR COM PVB OPACO 06MM",
   "segmento": "Laminado PVB opaco",
   "cor": "INCOLOR",
-  "custo": 352
+  "custo": 352,
+  "codigo_wvetro": "VLOP06"
  },
  {
   "codigo": "LJ-VLOP08",
   "descricao": "VIDRO LAMINADO INCOLOR COM PVB OPACO 08MM",
   "segmento": "Laminado PVB opaco",
   "cor": "INCOLOR",
-  "custo": 386
+  "custo": 386,
+  "codigo_wvetro": "VLOP08"
  },
  {
   "codigo": "LJ-DUP-ESP09",
   "descricao": "DUPLAGEM - ESPAÇADOR NATURAL 5,5 / 6,5 / 7,5 / 8,5 / 9,5MM",
   "segmento": "Duplagem (adicional por m²)",
   "cor": null,
-  "custo": 88
+  "custo": 88,
+  "codigo_wvetro": "DUP-ESP09"
  },
  {
   "codigo": "LJ-DUP-ESP11",
   "descricao": "DUPLAGEM - ESPAÇADOR NATURAL 11,5MM",
   "segmento": "Duplagem (adicional por m²)",
   "cor": null,
-  "custo": 94
+  "custo": 94,
+  "codigo_wvetro": "DUP-ESP11"
  },
  {
   "codigo": "LJ-DUP-ESP15",
   "descricao": "DUPLAGEM - ESPAÇADOR NATURAL 14,5 / 15,5MM",
   "segmento": "Duplagem (adicional por m²)",
   "cor": null,
-  "custo": 115
+  "custo": 115,
+  "codigo_wvetro": "DUP-ESP15"
  },
  {
   "codigo": "LJ-DUP-ESP21",
   "descricao": "DUPLAGEM - ESPAÇADOR NATURAL 19,5 / 21,5MM",
   "segmento": "Duplagem (adicional por m²)",
   "cor": null,
-  "custo": 138
+  "custo": 138,
+  "codigo_wvetro": "DUP-ESP21"
  },
  {
   "codigo": "LJ-DUP-SLMAN",
   "descricao": "DUPLAGEM COM MICRO PERSIANA SCREEN LINE MANUAL",
   "segmento": "Duplagem (adicional por m²)",
   "cor": null,
-  "custo": 300
+  "custo": 300,
+  "codigo_wvetro": "DUP-SLMAN"
  },
  {
   "codigo": "LJ-DUP-SLMOT",
   "descricao": "DUPLAGEM COM MICRO PERSIANA SCREEN LINE MOTORIZADA",
   "segmento": "Duplagem (adicional por m²)",
   "cor": null,
-  "custo": 350
+  "custo": 350,
+  "codigo_wvetro": "DUP-SLMOT"
  },
  {
   "codigo": "LJ-DUP-ARG",
   "descricao": "DUPLAGEM - ADICIONAL GÁS ARGÔNIO",
   "segmento": "Duplagem (adicional por m²)",
   "cor": null,
-  "custo": 30
+  "custo": 30,
+  "codigo_wvetro": "DUP-ARG"
  },
  {
   "codigo": "LJ-DUP-SIL",
   "descricao": "DUPLAGEM - ADICIONAL SILICONE ESTRUTURAL",
   "segmento": "Duplagem (adicional por m²)",
   "cor": null,
-  "custo": 40
+  "custo": 40,
+  "codigo_wvetro": "DUP-SIL"
  }
 ]

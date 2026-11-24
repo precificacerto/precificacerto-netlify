@@ -14,7 +14,8 @@ const TABELA = [
     ['VTBO7,5', 'VIDRO TEMPERADO MINI BOREAL 7,5MM'], ['VTCZ06', 'VIDRO TEMPERADO FUME 06MM'], ['VTCZ08', 'VIDRO TEMPERADO FUME 08MM'],
     ['VTIN06', 'VIDRO TEMPERADO INCOLOR 06MM'], ['VTIN08', 'VIDRO TEMPERADO INCOLOR 08MM'], ['VTIN10', 'VIDRO TEMPERADO INCOLOR 10MM'],
     ['VTRG06', 'VIDRO TEMP. REFLECT GUARDIAN 06MM'], ['VTSGN1406', 'VIDRO TEMPERADO SG NEUTRAL 14 06MM'],
-].map(([codigo, descricao]) => ({ codigo, descricao }))
+// a REFERÊNCIA (codigo_wvetro, 24/11/2026) é OUTRA coisa que o código do fornecedor: aqui, de propósito, com outra escrita
+].map(([codigo, descricao]) => ({ codigo, descricao, codigo_wvetro: `REF-${codigo}` }))
 const codigo = (texto: string) => { const r = traduzirVidro(texto, null, TABELA); return 'item' in r ? r.item.codigo : r.motivo }
 
 describe('a tradução do vidro, nos doze textos gravados', () => {
@@ -37,8 +38,21 @@ describe('a tradução do vidro, nos doze textos gravados', () => {
         expect('frase' in r ? r.frase : '').toContain('falta de cadastro')
     })
 
-    it('o código escolhido vence o texto; o código fora da tabela é falta, e o vazio é "não dito"', () => {
-        expect(traduzirVidro('qualquer coisa', 'VTIN10', TABELA)).toEqual({ item: TABELA[18], como: 'codigo' })
+    it('a referência escolhida vence o texto; a que a tabela não tem é falta, e o vazio é "não dito"', () => {
+        expect(traduzirVidro('qualquer coisa', 'REF-VTIN10', TABELA)).toEqual({ item: TABELA[18], como: 'codigo' })
+        // NUNCA pelo código do fornecedor: o VTIN10 é o código do item, não a referência dele
+        expect(traduzirVidro('qualquer coisa', 'VTIN10', TABELA)).toEqual({ motivo: 'VIDRO_CODIGO_FORA_DA_TABELA', candidatos: [],
+            frase: 'o vidro VTIN10 não existe na tabela de vidro do fornecedor principal (a referência é a coluna codigo_wvetro)' })
+        // nem pelo parecido: a caixa e o espaço fazem outra referência
+        for (const quase of ['ref-vtin10', 'REF-VTIN10 ', 'REF-VTIN1']) expect('motivo' in traduzirVidro('x', quase, TABELA)).toBe(true)
+        // a tabela SEM referência em nenhum item (a Estrela de hoje): a frase diz que é a tabela que não a traz
+        const semReferencia = TABELA.map(({ codigo, descricao }) => ({ codigo, descricao }))
+        expect(traduzirVidro('x', 'VTIN10', semReferencia)).toEqual({ motivo: 'VIDRO_CODIGO_FORA_DA_TABELA', candidatos: [],
+            frase: 'o vidro VTIN10 não tem como ser achado: a tabela de vidro do fornecedor principal não traz a referência (codigo_wvetro) em nenhum item' })
+        // a mesma referência em DOIS itens (duas tabelas do principal): nenhum é escolhido, e os dois são nomeados
+        const dois = [{ codigo: 'A', codigo_wvetro: 'VFIN05' }, { codigo: 'B', codigo_wvetro: 'VFIN05' }]
+        expect(traduzirVidro('x', 'VFIN05', dois)).toEqual({ motivo: 'VIDRO_CODIGO_FORA_DA_TABELA', candidatos: dois,
+            frase: 'o vidro VFIN05 aparece em 2 itens da tabela de vidro do fornecedor principal, e nenhum é escolhido' })
         expect(codigo('')).toBe('VIDRO_NAO_DITO')
         expect('motivo' in traduzirVidro('x', 'NAO-EXISTE', TABELA) && (traduzirVidro('x', 'NAO-EXISTE', TABELA) as { motivo: string }).motivo).toBe('VIDRO_CODIGO_FORA_DA_TABELA')
         expect(codigo('bonito')).toBe('VIDRO_NAO_TRADUZIDO')
@@ -72,35 +86,41 @@ describe('o vidro nomeado sem espessura e o padrão da empresa', () => {
     const achar = (texto: string, padrao: string[]) => traduzirVidro(texto, null, TABELA, padrao)
 
     it('“mini boreal” com UM dos cinco candidatos cadastrado como padrão resolve nele, e diz que foi pelo padrão', () => {
-        const r = achar('mini boreal', ['VBO3,4'])
+        const r = achar('mini boreal', ['REF-VBO3,4'])
         expect('item' in r ? [r.item.codigo, r.como] : r.motivo).toEqual(['VBO3,4', 'padrao'])
+        // o padrão é a REFERÊNCIA: o código do fornecedor no lugar dela não desempata
+        expect('motivo' in achar('mini boreal', ['VBO3,4']) && (achar('mini boreal', ['VBO3,4']) as { motivo: string }).motivo).toBe('VIDRO_AMBIGUO')
     })
 
     it('DOIS candidatos cadastrados como padrão não desempatam: continua AMBÍGUO, com os cinco candidatos', () => {
-        const r = achar('mini boreal', ['VBO3,4', 'VBO7,5'])
+        const r = achar('mini boreal', ['REF-VBO3,4', 'REF-VBO7,5'])
         expect('candidatos' in r && r.motivo).toBe('VIDRO_AMBIGUO')
         expect('candidatos' in r ? r.candidatos.length : 0).toBe(5)
     })
 
     it('o padrão que não está entre os candidatos não desempata, e a lista vazia deixa tudo como era', () => {
-        expect('motivo' in achar('mini boreal', ['VIN05']) && (achar('mini boreal', ['VIN05']) as { motivo: string }).motivo).toBe('VIDRO_AMBIGUO')
+        expect('motivo' in achar('mini boreal', ['REF-VIN05']) && (achar('mini boreal', ['REF-VIN05']) as { motivo: string }).motivo).toBe('VIDRO_AMBIGUO')
         expect('motivo' in achar('mini boreal', []) && (achar('mini boreal', []) as { motivo: string }).motivo).toBe('VIDRO_AMBIGUO')
     })
 
     it('o padrão NÃO vence o texto que já fecha sozinho, nem o código escolhido', () => {
-        const um = achar('5mm', ['VBO3,4'])
+        const um = achar('5mm', ['REF-VBO3,4'])
         expect('item' in um ? [um.item.codigo, um.como] : um.motivo).toEqual(['VIN05', 'texto'])
-        expect(traduzirVidro('mini boreal', 'VBO7,5', TABELA, ['VBO3,4'])).toEqual({ item: TABELA[6], como: 'codigo' })
+        expect(traduzirVidro('mini boreal', 'REF-VBO7,5', TABELA, ['REF-VBO3,4'])).toEqual({ item: TABELA[6], como: 'codigo' })
     })
 
     it('o padrão não cadastra o que falta: “temperado 5mm” continua falta de cadastro', () => {
-        expect('motivo' in achar('temperado 5mm', ['VBO3,4']) && (achar('temperado 5mm', ['VBO3,4']) as { motivo: string }).motivo).toBe('VIDRO_SEM_CADASTRO')
+        expect('motivo' in achar('temperado 5mm', ['REF-VBO3,4']) && (achar('temperado 5mm', ['REF-VBO3,4']) as { motivo: string }).motivo).toBe('VIDRO_SEM_CADASTRO')
     })
 
-    it('o desempate compara o código aparado e sem olhar a caixa, e o padrão em branco não conta', () => {
-        expect(desempatarPeloPadrao(TABELA, [' vbo3,4 '])?.codigo).toBe('VBO3,4')
-        expect(desempatarPeloPadrao([{ codigo: ' VBO3,4 ', descricao: 'VIDRO MINI BOREAL 3,4MM' }], ['VBO3,4'])?.codigo).toBe(' VBO3,4 ')
+    it('o desempate compara a REFERÊNCIA, igual (a referência é identidade: sem aparar e sem trocar a caixa), e o padrão em branco não conta', () => {
+        expect(desempatarPeloPadrao(TABELA, ['REF-VBO3,4'])?.codigo).toBe('VBO3,4')
+        expect(desempatarPeloPadrao(TABELA, [' REF-VBO3,4 '])).toBeNull()
+        expect(desempatarPeloPadrao(TABELA, ['ref-vbo3,4'])).toBeNull()
+        // o item sem referência nunca é o do padrão — nem com o padrão em branco, nem pelo código do fornecedor
+        expect(desempatarPeloPadrao([{ codigo: 'VBO3,4', descricao: 'VIDRO MINI BOREAL 3,4MM' }], ['VBO3,4'])).toBeNull()
+        expect(desempatarPeloPadrao([{ codigo: 'VBO3,4', codigo_wvetro: null }, { codigo: 'X', codigo_wvetro: '' }], ['', 'VBO3,4'])).toBeNull()
         expect(desempatarPeloPadrao(TABELA, ['  ', ''])).toBeNull()
-        expect(desempatarPeloPadrao([], ['VBO3,4'])).toBeNull()
+        expect(desempatarPeloPadrao([], ['REF-VBO3,4'])).toBeNull()
     })
 })

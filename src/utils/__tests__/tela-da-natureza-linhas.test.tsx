@@ -10,6 +10,7 @@ const G = (variavel: string, natureza: LinhaGravada['natureza'], opcao: string |
 
 const F: FamiliaDaTela = {
     familia: 'PVC', rotulo: 'PVC Wolf', motor: { id: 'm1', nome: 'Motor' }, formatos: ['janela correr', 'maxim-ar'], textos: null,
+    vidros: [{ referencia: 'VFIN05', descricao: 'VIDRO FLOAT INCOLOR 05MM' }, { referencia: 'VTIN06', descricao: null }],
     variaveis: [
         { variavel: 'ARI', descricao: 'Arremate interno', tipologias: 1, opcoes: [{ rotulo: 'BZ1770', tipologias: 1 }] },
         { variavel: 'INT', descricao: null, tipologias: 3, opcoes: [] },
@@ -25,11 +26,19 @@ it('as variáveis do motor, a gravada fora do motor e o vidro por formato, com o
         'ARI|Arremate interno · 1 tipologia|BZ1770',
         'INT|sem descrição no motor · 3 tipologias|-',
         'SOLDA|não está no motor do levantamento|SPVCAL 6MM',
-        'VIDRO:janela correr|o código do item na tabela de vidro do fornecedor principal|VIN05',
-        'VIDRO:maxim-ar|o código do item na tabela de vidro do fornecedor principal|-',
-        'VIDRO:porta correr|o código do item na tabela de vidro do fornecedor principal|VIN08',
+        'VIDRO:janela correr|a referência do vidro (codigo_wvetro) na tabela de vidro do fornecedor principal · 2 referências|VIN05',
+        'VIDRO:maxim-ar|a referência do vidro (codigo_wvetro) na tabela de vidro do fornecedor principal · 2 referências|-',
+        'VIDRO:porta correr|a referência do vidro (codigo_wvetro) na tabela de vidro do fornecedor principal · 2 referências|VIN08',
     ])
     expect(l[0].opcoes).toEqual(['BZ1770'])
+    // o VIDRO oferece as REFERÊNCIAS da tabela do principal (24/11/2026), com a descrição ao lado quando há
+    const vidro = l.find((x) => x.chave === 'VIDRO:maxim-ar')
+    expect(vidro?.opcoes).toEqual(['VFIN05', 'VTIN06'])
+    expect(vidro?.rotulos).toEqual({ VFIN05: 'VIDRO FLOAT INCOLOR 05MM' })
+    // a tabela do principal sem nenhuma referência: nada a oferecer, e a linha diz por quê
+    const sem = linhasDaFamilia({ ...F, vidros: [] }).find((x) => x.chave === 'VIDRO:maxim-ar')
+    expect(sem?.opcoes).toEqual([])
+    expect(sem?.detalhe).toBe('a tabela de vidro do fornecedor principal não traz nenhuma referência (codigo_wvetro): importe-a com a coluna preenchida')
     expect(l.find((x) => x.chave === 'VIDRO:maxim-ar')?.formato).toBe('maxim-ar')
 })
 

@@ -23,7 +23,7 @@ M = [
  (VT, "    const candidatos = [...(algoPorAtributo ? candidatosPorAtributo(porAtributo, itens) : []), ...legado]", "    const candidatos = [...(algoPorAtributo ? candidatosPorAtributo(porAtributo, itens) : [])]"),
  (VT, "&& !algoPorAtributo) {", ") {"),
  (IM, "            cor: texto('cor'),", "            cor: null,"),
- (IM, "export const COLUNAS_SEM_DESTINO_DO_LAYOUT_UNICO = ['linha', 'codigo_wvetro', 'valor_kg', 'multiplo_compra'] as const", "export const COLUNAS_SEM_DESTINO_DO_LAYOUT_UNICO = ['linha', 'cor', 'codigo_wvetro', 'valor_kg', 'multiplo_compra'] as const"),
+ (IM, "export const COLUNAS_SEM_DESTINO_DO_LAYOUT_UNICO = ['linha', 'valor_kg', 'multiplo_compra'] as const", "export const COLUNAS_SEM_DESTINO_DO_LAYOUT_UNICO = ['linha', 'cor', 'valor_kg', 'multiplo_compra'] as const"),
  (RT, "declarada !== null && declarada !== CATEGORIA_COM_VARIANTES && doArquivo.categorias.length > 1", "declarada !== null && doArquivo.categorias.length > 1"),
  (RT, "declarada !== null && declarada !== CATEGORIA_COM_VARIANTES && doArquivo.categorias.length > 1", "declarada !== null && declarada === CATEGORIA_COM_VARIANTES && doArquivo.categorias.length > 1"),
  (LC, "    if (semAColunaDaCor(primeira.error)) {", "    if (false) {"),

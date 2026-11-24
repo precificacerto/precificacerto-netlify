@@ -97,6 +97,8 @@ export type ItemDaTabela = {
     descricao?: string | null
     /** A cor (20261123000004). A coluna da categoria do fornecedor (no vidro, a VARIANTE: Float, Temperado…) vem por `CategoriaDoFornecedor`. */
     cor?: string | null
+    /** A referência (20261124000001): no vidro, é por ela que o padrão e o vidro escolhido acham o item. Ausente ou nula: sem referência. */
+    codigo_wvetro?: string | null
     medida_barra_m: number | null
     valor_barra_interno: number | null
     valor_metro_interno: number | null
