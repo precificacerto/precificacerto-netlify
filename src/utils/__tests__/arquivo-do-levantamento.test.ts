@@ -183,7 +183,7 @@ describe('o arquivo montado do que está gravado', () => {
     it('o resumo que vai ao MODELO não traz percentual; o de comparação (R2) traz, e muda quando um percentual muda', () => {
         const d = montar([item(1, {})])
         expect(resumoDoArquivoParaOPrompt(d)).not.toMatch(/%/)
-        expect(resumoDoArquivoParaOPrompt(d)).toContain('Item 1: DP-02, 1 unidade(s), 1500 x 1200 mm')
+        expect(resumoDoArquivoParaOPrompt(d)).toContain('Item 1: DP-02 (Janela de correr 02 folhas móveis), 1 unidade(s), 1500 x 1200 mm')
         expect(resumoDoArquivo(d)).toContain('comissão 5% (PROPORCIONAL)')
         expect(resumoDoArquivo(montar([item(1, {})], { comissao_percentual: 6 }))).not.toBe(resumoDoArquivo(d))
         expect(resumoDoArquivoParaOPrompt(montar([item(1, {})], { comissao_percentual: 6 }))).toBe(resumoDoArquivoParaOPrompt(d))
@@ -207,8 +207,28 @@ describe('O PADRÃO APARECE NA FOLHA, montado do que está gravado (dono do prod
         expect(montarCom([item(1, {})]).itens[0].considerado).toBe('correr, 2 folhas · sem persiana · sem bandeira · sem peitoril')
     })
     it('a maxim-ar: o módulo pelo "N" padrão da aba (1), e pelo "N" DITO quando o vendedor disse (3)', () => {
-        expect(montarCom([item(1, { tipologia: 'DP-01' })]).itens[0].considerado).toBe('maxim-ar, 1 módulo · sem persiana · sem bandeira · sem peitoril')
+        expect(montarCom([item(1, { tipologia: 'DP-01' })]).itens[0].considerado).toBe('maxim-ar · sem persiana · sem bandeira · sem peitoril')
         expect(montarCom([item(1, { tipologia: 'DP-01', escolhas: { N: 3 } })]).itens[0].considerado).toBe('maxim-ar, 3 módulos · sem persiana · sem bandeira · sem peitoril')
+    })
+    it('o NOME do item (dono do produto, 24/11/2026, pedido 0023): a descrição resolvida — um módulo não se escreve; sem a linha; nunca o código', () => {
+        // o item antigo, sem N gravado: vale o Padrão do motor (1), o mesmo número do cálculo
+        expect(montarCom([item(1, { tipologia: 'DP-01' })]).itens[0].nome).toBe('Maxim-ar')
+        expect(montarCom([item(1, { tipologia: 'DP-01', escolhas: { N: 1 } })]).itens[0].nome).toBe('Maxim-ar')
+        expect(montarCom([item(1, { tipologia: 'DP-01', escolhas: { N: 3 } })]).itens[0].nome).toBe('Maxim-ar com 03 módulos horizontais')
+        expect(montarCom([item(1, {})]).itens[0].nome).toBe('Janela de correr 02 folhas móveis')
+        // sem o Padrão no motor e sem o valor gravado: a quantidade está por definir — nunca "um módulo" presumido
+        const semPadrao = montarDadosDaFolha({ empresa: 'Empresa X', levantamento: LEV, itens: [item(1, { tipologia: 'DP-01' })], definicao: () => null, detalhe: comTipo, geradoEm: new Date(0), doVendedor: null })
+        expect(semPadrao.itens[0].nome).toBe('Maxim-ar com módulos horizontais a definir')
+        // a tipologia que o motor não descreve fica sem nome: o código não entra no lugar
+        expect(montarCom([item(1, { tipologia: 'DP-99' })]).itens[0].nome).toBe('')
+    })
+    it('a quantidade de módulos que muda MUDA o resumo (R2): o arquivo novo sai', () => {
+        const um = montarCom([item(1, { tipologia: 'DP-01', escolhas: { N: 1 } })]), tres = montarCom([item(1, { tipologia: 'DP-01', escolhas: { N: 3 } })])
+        expect(resumoDoArquivoParaOPrompt(um)).toContain('Item 1: DP-01 (Maxim-ar), ')
+        expect(resumoDoArquivoParaOPrompt(tres)).toContain('Item 1: DP-01 (Maxim-ar com 03 módulos horizontais), ')
+        expect(resumoDoArquivo(um)).not.toBe(resumoDoArquivo(tres))
+        // sem nome, o resumo não abre parênteses vazios
+        expect(resumoDoArquivoParaOPrompt(montarCom([item(1, { tipologia: 'DP-99' })]))).toContain('Item 1: DP-99, ')
     })
     it('sem a descrição do motor, nada é escrito (nunca um considerado inventado)', () => {
         expect(montarCom([item(1, { tipologia: 'DP-99' })]).itens[0].considerado).toBeNull()

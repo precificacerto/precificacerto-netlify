@@ -81,9 +81,9 @@ describe('O PADRÃO: a exceção vence o grupo; o PAR exato; nunca a primeira de
         expect(padraoDoVidro([L({ tipologia: 'DP-02', item_codigo: 'A' }), L({ materia_prima_id: 'mp2', tipologia: 'DP-02', item_codigo: 'B' })], DP02)).toBeNull()
     })
     it('a origem no CONSIDERADO: o grupo em linguagem de obra, ou a tipologia da exceção', () => {
-        expect(origemNaFrase(padraoDoVidro(SEMENTES, DP02)!, 'DP-02')).toBe('padrão da empresa para janela de correr')
-        expect(origemNaFrase(padraoDoVidro(SEMENTES, DP01)!, 'DP-01')).toBe('padrão da empresa para maxim-ar')
-        expect(origemNaFrase(padraoDoVidro([L({ tipologia: 'DP-02', item_codigo: 'A' })], DP02)!, 'DP-02')).toBe('padrão da empresa para a tipologia DP-02')
+        expect(origemNaFrase(padraoDoVidro(SEMENTES, DP02)!)).toBe('padrão da empresa para janela de correr')
+        expect(origemNaFrase(padraoDoVidro(SEMENTES, DP01)!)).toBe('padrão da empresa para maxim-ar')
+        expect(origemNaFrase(padraoDoVidro([L({ tipologia: 'DP-02', item_codigo: 'A' })], DP02)!)).toBe('padrão da empresa para esta tipologia')
     })
 })
 

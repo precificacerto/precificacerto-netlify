@@ -125,8 +125,9 @@ const ouLista = (nomes: readonly string[]) => (nomes.length <= 1 ? nomes.join(''
 export const rotulosDasOpcoes = (opcoes: readonly OpcaoDeFamilia[]): string[] => opcoes.map((o) => o.rotulo)
 
 /** A pergunta de qual família, com as opções em ordem pelo rótulo. */
-export function fraseDeQualFamilia(tipologia: string, opcoes: readonly OpcaoDeFamilia[]): string {
-    return `A ${tipologia} está em ${opcoes.length} famílias da sua empresa: ${ouLista(rotulosDasOpcoes(opcoes))}. De qual família é?`
+export function fraseDeQualFamilia(opcoes: readonly OpcaoDeFamilia[]): string {
+    // sem o código da tipologia (dono do produto, 24/11/2026, pedido 0023): com mais de um item, o "Item N:" vem na frente e diz qual
+    return `Este item existe em ${opcoes.length} famílias da sua empresa: ${ouLista(rotulosDasOpcoes(opcoes))}. De qual família é?`
 }
 
 export type ContextoDaProposta = {
@@ -529,11 +530,11 @@ export function perguntaDasPendencias(ps: readonly Pendencia[], nItens: number, 
         else if (outros.length === 1) partes.push(PERGUNTA_DO_CAMPO[outros[0]])
         else if (outros.length > 1) partes.push(`Me diga ${eLista(outros.map((c) => NOME_DO_CAMPO[c]))}.`)
         for (const p of lista) {
-            if (p.tipo === 'FAMILIA') partes.push(fraseDeQualFamilia(p.tipologia, p.opcoes))
+            if (p.tipo === 'FAMILIA') partes.push(fraseDeQualFamilia(p.opcoes))
             if (p.tipo === 'ESCOLHA') partes.push(perguntaDaEscolha(p.pendente))
         }
         const valores = lista.flatMap((p) => (p.tipo === 'VARIAVEL' ? [p] : []))
-        if (valores.length) partes.push(perguntaDasVariaveis(valores.map((p) => nomeDaVariavelSemPadrao(p.variavel)), valores[0].tipologia))
+        if (valores.length) partes.push(perguntaDasVariaveis(valores.map((p) => nomeDaVariavelSemPadrao(p.variavel))))
         const texto = partes.join(' ')
         return nItens > 1 ? `Item ${ordem}: ${texto}` : texto
     })
@@ -542,17 +543,17 @@ export function perguntaDasPendencias(ps: readonly Pendencia[], nItens: number, 
 
 /**
  * A pergunta das variáveis sem padrão de uma esquadria, nomeando a variável (pela descrição da aba, nunca pelo código) e a esquadria (a
- * tipologia; com mais de uma esquadria, o "Esquadria N:" vem na frente): "Falta, na DP-04: altura da bandeira (em mm). Qual é o valor?". Sem
+ * tipologia NÃO é nomeada: o código não vai ao vendedor, 24/11/2026; com mais de um item, o "Item N:" vem na frente): "Falta, neste item: altura da bandeira (em mm). Qual é o valor?". Sem
  * artigo: a descrição vem da aba, e o gênero dela não se deduz.
  */
-export const perguntaDasVariaveis = (nomes: readonly string[], tipologia: string) =>
-    `Falta, na ${tipologia}: ${eLista(nomes)}. ${nomes.length === 1 ? 'Qual é o valor?' : 'Quais são os valores?'}`
+export const perguntaDasVariaveis = (nomes: readonly string[]) =>
+    `Falta, neste item: ${eLista(nomes)}. ${nomes.length === 1 ? 'Qual é o valor?' : 'Quais são os valores?'}`
 
 /** A pergunta FIXA da pendência; com mais de uma esquadria, diz de qual. */
 export function perguntaDaPendencia(p: Pendencia, nItens: number, jaDito: JaDito = NADA_DITO): string {
     const pergunta = p.tipo === 'CAMPO' ? (p.campo === 'tipologia' ? perguntasDaTipologia(jaDito)[0] : PERGUNTA_DO_CAMPO[p.campo])
-        : p.tipo === 'FAMILIA' ? fraseDeQualFamilia(p.tipologia, p.opcoes)
-            : p.tipo === 'VARIAVEL' ? perguntaDasVariaveis([nomeDaVariavelSemPadrao(p.variavel)], p.tipologia)
+        : p.tipo === 'FAMILIA' ? fraseDeQualFamilia(p.opcoes)
+            : p.tipo === 'VARIAVEL' ? perguntaDasVariaveis([nomeDaVariavelSemPadrao(p.variavel)])
                 : perguntaDaEscolha(p.pendente)
     return nItens > 1 ? `Item ${p.ordem}: ${pergunta}` : pergunta
 }

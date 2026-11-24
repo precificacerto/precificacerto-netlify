@@ -2,7 +2,7 @@
  * PORTÃO — A DESCRIÇÃO DA TIPOLOGIA COMO O VENDEDOR A LÊ (dono do produto, 24/11/2026; pedido 0023). As descrições são as do motor 259035a9
  * (medidas em produção em 24/11/2026): as catorze formas de "COM … MÓDULOS" e as que não são de módulos.
  */
-import { descricaoParaOVendedor as ler, modulosDaDescricao, semALinha, variaveisDeModulo } from '@/lib/atendimentos-ia/descricao-para-o-vendedor'
+import { descricaoParaOVendedor as ler, modulosDaDescricao, nomeDaCandidata, nomesDasCandidatas, tipoDeModulacao, trechosDaDescricao, valoresDosModulos, variaveisDeModulo } from '@/lib/atendimentos-ia/descricao-para-o-vendedor'
 
 const DP128 = 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | PERFIL MODULAÇÃO | EUROPA 60'
 const DP142 = 'FIXO COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | PERFIL MODULAÇÃO | EUROPA 60'
@@ -38,10 +38,18 @@ describe('com um módulo não se escreve módulo', () => {
 })
 
 describe('a descrição que não é de módulos', () => {
-    it('sai como está, sem o que vem depois do "|", com a inicial maiúscula', () => {
+    it('sai como está, sem a linha de perfil, com a inicial maiúscula; o que a esquadria TEM (o trecho do meio) fica', () => {
         expect(ler(DP02)).toBe('Janela de correr 02 folhas móveis')
         expect(ler('PORTA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42', { N: 2 })).toBe('Porta de correr 02 folhas móveis')
-        expect(ler('JANELA DE CORRER 03 FOLHAS MÓVEIS COM PERSIANA | 02 VIDROS - 01 TELA | EUROPA 42')).toBe('Janela de correr 03 folhas móveis com persiana')
+        expect(ler('JANELA DE CORRER 03 FOLHAS MÓVEIS COM PERSIANA | 02 VIDROS - 01 TELA | EUROPA 42')).toBe('Janela de correr 03 folhas móveis com persiana | 02 Vidros - 01 tela')
+        expect(ler('JANELA DE CORRER 02 FOLHAS MÓVEIS | BANDEIRA FIXA | EUROPA 42')).toBe('Janela de correr 02 folhas móveis | Bandeira fixa')
+        expect(ler('PORTA DE CORRER 02 FOLHAS MÓVEIS | VENEZIANA | TRILHO PVC EMBUTIDO | EUROPA 42')).toBe('Porta de correr 02 folhas móveis | Veneziana | Trilho pvc embutido')
+        // a maxim-ar com bandeira: um módulo não se escreve, a modulação e a linha saem, e a bandeira — que ela TEM — fica
+        expect(ler('MAXIM-AR COM "N" MÓDULOS HORIZONTAIS | BANDEIRA FIXA | PERFIL MODULAÇÃO | EUROPA 60', { N: 1 })).toBe('Maxim-ar | Bandeira fixa')
+        expect(ler('MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E "V" MÓDULOS VERTICAIS | ALT IGUAIS | PERFIL COLUNA |EUROPA 60', { N: 2, V: 2 }))
+            .toBe('Maxim-ar com 02 módulos horizontais e 02 módulos verticais | Alt iguais')
+        // sem barra nenhuma não há linha a tirar
+        expect(ler('PORTA PIVOTANTE')).toBe('Porta pivotante')
     })
     it('a forma que não se lê INTEIRA como módulos não é adivinhada: sai como está', () => {
         expect(ler('MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E BANDEIRA FIXA | EUROPA 60', { N: 1 })).toBe('Maxim-ar com "n" módulos horizontais e bandeira fixa')
@@ -54,9 +62,39 @@ describe('a descrição que não é de módulos', () => {
 })
 
 describe('as peças da leitura', () => {
-    it('semALinha: só o que vem antes do primeiro "|"', () => {
-        expect(semALinha(DP128)).toBe('MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL')
-        expect(semALinha('  FIXO   COM  X ')).toBe('FIXO COM X')
+    it('trechosDaDescricao: o principal, o que a esquadria tem, a modulação e a linha (o último trecho)', () => {
+        expect(trechosDaDescricao(DP128)).toEqual({ principal: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL', tem: [], modulacao: ['PERFIL MODULAÇÃO'], linha: 'EUROPA 60' })
+        expect(trechosDaDescricao('A | BANDEIRA FIXA | MODULAÇÃO TRAVESSA | MOD COLUNA | PERFIL COLUNA | X  Y |EUROPA 42'))
+            .toEqual({ principal: 'A', tem: ['BANDEIRA FIXA', 'X Y'], modulacao: ['MODULAÇÃO TRAVESSA', 'MOD COLUNA', 'PERFIL COLUNA'], linha: 'EUROPA 42' })
+        expect(trechosDaDescricao('  FIXO   COM  X ')).toEqual({ principal: 'FIXO COM X', tem: [], modulacao: [], linha: null })
+        expect(trechosDaDescricao(null)).toEqual({ principal: '', tem: [], modulacao: [], linha: null })
+        expect(tipoDeModulacao(DP128)).toBe('PERFIL MODULAÇÃO')
+        expect(tipoDeModulacao(DP02)).toBe('')
+    })
+    it('a tipologia que ainda não é um item: a variável aberta não se escreve (o limite), ou diz só o sentido (a opção de uma pergunta)', () => {
+        expect(nomeDaCandidata(DP128)).toBe('Maxim-ar')
+        expect(nomeDaCandidata(DP128, 'aberta')).toBe('Maxim-ar com módulos horizontais')
+        expect(nomeDaCandidata('FIXO COM "N" MÓDULOS HORIZONTAIS E 03 MÓDULOS VERTICAIS | EUROPA 60')).toBe('Fixo com 03 módulos verticais')
+        expect(nomeDaCandidata(null)).toBeNull()
+    })
+    it('nomesDasCandidatas: o tipo de modulação só entra quando é ele que separa duas — e só nelas', () => {
+        const travessa = 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | MODULAÇÃO TRAVESSA | EUROPA 60'
+        expect(nomesDasCandidatas([travessa, DP128, DP02])).toEqual(['Maxim-ar (modulação travessa)', 'Maxim-ar (perfil modulação)', 'Janela de correr 02 folhas móveis'])
+        expect(nomesDasCandidatas([DP128, DP02])).toEqual(['Maxim-ar', 'Janela de correr 02 folhas móveis'])
+        // iguais e sem modulação a dizer: ficam iguais (nada é inventado para separá-las)
+        expect(nomesDasCandidatas([DP02, DP02])).toEqual(['Janela de correr 02 folhas móveis', 'Janela de correr 02 folhas móveis'])
+        expect(nomesDasCandidatas([DP128, 'FIXO COM 01 MÓDULO HORIZONTAL E "V" MÓDULOS VERTICAIS | EUROPA 60'], 'aberta')).toEqual(['Maxim-ar com módulos horizontais', 'Fixo com módulos verticais'])
+        expect(nomesDasCandidatas([null])).toEqual([''])
+    })
+    it('valoresDosModulos: o gravado no item; no item antigo, o Padrão do motor; sem um nem outro, a variável fica de fora', () => {
+        const padrao = (v: string) => (v === 'N' ? ' 1 ' : null)
+        expect(valoresDosModulos(DP128, { N: 3, AM: 1 }, padrao)).toEqual({ N: 3 })
+        expect(valoresDosModulos(DP128, null, padrao)).toEqual({ N: 1 })
+        for (const escolhas of [{}, { N: 0 }, { N: 1.5 }, { N: '2' }, [], 'x']) expect(valoresDosModulos(DP128, escolhas, padrao)).toEqual({ N: 1 })
+        expect(valoresDosModulos(DP128, {})).toEqual({})
+        for (const p of ['', 'x', '0', '1,5', null, undefined]) expect(valoresDosModulos(DP128, {}, () => p)).toEqual({})
+        expect(valoresDosModulos('MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E "V" MÓDULOS VERTICAIS', { V: 2 }, padrao)).toEqual({ N: 1, V: 2 })
+        expect(valoresDosModulos(DP02, { N: 2 }, padrao)).toEqual({})
     })
     it('modulosDaDescricao: o nome, e a quantidade de cada sentido — fixa ou de variável', () => {
         expect(modulosDaDescricao(DP128)).toEqual({ nome: 'MAXIM-AR', horizontal: { variavel: 'N' }, vertical: { fixo: 1 } })

@@ -61,8 +61,13 @@ export type VariavelDita = { variavel: string; descricao: string; valor: number;
 export type ItemDaFolha = {
     ordem: number
     tipologia: string
-    /** A descrição da tipologia no motor (aba Detalhe). É dela que saem as folhas, os módulos, a bandeira e o peitoril do desenho. */
+    /** A descrição da tipologia no motor (aba Detalhe). É dela que saem as folhas, os módulos, a bandeira e o peitoril do desenho. NÃO é escrita. */
     descricao: string
+    /**
+     * O NOME que a faixa escreve (dono do produto, 24/11/2026, pedido 0023): a descrição resolvida com os módulos do item, sem a linha de perfil e
+     * sem o código da tipologia — "Maxim-ar", "Fixo com 02 módulos verticais". Vazio quando o motor não descreve a tipologia.
+     */
+    nome: string
     /** A linha da tipologia no motor. Nula quando o motor não a traz: a folha não a escreve. */
     linha: string | null
     quantidade: number
@@ -216,7 +221,8 @@ export const SIMBOLO_DE_DINHEIRO = /R\s*\$/i
 const inteiroPositivo = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n > 0
 const percentualValido = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 100
 const milhar = (n: number) => new Intl.NumberFormat('pt-BR').format(n)
-const nomeDoItem = (i: Pick<ItemDaFolha, 'ordem' | 'tipologia'>) => `Item ${i.ordem} (${i.tipologia})`
+// o item pelo número: o código da tipologia não vai ao vendedor (dono do produto, 24/11/2026, pedido 0023)
+const nomeDoItem = (i: Pick<ItemDaFolha, 'ordem'>) => `Item ${i.ordem}`
 
 /** Os textos que a folha escreve, com o lugar de cada um, para a conferência do dinheiro dizer onde está. */
 function textosDaFolha(d: DadosDaFolha): Array<[string, string | null]> {
@@ -228,7 +234,7 @@ function textosDaFolha(d: DadosDaFolha): Array<[string, string | null]> {
     ]
     for (const i of d.itens) {
         const n = nomeDoItem(i)
-        textos.push([`${n}, a tipologia`, i.tipologia], [`${n}, a descrição`, i.descricao], [`${n}, a linha`, i.linha], [`${n}, o perfil e acessório`, i.perfilEAcessorio],
+        textos.push([`${n}, a tipologia`, i.tipologia], [`${n}, o nome`, i.nome], [`${n}, o perfil e acessório`, i.perfilEAcessorio],
             [`${n}, o vidro`, i.vidro], [`${n}, a obs`, i.obs], ...(i.ambientes ?? []).map((a): [string, string] => [`${n}, o ambiente`, a.ambiente]),
             ...i.variaveis.map((v): [string, string] => [`${n}, a variável`, v.descricao]))
     }
@@ -508,14 +514,14 @@ export const caixaDaFigura = (x: number, y: number, alturaDoCorpo: number) =>
 
 // ── O NOME DA TIPOLOGIA NA FAIXA ──────────────────────────────────────────────────────────────────────────────────────────────────────
 /**
- * O nome como a faixa o mostra (dono do produto, 07/11/2026): a descrição do motor, com a PRIMEIRA letra de cada trecho entre barras em maiúscula e o
- * resto em minúscula — e mais nada: nenhum espaço acrescentado, nenhuma barra normalizada, nenhum texto cortado ou acrescentado (a linha do motor não
- * é repetida: a descrição já a traz). O trecho a partir da ÚLTIMA barra "|", com ou sem espaços em volta, sai em CINZA e peso normal ("|Europa 60" na
- * DP-141, "| Design" na DP-01). Sem barra nenhuma: tudo no principal, nada cinza.
+ * O nome como a faixa o mostra (dono do produto, 07/11/2026; 24/11/2026, pedido 0023): o NOME do item — a descrição resolvida, sem a linha de
+ * perfil e sem o código (`descricaoParaOVendedor`) —, com a PRIMEIRA letra de cada trecho entre barras em maiúscula e o resto em minúscula, e mais
+ * nada: nenhum espaço acrescentado, nenhuma barra normalizada, nenhum texto cortado ou acrescentado. O nome vai em preto; o que a esquadria TEM (a
+ * partir da PRIMEIRA barra "|": "| Bandeira fixa", "| Veneziana | Trilho pvc embutido") sai em CINZA e peso normal. Sem barra: nada cinza.
  */
-export function nomeDaTipologiaNaFaixa(descricao: string): { principal: string; cinza: string } {
-    const comCaixa = descricao.split(/(\|)/).map((t) => (t === '|' ? t : t.toLocaleLowerCase('pt-BR').replace(/\p{L}/u, (l) => l.toLocaleUpperCase('pt-BR')))).join('')
-    const k = comCaixa.lastIndexOf('|')
+export function nomeDaTipologiaNaFaixa(nome: string): { principal: string; cinza: string } {
+    const comCaixa = nome.split(/(\|)/).map((t) => (t === '|' ? t : t.toLocaleLowerCase('pt-BR').replace(/\p{L}/u, (l) => l.toLocaleUpperCase('pt-BR')))).join('')
+    const k = comCaixa.indexOf('|')
     return k < 0 ? { principal: comCaixa, cinza: '' } : { principal: comCaixa.slice(0, k), cinza: comCaixa.slice(k) }
 }
 
@@ -729,9 +735,9 @@ function blocoDoItem(doc: Doc, i: ItemDaFolha, y: number): number {
     let cx = x + COLUNAS.fig
     doc.rect(cx, y, COLUNAS.item, ALTURA_DA_FAIXA)
     doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(PRETO)
-    doc.text(`Item ${i.ordem} · ${i.tipologia}`, cx + 1.5, y + 3.3)
+    doc.text(`Item ${i.ordem}`, cx + 1.5, y + 3.3)
     // o nome em até duas linhas, com o trecho da última barra em cinza e peso normal
-    linhasDoNome(doc, i.descricao, COLUNAS.item - 3).forEach((trechos, k) => {
+    linhasDoNome(doc, i.nome, COLUNAS.item - 3).forEach((trechos, k) => {
         let tx = cx + 1.5
         doc.setFont('helvetica', 'normal'); doc.setFontSize(CORPO_DO_NOME)
         for (const t of trechos) {

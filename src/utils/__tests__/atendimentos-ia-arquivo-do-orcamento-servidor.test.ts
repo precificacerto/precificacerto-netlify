@@ -231,7 +231,7 @@ describe('a figura do catálogo nos itens do arquivo', () => {
         expect(itens[0].figura).toEqual({ dados: `data:image/png;base64,${PNG.toString('base64')}`, formato: 'PNG' })
         expect(itens[0].semFigura).toBeNull()
         expect(itens[1].figura).toBeNull()
-        expect(itens[1].semFigura).toBe(fraseSemCandidata('DP-02'))
+        expect(itens[1].semFigura).toBe(fraseSemCandidata())
     })
 
     it('a linha do índice SEM ARQUIVO no Storage não desenha nada: a falta é nomeada (nunca a figura mais parecida)', async () => {
@@ -242,7 +242,7 @@ describe('a figura do catálogo nos itens do arquivo', () => {
         if ('recusa' in r) throw new Error(r.recusa)
         const itens = await S.comOsDesenhos(r.itens, r.paraODesenho)
         expect(itens[0].figura).toBeNull()
-        expect(itens[0].semFigura).toBe(fraseSemArquivo('DP-39'))
+        expect(itens[0].semFigura).toBe(fraseSemArquivo())
     })
 
     it('o arquivo que o índice aponta e o Storage não entrega: a falta diz isso, e o item não leva figura', async () => {
@@ -253,7 +253,7 @@ describe('a figura do catálogo nos itens do arquivo', () => {
         if ('recusa' in r) throw new Error(r.recusa)
         const itens = await S.comOsDesenhos(r.itens, r.paraODesenho)
         expect(itens[0].figura).toBeNull()
-        expect(itens[0].semFigura).toBe(fraseDoArquivoQueNaoBaixou('DP-39'))
+        expect(itens[0].semFigura).toBe(fraseDoArquivoQueNaoBaixou())
     })
 
     it('o item SEM TIPOLOGIA (o manual) não ganha figura NEM frase: não há tipologia a nomear', async () => {
@@ -267,7 +267,7 @@ describe('a figura do catálogo nos itens do arquivo', () => {
         expect(manual?.figura).toBeNull()
         expect(manual?.semFigura).toBeNull()
         // e os que TÊM tipologia continuam ganhando a frase da falta
-        expect(itens[0].semFigura).toBe(fraseSemCandidata('DP-39'))
+        expect(itens[0].semFigura).toBe(fraseSemCandidata())
     })
 
     it('o catálogo é lido INTEIRO, de mil em mil: a linha que importa está DEPOIS da milésima e mesmo assim acha a figura', async () => {
@@ -295,7 +295,7 @@ describe('a figura do catálogo nos itens do arquivo', () => {
         const lido = await S.lerDadosDoArquivo(T, ORC, { operacaoInterna: 7000, valorVenda: 7000, rateio: rt.itens, geradoEm: new Date('2026-11-16T15:00:00Z') })
         if ('recusa' in lido) throw new Error(lido.recusa)
         expect(lido.dados.itens[0].figura?.formato).toBe('PNG')
-        expect(lido.dados.itens[1].semFigura).toBe(fraseSemCandidata('DP-02'))
+        expect(lido.dados.itens[1].semFigura).toBe(fraseSemCandidata())
     })
 })
 

@@ -80,7 +80,7 @@ describe('O CASO REAL: "2 Persiana 1,50 x 1,30 1 pano" fecha na DP-07, sem pergu
 describe('O DITO QUE CONFERE, O QUE CONTRADIZ E O QUE A TIPOLOGIA NÃO AFIRMA', () => {
     it('CONTRADIZ: "3 panos" na DP-07 (sem QP, um pano por construção) é pergunta, com a frase sem código', () => {
         const d = padrao(['2 Persiana 1,50 x 1,30 3 panos'], item(1500, 1300)).decisao
-        expect(d).toEqual({ motivo: 'CONTRADIZ_A_TIPOLOGIA', tipologia: 'DP-07', descricao: 'JANELA DE CORRER 02 FOLHAS MÓVEIS COM PERSIANA', dito: '3 panos', natureza: '1 pano' })
+        expect(d).toEqual({ motivo: 'CONTRADIZ_A_TIPOLOGIA', tipologia: 'DP-07', descricao: 'Janela de correr 02 folhas móveis com persiana', dito: '3 panos', natureza: '1 pano' })
         const frase = fraseDoPadraoQueFalta(d)!
         expect(frase).toContain('1 pano')
         expect(frase).toContain('3 panos')

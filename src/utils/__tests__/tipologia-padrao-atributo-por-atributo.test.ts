@@ -169,8 +169,8 @@ describe('A REGRA GERAL DA QUANTIDADE (dono do produto, 11/11/2026): CORRER = 2 
         expect(padrao('janela maxim ar com bandeira', 'janela', com)).toEqual({ tipologia: 'DP-129' })
         expect(padrao('janela maxim ar com bandeira 1 módulo', 'janela', com)).toEqual({ tipologia: 'DP-129' })
         expect(padrao('janela maxim ar com bandeira 2 módulos', 'janela', com)).toEqual({ motivo: 'MODULOS_DITOS' })
-        // e na folha: "1 módulo", com bandeira
-        expect(oQueAEsquadriaE(CANDIDATOS.find((c) => c.tipologia === 'DP-129')!, 1)).toBe('maxim-ar, 1 módulo · sem persiana · com bandeira · sem peitoril')
+        // e na folha: um módulo não se escreve (24/11/2026), com bandeira
+        expect(oQueAEsquadriaE(CANDIDATOS.find((c) => c.tipologia === 'DP-129')!, 1)).toBe('maxim-ar · sem persiana · com bandeira · sem peitoril')
     })
     it('MODULAÇÃO COM BANDEIRA (3b): DP-129 (perfil) × DP-134 (travessa) — a divisão é atributo da bandeira e SE PERGUNTA; nunca uma das duas', () => {
         const d = padrao('janela maxim ar com bandeira', 'janela')
@@ -186,7 +186,7 @@ describe('os motivos nomeados — onde NÃO há natural, nunca se adivinha', () 
     it('duas candidatas na MESMA linha que nada medido distingue: SEM_NATURAL nomeando "descrição" e as descrições — nunca LINHA, nunca a primeira', () => {
         const gemea: CandidatoDeTipologia = { ...CANDIDATOS.find((c) => c.tipologia === 'DP-113')!, tipologia: 'DP-113B' }
         const d = padrao('janela de abrir', 'janela', [...CANDIDATOS, gemea])
-        expect(d).toEqual({ motivo: 'SEM_NATURAL', atributos: ['descrição'], candidatas: ['DP-113', 'DP-113B'], descricoes: ['JANELA DE GIRO 01 FOLHA', 'JANELA DE GIRO 01 FOLHA'] })
+        expect(d).toEqual({ motivo: 'SEM_NATURAL', atributos: ['descrição'], candidatas: ['DP-113', 'DP-113B'], descricoes: ['Janela de giro 01 folha', 'Janela de giro 01 folha'] })
         expect(fraseDoPadraoQueFalta(d)).toContain('nada do que foi dito separa')
     })
     it('MODULAÇÃO SEM EXTRA COM UM MÓDULO SÓ (3c, dono do produto, 18/11/2026): as duas dão a MESMA lista de peças — resolve sozinho, nunca pergunta', () => {
@@ -318,7 +318,8 @@ describe('O PADRÃO NA FOLHA: o que a esquadria é, escrito', () => {
         expect(de('DP-113')).toBe('abrir, 1 folha · sem persiana · sem bandeira · sem peitoril')
     })
     it('maxim-ar: o módulo pelo número que o cálculo usa (o "N" dito, ou o padrão da aba)', () => {
-        expect(de('DP-01', 1)).toBe('maxim-ar, 1 módulo · sem persiana · sem bandeira · sem peitoril')
+        // com um módulo não se escreve módulo (dono do produto, 24/11/2026, pedido 0023)
+        expect(de('DP-01', 1)).toBe('maxim-ar · sem persiana · sem bandeira · sem peitoril')
         expect(de('DP-01', 2)).toBe('maxim-ar, 2 módulos · sem persiana · sem bandeira · sem peitoril')
         expect(de('DP-137', 1)).toBe('maxim-ar, 2 módulos · sem persiana · sem bandeira · sem peitoril')
         // o número de módulos que não se sabe não é escrito
@@ -423,7 +424,8 @@ describe('O QUE IMPEDE O ITEM, DITO (dono do produto, 18/11/2026, decisão 2): n
         expect(fraseDoTipoForaDoMotor(['Correr', 'Maxim-ar'])).toBe('O tipo de abertura dito para este item não existe no motor da empresa, que tem de correr ou maxim-ar: como ele abre?')
     })
     it('módulos ditos: as opções que existem no motor, pela descrição', () => {
-        const opcoes = ['MAXIM-AR COM 01 MÓDULO HORIZONTAL E "V" MÓDULOS VERTICAIS | MODULAÇÃO TRAVESSA', 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 02 MÓDULOS VERTICAIS | PERFIL MODULAÇÃO']
+        // como o vendedor lê (24/11/2026, pedido 0023): sem a linha, sem o tipo de modulação, e o sentido em aberto dito sem número
+        const opcoes = ['Maxim-ar com módulos verticais', 'Maxim-ar com módulos horizontais e 02 módulos verticais']
         expect(impede('janela maxim ar 2 módulos', 'janela')).toEqual({ decisao: { motivo: 'MODULOS_DITOS' }, atributos: [], impedimento: fraseDosModulosDitos(2, opcoes), paraAutorizar: null })
         expect(fraseDosModulosDitos(2, ['A', 'B'])).toBe('Este item tem 2 módulos, e a divisão entre eles muda a peça: “A” ou “B”. Qual é?')
         expect(fraseDosModulosDitos(3, [])).toBe('Falta no motor — não há tipologia deste tipo com 3 módulos. Me diga como ele é na obra; se for mesmo assim, a tipologia precisa ser cadastrada no motor.')
@@ -453,7 +455,10 @@ describe('O QUE IMPEDE O ITEM, DITO (dono do produto, 18/11/2026, decisão 2): n
         expect(r.impedimento?.split(' e para ')).toHaveLength(2)
         // a autorização é pedida para a PRIMEIRA do motor (a DP-132 vem antes da DP-128 na lista), e a frase nomeia a escolhida
         expect(r.paraAutorizar?.tipologia).toBe('DP-132')
-        expect(r.paraAutorizar?.frase).toContain('Autoriza fabricar como “MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | MODULAÇÃO TRAVESSA”, fora do limite?')
+        expect(r.paraAutorizar?.frase).toContain('Autoriza fabricar como “Maxim-ar (modulação travessa)”, fora do limite?')
+        // as duas são "Maxim-ar": o tipo de modulação só entra porque é ele que as separa; a linha de perfil e o código, nunca
+        expect(r.paraAutorizar?.frase).toContain('para “Maxim-ar (modulação travessa)” (altura de 364 a 1.164 mm) e para “Maxim-ar (perfil modulação)”')
+        expect(r.paraAutorizar?.frase).not.toMatch(/DP-1(28|32)|EUROPA|MÓDULO/i)
     })
     it('a falta de informação também se diz: sem abertura, a janela sem tipo, o dito sem representação', () => {
         expect(impede('1200 x 1000', null).impedimento).toBe(FRASE_SEM_ABERTURA)

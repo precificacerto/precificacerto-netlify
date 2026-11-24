@@ -62,9 +62,10 @@ export function padraoDoVidro(linhas: readonly LinhaDoVidroPadrao[], c: { tipolo
     return codigo === null ? null : { codigo, origem: 'grupo', grupo }
 }
 
-/** A origem no CONSIDERADO: "padrão da empresa para janela de correr" ou "padrão da empresa para a tipologia DP-07". */
-export function origemNaFrase(p: VidroPadrao, tipologia: string): string {
-    return p.origem === 'excecao' || p.grupo === null ? `padrão da empresa para a tipologia ${tipologia}` : `padrão da empresa para ${grupoNaFrase(p.grupo)}`
+/** A origem no CONSIDERADO: "padrão da empresa para janela de correr" ou "padrão da empresa para esta tipologia" (sem o código, 24/11/2026). */
+export function origemNaFrase(p: VidroPadrao): string {
+    // sem o código da tipologia: a frase sai no CONSIDERADO do item, que o vendedor lê (dono do produto, 24/11/2026, pedido 0023)
+    return p.origem === 'excecao' || p.grupo === null ? 'padrão da empresa para esta tipologia' : `padrão da empresa para ${grupoNaFrase(p.grupo)}`
 }
 
 /** Os padrões da conta, por família, e a descrição de cada código na tabela VIDRO do fornecedor principal (só os que ela tem). */
@@ -230,5 +231,5 @@ export function vidroCodigoDaEsquadria(conta: VidrosPadraoDaConta, item: { tipol
 export function vidroNoConsiderado(conta: VidrosPadraoDaConta, item: { tipologia: string | null; familia: string | null; vidro: string | null }, candidatas: readonly CandidataDoPadrao[]): string | null {
     const aplicado = vidroPadraoDaEsquadria(conta, item, candidatas)
     if (aplicado === null || item.tipologia === null || item.vidro !== aplicado.texto) return null
-    return `vidro ${aplicado.codigo}, ${origemNaFrase(aplicado.padrao, item.tipologia)}`
+    return `vidro ${aplicado.codigo}, ${origemNaFrase(aplicado.padrao)}`
 }

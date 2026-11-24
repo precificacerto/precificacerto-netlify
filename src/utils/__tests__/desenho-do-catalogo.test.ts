@@ -66,16 +66,16 @@ describe('2. o degrau do ÍNDICE PRINCIPAL: a mesma descrição, ignorando a lin
 describe('3. a metade que NÃO desenha: nunca a figura mais parecida', () => {
     it('tipologia sem candidata: nada, e a frase nomeia a tipologia', () => {
         const r = escolherDesenho(item('DP-77', { HI: 1 }, 'FORMA QUE NINGUÉM TEM | EUROPA 42'), CATALOGO)
-        expect(r).toEqual({ motivo: 'SEM_CANDIDATA', frase: fraseSemCandidata('DP-77') })
+        expect(r).toEqual({ motivo: 'SEM_CANDIDATA', frase: fraseSemCandidata() })
         expect('caminho' in r).toBe(false)
     })
     it('VARIÁVEL SEM VALOR: nada, e a frase diz QUAL variável falta', () => {
         const r = escolherDesenho(item('DP-39', {}), CATALOGO)
-        expect(r).toEqual({ motivo: 'VARIAVEL_SEM_VALOR', frase: fraseDeVariavelSemValor('DP-39', 'HI') })
+        expect(r).toEqual({ motivo: 'VARIAVEL_SEM_VALOR', frase: fraseDeVariavelSemValor('HI') })
     })
     it('DUAS condições que casam: nada, e a frase diz quantas', () => {
         const ambiguo = [porVariavel('DP-50', '(N=1)', 'a.png'), porVariavel('DP-50', '(N>0)', 'b.png')]
-        expect(escolherDesenho(item('DP-50', { N: 1 }), ambiguo)).toEqual({ motivo: 'DUAS_CANDIDATAS', frase: fraseDeDuasCandidatas('DP-50', 2) })
+        expect(escolherDesenho(item('DP-50', { N: 1 }), ambiguo)).toEqual({ motivo: 'DUAS_CANDIDATAS', frase: fraseDeDuasCandidatas(2) })
     })
     it('DOIS desenhos principais com a mesma descrição: nada — a descrição não desempata sozinha', () => {
         const dois = [principal('*A', 'MESMA FORMA | EUROPA 42', 'a.jpg'), principal('*B', 'MESMA FORMA | EUROPA 60', 'b.jpg')]
@@ -83,7 +83,7 @@ describe('3. a metade que NÃO desenha: nunca a figura mais parecida', () => {
     })
     it('no ÍNDICE mas SEM ARQUIVO no Storage: nada, e a frase diz isso — nunca um caminho vazio', () => {
         expect(escolherDesenho(item('DP-60', { N: 1 }), [porVariavel('DP-60', '(N=1)', null)]))
-            .toEqual({ motivo: 'SEM_ARQUIVO', frase: fraseSemArquivo('DP-60') })
+            .toEqual({ motivo: 'SEM_ARQUIVO', frase: fraseSemArquivo() })
         expect(escolherDesenho(item('DP-61', { N: 1 }), [porVariavel('DP-61', '(N=1)', '   ')]))
             .toMatchObject({ motivo: 'SEM_ARQUIVO' })
         expect(escolherDesenho(item('DP-Y', {}, 'SÓ NO ÍNDICE | EUROPA 42'), [principal('*Y', 'SÓ NO ÍNDICE | EUROPA 42', null)]))
@@ -115,7 +115,7 @@ describe('o desempate pelo GRUPO, quando a mesma forma existe em dois materiais'
             .toMatchObject({ caminho: expect.stringContaining('/blindex-') })
     })
     it('SEM família, nada: o desempate não acontece, e a recusa é a de duas candidatas', () => {
-        expect(daDP02(null)).toEqual({ motivo: 'DUAS_CANDIDATAS', frase: fraseDeDuasCandidatas('DP-02', 2) })
+        expect(daDP02(null)).toEqual({ motivo: 'DUAS_CANDIDATAS', frase: fraseDeDuasCandidatas(2) })
         expect(daDP02('   ')).toMatchObject({ motivo: 'DUAS_CANDIDATAS' })
     })
     it('o GRUPO VAZIO no catálogo não casa com a família VAZIA do item: ausente não é igual a ausente (`ausente-vs-falso.md`)', () => {
@@ -144,7 +144,7 @@ describe('os valores da condição (o padrão da aba e a escolha do vendedor)', 
         expect(valoresDoDesenho(DEF, {})).toEqual({ N: 1, LT: 1 })
         const so = [porVariavel('DP-9', '(MAI=1)', 'x.jpg')]
         expect(escolherDesenho({ tipologia: 'DP-9', descricao: null, valores: valoresDoDesenho(DEF, {}) }, so))
-            .toEqual({ motivo: 'VARIAVEL_SEM_VALOR', frase: fraseDeVariavelSemValor('DP-9', 'MAI') })
+            .toEqual({ motivo: 'VARIAVEL_SEM_VALOR', frase: fraseDeVariavelSemValor('MAI') })
     })
     it('a ESCOLHA DO VENDEDOR vence o padrão, e é ela que escolhe a figura', () => {
         expect(valoresDoDesenho(DEF, { N: 2 })).toEqual({ N: 2, LT: 1 })
