@@ -1,5 +1,6 @@
 import subprocess, sys, os
 # MUTACOES da referencia do perfil + cor (referencia_perfil; dono do produto, 24/11/2026). Roda SOZINHO na arvore (nada le a arvore enquanto roda).
+# 1a passada 39/40: a viva era codigo redundante (`pelaReferencia ??` antes da resolucao, que ja roda a referencia primeiro) e saiu: 39/39.
 # SO=<trecho> roda so as mutacoes cujo texto contem o trecho. O trecho que nao aparece UMA vez aborta (codigo 3) antes de rodar suite.
 R = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')) + '/'
 U = 'src/utils/__tests__/'
@@ -34,7 +35,6 @@ M = [
  (RR, "export const temReferencia = (i: ItemResolvivel): boolean => i.referencia_perfil !== undefined && i.referencia_perfil !== null", "export const temReferencia = (i: ItemResolvivel): boolean => i.referencia_perfil !== undefined"),
  # as barras: a referencia antes da ponte
  (LB, "        if (pelaReferencia === null) {\n            const p = ponte(perfil, cor, entrada.regras)", "        if (true) {\n            const p = ponte(perfil, cor, entrada.regras)"),
- (LB, "        const r = pelaReferencia ?? resolverReferencia(", "        const r = resolverReferencia("),
  (LB, "resolverPelaReferencia({ codigoDoMotor: perfil, descricaoDoMotor: descricao, corPedida: cor }, entrada.itens)", "resolverPelaReferencia({ codigoDoMotor: perfil, descricaoDoMotor: descricao, corPedida: 'BRANCO' }, entrada.itens)"),
  (LB, "pela ${r.como === 'referencia' ? 'referência' : r.como.replace('_', ' ')}) está sem o valor", "pela ${r.como.replace('_', ' ')}) está sem o valor"),
  # a importacao

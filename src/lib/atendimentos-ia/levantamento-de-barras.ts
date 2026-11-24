@@ -75,7 +75,7 @@ import type { CategoriaDoFornecedor } from '@/utils/atendimentos-ia-importacao-c
  */
 import { avaliarTipologia, faltaDoVidroSemBaguete, type AvisoDoAvaliador, type FaltaDoAvaliador, type InsumoAvaliado, type OrigemNoMotor, type Tipologia, type VidroAvaliado } from './avaliador-de-formulas'
 import { agruparEmBarras, milimetrosDaBarra, type BarraDoCodigo, type ResultadoDoCodigo, type TotalDoLevantamento } from './agrupador-de-barras'
-import { GRUPO_DE_COR, candidatasDoDegrau, resolverPelaReferencia, resolverReferencia, type ComoAchou, type CorDoFornecedor, type ResolucaoDeReferencia } from './resolucao-de-referencia'
+import { GRUPO_DE_COR, candidatasDoDegrau, resolverPelaReferencia, resolverReferencia, type ComoAchou, type CorDoFornecedor } from './resolucao-de-referencia'
 
 
 // ── A entrada ─────────────────────────────────────────────────────────────────────────────
@@ -483,7 +483,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
         }
         // A REFERÊNCIA DO PERFIL + COR VEM ANTES DE TUDO (24/11/2026): com a referência na tabela, a ponte do motor (que dá o código do fornecedor)
         // nem é consultada — nem as recusas dela valem
-        const pelaReferencia: ResolucaoDeReferencia<ItemDaTabela> | null = resolverPelaReferencia({ codigoDoMotor: perfil, descricaoDoMotor: descricao, corPedida: cor }, entrada.itens)
+        const pelaReferencia = resolverPelaReferencia({ codigoDoMotor: perfil, descricaoDoMotor: descricao, corPedida: cor }, entrada.itens)
         let codigoDaPonte: string | null = null
         if (pelaReferencia === null) {
             const p = ponte(perfil, cor, entrada.regras)
@@ -501,7 +501,8 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
                 // 'nenhum': segue sem ponte; a escada resolve ou nomeia a falta com a frase que corresponde ao que achou
             }
         }
-        const r = pelaReferencia ?? resolverReferencia({ codigoDoMotor: perfil, codigoDaPonte, ponteDoCodigo: entrada.regras.filter((x) => x.codigo_wvetro === perfil).map((x) => ({ codigo: x.codigo, cor: x.cor })), descricaoDoMotor: descricao, corPedida: cor }, entrada.itens, contexto)
+        // a resolução roda a referência de novo antes da escada (é a mesma função): com a referência na tabela, o resultado é o dela
+        const r = resolverReferencia({ codigoDoMotor: perfil, codigoDaPonte, ponteDoCodigo: entrada.regras.filter((x) => x.codigo_wvetro === perfil).map((x) => ({ codigo: x.codigo, cor: x.cor })), descricaoDoMotor: descricao, corPedida: cor }, entrada.itens, contexto)
         if (!('item' in r)) {
             faltar(r.motivo, `${maiuscula(r.frase)}.`, r.candidatas.map((c) => ({ codigo: c.item.codigo, descricao: c.item.descricao ?? null })))
             continue
