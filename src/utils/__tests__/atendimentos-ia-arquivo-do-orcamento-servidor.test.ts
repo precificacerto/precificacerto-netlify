@@ -85,7 +85,7 @@ jest.mock('@/supabase/admin', () => ({
 jest.mock('@/lib/atendimentos-ia/conversa-da-ia', () => ({
     contextoDaFolhaDaEmpresa: async () => ({
         // a maxim-ar de módulos (DP-128): o "N" com Padrão 1 na aba Variáveis; as outras não têm definição
-        definicao: (i: { tipologia: string | null }) => (i.tipologia === 'DP-128'
+        definicao: (i: { tipologia: string | null }): unknown => (i.tipologia === 'DP-128'
             ? { variaveis: [{ variavel: 'N', descricao: 'QUANTIDADE DE MÓDULOS HORIZONTAIS', padrao: '1', condicao: 'sempre', opcoes: null }], formulas: [] } : null),
         detalhe: (tipologia: string, familia: string | null) => (tipologia === 'DP-128'
             ? { descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | PERFIL MODULAÇÃO | EUROPA 60', linha: 'EUROPA 60', tipo: 'Maxim-ar', fornecedor: 'Wolf' }
