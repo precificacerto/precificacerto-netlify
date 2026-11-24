@@ -237,9 +237,9 @@ describe('AS REFERÊNCIAS DE VIDRO DO PRINCIPAL (24/11/2026): o que a tela da na
     })
     it('mais de mil referências: a leitura segue de mil em mil até a página que vem incompleta', async () => {
         comPrincipal()
-        const mil = Array.from({ length: 1000 }, (_, k) => ({ codigo_wvetro: `R${String(k).padStart(4, '0')}`, descricao: null }))
+        const mil = Array.from({ length: 1000 }, (_, k) => ({ codigo_wvetro: `R${String(k).padStart(4, '0')}`, descricao: null as string | null }))
         let pagina = 0
-        Object.defineProperty(respostas, 'orcamentista_tabela_item', { configurable: true, enumerable: true, get: () => ({ data: pagina++ === 0 ? mil : [{ codigo_wvetro: 'ZZ', descricao: null }], error: null }) })
+        Object.defineProperty(respostas, 'orcamentista_tabela_item', { configurable: true, enumerable: true, get: () => ({ data: pagina++ === 0 ? mil : [{ codigo_wvetro: 'ZZ', descricao: null as string | null }], error: null }) })
         const r = await referenciasDeVidroDoPrincipal('t1')
         expect(r).toHaveLength(1001)
         expect(chamadas.filter((x) => x.tabela === 'orcamentista_tabela_item').map((x) => x.filtros[2])).toEqual([['range', '0', 999], ['range', '1000', 1999]])

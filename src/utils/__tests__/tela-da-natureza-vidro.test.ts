@@ -26,8 +26,8 @@ jest.mock('@/supabase/admin', () => ({
 }))
 jest.mock('@/lib/atendimentos-ia/motor-da-familia', () => ({ lerMotoresDaConta: jest.fn(async () => ({ ok: true, familias: [{ familia: 'PVC', rotulo: 'PVC Wolf', levantamento: { id: 'm1', nome: 'Motor' } }] })) }))
 jest.mock('@/lib/atendimentos-ia/levantamento-da-conversa', () => ({ lerVariaveisDasTipologias: jest.fn(async () => ({})) }))
-jest.mock('@/lib/atendimentos-ia/textos-do-caminho-servidor', () => ({ lerTextosDoCaminho: jest.fn(async () => null) }))
-jest.mock('@/lib/atendimentos-ia/textos-do-caminho', () => ({ textosDaFamiliaNaTela: () => null }))
+jest.mock('@/lib/atendimentos-ia/textos-do-caminho-servidor', () => ({ lerTextosDoCaminho: jest.fn(async (): Promise<null> => null) }))
+jest.mock('@/lib/atendimentos-ia/textos-do-caminho', () => ({ textosDaFamiliaNaTela: (): null => null }))
 
 import { lerTelaDaNatureza, recusaDoVidroDaLinha } from '@/lib/atendimentos-ia/tela-da-natureza-servidor'
 
