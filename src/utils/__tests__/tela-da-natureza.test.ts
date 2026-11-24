@@ -131,7 +131,13 @@ jest.mock('@/lib/atendimentos-ia/base-de-conhecimento-servidor', () => ({
     }),
 }))
 const tela = { ok: true, familias: [] as unknown[] }
-jest.mock('@/lib/atendimentos-ia/tela-da-natureza-servidor', () => ({ lerTelaDaNatureza: jest.fn(async () => tela) }))
+// a recusa do padrão do VIDRO (24/11/2026): a referência que a tabela de vidro do principal não tem
+let recusaDoVidro: string | null = null
+const linhasConferidas: unknown[] = []
+jest.mock('@/lib/atendimentos-ia/tela-da-natureza-servidor', () => ({
+    lerTelaDaNatureza: jest.fn(async () => tela),
+    recusaDoVidroDaLinha: jest.fn(async (_t: string, linha: unknown) => { linhasConferidas.push(linha); return recusaDoVidro }),
+}))
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const handler = require('@/pages/api/super-admin/base-de-conhecimento/natureza').default
 
@@ -143,7 +149,19 @@ async function chamar(method: string, body: unknown = undefined) {
 }
 
 describe('a rota', () => {
-    beforeEach(() => { chamadas.length = 0; superAdmin = { user_id: 'sessao-1' } })
+    beforeEach(() => { chamadas.length = 0; linhasConferidas.length = 0; recusaDoVidro = null; superAdmin = { user_id: 'sessao-1' } })
+    it('PUT do VIDRO com a referência que o principal não tem: 422 com a frase, e a função NÃO é chamada', async () => {
+        recusaDoVidro = 'O vidro VIN05 não existe na tabela de vidro do fornecedor principal.'
+        const r = await chamar('PUT', { linha: { familia: 'PVC', formato: 'janela correr', variavel: 'VIDRO', natureza: 'POLITICA', opcao_padrao: 'VIN05' } })
+        expect(r).toEqual({ status: 422, json: { error: 'O vidro VIN05 não existe na tabela de vidro do fornecedor principal.' } })
+        expect(linhasConferidas).toEqual([{ familia: 'PVC', formato: 'janela correr', variavel: 'VIDRO', natureza: 'POLITICA', opcao_padrao: 'VIN05' }])
+        expect(chamadas).toEqual([])
+    })
+    it('PUT do VIDRO com a referência que existe: a conferência passa e a linha vai à função', async () => {
+        const r = await chamar('PUT', { linha: { familia: 'PVC', formato: 'janela correr', variavel: 'VIDRO', natureza: 'POLITICA', opcao_padrao: 'VFIN05' } })
+        expect(r.status).toBe(200)
+        expect(chamadas.map((c) => c.args.p_linha)).toEqual([{ familia: 'PVC', formato: 'janela correr', variavel: 'VIDRO', natureza: 'POLITICA', opcao_padrao: 'VFIN05' }])
+    })
     it('quem não é super admin: 404 e nada chamado', async () => {
         superAdmin = null
         expect((await chamar('PUT', { linha: { familia: 'PVC', variavel: 'ARI', natureza: 'ITEM' } })).status).toBe(404)

@@ -44,6 +44,8 @@ const banco = {
     ausentes: new Set<string>(),
     /** O banco de ANTES da 20261123000004: pedir a coluna `cor` do item da tabela é erro 42703, como no PostgREST. */
     semACor: false,
+    /** O banco de ANTES da 20261124000001: pedir a coluna `codigo_wvetro` do item da tabela é erro 42703. */
+    semAReferencia: false,
     /** Os selects pedidos ao item da tabela, na ordem (a leitura que tenta com a cor e volta sem ela). */
     selectsDoItem: [] as string[],
 }
@@ -59,6 +61,7 @@ jest.mock('@/supabase/admin', () => ({
             // passaria com a linha inteira (`teste-que-nao-exercita.md`)
             let colunas: string[] | null = null
             let pediuACor = false
+            let pediuAReferencia = false
             // o banco dá id a toda linha; as fixtures de item não o escrevem (a leitura do cálculo pagina por id, 12/11/2026)
             if (tabela === 'orcamentista_tabela_item') for (const l of banco.db[tabela] ?? []) if (!('id' in l)) l.id = `item-${String(++sequenciaDeItem).padStart(6, '0')}`
             // a ligação motor ↔ família (20261029000003): sem ela declarada no caso, a das ETAPAS — toda etapa que aponta um motor exige que ele
@@ -73,7 +76,9 @@ jest.mock('@/supabase/admin', () => ({
             type Resposta = { data: Linha[] | null; error: { code: string; message: string } | null; count: number | null }
             const resposta = (): Resposta => {
                 if (banco.ausentes.has(tabela)) return { data: null, error: { code: 'PGRST205', message: `Could not find the table 'public.${tabela}' in the schema cache` }, count: null }
+                // como o Postgres: o erro nomeia a PRIMEIRA coluna que falta na lista pedida (a cor vem antes da referência)
                 if (pediuACor && banco.semACor) return { data: null, error: { code: '42703', message: `column ${tabela}.cor does not exist` }, count: null }
+                if (pediuAReferencia && banco.semAReferencia) return { data: null, error: { code: '42703', message: `column ${tabela}.codigo_wvetro does not exist` }, count: null }
                 let linhas = filtradas()
                 // como o PostgREST: ordenar por coluna que a tabela não tem é erro, não lista desordenada
                 const semColuna = ordem.find((c) => linhas.some((l) => !(c in l)))
@@ -89,7 +94,7 @@ jest.mock('@/supabase/admin', () => ({
             q.select = (c?: string, o?: { count?: string }) => {
                 contar = o?.count === 'exact'
                 if (tabela === 'orcamentista_materia_prima' && typeof c === 'string' && c !== '*') colunas = c.split(',').map((x) => x.trim())
-                if (tabela === 'orcamentista_tabela_item' && typeof c === 'string') { banco.selectsDoItem.push(c); pediuACor = c.split(',').map((x) => x.trim()).includes('cor') }
+                if (tabela === 'orcamentista_tabela_item' && typeof c === 'string') { banco.selectsDoItem.push(c); pediuACor = c.split(',').map((x) => x.trim()).includes('cor'); pediuAReferencia = c.split(',').map((x) => x.trim()).includes('codigo_wvetro') }
                 return q
             }
             q.eq = (c: string, v: unknown) => { predicados.push((l) => l[c] === v); return q }
@@ -1273,6 +1278,28 @@ describe('(10) as abas vêm do BANCO: a Fórmulas da tipologia é a fonte, a da 
         // a primeira leitura pede a cor; a que volta, não
         const pediu = banco.selectsDoItem.map((c) => c.split(',').map((x) => x.trim()).includes('cor'))
         expect(pediu.slice(0, 2)).toEqual([true, false])
+    })
+
+    const pedidas = () => banco.selectsDoItem.map((c) => { const cs = c.split(',').map((x) => x.trim()); return [cs.includes('cor'), cs.includes('codigo_wvetro')] })
+    it('ANTES DA 20261124000001 (sem a coluna codigo_wvetro): a leitura volta COM a cor e SEM a referência, e o levantamento sai IGUAL', async () => {
+        banco.selectsDoItem = []
+        const com = await levantar()
+        // com a migração, UMA leitura pede as duas colunas
+        expect(pedidas()[0]).toEqual([true, true])
+        banco.selectsDoItem = []
+        banco.semAReferencia = true
+        const sem = await levantar().finally(() => { banco.semAReferencia = false })
+        expect(semEtapa(sem)).toEqual(semEtapa(com))
+        expect(sem.desfecho).toBe('levantou')
+        // a primeira leitura pede a cor e a referência; a que volta, só a cor (a cor NÃO é perdida junto)
+        expect(pedidas().slice(0, 2)).toEqual([[true, true], [true, false]])
+    })
+    it('SEM as duas migrações (nem a referência, nem a cor): a leitura desce os dois degraus e o levantamento sai', async () => {
+        banco.selectsDoItem = []
+        banco.semACor = true; banco.semAReferencia = true
+        const sem = await levantar().finally(() => { banco.semACor = false; banco.semAReferencia = false })
+        expect(sem.desfecho).toBe('levantou')
+        expect(pedidas().slice(0, 2)).toEqual([[true, true], [false, false]])
     })
 
     it('o JSON do repositório NÃO é mais fonte: sem as abas da DP-02 no banco, a DP-02 é recusada pelo nome', async () => {

@@ -72,7 +72,9 @@ export function TextosDaFamiliaNaTela({ tenantId, familia, rotulo, textos, aoSal
     )
 }
 
-type Linha = { chave: string; variavel: string; formato: string | null; titulo: string; detalhe: string | null; opcoes: string[]; gravada: LinhaGravada | null }
+type Linha = { chave: string; variavel: string; formato: string | null; titulo: string; detalhe: string | null; opcoes: string[]; gravada: LinhaGravada | null
+    /** O que aparece ao lado de cada opção (a descrição do vidro da referência); a opção sem rótulo aparece sozinha. */
+    rotulos?: Readonly<Record<string, string>> }
 
 /** As linhas da tabela de uma família: as variáveis do motor (sem o VIDRO) e o vidro por formato (os formatos das tipologias e os já gravados). */
 export function linhasDaFamilia(f: FamiliaDaTela): Linha[] {
@@ -88,8 +90,12 @@ export function linhasDaFamilia(f: FamiliaDaTela): Linha[] {
     }))
     const formatos = [...new Set([...f.formatos, ...f.linhas.filter((l) => l.variavel === 'VIDRO' && l.formato !== null).map((l) => l.formato as string)])]
     const vidros = formatos.map((formato): Linha => ({
-        chave: `VIDRO:${formato}`, variavel: 'VIDRO', formato, titulo: `VIDRO — ${formato}`, detalhe: 'o código do item na tabela de vidro do fornecedor principal',
-        opcoes: [], gravada: gravadaDe('VIDRO', formato),
+        chave: `VIDRO:${formato}`, variavel: 'VIDRO', formato, titulo: `VIDRO — ${formato}`,
+        detalhe: f.vidros.length > 0
+            ? `a referência do vidro (codigo_wvetro) na tabela de vidro do fornecedor principal · ${f.vidros.length} referência${f.vidros.length === 1 ? '' : 's'}`
+            : 'a tabela de vidro do fornecedor principal não traz nenhuma referência (codigo_wvetro): importe-a com a coluna preenchida',
+        opcoes: f.vidros.map((v) => v.referencia), rotulos: Object.fromEntries(f.vidros.flatMap((v) => (v.descricao ? [[v.referencia, v.descricao]] : []))),
+        gravada: gravadaDe('VIDRO', formato),
     }))
     return [...doMotor, ...foraDoMotor, ...vidros]
 }
@@ -120,8 +126,9 @@ function EditorDaLinha({ tenantId, familia, linha, aoSalvar }: { tenantId: strin
                 <Select<Natureza> style={{ minWidth: 220 }} placeholder="sem definição" value={natureza ?? undefined} onChange={setNatureza}
                     options={NATUREZAS.map((n) => ({ value: n, label: ROTULO_DA_NATUREZA[n].split(' — ')[0] }))} />
                 {natureza === 'POLITICA' && (
-                    <AutoComplete style={{ minWidth: 260 }} value={opcao} onChange={setOpcao} placeholder="o começo do rótulo da opção"
-                        options={linha.opcoes.map((o) => ({ value: o }))} filterOption={(t, o) => String(o?.value ?? '').toUpperCase().includes(t.toUpperCase())} />
+                    <AutoComplete style={{ minWidth: 260 }} value={opcao} onChange={setOpcao} placeholder={linha.variavel === 'VIDRO' ? 'a referência do vidro (ex.: VFIN05)' : 'o começo do rótulo da opção'}
+                        options={linha.opcoes.map((o) => ({ value: o, label: linha.rotulos?.[o] ? `${o} — ${linha.rotulos[o]}` : o }))}
+                        filterOption={(t, o) => `${o?.value ?? ''} ${o?.label ?? ''}`.toUpperCase().includes(t.toUpperCase())} />
                 )}
                 <Button type="primary" disabled={!mudou || natureza === null} loading={salvando} onClick={salvar}>Salvar</Button>
             </Space>

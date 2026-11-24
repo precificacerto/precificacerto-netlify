@@ -117,7 +117,7 @@ export async function lerVidrosPadraoDaConta(tenantId: string): Promise<VidrosPa
     return comDescricoes(tenantId, porFamilia)
 }
 
-/** Os padrões por família com a descrição de cada código na tabela VIDRO do fornecedor principal. */
+/** Os padrões por família com a descrição de cada REFERÊNCIA na tabela VIDRO do fornecedor principal. */
 async function comDescricoes(tenantId: string, porFamilia: Map<string, LinhaDoVidroPadrao[]>): Promise<VidrosPadraoDaConta> {
     const codigos = [...new Set([...porFamilia.values()].flat().map((l) => l.item_codigo))]
     let descricaoDo = new Map<string, string>()
@@ -129,19 +129,58 @@ async function comDescricoes(tenantId: string, porFamilia: Map<string, LinhaDoVi
     return { ok: true, porFamilia, descricaoDo }
 }
 
-/** A descrição de cada código nas tabelas VIDRO que VALEM do fornecedor PRINCIPAL da categoria VIDRO; o código fora delas não entra (vira falta no custo). */
-async function descricoesNoPrincipal(tenantId: string, codigos: readonly string[]): Promise<Map<string, string>> {
+/** A coluna da referência ainda não existe (a 20261124000001 não aplicada): nenhuma referência é achada, e o padrão vira falta nomeada no custo. */
+const semAColunaDaReferencia = (e: { code?: string; message?: string }) => (e.code === '42703' || e.code === 'PGRST204') && /\bcodigo_wvetro\b/.test(e.message ?? '')
+
+/** As tabelas VIDRO que VALEM do fornecedor PRINCIPAL da categoria VIDRO da conta. */
+async function tabelasDeVidroDoPrincipal(tenantId: string): Promise<string[]> {
     const [principais, derivacao] = await Promise.all([principaisDaConta(tenantId), derivarTabelasDaConta(tenantId)])
     const principal = principais.principais.get('VIDRO')
-    if (!principal) return new Map()
-    const tabelas = derivacao.tabelas.filter((t) => t.fornecedorId === principal && t.categoria === 'VIDRO' && t.vale).map((t) => t.tabelaId)
+    if (!principal) return []
+    return derivacao.tabelas.filter((t) => t.fornecedorId === principal && t.categoria === 'VIDRO' && t.vale).map((t) => t.tabelaId)
+}
+
+/** Uma referência de vidro do principal, como a tela da natureza a oferece: a referência e a descrição do item. */
+export type ReferenciaDeVidro = { referencia: string; descricao: string | null }
+/**
+ * TODAS as referências (`codigo_wvetro`) das tabelas de vidro do principal — o que a tela da natureza oferece e contra o que ela confere o padrão
+ * gravado (dono do produto, 24/11/2026). Lida de mil em mil (o PostgREST corta em mil). Sem a coluna (a migração não aplicada), sem principal ou
+ * sem tabela: lista vazia.
+ */
+export async function referenciasDeVidroDoPrincipal(tenantId: string): Promise<ReferenciaDeVidro[]> {
+    const tabelas = await tabelasDeVidroDoPrincipal(tenantId)
+    if (tabelas.length === 0) return []
+    const PAGINA = 1000
+    const todas: ReferenciaDeVidro[] = []
+    for (let de = 0, ultima = PAGINA; ultima === PAGINA; de += PAGINA) {
+        const { data, error } = await db().from('orcamentista_tabela_item').select('codigo_wvetro, descricao').in('tabela_id', tabelas)
+            .not('codigo_wvetro', 'is', null).order('id', { ascending: true }).range(de, de + PAGINA - 1)
+        if (error) { if (semAColunaDaReferencia(error)) return []; throw new Error(`orcamentista_tabela_item: ${error.code ?? error.message}`) }
+        const linhas = (data ?? []) as Array<{ codigo_wvetro: string; descricao: string | null }>
+        todas.push(...linhas.map((l) => ({ referencia: l.codigo_wvetro, descricao: l.descricao })))
+        ultima = linhas.length
+    }
+    return todas.sort((a, b) => a.referencia.localeCompare(b.referencia, 'pt-BR'))
+}
+
+/** A frase da referência que a tabela de vidro do principal não tem (a tela da natureza, na conferência e na recusa da gravação). */
+export const fraseDaReferenciaQueOPrincipalNaoTem = (referencia: string, quantas: number) => (quantas === 0
+    ? `A tabela de vidro do fornecedor principal não traz nenhuma referência (a coluna codigo_wvetro): o vidro ${referencia} não tem como ser achado. Importe a tabela de vidro com a coluna preenchida.`
+    : `O vidro ${referencia} não existe na tabela de vidro do fornecedor principal: a referência é a coluna codigo_wvetro dela, e nenhuma das ${quantas} é essa. Escolha uma das referências da tabela.`)
+
+/**
+ * A descrição de cada REFERÊNCIA (`codigo_wvetro`, igual) nas tabelas VIDRO que VALEM do fornecedor PRINCIPAL da categoria VIDRO; a referência
+ * fora delas não entra (vira falta no custo). Nunca pelo código do fornecedor (dono do produto, 24/11/2026).
+ */
+async function descricoesNoPrincipal(tenantId: string, codigos: readonly string[]): Promise<Map<string, string>> {
+    const tabelas = await tabelasDeVidroDoPrincipal(tenantId)
     if (tabelas.length === 0) return new Map()
-    const { data, error } = await db().from('orcamentista_tabela_item').select('codigo, descricao').in('tabela_id', tabelas).in('codigo', [...codigos])
-    if (error) throw new Error(`orcamentista_tabela_item: ${error.code ?? error.message}`)
+    const { data, error } = await db().from('orcamentista_tabela_item').select('codigo_wvetro, descricao').in('tabela_id', tabelas).in('codigo_wvetro', [...codigos])
+    if (error) { if (semAColunaDaReferencia(error)) return new Map(); throw new Error(`orcamentista_tabela_item: ${error.code ?? error.message}`) }
     const vistas = new Map<string, Set<string>>()
-    for (const i of (data ?? []) as Array<{ codigo: string; descricao: string | null }>) {
+    for (const i of (data ?? []) as Array<{ codigo_wvetro: string; descricao: string | null }>) {
         const d = (i.descricao ?? '').trim()
-        if (d) vistas.set(i.codigo, new Set([...(vistas.get(i.codigo) ?? []), d]))
+        if (d) vistas.set(i.codigo_wvetro, new Set([...(vistas.get(i.codigo_wvetro) ?? []), d]))
     }
     // a descrição só vale quando é UMA: o mesmo código com duas descrições no principal não escolhe nenhuma (o texto fica sendo o código)
     return new Map([...vistas].filter(([, ds]) => ds.size === 1).map(([c, ds]) => [c, [...ds][0]]))

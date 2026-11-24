@@ -65,7 +65,8 @@ const MOTOR = '9a233c55-f377-45d3-b2ae-b1a740a98e44'
 /** A tabela de VIDRO da conta (12/11/2026): o item que casa o vidro dos casos, "Temperado 5mm" (o preço por m² e o bloco são de teste). */
 const TABELA_DE_VIDRO = 'tabela-de-vidro-estrela'
 const ITENS_DE_VIDRO = [{
-    codigo: 'VTIN05', descricao: 'VIDRO TEMPERADO INCOLOR 05MM', unidade: 'PC', custo: 100, medida_barra_m: null as number | null, valor_barra_interno: null as number | null, valor_metro_interno: null as number | null,
+    // a referência (codigo_wvetro, 24/11/2026): é por ela que o padrão da base acha a descrição e o custo acha o item
+    codigo: 'VTIN05', codigo_wvetro: 'VTIN05', descricao: 'VIDRO TEMPERADO INCOLOR 05MM', unidade: 'PC', custo: 100, medida_barra_m: null as number | null, valor_barra_interno: null as number | null, valor_metro_interno: null as number | null,
     cred_icms_pct: 12, cred_pis_cofins_pct: 9.25, cred_ipi_pct: 0, nc_ipi_pct: null as number | null, tabela_id: TABELA_DE_VIDRO,
 }]
 const CANDIDATAS = [
@@ -6285,7 +6286,7 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
         db.orcamentista_tabela_item = [...CASO.itens.map(([codigo, descricao, medida_barra_m, valor_barra_interno, valor_metro_interno]) => ({ codigo, descricao, medida_barra_m, valor_barra_interno, valor_metro_interno, tabela_id: TABELA })),
             // o VIDRO dos dois (12/11/2026, os três caminhos): o temperado de 8 mm e UM mini boreal — com um só, "mini boreal" casa sem ambiguidade,
             // e a falta de cada caso é só a dele
-            ...[['VTIN05', 'VIDRO TEMPERADO INCOLOR 05MM'], ['VTIN08', 'VIDRO TEMPERADO INCOLOR 08MM'], ['VBO3,4', 'VIDRO MINI BOREAL 3,4MM']].map(([codigo, descricao]) => ({ ...ITENS_DE_VIDRO[0], codigo, descricao }))]
+            ...[['VTIN05', 'VIDRO TEMPERADO INCOLOR 05MM'], ['VTIN08', 'VIDRO TEMPERADO INCOLOR 08MM'], ['VBO3,4', 'VIDRO MINI BOREAL 3,4MM']].map(([codigo, descricao]) => ({ ...ITENS_DE_VIDRO[0], codigo, codigo_wvetro: codigo, descricao }))]
         db.orcamentista_motor_tipologia_tempo.push(
             { tabela_id: null, motor_id: MOTOR, tipologia: 'DP-39', tempo_fabricacao_min: 63, tempo_origem: 'ESTIMADO' },
             { tabela_id: null, motor_id: MOTOR, tipologia: 'DP-01', tempo_fabricacao_min: 70, tempo_origem: 'ESTIMADO' },

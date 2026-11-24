@@ -77,6 +77,7 @@ import {
   previaDaTroca,
   type ResultadoDaLeitura,
   CATEGORIA_COM_VARIANTES,
+  referenciasDaCategoria,
 } from '@/utils/atendimentos-ia-importacao'
 
 // 90 s: ~9 s lendo do Storage e parseando, ~19 s até o comando começar no banco (18,1 MB de corpo,
@@ -164,6 +165,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   if (declarada === null) lida.avisos.push({ tipo: 'tabela_sem_categoria_declarada', mensagem: FRASE_DA_TABELA_SEM_CATEGORIA_DECLARADA })
   if (doArquivo.semCategoria > 0) lida.avisos.push({ tipo: 'itens_sem_categoria_do_fornecedor', itens: doArquivo.semCategoria, mensagem: fraseDosItensSemCategoriaDoFornecedor(doArquivo.semCategoria) })
+
+  // 5c. A REFERÊNCIA DO VIDRO (dono do produto, 24/11/2026): na tabela de VIDRO o `codigo_wvetro` é gravado, e a referência repetida no arquivo é
+  // recusa nomeada antes de qualquer gravação; nas outras categorias a coluna segue sem destino. SEM `?? null` na categoria, como acima.
+  const referenciaRecusada = referenciasDaCategoria(lida, declarada)
+  if (referenciaRecusada !== null) return res.status(422).json({ error: fraseDoArquivo(daTabela.nome, referenciaRecusada) })
 
   const payload = montarPayloadDaImportacao(lida, caller.user_id)
 

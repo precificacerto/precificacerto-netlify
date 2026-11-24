@@ -19,7 +19,7 @@ import ExcelJS from 'exceljs'
 import {
     ABAS_DA_IMPORTACAO, ABAS_DO_LAYOUT_UNICO, CAMPOS_DO_CABECALHO_UNICO, COLUNA_DA_CATEGORIA_DO_FORNECEDOR, COLUNAS_DO_LAYOUT_UNICO,
     COLUNAS_SEM_DESTINO_DO_LAYOUT_UNICO,
-    FRASE_DO_CABECALHO_DOS_ITENS_NAO_RECONHECIVEL, lerArquivosDaImportacao, montarPayloadDaImportacao,
+    FRASE_DO_CABECALHO_DOS_ITENS_NAO_RECONHECIVEL, lerArquivosDaImportacao, montarPayloadDaImportacao, referenciasDaCategoria,
     type Aviso, type ColunaDoLayoutUnico, type ResultadoDaLeitura,
 } from '@/utils/atendimentos-ia-importacao'
 import { COLUNAS_DO_BLOCO_TRIBUTARIO } from '@/utils/atendimentos-ia-bloco-tributario'
@@ -167,7 +167,7 @@ describe('PERSIANAS da Wolff — o caso completo do layout único', () => {
         }
     })
 
-    it('as colunas sem destino (linha, cor, codigo_wvetro, valor_kg, multiplo_compra) são exigidas no cabeçalho, não gravadas, e vazias não geram aviso', async () => {
+    it('as colunas sem destino (linha, valor_kg, multiplo_compra) são exigidas no cabeçalho, não gravadas, e vazias não geram aviso', async () => {
         const r = await lida(arquivoDePersianas())
         expect(avisosDo(r, 'colunas_sem_destino_no_layout_unico')).toEqual([])
         for (const c of COLUNAS_SEM_DESTINO_DO_LAYOUT_UNICO) expect(Object.keys(r.itens[0])).not.toContain(c)
@@ -434,5 +434,74 @@ describe('as OPCIONAIS de 12% do layout único — valor_metro_12 e valor_barra_
     it('o payload leva as duas para a função do banco', async () => {
         const r = await lida({ [ABAS_DO_LAYOUT_UNICO.itens]: abaItens([guia(0, 43.925, 263.55)], COM_12) })
         expect(montarPayloadDaImportacao(r, 'u').itens[0]).toMatchObject({ valor_metro_12: 43.925, valor_barra_12: 263.55 })
+    })
+})
+
+// ── A REFERÊNCIA DO VIDRO: a coluna codigo_wvetro (dono do produto, 24/11/2026; migração 20261124000001) ──
+describe('a referência (codigo_wvetro): o leitor a traz, e a categoria da tabela decide o destino', () => {
+    const vidro = (codigo: string, referencia: ExcelJS.CellValue, extra: Linha = {}): Linha => ({ ...PERSIANAS[0], codigo, descricao: `VIDRO ${codigo}`, codigo_wvetro: referencia, ...extra })
+    const lerVidros = async (itens: Linha[]) => lida({ [ABAS_DO_LAYOUT_UNICO.itens]: abaItens(itens) })
+    const referencias = (r: Lida) => r.itens.map((i) => i.codigo_wvetro)
+
+    it('o leitor lê a referência como veio, sem espaço nas pontas; a célula vazia ou só de espaço é nula (nunca texto vazio)', async () => {
+        const r = await lerVidros([vidro('LJ-VFIN05', 'VFIN05'), vidro('LJ-VTIN06', '  VTIN06 '), vidro('LJ-A', null), vidro('LJ-B', '   '), vidro('LJ-VLIN3+3', 'VLIN3+3')])
+        expect(referencias(r)).toEqual(['VFIN05', 'VTIN06', null, null, 'VLIN3+3'])
+        // o leitor não decide o destino: nem aviso de "sem destino", nem recusa — quem decide é a categoria da tabela
+        expect(avisosDo(r, 'colunas_sem_destino_no_layout_unico')).toEqual([])
+    })
+
+    it('tabela de VIDRO: a referência fica no item (vai para o payload), e os itens SEM ela são nomeados num aviso', async () => {
+        const r = await lerVidros([vidro('LJ-VFIN05', 'VFIN05'), vidro('LJ-DUP-ARG', null), vidro('LJ-VTIN06', 'VTIN06'), vidro('LJ-DUP-AR', null)])
+        expect(referenciasDaCategoria(r, 'VIDRO')).toBeNull()
+        expect((montarPayloadDaImportacao(r, null).itens as Array<{ codigo_wvetro: string | null }>).map((i) => i.codigo_wvetro)).toEqual(['VFIN05', null, 'VTIN06', null])
+        expect(avisosDo(r, 'itens_sem_referencia')).toEqual([{ tipo: 'itens_sem_referencia', itens: 2, codigos: ['LJ-DUP-ARG', 'LJ-DUP-AR'],
+            mensagem: '2 itens vieram sem a referência (codigo_wvetro) — LJ-DUP-ARG, LJ-DUP-AR: eles não são achados pelo vidro padrão nem pelo vidro escolhido, só pelo que o vendedor disser.' }])
+        expect(avisosDo(r, 'colunas_sem_destino_no_layout_unico')).toEqual([])
+    })
+
+    it('tabela de VIDRO com todos os itens com referência: nenhum aviso de falta', async () => {
+        const r = await lerVidros([vidro('LJ-VFIN05', 'VFIN05'), vidro('LJ-VTIN06', 'VTIN06')])
+        expect(referenciasDaCategoria(r, 'VIDRO')).toBeNull()
+        expect(avisosDo(r, 'itens_sem_referencia')).toEqual([])
+    })
+
+    it('tabela de VIDRO com a MESMA referência em dois itens: recusa NOMEADA (a referência e os códigos), e nada é mexido', async () => {
+        const r = await lerVidros([vidro('LJ-VFIN05', 'VFIN05'), vidro('LJ-VFIN05B', 'VFIN05'), vidro('LJ-VTIN06', 'VTIN06'), vidro('LJ-X', 'VBO04'), vidro('LJ-Y', 'VBO04'), vidro('LJ-Z', ' VBO04 ')])
+        expect(referenciasDaCategoria(r, 'VIDRO')).toBe(
+            'traz a mesma referência (codigo_wvetro) em mais de um item — VFIN05 em LJ-VFIN05 e LJ-VFIN05B; VBO04 em LJ-X e LJ-Y e LJ-Z. '
+            + 'A referência acha UM vidro: corrija o arquivo para cada item ter a sua. Nada foi alterado.')
+        expect(avisosDo(r, 'itens_sem_referencia')).toEqual([])
+    })
+
+    it('a caixa faz outra referência (é identidade): VFIN05 e vfin05 não são a mesma, e as duas entram', async () => {
+        const r = await lerVidros([vidro('LJ-A', 'VFIN05'), vidro('LJ-B', 'vfin05')])
+        expect(referenciasDaCategoria(r, 'VIDRO')).toBeNull()
+        expect(referencias(r)).toEqual(['VFIN05', 'vfin05'])
+    })
+
+    it.each([['FERRAGENS'], ['PERFIL'], [null], [undefined]])('tabela de %s: a referência NÃO vai para o payload (nula), nem repetida é recusa, e as linhas que a traziam entram no aviso de sem destino', async (categoria) => {
+        const r = await lerVidros([vidro('A', '9681'), vidro('B', '9681'), vidro('C', null), vidro('D', '9711', { valor_kg: 3 })])
+        expect(referenciasDaCategoria(r, categoria)).toBeNull()
+        expect(referencias(r)).toEqual([null, null, null, null])
+        expect(avisosDo(r, 'itens_sem_referencia')).toEqual([])
+        const a = avisosDo(r, 'colunas_sem_destino_no_layout_unico')
+        expect(a).toHaveLength(1)
+        expect(a[0].colunas).toEqual({ valor_kg: 1, codigo_wvetro: 3 })
+        expect(a[0].mensagem).toBe('o arquivo traz valor em colunas que o banco ainda não guarda — valor_kg (1 linha), codigo_wvetro (3 linhas): elas não foram gravadas.')
+    })
+
+    it('fora do vidro e SEM referência no arquivo: nenhum aviso nasce; com referência e sem outra coluna sem destino, o aviso nasce só com ela', async () => {
+        const sem = await lerVidros([vidro('A', null), vidro('B', null)])
+        expect(referenciasDaCategoria(sem, 'FERRAGENS')).toBeNull()
+        expect(avisosDo(sem, 'colunas_sem_destino_no_layout_unico')).toEqual([])
+        const com = await lerVidros([vidro('A', '9681'), vidro('B', null)])
+        expect(referenciasDaCategoria(com, 'FERRAGENS')).toBeNull()
+        expect(avisosDo(com, 'colunas_sem_destino_no_layout_unico').map((a) => [a.aba, a.colunas])).toEqual([['ITENS', { codigo_wvetro: 1 }]])
+    })
+
+    it('o layout de antes (por posição) não tem a coluna: a referência é nula em todos os itens', async () => {
+        const r = await ler({ [ABAS_DA_IMPORTACAO.preco]: [{ 1: 'LAMINADOS' }, { 2: 'CÓDIGO', 13: 'VALOR METRO 18%', 15: 'VALOR BARRA 18%' }, { 2: 'IL4237', 13: 10 }] })
+        if (r.ok === false) throw new Error(erroDe(r))
+        expect((r as Lida).itens.map((i) => [i.codigo, i.codigo_wvetro])).toEqual([['IL4237', null]])
     })
 })

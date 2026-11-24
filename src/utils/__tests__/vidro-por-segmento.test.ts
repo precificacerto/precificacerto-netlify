@@ -96,7 +96,37 @@ describe('a tabela de antes (sem segmento e cor) não muda', () => {
     })
     it('as duas juntas: o mesmo vidro nas duas é AMBÍGUO nomeado (o padrão da empresa desempata), nunca a primeira', () => {
         expect(codigo('temperado incolor 8mm', [...ITENS, ...ESTRELA])).toBe('VIDRO_AMBIGUO:LJ-VTIN08,VTI08')
-        const t = traduzirVidro('temperado incolor 8mm', null, [...ITENS, ...ESTRELA], ['LJ-VTIN08'])
+        // o padrão é a REFERÊNCIA (24/11/2026): VTIN08 acha o LJ-VTIN08; o código do fornecedor no lugar dela não desempata
+        const t = traduzirVidro('temperado incolor 8mm', null, [...ITENS, ...ESTRELA], ['VTIN08'])
         expect('item' in t && [t.item.codigo, t.como]).toEqual(['LJ-VTIN08', 'padrao'])
+        expect('motivo' in traduzirVidro('temperado incolor 8mm', null, [...ITENS, ...ESTRELA], ['LJ-VTIN08'])).toBe(true)
+    })
+})
+
+// ── A REFERÊNCIA ÚNICA DO VIDRO É O codigo_wvetro (dono do produto, 24/11/2026) ──
+describe('a referência (codigo_wvetro) acha UM vidro na tabela da Lajeadense', () => {
+    it('as 98 linhas têm referência, e as 98 são distintas: o código do fornecedor sem o prefixo "LJ-"', () => {
+        expect(ITENS.map((i) => i.codigo_wvetro)).toEqual(ITENS.map((i) => i.codigo.replace(/^LJ-/, '')))
+        expect(new Set(ITENS.map((i) => i.codigo_wvetro)).size).toBe(98)
+    })
+    it('cada referência escolhida acha o SEU item, qualquer que seja o texto — e o código do fornecedor no lugar dela não acha nada', () => {
+        for (const i of ITENS) {
+            expect(traduzirVidro('qualquer coisa', i.codigo_wvetro, ITENS)).toEqual({ item: i, como: 'codigo' })
+            const peloCodigo = traduzirVidro('qualquer coisa', i.codigo, ITENS)
+            expect('motivo' in peloCodigo && peloCodigo.motivo).toBe('VIDRO_CODIGO_FORA_DA_TABELA')
+        }
+    })
+    // os nove padrões de vidro da política da De Paula, como medidos em produção em 24/11/2026
+    it.each([['VTIN06', 'LJ-VTIN06'], ['VTIN08', 'LJ-VTIN08']])('o padrão %s (fixo, janelas de abrir e oscilo-batente / as quatro portas) acha o %s', (referencia, codigoDoItem) => {
+        const t = traduzirVidro(null, referencia, ITENS)
+        expect('item' in t && t.item.codigo).toBe(codigoDoItem)
+    })
+    it.each([['VIN05', 'janela correr'], ['VBO3,4', 'maxim-ar']])('o padrão %s (%s), que é código da Estrela, NÃO existe na Lajeadense: falta nomeada — nem o VFIN05 nem o VBO04 entram no lugar', (referencia) => {
+        expect(traduzirVidro(null, referencia, ITENS)).toEqual({ motivo: 'VIDRO_CODIGO_FORA_DA_TABELA', candidatos: [],
+            frase: `o vidro ${referencia} não existe na tabela de vidro do fornecedor principal (a referência é a coluna codigo_wvetro)` })
+    })
+    it('a grafia que o dono do produto decidiu: VFIN05 é o Float INcolor 05, e é ele que a janela de correr passa a apontar', () => {
+        const t = traduzirVidro(null, 'VFIN05', ITENS)
+        expect('item' in t && [t.item.codigo, t.item.descricao]).toEqual(['LJ-VFIN05', 'VIDRO FLOAT (COMUM) INCOLOR 05MM'])
     })
 })
