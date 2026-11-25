@@ -65,7 +65,7 @@ export type AnexoParaOModelo = { bloco: BlocoDaMidia; instrucao: string; como: '
  */
 export const instrucaoDaRajada = (n: number) =>
     `São ${n} imagens ou arquivos do MESMO envio do vendedor: leia todos juntos, como uma mensagem só. Uma tabela de item → vidro (ou de cor) `
-    + 'COMPLETA a lista: ponha o vidro no item de mesmo número (ordem) e não crie esquadria para ela. "Não especificado" é vidro não dito: omita.'
+    + 'COMPLETA a lista: ponha o vidro no item de mesmo número (ordem) e não crie item novo para ela. "Não especificado" é vidro não dito: omita.'
 
 const mimeBase = (m: string | null) => (m ?? '').split(';')[0].trim().toLowerCase()
 const ehPlanilha = (m: MidiaDaMensagem) => PLANILHA_MIME.test(mimeBase(m.mimetype)) || (m.nome !== null && PLANILHA_EXT.test(m.nome))
