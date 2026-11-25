@@ -119,6 +119,12 @@ export function esquadriasDaProposta(proposta: unknown): EsquadriaProposta[] {
         // acréscimo. Na ALTERAÇÃO o número também viaja: é o item do levantamento que o vendedor vai nomear. Fora dela, o número não viaja
         if (b.intencao === 'alterar' || b.intencao === 'acrescentar' || b.intencao === 'substituir') campos.intencao = b.intencao
         if (b.intencao === 'alterar' && typeof b.ordem === 'number' && Number.isInteger(b.ordem) && b.ordem > 0) campos.ordem = b.ordem
+        // O NÚMERO DA LINHA e a TIPOLOGIA ESCRITA viajam com a retida (25/11/2026, pedido 0028 — o levantamento 28: a foto com os 11 itens ficou
+        // retida esperando o nome, e no turno seguinte o código escrito na foto contava como "escolha do modelo", e o número do item se perdia).
+        // `numero` não é a ordem do levantamento: é o número que o vendedor deu ao item, para a correspondência e para juntar duas fotos da lista
+        const numero = typeof b.numero === 'number' ? b.numero : b.ordem
+        if (campos.ordem === undefined && typeof numero === 'number' && Number.isInteger(numero) && numero > 0) campos.numero = numero
+        if (b.tipologia_dita === true && typeof campos.tipologia === 'string') campos.tipologia_dita = true
         return [campos]
     })
 }
@@ -240,7 +246,23 @@ export function juntarEsquadrias(retidas: readonly EsquadriaProposta[], novas: r
         if (!bruto || typeof bruto !== 'object') { itens.push(bruto); continue }
         const campos = esquadriasDaProposta({ itens: [bruto] })[0]
         if (!campos) { itens.push(bruto); continue }
-        const k = itens.findIndex((i, n) => n < retidas.length && !!i && typeof i === 'object' && esquadriasEquivalentes(esquadriasDaProposta({ itens: [i] })[0] ?? {}, campos))
+        let k = itens.findIndex((i, n) => n < retidas.length && !!i && typeof i === 'object' && esquadriasEquivalentes(esquadriasDaProposta({ itens: [i] })[0] ?? {}, campos))
+        // A LISTA EM DUAS FOTOS (25/11/2026, pedido 0028 — o levantamento 28: a foto dos 11 itens e a foto da tabela de vidros, 0,6 s uma da outra):
+        // o item que só COMPLETA (sem tipologia e sem medida — o vidro, a cor) junta-se ao de MESMO NÚMERO da outra foto
+        if (k < 0 && typeof campos.numero === 'number') {
+            const soCompleta = (x: EsquadriaProposta) => !(typeof x.tipologia === 'string' && x.tipologia !== '') && x.largura_mm == null && x.altura_mm == null
+            k = itens.findIndex((i, n) => {
+                if (n >= retidas.length || !i || typeof i !== 'object') return false
+                const r = esquadriasDaProposta({ itens: [i] })[0]
+                return !!r && r.numero === campos.numero && (soCompleta(r) || soCompleta(campos))
+            })
+            if (k >= 0 && soCompleta(itens[k] as EsquadriaProposta)) {
+                // a retida é o complemento: a nova (a esquadria) fica por base, e ganha o que o complemento diz
+                reenviadas += 1
+                itens[k] = fundirEsquadrias(bruto as EsquadriaProposta, itens[k] as EsquadriaProposta)
+                continue
+            }
+        }
         if (k < 0) { itens.push(bruto); continue }
         reenviadas += 1
         itens[k] = fundirEsquadrias(itens[k] as EsquadriaProposta, bruto as EsquadriaProposta)

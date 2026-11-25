@@ -542,6 +542,8 @@ const rota = require('@/pages/api/atendimentos-ia/inbound').default as (req: Nex
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const conversa = require('@/lib/atendimentos-ia/conversa-da-ia') as typeof import('@/lib/atendimentos-ia/conversa-da-ia')
 // eslint-disable-next-line @typescript-eslint/no-require-imports
+const acrescimo = () => require('@/lib/atendimentos-ia/acrescimo-ou-alteracao') as typeof import('@/lib/atendimentos-ia/acrescimo-ou-alteracao')
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { textoDoSistema } = require('@/lib/atendimentos-ia/pedido-ao-modelo') as typeof import('@/lib/atendimentos-ia/pedido-ao-modelo')
 
 type Proposta = { nome?: string; novo?: boolean; itens?: Linha[]; escolhas?: Linha[]; opcoes_de?: string[]; pergunta?: { campo?: string; texto: string } } & Linha
@@ -1878,13 +1880,15 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
         })
     })
 
-    it('"é o mesmo" resolve o nome e PERGUNTA antes de acrescentar; "sim" acrescenta, e a pergunta é apagada', async () => {
-        const casa = await preparar((m, sistema) => (m === 'sim' && fala(sistema, 'para acrescentar, ou altera') ? { confirma: true } : null))
+    // desde 25/11/2026 (pedido 0028): a pergunta é sim ou não, sem a lista, e o "sim" ATUALIZA — a esquadria igual à gravada é a mesma, não mais uma
+    it('"é o mesmo" resolve o nome e PERGUNTA, sem a lista, se é para atualizar; "sim" atualiza o item que corresponde, e a pergunta é apagada', async () => {
+        const casa = await preparar((m, sistema) => (m === 'sim' && fala(sistema, 'para atualizar o orçamento') ? { confirma: true } : null))
         await chamar(MSG_1)
         await chamar('é o mesmo')
-        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar('Casa do João', 1, [{ ...DP02 }], nomeDoTeste))
-        // o vendedor lê a descrição, sem a linha de perfil e sem o código (dono do produto, 24/11/2026, pedido 0023)
-        expect(ultimoEnviado()).toContain('Este item — Janela de correr 02 folhas móveis, 1.200 x 1.000 mm')
+        expect(ultimoEnviado()).toBe(conversa.fraseDeAtualizarOOrcamento('Casa do João'))
+        // NUNCA A LISTA NA CONVERSA (pedido 0028): nem a descrição, nem a medida, nem o código
+        expect(ultimoEnviado()).not.toContain('Janela de correr')
+        expect(ultimoEnviado()).not.toContain('1.200')
         expect(ultimoEnviado()).not.toContain(DP02.tipologia)
         expect(ultimoEnviado()).not.toMatch(/europa/i)
         // os módulos que a proposta traz entram no nome; os que ninguém disse não se escrevem (ainda não é um item gravado)
@@ -1897,20 +1901,20 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
         expect(itensDe(casa.id)).toHaveLength(1)
         expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'CONFIRMAR_ACRESCIMO', nome: null, levantamentos: [casa.id], itens: [{ ...DP02 }] })])
         await chamar('sim')
-        expect(itensDe(casa.id)).toHaveLength(2)
-        expect(itensDe(casa.id)[1]).toEqual(expect.objectContaining({ ordem: 2, ...DP02 }))
+        expect(itensDe(casa.id)).toHaveLength(1)
+        expect(itensDe(casa.id)[0]).toEqual(expect.objectContaining({ ordem: 1, ...DP02 }))
         // a confirmação do acréscimo se resolveu; a que fica é a do apanhado, que espera o seu "sim"
         expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'CONFIRMAR_APANHADO', levantamentos: [casa.id] })])
-        // o levantamento já virou o orçamento 1 (preparar): o item ACRESCENTADO entra no orçamento 1, com o mesmo número (13/11/2026)
+        // o levantamento já virou o orçamento 1 (preparar): o item atualizado continua o 1 dele (13/11/2026)
         expect(await confirmarApanhado()).toBe('')
         umOrcamentoSoONumero1()
-        expect(ativosDoOrcamento().map((i) => Number(i.ordem))).toEqual([1, 2])
+        expect(ativosDoOrcamento().map((i) => Number(i.ordem))).toEqual([1])
         expect(perguntas()).toEqual([])
     })
 
     it('"não" à confirmação: nada é acrescentado, a resposta pede o levantamento, e a esquadria vai para o nome seguinte', async () => {
         const casa = await preparar((m, sistema) => {
-            if (m === 'não' && fala(sistema, 'para acrescentar, ou altera')) return { confirma: false }
+            if (m === 'não' && fala(sistema, 'para atualizar o orçamento')) return { confirma: false }
             if (m === 'Obra Nova') return fala(sistema, 'Pergunta em aberto:') ? { nome: 'Obra Nova' } : {}
             return null
         })
@@ -1927,13 +1931,13 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
     })
 
     it('o "sim" vale só para o levantamento que a confirmação citou: "sim" com o nome de OUTRO pergunta de novo, por ele', async () => {
-        const casa = await preparar((m, sistema) => (m === 'sim, no Obra Centro' && fala(sistema, 'para acrescentar, ou altera') ? { nome: 'Obra Centro', confirma: true } : null))
+        const casa = await preparar((m, sistema) => (m === 'sim, no Obra Centro' && fala(sistema, 'para atualizar o orçamento') ? { nome: 'Obra Centro', confirma: true } : null))
         await fecharDp02('Obra Centro')
         const obra = levantamentos().find((l) => l.nome === 'Obra Centro')
         await chamar(MSG_1)
         await chamar('é o mesmo')
         await chamar('sim, no Obra Centro')
-        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar('Obra Centro', 1, [{ ...DP02 }], nomeDoTeste))
+        expect(ultimoEnviado()).toBe(conversa.fraseDeAtualizarOOrcamento('Obra Centro'))
         expect(itensDe(obra?.id)).toHaveLength(1)
         expect(itensDe(casa.id)).toHaveLength(1)
     })
@@ -3251,18 +3255,18 @@ describe('(25) o resgate do levantamento antigo e o contexto que não se perde (
         await chamar('Cliente: Geronimo. Janela de correr 1,50x1,20 vidro 4mm')
     }
 
-    it('DECISÃO 1 — o caso real: "Cliente: Geronimo Silva" com o "Geronimo Silva" já gravado é IGUAL, não parecido — sem pergunta de NOME; e a LISTA de duas esquadrias substitui o levantamento, sem pergunta (25/11/2026)', async () => {
+    it('DECISÃO 1 — o caso real: "Cliente: Geronimo Silva" com o "Geronimo Silva" já gravado é IGUAL, não parecido — sem pergunta de NOME; e as DUAS esquadrias novas entram somadas, sem pergunta (pedido 0028)', async () => {
         await fecharDp02('Geronimo Silva')
         llmResponde({ cliente: 'Geronimo Silva', itens: [{ ...JANELA, abertura: 'janela' }, { ...PORTA, abertura: 'porta' }] })
         await chamar(MSG_GERONIMO)
         expect(levantamentos().map((l) => l.nome)).toEqual(['Geronimo Silva'])
         expect(enviados().some((e) => e.includes('pode ser'))).toBe(false)
         expect(linhaIa().pop()).toMatch(/ rota=ALTERACAO .* nome=do_cliente /)
-        // A LISTA INTEIRA SUBSTITUI, SEM PERGUNTA (dono do produto, 25/11/2026, pedido 0026 — vale sobre a regra de 21/11 para a LISTA): as duas
-        // esquadrias da mensagem passam a ser o levantamento; o item de antes não sobra, e nenhuma pergunta de "alterar ou acrescentar" sai
+        // ACRÉSCIMO, ITEM A ITEM (dono do produto, 25/11/2026, pedido 0028 — sobre a regra 0026 para DUAS esquadrias): nenhuma das duas corresponde ao
+        // item que o Geronimo tem, e a lista não é o levantamento de novo — as duas entram somadas, o item de antes fica, e nenhuma pergunta sai
         expect(enviados().some((e) => e.includes('para acrescentar, ou alteram'))).toBe(false)
-        expect(linhaIa().pop()).toContain(' intencao=substituir')
-        expect(itensDe(levantamentos()[0].id).map((i) => [i.ordem, i.largura_mm, i.altura_mm])).toEqual([[1, JANELA.largura_mm, JANELA.altura_mm], [2, PORTA.largura_mm, PORTA.altura_mm]])
+        expect(linhaIa().pop()).toMatch(/ intencao=distinguiu:alterados=0,acrescentados=2(\s|$)/)
+        expect(itensDe(levantamentos()[0].id).map((i) => [i.ordem, i.largura_mm, i.altura_mm])).toEqual([[1, 1200, 1000], [2, JANELA.largura_mm, JANELA.altura_mm], [3, PORTA.largura_mm, PORTA.altura_mm]])
     })
 
     it('DECISÃO 1 — o levantamento de antes, gravado COM o prefixo, é IGUAL ao nome do cliente sem ele; e nenhum nome novo ganha o prefixo', async () => {
@@ -3459,8 +3463,11 @@ describe('(25) o resgate do levantamento antigo e o contexto que não se perde (
         await abrirAListaDoResgate()
         llmResponde({ nome: 'Geronimo Lima' })
         await chamar('Geronimo Lima')
-        // a confirmação de antes presumia o acréscimo; pela regra de 21/11/2026, a frase que não diz qual dos dois PERGUNTA
-        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar('Geronimo Lima', 1, [{ ...JANELA }], nomeDoTeste))
+        // desde 25/11/2026 (pedido 0028) o AGENTE distingue: a janela retida não corresponde ao item do Lima, e entra somada — sem pergunta e sem lista
+        const lima = levantamentos().find((l) => l.nome === 'Geronimo Lima') as Linha
+        expect(itensDe(lima.id)).toHaveLength(2)
+        expect(linhaIa().pop()).toContain(' intencao=distinguiu:alterados=0,acrescentados=1 ')
+        expect(enviados().some((e) => e.includes('para acrescentar, ou altera'))).toBe(false)
     })
 
     it('"é o do Lima" grava a confirmação com o ESCOLHIDO primeiro e os outros depois — é o que a confirmação relê', async () => {
@@ -3499,7 +3506,7 @@ describe('(25) o resgate do levantamento antigo e o contexto que não se perde (
         expect(ultimoEnviado()).toBe(conversa.fraseDoNomeParecido('Casa do João 2', opcoesDe('Levantamento Casa do João')))
         llmResponde({ nome: 'Casa do João' })
         await chamar('é o mesmo')
-        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar('Levantamento Casa do João', 1, [{ ...DP02 }], nomeDoTeste))
+        expect(ultimoEnviado()).toBe(conversa.fraseDeAtualizarOOrcamento('Levantamento Casa do João'))
         expect(linhaIa().pop()).toContain(' nome=da_pergunta ')
     })
 
@@ -3924,36 +3931,22 @@ describe('(29) o vidro copiado, a forma canônica e a dedupe por equivalência (
         expect(r.reenviadas).toBe(0)
     })
 
-    it('O CASO REAL, com o vidro COPIADO desde a primeira mensagem: cinco turnos, duas esquadrias — a confirmação lista 2, com as quantidades ditas', async () => {
+    it('O CASO REAL, com o vidro COPIADO desde a primeira mensagem: as duas retidas, o nome e as mesmas duas de novo — duas esquadrias, ACRESCENTADAS sem pergunta (pedido 0028)', async () => {
         await fecharDp02('Geronimo Silva')
         // 1. as duas esquadrias, sem nome
         llmResponde({ itens: [{ ...JANELA }, { ...PORTA }] })
         await chamar('Janela de correr 1,50×1,20 vidro 4mm / porta janela 2,50×2,40 vidro 8mm')
         expect(perguntas()[0]).toEqual(expect.objectContaining({ pergunta: 'SEM_NOME', itens: [{ ...JANELA }, { ...PORTA }] }))
-        // 2. o nome, e as mesmas duas de novo
+        // 2. o nome, e as mesmas duas de novo: contam uma vez cada (reenviadas=2) e, como não correspondem ao item que o Geronimo tem, entram
+        // somadas — desde 25/11/2026 (pedido 0028) o agente distingue, e a conversa não lista nem pergunta "acrescentar ou alterar"
         llmResponde({ nome: 'Geronimo Silva', itens: [{ ...JANELA }, { ...PORTA }] })
         await chamar('Geronimo Silva')
-        expect(perguntas()[0]).toEqual(expect.objectContaining({ pergunta: 'CONFIRMAR_ACRESCIMO', itens: [{ ...JANELA }, { ...PORTA }] }))
-        expect(linhaIa().pop()).toMatch(/ reenviadas=2(\s|$)/)
-        // 3. "já disse que são do geronimo silva" — as duas de novo, sem medida nem vidro
-        llmResponde({ nome: 'Geronimo Silva', itens: [{ tipologia: 'DP-02' }, { tipologia: 'DP-100' }] })
-        await chamar('Eu ja disse que essas esquadrias são do geronimo silva')
-        expect(perguntas()[0].itens).toEqual([{ ...JANELA }, { ...PORTA }])
-        // 4. "2 uni - DP-02 / 1 uni - DP-100": a quantidade dita sobre as retidas, nunca esquadrias novas
-        llmResponde({ nome: 'Geronimo Silva', itens: [{ tipologia: 'DP-02', quantidade: 2 }, { tipologia: 'DP-100', quantidade: 1 }] })
-        await chamar('geronimo silva é o nome da obra\n2 uni - DP - 02\n1 uni - DP - 100')
-        expect(perguntas()[0].itens).toEqual([{ ...JANELA, quantidade: 2 }, { ...PORTA, quantidade: 1 }])
-        // a confirmação fala de DUAS esquadrias (não de 8), com as quantidades e o vidro como o vendedor o disse
-        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar('Geronimo Silva', 1, [{ ...JANELA, quantidade: 2 }, { ...PORTA, quantidade: 1 }], nomeDoTeste))
-        expect(ultimoEnviado()).toContain('Estes 2 itens')
-        expect(ultimoEnviado()).toContain('2 unidade(s), vidro 4mm')
-        expect(ultimoEnviado()).not.toContain('comum')
-        // 5. tudo de novo, com o vidro escrito de outro jeito ("vidro 4 mm"): continuam 2, e a mesma confirmação volta em outras palavras (R2)
-        llmResponde({ cliente: 'Geronimo Silva', itens: [{ ...JANELA, vidro: 'vidro 4 mm', quantidade: 2 }, { ...PORTA, vidro: 'vidro 8 mm', quantidade: 1 }] })
-        await chamar('Cliente Geronimo Silva\nDP-02, 1.500 x 1.200 mm, vidro 4 mm\nDP-100, 2.500 x 2.400 mm, vidro 8 mm')
-        expect(perguntas()[0].itens).toEqual([{ ...JANELA, quantidade: 2 }, { ...PORTA, quantidade: 1 }])
-        expect(linhaIa().pop()).toMatch(/ reenviadas=2(\s|$)/)
-        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentarEmOutrasPalavras('Geronimo Silva'))
+        const ia = linhaIa().pop() ?? ''
+        expect(ia).toMatch(/ reenviadas=2(\s|$)/)
+        expect(ia).toMatch(/ intencao=distinguiu:alterados=0,acrescentados=2(\s|$)/)
+        const geronimo = levantamentos().find((l) => l.nome === 'Geronimo Silva') as Linha
+        expect(itensDe(geronimo.id).map((i) => [i.tipologia, i.vidro])).toEqual([['DP-02', 'Temperado 5mm'], ['DP-02', 'vidro 4mm'], ['DP-100', 'vidro 8mm']])
+        expect(enviados().some((e) => e.includes('1.500') || e.includes('para acrescentar, ou altera'))).toBe(false)
     })
 
     it('VIDRO COPIADO, NUNCA COMPLETADO — "pode, não derrube": "Vidro comum 4 mm" sobre "vidro 4mm" fica "vidro 4 mm", gravado; o vendedor não é perguntado pelo vidro que já disse', async () => {
@@ -4819,7 +4812,7 @@ describe('(35) a pergunta em aberto expira em 24 h na leitura, como o histórico
         await perguntaComIdade(23 * H)
         await chamar('é o mesmo')
         expect(sistemaDe(estado.chamadasDaLlm.length - 1)).toContain('Pergunta em aberto:')
-        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar('Casa do João', 1, [{ ...DP02 }], nomeDoTeste))
+        expect(ultimoEnviado()).toBe(conversa.fraseDeAtualizarOOrcamento('Casa do João'))
         expect(ultimaLinhaIa()).toContain(' aberta=NOME_PARECIDO ')
     })
 
@@ -4831,7 +4824,7 @@ describe('(35) a pergunta em aberto expira em 24 h na leitura, como o histórico
         expect(sistema).not.toContain('Pergunta em aberto:')
         expect(sistema).not.toContain('Casa do João 2')
         expect(enviados()).toHaveLength(antes + 1)
-        expect(ultimoEnviado()).not.toBe(conversa.fraseDeConfirmarAcrescimo('Casa do João', 1, [{ ...DP02 }], nomeDoTeste))
+        expect(ultimoEnviado()).not.toBe(conversa.fraseDeConfirmarAcrescimo('Casa do João', 1, [{ ...DP02 }]))
         expect(itensDe(casa.id)).toHaveLength(1)
         expect(ultimaLinhaIa()).toContain(' aberta=expirada ')
     })
@@ -6126,7 +6119,8 @@ describe('(40) o reenvio da mesma esquadria: a quantidade dita substitui, nunca 
             await mariaGravada()
             await peloAcrescimo({ ...PORTA, quantidade: 2 }, '2 Portas janelas de correr 2 folhas com vidro comum 6 mm incolor 2,50 x 2,20')
             expect(quantidades()).toEqual([['DP-39', 2], ['DP-01', 1]])
-            expect(linhaIa().pop()).toMatch(/ caminhos=e1:SUBSTITUIU_QUANTIDADE(\s|$)/)
+            // o "sim" a "É para atualizar?" (pedido 0028): a retida vai ao item que lhe corresponde — a mesma porta, com a quantidade dita
+            expect(linhaIa().pop()).toContain(' intencao=distinguiu:alterados=1,acrescentados=0 ')
         })
 
         it('a porta retida SEM quantidade dita, ou com a MESMA, igual à gravada: não há o que acrescentar — a confirmação nem é perguntada, fica 1, nunca 2 — IGNORADA_IGUAL', async () => {
@@ -8097,7 +8091,7 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         expect(enviados().some((e) => e.includes('fora do limite'))).toBe(false)
         expect(linhaIa().pop()).not.toMatch(/limite=\S*pediu/)
     })
-    it('a lista REENVIADA igual deixa os mesmos itens, sem duplicar; "acrescenta" dito continua acrescentando; e UM item só continua perguntando alterar ou acrescentar', async () => {
+    it('a lista REENVIADA igual deixa os mesmos itens, sem duplicar; "acrescenta" dito continua acrescentando; e UM item novo só entra somado (pedido 0028)', async () => {
         llmResponde({ nome: 'Marcelo e Rita', itens: [J(1200), J(1300)], escolhas: ESCOLHAS_QUE_FECHAM })
         await chamar('Levantamento Marcelo e Rita: DP-02 1200 x 1000; DP-02 1300 x 1000; branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
         // a mesma lista de novo: o conteúdo fica exatamente o dela — os mesmos dois itens, nenhum duplicado
@@ -8109,11 +8103,11 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         await chamar('Marcelo e Rita: acrescenta DP-02 1500 x 1000 e DP-02 1600 x 1000, branco, temperado 5mm')
         expect(linhaIa().pop()).toContain(' intencao=acrescentar')
         expect(medidasDe('Marcelo e Rita').map((x) => x[2])).toEqual([1200, 1300, 1500, 1600])
-        // um item só, sem dizer: a pergunta de sempre
+        // um item só, sem dizer, que não corresponde a nenhum (pedido 0028): entra somado, sem pergunta e sem lista
         llmResponde({ nome: 'Marcelo e Rita', itens: [J(1700)] })
         await chamar('Marcelo e Rita: DP-02 1700 x 1000 branco temperado 5mm')
-        expect(ultimoEnviado()).toContain('é novo, para acrescentar, ou altera')
-        expect(medidasDe('Marcelo e Rita')).toHaveLength(4)
+        expect(enviados().some((e) => e.includes('para acrescentar, ou altera'))).toBe(false)
+        expect(medidasDe('Marcelo e Rita').map((x) => x[2])).toEqual([1200, 1300, 1500, 1600, 1700])
     })
     it('"substitui" DITO com um item só: o levantamento passa a ser esse item', async () => {
         llmResponde({ nome: 'Marcelo e Rita', itens: [J(1200), J(1300)], escolhas: ESCOLHAS_QUE_FECHAM })
@@ -8522,24 +8516,40 @@ describe('(47) alterar ou acrescentar: a intenção dita manda; sem ela, a conve
         await chamar(`${JOAO}: muda para 900 x 900`)
         expect(itensDe(doJoao().id).map((i) => [i.ordem, i.largura_mm])).toEqual([[1, 900]])
     })
-    it('(d) a frase que NÃO diz: a conversa PERGUNTA, nada é gravado; "acrescenta" responde, e a esquadria entra como nova', async () => {
+    // desde 25/11/2026 (pedido 0028) o AGENTE distingue: a esquadria que não corresponde a nenhum item entra somada, sem pergunta; só a
+    // correspondência que não se decide pergunta — uma pergunta curta, sem lista —, e a resposta ("substitui" ou "é mais um") a decide
+    it('(d) a esquadria inteira que não corresponde a nenhum item: entra SOMADA, sem pergunta e sem lista', async () => {
         await fecharDp02(JOAO)
         llmResponde({ nome: JOAO, itens: [{ largura_mm: 900, altura_mm: 900 }] })
         await chamar(`${JOAO}: 900 x 900`)
-        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar(JOAO, 1, [{ largura_mm: 900, altura_mm: 900 }], nomeDoTeste))
-        expect(itensDe(doJoao().id).map((i) => i.largura_mm)).toEqual([1200])
-        expect(linhaIa().pop()).toContain(' intencao=perguntou')
-        llmResponde({ alteracao: 'acrescentar' })
-        await chamar('é nova, acrescenta')
         expect(itensDe(doJoao().id).map((i) => [i.ordem, i.largura_mm])).toEqual([[1, 1200], [2, 900]])
+        expect(linhaIa().pop()).toMatch(/ intencao=distinguiu:alterados=0,acrescentados=1(\s|$)/)
+        expect(enviados().some((e) => e.includes('para acrescentar, ou altera') || e.includes('900 x 900'))).toBe(false)
     })
-    it('(e) a resposta "altera o item 1" à pergunta: a esquadria retida muda o item 1', async () => {
+    const ambigua = async () => {
         await fecharDp02(JOAO)
-        llmResponde({ nome: JOAO, itens: [{ largura_mm: 900, altura_mm: 900 }] })
-        await chamar(`${JOAO}: 900 x 900`)
-        llmResponde({ alteracao: 'alterar', itens: [{ ordem: 1 }] })
-        await chamar('altera o item 1')
-        expect(itensDe(doJoao().id).map((i) => [i.ordem, i.largura_mm])).toEqual([[1, 900]])
+        // o "1" da mensagem diz o item 1, mas com OUTRA tipologia: não se sabe se substitui o item 1 ou se é um item novo numerado pelo vendedor
+        llmResponde({ nome: JOAO, itens: [{ ordem: 1, tipologia: 'DP-01', largura_mm: 900, altura_mm: 900 }] })
+        await chamar(`${JOAO}: 1 DP-01 900 x 900`)
+        expect(ultimoEnviado()).toBe(acrescimo().fraseDaCorrespondenciaAmbigua(JOAO, [1]))
+        expect(ultimoEnviado()).toBe(`O item 1 desta mensagem substitui o item 1 que já está no levantamento “${JOAO}”, ou é mais um?`)
+        expect(itensDe(doJoao().id).map((i) => [i.ordem, i.tipologia])).toEqual([[1, 'DP-02']])
+        expect(linhaIa().pop()).toContain(' intencao=perguntou')
+    }
+    it('(e) a correspondência AMBÍGUA pergunta uma vez, curta e sem lista; "substitui" muda o item 1 — e nada do antigo daquele item sobra', async () => {
+        await ambigua()
+        llmResponde({ alteracao: 'alterar' })
+        await chamar('substitui')
+        const itens = itensDe(doJoao().id)
+        expect(itens.map((i) => [i.ordem, i.tipologia, i.largura_mm])).toEqual([[1, 'DP-01', 900]])
+        // o vidro do item antigo não sobra: a esquadria nova é a esquadria inteira
+        expect(itens[0].vidro ?? null).not.toBe(DP02.vidro)
+    })
+    it('(h) a mesma pergunta, respondida "é mais um": o item novo entra somado, e o item 1 fica', async () => {
+        await ambigua()
+        llmResponde({ alteracao: 'acrescentar' })
+        await chamar('é mais um')
+        expect(itensDe(doJoao().id).map((i) => [i.ordem, i.tipologia, i.largura_mm])).toEqual([[1, 'DP-02', 1200], [2, 'DP-01', 900]])
     })
     it('(g) o número de um item que existe, mesmo com a esquadria inteira, já diz que é alteração: muda o item, sem perguntar', async () => {
         await fecharDp02(JOAO)
@@ -8548,23 +8558,15 @@ describe('(47) alterar ou acrescentar: a intenção dita manda; sem ela, a conve
         expect(itensDe(doJoao().id).map((i) => [i.ordem, i.largura_mm])).toEqual([[1, 900]])
         expect(enviados().some((e) => e.includes('para acrescentar, ou altera'))).toBe(false)
     })
-    it('(h) "altera o item 2" à pergunta, num levantamento de DOIS itens: a retida muda o 2, não o 1', async () => {
-        await fecharDp02(JOAO)
-        llmResponde({ nome: JOAO, alteracao: 'acrescentar', itens: [{ ...DP02, largura_mm: 700, altura_mm: 700 }] })
-        await chamar(`${JOAO}: acrescenta uma DP-02 de 700 x 700, branco, temperado 5mm`)
-        llmResponde({ nome: JOAO, itens: [{ largura_mm: 900, altura_mm: 900 }] })
-        await chamar(`${JOAO}: 900 x 900`)
-        expect(ultimoEnviado()).toContain('para acrescentar, ou altera')
-        llmResponde({ alteracao: 'alterar', itens: [{ ordem: 2 }] })
-        await chamar('altera o item 2')
-        expect(itensDe(doJoao().id).map((i) => [i.ordem, i.largura_mm])).toEqual([[1, 1200], [2, 900]])
-    })
-    it('(j) a retida só leva o NÚMERO quando é para alterar: na de "acrescentar" ou sem intenção, ele não viaja', () => {
+    it('(j) a retida só leva a ORDEM quando é para alterar; nas outras, o número do vendedor viaja como `numero` (pedido 0028), nunca como a ordem', () => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { esquadriasDaProposta } = require('@/lib/atendimentos-ia/pergunta-em-aberto') as typeof import('@/lib/atendimentos-ia/pergunta-em-aberto')
         expect(esquadriasDaProposta({ itens: [{ ordem: 2, vidro: 'x', intencao: 'alterar' }] })).toEqual([{ vidro: 'x', intencao: 'alterar', ordem: 2 }])
-        expect(esquadriasDaProposta({ itens: [{ ordem: 2, vidro: 'x', intencao: 'acrescentar' }] })).toEqual([{ vidro: 'x', intencao: 'acrescentar' }])
-        expect(esquadriasDaProposta({ itens: [{ ordem: 2, vidro: 'x' }] })).toEqual([{ vidro: 'x' }])
+        expect(esquadriasDaProposta({ itens: [{ ordem: 2, vidro: 'x', intencao: 'acrescentar' }] })).toEqual([{ vidro: 'x', intencao: 'acrescentar', numero: 2 }])
+        expect(esquadriasDaProposta({ itens: [{ ordem: 2, vidro: 'x' }] })).toEqual([{ vidro: 'x', numero: 2 }])
+        // e a tipologia ESCRITA viaja marcada; a que não foi escrita, não
+        expect(esquadriasDaProposta({ itens: [{ tipologia: 'DP-69', tipologia_dita: true }] })).toEqual([{ tipologia: 'DP-69', tipologia_dita: true }])
+        expect(esquadriasDaProposta({ itens: [{ tipologia: 'DP-69', tipologia_dita: 'sim' }] })).toEqual([{ tipologia: 'DP-69' }])
     })
     it('(f) o que JÁ diz que é alteração não pergunta: o número de um item que existe, e a correção de campo de uma esquadria que não está inteira', async () => {
         await fecharDp02(JOAO)
