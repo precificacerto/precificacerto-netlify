@@ -117,7 +117,7 @@ export function esquadriasDaProposta(proposta: unknown): EsquadriaProposta[] {
         if (!CAMPOS_DA_ESQUADRIA.some((c) => c in campos)) return []
         // A INTENÇÃO VIAJA COM A RETIDA (dono do produto, 21/11/2026, o achado da 0016): a alteração retida para perguntar o nome não volta como
         // acréscimo. Na ALTERAÇÃO o número também viaja: é o item do levantamento que o vendedor vai nomear. Fora dela, o número não viaja
-        if (b.intencao === 'alterar' || b.intencao === 'acrescentar') campos.intencao = b.intencao
+        if (b.intencao === 'alterar' || b.intencao === 'acrescentar' || b.intencao === 'substituir') campos.intencao = b.intencao
         if (b.intencao === 'alterar' && typeof b.ordem === 'number' && Number.isInteger(b.ordem) && b.ordem > 0) campos.ordem = b.ordem
         return [campos]
     })

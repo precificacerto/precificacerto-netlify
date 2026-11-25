@@ -272,7 +272,7 @@ export type DesfechoDaIa =
     | 'confirmar-da-imagem'
 
 /** O que o vendedor disse sobre o levantamento que já existe (21/11/2026): mudar um item dele, ou pôr um item novo. */
-export type IntencaoNoLevantamento = 'alterar' | 'acrescentar'
+export type IntencaoNoLevantamento = 'alterar' | 'acrescentar' | 'substituir'
 /**
  * A PERGUNTA, quando a frase não diz (dono do produto, 21/11/2026): "se a frase não disser qual dos dois, PERGUNTE em vez de escolher". As
  * esquadrias ficam retidas; a resposta "acrescenta" (ou o "sim") acrescenta, e "altera o item N" altera aquele item.
@@ -285,6 +285,13 @@ export const fraseDeAlterarOuAcrescentar = (nome: string, nExistentes: number, e
 /** A mesma pergunta em outras palavras (R2). */
 export const fraseDeAlterarOuAcrescentarEmOutrasPalavras = (nome: string) =>
     `Preciso saber, para o “${nome}”: é um item novo, para acrescentar, ou é para alterar um item que já está lá (e qual)?`
+/**
+ * A LISTA INTEIRA PARA UM LEVANTAMENTO QUE JÁ EXISTE (dono do produto, 25/11/2026; pedido 0026): "a reformulação vale inteira — lista nova para
+ * cliente que já tem levantamento é alteração do antigo, mas o conteúdo passa a ser exatamente o da lista nova, sem mescla por posição, sem
+ * pergunta e sem sobra de item antigo". A lista é a mensagem com DUAS OU MAIS esquadrias inteiras (a tipologia, ou as duas medidas).
+ */
+export const esquadriaInteira = (e: Record<string, unknown>) => (typeof e.tipologia === 'string' && e.tipologia !== '') || (e.largura_mm != null && e.altura_mm != null)
+export const ehListaInteira = (esquadrias: ReadonlyArray<Record<string, unknown>>) => esquadrias.filter(esquadriaInteira).length >= 2
 /** As retidas dizem todas "acrescentar": a confirmação de antes (o levantamento), não a pergunta de qual das duas. */
 const soAcrescentar = (itens: ReadonlyArray<Record<string, unknown>>) => itens.length > 0 && itens.every((i) => i.intencao === 'acrescentar')
 
@@ -622,7 +629,7 @@ export const FERRAMENTA = {
             cliente: { ...texto, description: 'O nome do CLIENTE, copiado como o vendedor o escreveu NESTA mensagem (ou na foto ou no PDF dela) (ex.: "Cliente: Geronimo Silva" → Geronimo Silva). O nome do levantamento é o nome do cliente, puro. Omita se ele não escreveu.' },
             novo: { type: 'boolean', description: 'true SÓ quando o vendedor disse explicitamente que é um levantamento novo.' },
             opcao: { ...inteiro, description: 'Quando a pergunta em aberto lista levantamentos ou orçamentos numerados e o vendedor escolheu um deles — pelo número ("o 2"), pela ordem ("o primeiro", "o último"), pelo nome ("é o do Geronimo") ou pela data ("o de ontem") —, o número dele na lista. Senão, omita.' },
-            alteracao: { type: 'string', enum: ['alterar', 'acrescentar'], description: 'O que o vendedor DISSE sobre um levantamento que já existe: "alterar" quando pede para MUDAR um item que já está lá (troca, muda, altera, corrige); "acrescentar" quando pede para pôr um item NOVO (acrescenta, adiciona, inclui, mais uma). Se ele não disse qual dos dois, omita.' },
+            alteracao: { type: 'string', enum: ['alterar', 'acrescentar', 'substituir'], description: 'O que o vendedor DISSE sobre um levantamento que já existe: "alterar" quando pede para MUDAR um item que já está lá (troca, muda, altera, corrige); "acrescentar" quando pede para pôr um item NOVO (acrescenta, adiciona, inclui, mais uma); "substituir" quando pede para TROCAR o levantamento inteiro pelo que mandou (substitui, refaz, vale esta lista). Se ele não disse nenhum dos três, omita.' },
             vendedor: { ...texto, description: 'O nome do VENDEDOR dono do levantamento, copiado como foi escrito NESTA mensagem. Omita se não foi escrito.' },
             vendedor_opcao: { ...inteiro, description: 'Quando a pergunta em aberto lista FUNCIONÁRIOS, numerados, e o vendedor escolheu um deles — pelo número, pelo nome completo ou pela data do cadastro —, o número dele na lista. Senão, omita.' },
             vendedor_do_levantamento: { ...texto, description: 'Quando quem escreve LANÇA o levantamento PARA outro vendedor, dizendo isso sobre o VENDEDOR ("é do Cristiano", "é para o Cristiano", "o vendedor é o Cristiano", "vendedor: Cristiano", "lança para o Cristiano"): o nome dele, copiado como foi escrito NESTA mensagem. NUNCA o nome do CLIENTE, nem um nome solto ("levantamento do João" é o cliente João). Omita se não foi dito.' },
@@ -763,7 +770,7 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
         '- Com a pergunta do nome em aberto (o nome do cliente, ou a lista de levantamentos parecidos), o vendedor responde do jeito dele, e o nome vem de qualquer forma: "Geison Silva novo", "é o Geison Silva", "novo: Geison Silva" → nome Geison Silva (e novo: true quando ele disse novo). Nunca espere uma forma fixa.',
         '- opcao: quando a pergunta em aberto lista levantamentos ou orçamentos numerados e ele escolheu um — "o 2", "o primeiro", "o último", "é o do Geronimo", "o de ontem" (compare com as datas da lista e com a data de hoje) —, o número dele na lista. Senão, omita.',
         '- novo: true SÓ quando o vendedor disse que é um levantamento novo ("novo ..."). Senão, omita.',
-        '- alteracao: "alterar" quando ele pede para MUDAR um item de um levantamento que já existe ("troca a altura", "muda a cor", "corrige"); "acrescentar" quando pede para pôr um item NOVO nele ("acrescenta", "adiciona", "inclui mais uma janela"). Se ele não disse qual dos dois, omita: o código pergunta — nunca escolha por ele.',
+        '- alteracao: "alterar" quando ele pede para MUDAR um item de um levantamento que já existe ("troca a altura", "muda a cor", "corrige"); "acrescentar" quando pede para pôr um item NOVO nele ("acrescenta", "adiciona", "inclui mais uma janela"). "substituir" quando pede para trocar o levantamento INTEIRO pelo que mandou ("substitui", "refaz com esta lista", "vale esta"). Se ele não disse nenhum dos três, omita: o código decide pela lista ou pergunta — nunca escolha por ele.',
         '- vendedor: só quando a mensagem diz de qual VENDEDOR é o levantamento; copie o nome como foi escrito. Senão, omita.',
         '- Pergunta em aberto (quando houver, no fim): a mensagem pode ser a RESPOSTA a ela. Se o vendedor responde com um levantamento que a pergunta cita ("é o mesmo", "é esse"), ponha em `nome` o nome dele escrito como na pergunta. Se a mensagem é só o nome de um levantamento, é o nome do levantamento.',
         '- confirma: só quando a pergunta em aberto pede confirmação ou AUTORIZAÇÃO (a medida fora do limite) — true se ele confirmou ou autorizou ("sim", "pode", "confirmo", "autorizo", "pode fabricar"), false se negou. Senão, omita.',
@@ -1764,7 +1771,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const confirma = proposta.confirma === true ? true : proposta.confirma === false ? false : null
         // A INTENÇÃO SOBRE O LEVANTAMENTO QUE JÁ EXISTE (dono do produto, 21/11/2026): "alteração no levantamento pode ser a alteração do item
         // existente OU adicionar outro item [...] o defeito é o sistema decidir sozinho". O `true` de antes vale como "alterar"
-        const intencaoDita: IntencaoNoLevantamento | null = proposta.alteracao === true || proposta.alteracao === 'alterar' ? 'alterar' : proposta.alteracao === 'acrescentar' ? 'acrescentar' : null
+        const intencaoDita: IntencaoNoLevantamento | null = proposta.alteracao === true || proposta.alteracao === 'alterar' ? 'alterar' : proposta.alteracao === 'acrescentar' ? 'acrescentar' : proposta.alteracao === 'substituir' ? 'substituir' : null
         // o fornecedor e a família que o vendedor NÃO disse saem da proposta: a pergunta de qual família não se responde pela IA.
         // O VIDRO também (04/11/2026): "copiado, nunca completado" — a palavra que não está na mensagem veio da instrução e cai; o que está fica
         // ("pode, não derrube": "incolor temperado 8 mm" sobre "vidro 8mm" vira "8 mm"); cai inteiro só quando NADA do vidro está na mensagem
@@ -2126,9 +2133,14 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // que não está inteira ("a largura é 1500", "muda a cor"). Só a esquadria INTEIRA (a tipologia, ou as duas medidas), sem número e diferente das
         // gravadas, pode ser outra — e é dela que a frase precisa dizer se é nova
         const ordensDitas = new Set((Array.isArray(daMensagemBrutas) ? daMensagemBrutas : []).map((i) => (i && typeof i === 'object' ? (i as Record<string, unknown>).ordem : undefined)).filter((o): o is number => typeof o === 'number'))
-        const inteira = (e: EsquadriaProposta) => (typeof e.tipologia === 'string' && e.tipologia !== '') || (e.largura_mm != null && e.altura_mm != null)
+        const inteira = esquadriaInteira
         const algumaNova = alvo !== null && !(alvo.itens.some((i) => ordensDitas.has(i.ordem)))
             && emEspera.some((e) => inteira(e) && !alvo!.itens.some((i) => esquadriasEquivalentes(e, i as unknown as EsquadriaProposta)))
+        // A LISTA INTEIRA SUBSTITUI, SEM PERGUNTA (dono do produto, 25/11/2026; pedido 0026): duas ou mais esquadrias inteiras para um levantamento que
+        // JÁ EXISTE não se mesclam item a item — o conteúdo passa a ser exatamente o da lista. Fora disso fica como era: a montagem em curso (a mensagem
+        // completa o que está sendo montado), a intenção dita ("acrescenta", "altera o item 2") e a lista toda IGUAL ao gravado (a mesma, reenviada)
+        const listaNova = ehListaInteira(emEspera) && !emEspera.filter(esquadriaInteira).every((e) => alvo !== null && alvo.itens.some((i) => esquadriasEquivalentes(e, i as unknown as EsquadriaProposta)))
+        if (alvo !== null && rastro.rota !== 'MONTAGEM' && alvo.itens.length > 0 && intencao === null && listaNova) intencao = 'substituir'
         // em MONTAGEM, a mensagem completa a esquadria que está sendo montada (a regra de sempre); a esquadria RETIDA, que esperava o levantamento,
         // pergunta também ali
         if (alvo !== null && (alvo.estado !== EM_MONTAGEM || daPergunta) && alvo.itens.length > 0 && intencao === null && algumaNova) {
@@ -2142,7 +2154,10 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const acrescentar = alvo !== null && intencao === 'acrescentar'
 
         // ── a proposta, validada ──
-        const atuais = alvo ? alvo.itens : [itemVazio(1)]
+        // SUBSTITUIR (25/11/2026): a lista entra num levantamento VAZIO — nada do que estava gravado é mesclado (nem tipologia nova com medida velha),
+        // e as linhas que não voltam saem na gravação (`gravarLevantamento`: o DELETE conferido das que sumiram)
+        const substituir = alvo !== null && intencao === 'substituir'
+        const atuais = alvo && !substituir ? alvo.itens : [itemVazio(1)]
         // A AUTORIZAÇÃO DA MEDIDA FORA DO LIMITE (dono do produto, 18/11/2026, decisão 1): o pedido e a liberação gravados nos itens do levantamento
         const limites: Map<number, LimiteDoItem> | 'sem_migracao' = !alvo ? await limitesDisponiveis(c.tenantId)
             : emMontagem && alvo.id === emMontagem.id ? limitesDaMontagem : await lerLimites(c.tenantId, alvo.id)

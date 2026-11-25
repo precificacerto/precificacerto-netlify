@@ -3170,18 +3170,18 @@ describe('(25) o resgate do levantamento antigo e o contexto que não se perde (
         await chamar('Cliente: Geronimo. Janela de correr 1,50x1,20 vidro 4mm')
     }
 
-    it('DECISÃO 1 — o caso real: "Cliente: Geronimo Silva" com o "Geronimo Silva" já gravado é IGUAL, não parecido — sem pergunta de NOME; e, pela regra de 21/11/2026, a frase que não diz se é para alterar ou acrescentar PERGUNTA antes de gravar', async () => {
+    it('DECISÃO 1 — o caso real: "Cliente: Geronimo Silva" com o "Geronimo Silva" já gravado é IGUAL, não parecido — sem pergunta de NOME; e a LISTA de duas esquadrias substitui o levantamento, sem pergunta (25/11/2026)', async () => {
         await fecharDp02('Geronimo Silva')
         llmResponde({ cliente: 'Geronimo Silva', itens: [{ ...JANELA, abertura: 'janela' }, { ...PORTA, abertura: 'porta' }] })
         await chamar(MSG_GERONIMO)
         expect(levantamentos().map((l) => l.nome)).toEqual(['Geronimo Silva'])
         expect(enviados().some((e) => e.includes('pode ser'))).toBe(false)
         expect(linhaIa().pop()).toMatch(/ rota=ALTERACAO .* nome=do_cliente /)
-        expect(itensDe(levantamentos()[0].id)).toHaveLength(1)
-        expect(ultimoEnviado()).toContain('são novos, para acrescentar, ou alteram')
-        llmResponde({ alteracao: 'acrescentar' })
-        await chamar('acrescenta as duas')
-        expect(itensDe(levantamentos()[0].id)).toHaveLength(3)
+        // A LISTA INTEIRA SUBSTITUI, SEM PERGUNTA (dono do produto, 25/11/2026, pedido 0026 — vale sobre a regra de 21/11 para a LISTA): as duas
+        // esquadrias da mensagem passam a ser o levantamento; o item de antes não sobra, e nenhuma pergunta de "alterar ou acrescentar" sai
+        expect(enviados().some((e) => e.includes('para acrescentar, ou alteram'))).toBe(false)
+        expect(linhaIa().pop()).toContain(' intencao=substituir')
+        expect(itensDe(levantamentos()[0].id).map((i) => [i.ordem, i.largura_mm, i.altura_mm])).toEqual([[1, JANELA.largura_mm, JANELA.altura_mm], [2, PORTA.largura_mm, PORTA.altura_mm]])
     })
 
     it('DECISÃO 1 — o levantamento de antes, gravado COM o prefixo, é IGUAL ao nome do cliente sem ele; e nenhum nome novo ganha o prefixo', async () => {
