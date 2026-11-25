@@ -7569,6 +7569,92 @@ describe('(30) a FOTO e o PDF do vendedor (dono do produto, 18/11/2026): baixado
             }
         })
 
+        // O CASO DE 25/11/2026 18:51 (pedido 0028): a foto da TABELA DE VIDROS e a foto dos 11 ITENS, sem legenda, 0,6 s uma da outra — dois
+        // requests; saíram DUAS perguntas do cliente, a segunda gravou a pergunta por cima da primeira (os vidros se perderam), e o nome "marcelo e
+        // rita" despejou a lista inteira perguntando "acrescentar ou alterar qual item"
+        const VIDROS = ONZE.map((_, k) => `${k + 1} incolor laminado 4+4`).join('\n')
+        const fotoDosVidros = () => llmResponde({ texto_da_imagem: VIDROS, itens: ONZE.map((_, k) => ({ ordem: k + 1, vidro: 'incolor laminado 4+4' })) })
+        const LISTA = ONZE.map(([t, l, a], k) => `${k + 1} ${t} ${l} x ${a}${k === 0 ? ' com 05 módulos verticais' : ''} branco`).join('\n')
+        const fotoDosItens = () => llmResponde({
+            texto_da_imagem: LISTA, escolhas: ESCOLHAS_QUE_FECHAM,
+            itens: ONZE.map(([tipologia, largura_mm, altura_mm], k) => ({ ordem: k + 1, tipologia, largura_mm, altura_mm, quantidade: 1, cor_perfil: 'BRANCO', ...(k === 0 ? { modulos_verticais: 5 } : {}) })),
+        })
+        const dozeGravados = async () => {
+            comADP69NoMotor()
+            llmResponde({ nome: 'Marcelo e Rita', itens: Array.from({ length: 12 }, (_, k) => ({ ...DP02, largura_mm: 1000 + k * 100 })), escolhas: ESCOLHAS_QUE_FECHAM })
+            await chamar('Levantamento Marcelo e Rita: 12 DP-02 de 1000 a 2100 x 1000, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+            expect(itensDe(levantamentos()[0].id)).toHaveLength(12)
+            // como em produção (18:51): a confirmação do arquivo de antes já não estava em aberto, e a conversa não tinha levantamento no contexto
+            // — as fotos sem legenda não diziam de quem eram (rota=SEM_NOME)
+            estado.db.orcamentista_pergunta_em_aberto = []
+            for (const m of (estado.db.orcamentista_mensagem ?? []) as Linha[]) { m.levantamento_id = null; m.criado_em = new Date(Date.UTC(2026, 0, 1)).toISOString() }
+        }
+        it('(0028-f) as DUAS FOTOS da mesma lista, na rajada: UMA pergunta do cliente só, e as retidas das duas se juntam pelo número do item (o vidro de cada um)', async () => {
+            await dozeGravados()
+            const antes = enviados().length
+            estado.download = { bytes: FOTO }
+            fotoDosVidros()
+            await chamarComMidia(foto({ caption: undefined }))
+            fotoDosItens()
+            await chamarComMidia(foto({ caption: undefined }))
+            // uma resposta para as duas fotos: a pergunta do cliente, uma vez
+            expect(enviados().length - antes).toBe(1)
+            const ultima = linhaIa().pop() ?? ''
+            expect(ultima).toMatch(/ enviou=nao desfecho=retida-na-rajada /)
+            expect(ultima).toMatch(/ retidas=11(\s|$)/)
+            const aberta = (estado.db.orcamentista_pergunta_em_aberto ?? [])[0]
+            expect(aberta).toEqual(expect.objectContaining({ pergunta: 'SEM_NOME' }))
+            const retidas = aberta.itens as Linha[]
+            expect(retidas.map((r) => [r.numero, r.tipologia, r.vidro ?? null])).toEqual(ONZE.map(([t], k) => [k + 1, t, 'incolor laminado 4+4']))
+            // os códigos escritos na foto ficam marcados como do vendedor
+            expect(retidas.every((r) => r.tipologia_dita === true)).toBe(true)
+        })
+        it('(0028-d) O CASO EXATO, pelo caminho das fotos: o nome "marcelo e rita" substitui o levantamento — 11 itens, V=5 no 1, a DP-69 no 9 e no 10, sem o 12; uma linha diz o que foi feito, e nada é listado', async () => {
+            await dozeGravados()
+            estado.download = { bytes: FOTO }
+            fotoDosVidros()
+            await chamarComMidia(foto({ caption: undefined }))
+            fotoDosItens()
+            await chamarComMidia(foto({ caption: undefined }))
+            const antes = enviados().length
+            llmResponde({ nome: 'Marcelo e Rita' })
+            await chamar('marcelo e rita')
+            expect(levantamentos()).toHaveLength(1)
+            expect(medidas()).toEqual(ONZE.map(([t, l, a], k) => [k + 1, t, l, a]))
+            const itens = itensDe(levantamentos()[0].id)
+            expect((itens[0].escolhas as Record<string, number>).V).toBe(5)
+            expect(itens.map((i) => i.vidro ?? null)).toEqual(ONZE.map(() => 'incolor laminado 4+4'))
+            const ia = linhaIa().pop() ?? ''
+            expect(ia).toContain(' intencao=substituir')
+            expect(ia).not.toContain('desfecho=alterar-ou-acrescentar')
+            // a DP-69 escrita na FOTO, num turno anterior, continua do vendedor: nunca "escolha do modelo"
+            const casar = erros.filter((l) => l.startsWith('[ETAPA 2 ')).pop() ?? ''
+            expect(casar).toContain('e9:tipologia=DP-69/dito')
+            expect(casar).not.toContain('escolha_do_modelo')
+            // UMA resposta, que diz o que foi feito; a lista nunca vai no texto
+            const depois = enviados().slice(antes)
+            expect(depois).toHaveLength(1)
+            expect(depois[0].split('\n')[0]).toBe('Atualizei o orçamento de “Marcelo e Rita”: a lista nova, com 11 itens, substitui a anterior.')
+            expect(depois[0]).not.toMatch(/2\.300|DP-69|são novos, para acrescentar|diga qual item/)
+        })
+        it('(0028-f) o contraste: a foto COM legenda é um request só — uma resposta, como sempre', async () => {
+            estado.download = { bytes: FOTO }
+            llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
+            await chamarComMidia(foto({ caption: 'Levantamento Casa do Pedro' }))
+            expect(enviados()).toHaveLength(1)
+            expect(linhaIa().join('\n')).not.toContain('retida-na-rajada')
+        })
+        it('o contraste: a segunda pergunta do cliente FORA da rajada (a foto de antes respondida há mais de 30 s) sai, como sempre', async () => {
+            estado.download = { bytes: FOTO }
+            fotoDosVidros()
+            await chamarComMidia(foto({ caption: undefined }))
+            for (const m of (estado.db.orcamentista_mensagem ?? []) as Linha[]) m.criado_em = new Date(Date.UTC(2026, 0, 1)).toISOString()
+            const antes = enviados().length
+            fotoDosItens()
+            await chamarComMidia(foto({ caption: undefined }))
+            expect(enviados().length - antes).toBe(1)
+            expect(linhaIa().join('\n')).not.toContain('retida-na-rajada')
+        })
         it('a foto cujos itens o modelo lê SEM NADA que mude (nenhum campo sobrou): nada é alterado, nada é calculado, e a resposta diz quantos foram lidos', async () => {
             llmResponde({ nome: 'Marcelo e Rita', itens: [DP02, { ...DP02, largura_mm: 1300 }], escolhas: ESCOLHAS_QUE_FECHAM })
             await chamar('Levantamento Marcelo e Rita: DP-02 1200 x 1000; DP-02 1300 x 1000; branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
@@ -8567,6 +8653,74 @@ describe('(47) alterar ou acrescentar: a intenção dita manda; sem ela, a conve
         // e a tipologia ESCRITA viaja marcada; a que não foi escrita, não
         expect(esquadriasDaProposta({ itens: [{ tipologia: 'DP-69', tipologia_dita: true }] })).toEqual([{ tipologia: 'DP-69', tipologia_dita: true }])
         expect(esquadriasDaProposta({ itens: [{ tipologia: 'DP-69', tipologia_dita: 'sim' }] })).toEqual([{ tipologia: 'DP-69' }])
+    })
+    // PEDIDO 0028 (dono do produto, 25/11/2026): o agente distingue item a item, aplica, e diz em UMA linha o que fez — nunca a lista
+    const semLista = () => {
+        for (const e of enviados()) {
+            expect(e).not.toMatch(/são novos, para acrescentar|diga qual item/)
+            expect(e).not.toMatch(/\d\.\d{3} x \d/)
+        }
+    }
+    it('(0028-a) SÓ ACRÉSCIMO: a esquadria sem correspondência entra somada, o item que existe fica, e a resposta diz "1 acrescentado" com o arquivo', async () => {
+        await fecharDp02(JOAO)
+        llmResponde({ nome: JOAO, itens: [{ ...DP02, largura_mm: 900, altura_mm: 900 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar(`${JOAO}: DP-02 900 x 900, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50`)
+        expect(itensDe(doJoao().id).map((i) => [i.ordem, i.largura_mm, i.altura_mm])).toEqual([[1, 1200, 1000], [2, 900, 900]])
+        expect(ultimoEnviado().split('\n')[0]).toBe(`Atualizei o orçamento de “${JOAO}”: 1 acrescentado.`)
+        expect(ultimoEnviado()).toContain('o arquivo está acima')
+        semLista()
+    })
+    it('(0028-b) SÓ ALTERAÇÃO de um item: o número do item escrito com a mesma tipologia substitui os dados dele — "1 item alterado"', async () => {
+        await fecharDp02(JOAO)
+        llmResponde({ nome: JOAO, itens: [{ ...DP02, ordem: 1, largura_mm: 1500, altura_mm: 1100, quantidade: 3 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar(`${JOAO}: item 1 DP-02 1500 x 1100, 3 unidades, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50`)
+        expect(itensDe(doJoao().id).map((i) => [i.ordem, i.largura_mm, i.altura_mm, i.quantidade])).toEqual([[1, 1500, 1100, 3]])
+        expect(ultimoEnviado().split('\n')[0]).toBe(`Atualizei o orçamento de “${JOAO}”: 1 item alterado.`)
+        semLista()
+    })
+    it('(0028-c) ACRÉSCIMO + ALTERAÇÃO na mesma mensagem: cada um no seu item — "1 item alterado e 1 acrescentado"', async () => {
+        await fecharDp02(JOAO)
+        llmResponde({ nome: JOAO, itens: [{ ...DP02, ordem: 1, largura_mm: 1500 }, { ...DP02, largura_mm: 900, altura_mm: 900 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar(`${JOAO}: o item 1 passa a 1500 x 1000, e mais uma DP-02 900 x 900, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50`)
+        expect(itensDe(doJoao().id).map((i) => [i.ordem, i.largura_mm, i.altura_mm])).toEqual([[1, 1500, 1000], [2, 900, 900]])
+        expect(linhaIa().pop()).toMatch(/ intencao=distinguiu:alterados=1,acrescentados=1(\s|$)/)
+        expect(ultimoEnviado().split('\n')[0]).toBe(`Atualizei o orçamento de “${JOAO}”: 1 item alterado e 1 acrescentado.`)
+        semLista()
+    })
+    it('a função pura: a ordem da correspondência — o número, a mesma esquadria, o ambiente — e a ambígua; e as frases', () => {
+        const A = acrescimo()
+        const existentes = [
+            { ordem: 1, tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, ambientes: [{ ambiente: 'Sala' }] },
+            { ordem: 2, tipologia: 'DP-02', largura_mm: 1300, altura_mm: 1000, ambientes: [{ ambiente: 'Quarto' }] },
+        ]
+        // o número com a mesma tipologia; o número sem tipologia (a correção); o número com outra tipologia (ambígua)
+        expect(A.distinguirItens([{ numero: 2, tipologia: 'DP-02', largura_mm: 900, altura_mm: 900 }], existentes)).toEqual([{ tipo: 'alterar', ordem: 2, inteira: true }])
+        expect(A.distinguirItens([{ ordem: 1, quantidade: 3, largura_mm: 900, altura_mm: 900 }], existentes)).toEqual([{ tipo: 'alterar', ordem: 1, inteira: false }])
+        expect(A.distinguirItens([{ numero: 1, tipologia: 'DP-01', largura_mm: 900, altura_mm: 900 }], existentes)).toEqual([{ tipo: 'ambiguo', ordem: 1 }])
+        // o número com outra tipologia, mas no MESMO ambiente: é ele
+        expect(A.distinguirItens([{ numero: 1, tipologia: 'DP-01', largura_mm: 900, altura_mm: 900, ambientes: [{ ambiente: 'sala' }] }], existentes)).toEqual([{ tipo: 'alterar', ordem: 1, inteira: true }])
+        // a mesma esquadria, sem número; a que não corresponde a nenhuma
+        expect(A.distinguirItens([{ tipologia: 'DP-02', largura_mm: 1300, altura_mm: 1000, quantidade: 4 }], existentes)).toEqual([{ tipo: 'alterar', ordem: 2, inteira: true }])
+        expect(A.distinguirItens([{ tipologia: 'DP-02', largura_mm: 700, altura_mm: 700 }], existentes)).toEqual([{ tipo: 'acrescentar' }])
+        // a que equivale a DOIS itens (só a tipologia): ambígua, sem candidato
+        expect(A.distinguirItens([{ tipologia: 'DP-02' }], existentes)).toEqual([{ tipo: 'ambiguo', ordem: null }])
+        // o ambiente: a mesma tipologia no mesmo ambiente; o único item do ambiente
+        expect(A.distinguirItens([{ tipologia: 'DP-02', largura_mm: 800, altura_mm: 800, ambientes: [{ ambiente: 'Quarto' }] }], existentes)).toEqual([{ tipo: 'alterar', ordem: 2, inteira: true }])
+        expect(A.distinguirItens([{ tipologia: 'DP-01', largura_mm: 800, altura_mm: 800, ambientes: [{ ambiente: 'Cozinha' }] }], existentes)).toEqual([{ tipo: 'acrescentar' }])
+        // dois itens da mensagem no MESMO item: os dois ambíguos
+        expect(A.distinguirItens([{ numero: 1, tipologia: 'DP-02', largura_mm: 900, altura_mm: 900 }, { tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000 }], existentes)).toEqual([{ tipo: 'ambiguo', ordem: 1 }, { tipo: 'ambiguo', ordem: 1 }])
+        // a correção sem número (não é inteira): o caminho de sempre
+        expect(A.distinguirItens([{ vidro: 'temperado 8mm' }], existentes)).toBeNull()
+        // as frases: curtas, sem lista
+        expect(A.fraseDaCorrespondenciaAmbigua('X', [1, 3])).toBe('Os itens 1 e 3 desta mensagem substituem os de mesmo número que já estão no levantamento “X”, ou são mais itens?')
+        expect(A.fraseDaCorrespondenciaAmbigua('X', [null])).toBe('Este item substitui um item que já está no levantamento “X”, ou é mais um?')
+        expect(A.fraseDaCorrespondenciaAmbigua('X', [null, 2])).toBe('Estes itens substituem itens que já estão no levantamento “X”, ou são mais itens?')
+        expect(A.fraseDaAtualizacao('X', { alterados: 2, acrescentados: 1, substituidos: null })).toBe('Atualizei o orçamento de “X”: 2 itens alterados e 1 acrescentado.')
+        expect(A.fraseDaAtualizacao('X', { alterados: 0, acrescentados: 3, substituidos: null })).toBe('Atualizei o orçamento de “X”: 3 acrescentados.')
+        expect(A.fraseDaAtualizacao('X', { alterados: 0, acrescentados: 0, substituidos: null })).toBeNull()
+        expect(A.fraseDaAtualizacao('X', { alterados: 0, acrescentados: 0, substituidos: 1 })).toBe('Atualizei o orçamento de “X”: a lista nova, com 1 item, substitui a anterior.')
+        expect(A.numeroDoItem({ ordem: 0, numero: 4 })).toBe(4)
+        expect(A.numeroDoItem({ numero: 1.5 })).toBeNull()
     })
     it('(f) o que JÁ diz que é alteração não pergunta: o número de um item que existe, e a correção de campo de uma esquadria que não está inteira', async () => {
         await fecharDp02(JOAO)

@@ -93,7 +93,8 @@ export function fraseDaCorrespondenciaAmbigua(nome: string, ordens: ReadonlyArra
         const lista = `${ditas.slice(0, -1).join(', ')} e ${ditas[ditas.length - 1]}`
         return `Os itens ${lista} desta mensagem substituem os de mesmo número que já estão no levantamento “${nome}”, ou são mais itens?`
     }
-    return `${ordens.length > 1 ? 'Estes itens substituem itens' : 'Este item substitui um item'} que já está no levantamento “${nome}”, ou ${ordens.length > 1 ? 'são mais itens' : 'é mais um'}?`
+    return ordens.length > 1 ? `Estes itens substituem itens que já estão no levantamento “${nome}”, ou são mais itens?`
+        : `Este item substitui um item que já está no levantamento “${nome}”, ou é mais um?`
 }
 
 /** A linha que diz o que foi feito (pedido 0028, item 4): nunca a lista. `null` quando nada foi alterado nem acrescentado. */

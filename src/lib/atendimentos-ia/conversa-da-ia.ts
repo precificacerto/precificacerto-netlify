@@ -267,6 +267,8 @@ export type DesfechoDaIa =
     | 'perguntou' | 'sem-cores' | 'sem-linha' | 'padrao-nomeado' | 'levantou' | 'recusou' | 'envio-falhou' | 'erro' | 'nenhuma-cabe'
     /** O reenvio do WUZAPI de uma entrada já respondida (200 sem conduzir), e o reenvio da saída cujo primeiro envio falhou (03/11/2026). */
     | 'repetida' | 'reenviada'
+    /** A outra imagem da mesma rajada já fez esta pergunta (pedido 0028): as retidas se juntam, e nada sai de novo. */
+    | 'retida-na-rajada'
     /** A mídia do vendedor que não foi lida — o áudio, o vídeo, a planilha, o que passou do limite ou falhou ao baixar (18/11/2026): a resposta diz o quê. */
     | 'midia-nao-lida'
     /** O PEDIDO DE ORÇAMENTO pelo nome (18/11/2026): a lista para escolher; o arquivo mandado de novo; o orçamento sem arquivo, nomeado. */
@@ -1876,6 +1878,22 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
          * que estava em aberto, a resposta diz que não registrou — nunca a mesma pergunta como se nada fosse.
          */
         const perguntar = async (p: PerguntaEmAberto, textoDaPergunta: string, desfecho: DesfechoDaIa): Promise<DesfechoDaIa> => {
+            // UM ENVIO, UMA RESPOSTA, TAMBÉM PARA A IMAGEM (dono do produto, 25/11/2026; pedido 0028 — o levantamento 28: a foto dos 11 itens e a foto
+            // da tabela de vidros, 0,6 s uma da outra, cada uma num request, cada uma com o seu "Qual é o cliente desta imagem?", e a segunda gravou
+            // a pergunta por cima da primeira — os vidros se perderam). A imagem que vai perguntar o MESMO que a outra imagem da rajada perguntou
+            // depois de esta ler a conversa: as retidas das duas se juntam (o item que só completa vai ao de mesmo número), e, se a outra já foi
+            // respondida, esta não manda nada
+            if (c.midia && guardaPergunta && (p.pergunta === 'SEM_NOME' || p.pergunta === 'CONFIRMAR_DA_IMAGEM')) {
+                const agora = await lerPerguntaEmAberto(c.tenantId, c.remetenteId).catch((): null => null)
+                if (agora && typeof agora === 'object' && agora.pergunta === p.pergunta && agora.itens.length > 0) {
+                    p = { ...p, itens: esquadriasDaProposta({ itens: juntarEsquadrias(agora.itens, p.itens).itens }) }
+                    const outra = await outraEntradaRespondida(c.tenantId, c.conversaId, c.entrada).catch((): false => false)
+                    if (outra === true) {
+                        await gravarPerguntaEmAberto(c.tenantId, c.remetenteId, p)
+                        return fim('retida-na-rajada', `retidas=${p.itens.length}`)
+                    }
+                }
+            }
             // a QUAL_ORCAMENTO que o banco ainda não aceita (a 20261118000002 pendente): a lista vai, sem ficar guardada — e o log diz
             if (guardaPergunta && !(await gravarPerguntaEmAberto(c.tenantId, c.remetenteId, p)) && p.pergunta === 'QUAL_ORCAMENTO') rastro.qualOrcamento = 'sem_migracao'
             const repetida = aberta !== null && aberta.texto === textoDaPergunta
@@ -2222,7 +2240,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         let itensDistinguidos: unknown[] | null = null
         const resolverAmbiguas = daPergunta && aberta?.p.pergunta === 'CONFIRMAR_ACRESCIMO' && alvo !== null && alvo.id === aberta.citados[0]?.id
             && (intencaoDita === 'alterar' || intencaoDita === 'acrescentar') ? intencaoDita : null
-        if (alvo !== null && (alvo.estado !== EM_MONTAGEM || daPergunta) && alvo.itens.length > 0 && (intencao === null || resolverAmbiguas !== null) && emEspera.length > 0 && (algumaNova || resolverAmbiguas !== null || confirmouAtualizar || numeradaComOutraTipologia)) {
+        if (alvo !== null && (alvo.estado !== EM_MONTAGEM || daPergunta) && alvo.itens.length > 0 && (intencao === null || resolverAmbiguas !== null) && emEspera.length > 0 && (algumaNova || resolverAmbiguas !== null || confirmouAtualizar || numeradaComOutraTipologia || emEspera.some((e) => numeroDoItem(e) !== null)) && emEspera.some(esquadriaInteira)) {
             const destinos = distinguirItens(emEspera, alvo.itens)
             if (destinos === null) {
                 if (intencao === null && algumaNova) {

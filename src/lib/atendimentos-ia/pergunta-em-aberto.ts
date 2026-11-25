@@ -227,7 +227,8 @@ export function esquadriasEquivalentes(a: EsquadriaProposta, b: EsquadriaPropost
  */
 export function fundirEsquadrias(retida: EsquadriaProposta, nova: EsquadriaProposta): EsquadriaProposta {
     const fusao: EsquadriaProposta = { ...retida }
-    for (const c of [...CAMPOS_DA_ESQUADRIA, 'vidro_padrao']) if (!presente(fusao[c]) && presente(nova[c])) fusao[c] = nova[c]
+    // o que viaja com a retida também se funde (pedido 0028): os módulos escritos, os ambientes, a obs, o número do item e a marca da tipologia escrita
+    for (const c of [...CAMPOS_DA_ESQUADRIA, 'vidro_padrao', 'ambientes', 'obs', 'modulos_horizontais', 'modulos_verticais', 'numero', 'tipologia_dita']) if (!presente(fusao[c]) && presente(nova[c])) fusao[c] = nova[c]
     if (presente(nova.quantidade)) fusao.quantidade = nova.quantidade
     return fusao
 }
