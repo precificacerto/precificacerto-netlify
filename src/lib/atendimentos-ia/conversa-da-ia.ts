@@ -374,6 +374,8 @@ type Rastro = {
     vidrosPodados: number
     /** Esquadrias que receberam o vidro padrão da base de conhecimento — o CÓDIGO, por grupo de tipologia (13/11/2026; era o da instrução até então). */
     vidrosPadrao: number
+    /** As tipologias que o MODELO escolheu para um item com pedido de autorização em aberto, e que não entraram (25/11/2026, pedido 0026). */
+    tipologiasDoModeloRecusadas: number
     /** Os vidros do padrão cuja referência não achou item na tabela vigente (25/11/2026): a falta fica no log, e o vendedor lê a frase, nunca a sigla. */
     vidrosForaDaTabela: number
     /** A leitura dos padrões de vidro que NÃO deu (a tabela ausente ou a leitura que falhou): nenhum padrão entrou, e a conversa pergunta. */
@@ -433,7 +435,7 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
         + (r.instrucoesSemEfeito === '' ? '' : ` instrucao_sem_efeito=${r.instrucoesSemEfeito}`)
         + (r.fundidos > 0 ? ` agrupados=${r.fundidos}` : '') + (r.caminhos.length > 0 ? ` caminhos=${r.caminhos.join(',')}` : '') + (r.reenviadas > 0 ? ` reenviadas=${r.reenviadas}` : '')
         + (r.historico === '-' ? '' : ` historico=${r.historico}`) + (r.gravacao === '-' ? '' : ` gravacao=${r.gravacao}`) + (r.redacao === '-' ? '' : ` redacao=${r.redacao}`)
-        + (r.vidrosNaoDitos > 0 ? ` vidro_nao_dito=${r.vidrosNaoDitos}` : '') + (r.vidrosPodados > 0 ? ` vidro_podado=${r.vidrosPodados}` : '') + (r.vidrosPadrao > 0 ? ` vidro_padrao=${r.vidrosPadrao}` : '') + (r.vidrosForaDaTabela > 0 ? ` vidro_fora_da_tabela=${r.vidrosForaDaTabela}` : '') + (r.vidroPadraoLeitura === '-' ? '' : ` vidro_padrao_leitura=${r.vidroPadraoLeitura}`)
+        + (r.vidrosNaoDitos > 0 ? ` vidro_nao_dito=${r.vidrosNaoDitos}` : '') + (r.vidrosPodados > 0 ? ` vidro_podado=${r.vidrosPodados}` : '') + (r.vidrosPadrao > 0 ? ` vidro_padrao=${r.vidrosPadrao}` : '') + (r.tipologiasDoModeloRecusadas > 0 ? ` tipologia_do_modelo_recusada=${r.tipologiasDoModeloRecusadas}` : '') + (r.vidrosForaDaTabela > 0 ? ` vidro_fora_da_tabela=${r.vidrosForaDaTabela}` : '') + (r.vidroPadraoLeitura === '-' ? '' : ` vidro_padrao_leitura=${r.vidroPadraoLeitura}`)
         // a lista pelo acumulado e os itens vazios (05/11/2026): só números
         + (r.lista === '-' ? '' : ` lista=${r.lista} trechos=${r.trechos}`) + (r.trechosSemCandidata > 0 ? ` trechos_sem_candidata=${r.trechosSemCandidata}` : '')
         + (r.itensSemCampos > 0 ? ` itens_sem_campos=${r.itensSemCampos}` : '')
@@ -1437,7 +1439,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = {
         etapas: { coletar: null, casar: null, montar: null, calcular: null },
         levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null, raciocinio: null, parada: null, cacheLido: null, cacheEscrito: null, cabecalhosMs: null, primeiroTokenMs: null, tentativas: null, requestId: null },
-        midia: '-', contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', intencao: '-', descricoesDasEtapas: '-', textosDoCaminho: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, vidrosForaDaTabela: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', contextoDoTurno: '-', coresPadrao: 0, tipologiasPadrao: 0, linhaPadrao: 0, pecasNaoPedidas: 0, limite: '-', qualOrcamento: '-', daImagem: '-', medidasNaOrdem: 0,
+        midia: '-', contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', intencao: '-', descricoesDasEtapas: '-', textosDoCaminho: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, tipologiasDoModeloRecusadas: 0, vidrosForaDaTabela: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', contextoDoTurno: '-', coresPadrao: 0, tipologiasPadrao: 0, linhaPadrao: 0, pecasNaoPedidas: 0, limite: '-', qualOrcamento: '-', daImagem: '-', medidasNaOrdem: 0,
     }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
@@ -2187,7 +2189,26 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             rastro.linhaPadrao += 1
             return { ...r, tipologia: principal }
         })
-        const proposta_ = aplicarProposta(atuais, { ...efetiva, itens: naLinhaPadrao }, {
+        // A DÚVIDA ABERTA NÃO SE RESOLVE SOZINHA (dono do produto, 25/11/2026; pedido 0026: "Ele não pode fazer um levantamento com dúvida"; "código de
+        // tipologia escrito pelo vendedor é dito, nunca substituível por escolha do modelo. Se a tipologia dita não couber, pergunta-se; não se escolhe
+        // outra"). O item com PEDIDO DE AUTORIZAÇÃO em aberto só sai dele pelo vendedor: o "sim", o "não", a medida corrigida, ou OUTRO código que ele
+        // escreva. A tipologia que o MODELO escolheu (o código não está na mensagem) para esse item não entra — nem a que vem sem número de item
+        // enquanto houver pedido em aberto (ela cairia no primeiro item sem tipologia, que é o do pedido)
+        const pedidosAbertos = new Map(atuais.flatMap((i): Array<[number, LimiteDoItem]> => { const l = limiteDe(i.ordem); return l && pedidoEmAberto(l, i) ? [[i.ordem, l]] : [] }))
+        const semTrocaPeloModelo = pedidosAbertos.size === 0 ? naLinhaPadrao : naLinhaPadrao.map((raw) => {
+            if (typeof raw !== 'object' || raw === null) return raw
+            const r = raw as Record<string, unknown>
+            if (typeof r.tipologia !== 'string' || origemDaTipologiaProposta(r.tipologia, c.texto) !== 'escolha_do_modelo') return raw
+            const ordem = typeof r.ordem === 'number' ? r.ordem : null
+            if (ordem !== null && !pedidosAbertos.has(ordem)) return raw
+            // a MESMA tipologia do pedido (com a medida corrigida) é a resposta dele, não uma troca
+            const dosPedidos = ordem !== null ? [pedidosAbertos.get(ordem)?.tipologia] : [...pedidosAbertos.values()].map((l) => l.tipologia)
+            if (dosPedidos.includes(r.tipologia)) return raw
+            rastro.tipologiasDoModeloRecusadas += 1
+            const { tipologia: _recusada, ...semTipologia } = r
+            return semTipologia
+        })
+        const proposta_ = aplicarProposta(atuais, { ...efetiva, itens: semTrocaPeloModelo }, {
             candidatos: tabela.candidatos, aberturaDaMensagem, aberturasDitas: palavrasDeAbertura(c.texto), cores, mensagem: c.texto, ordemPadrao, definicao, familiasDoCodigo: doCodigo, acrescentar,
             limiteAutorizado: (i) => autorizacaoVale(limiteDe(i.ordem), i),
         })
@@ -2228,7 +2249,14 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         let vidrosDaConta: VidrosPadraoDaConta | null = null
         for (const item of proposta_.itens) {
             if (!dizAlgo(item)) continue
-            if (item.tipologia === null) {
+            // o item com PEDIDO EM ABERTO e sem resposta (25/11/2026): nem o padrão do código põe outra tipologia nele — o pedido se repete, para a
+            // MESMA tipologia, e o item continua sem ela (a dúvida aberta bloqueia a entrega)
+            const pedidoDoItem = pedidosAbertos.get(item.ordem)
+            if (item.tipologia === null && pedidoDoItem && pedidoEmAberto(pedidoDoItem, item) && !negados.includes(item.ordem)) {
+                const doPedido = tabela.candidatos.filter((x) => x.tipologia === pedidoDoItem.tipologia).slice(0, 1)
+                if (doPedido.length) faltasDoPadrao.push({ ordem: item.ordem, frase: fraseDoPedidoDeAutorizacao(item, doPedido, doPedido[0]), motivo: 'LIMITES' })
+                pedir.set(item.ordem, pedidoDoItem.tipologia)
+            } else if (item.tipologia === null) {
                 const { decisao: padrao, atributos, impedimento, paraAutorizar } = padraoDaEsquadria(item, proposta_.aberturas[item.ordem] ?? null, filtro.lidos, tabela.candidatos, variaveisDaCandidata)
                 if ('tipologia' in padrao) {
                     item.tipologia = padrao.tipologia; rastro.tipologiasPadrao += 1; tipologiasDoPadrao.push(`e${item.ordem}:${padrao.tipologia}`)
@@ -2490,6 +2518,22 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         if (pendencia) {
             // a tipologia que o CÓDIGO descartou (03/11/2026) tem frase própria: nenhuma cabe (a medida e a faixa das que sobraram), ou a
             // palavra do vendedor contradita — antes de qualquer outra pendência, para a razão não se perder
+            // TODOS OS PEDIDOS DE AUTORIZAÇÃO DE UMA VEZ (25/11/2026, pedido 0026: "perguntar tudo de uma vez → receber a resposta → só então gerar e
+            // enviar"): cada item fora do limite com a frase dele, e o que mais falta nos outros itens vai junto
+            const pedidosDeLimite = aplicada.recusas.filter((r) => r.motivo === 'LIMITES' && pedir.get(r.ordem) === r.tipologia && tabela.candidatos.some((x) => x.tipologia === r.tipologia))
+            if (pedidosDeLimite.length > 1) {
+                const n = aplicada.itens.length
+                const dosPedidos = new Set(pedidosDeLimite.map((r) => r.ordem))
+                const outrosSemPadrao = faltasDoPadrao.filter((x) => !dosPedidos.has(x.ordem) && aplicada.itens.some((i) => i.ordem === x.ordem && i.tipologia === null))
+                const jaDitos = new Set([...dosPedidos, ...outrosSemPadrao.map((x) => x.ordem)])
+                const resto = pendencias.filter((p) => !(p.tipo === 'CAMPO' && p.campo === 'tipologia' && jaDitos.has(p.ordem)))
+                const linhas = [
+                    ...pedidosDeLimite.map((r) => { const doCodigo_ = tabela.candidatos.filter((x) => x.tipologia === r.tipologia).slice(0, 1); return `Item ${r.ordem}: ${fraseDoPedidoDeAutorizacao(r.medidas, doCodigo_, doCodigo_[0])}` }),
+                    ...outrosSemPadrao.map((x) => `${n > 1 ? `Item ${x.ordem}: ` : ''}${x.frase}`),
+                    ...(resto.length ? [perguntaDasPendencias(resto, n, null, filtro.jaDito)] : []),
+                ]
+                return await falar(linhas.join('\n'), 'nenhuma-cabe')
+            }
             const recusa = aplicada.recusas[0]
             if (recusa) {
                 const comEsquadria = (frase: string) => (aplicada.itens.length > 1 ? `Item ${recusa.ordem}: ${frase}` : frase)
