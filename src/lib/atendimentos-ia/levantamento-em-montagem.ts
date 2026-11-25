@@ -166,6 +166,11 @@ export type ResultadoDaProposta = {
     recusas: RecusaDaTipologia[]
     /** A ABERTURA de cada esquadria tocada nesta proposta (05/11/2026), pela palavra do vendedor — para a tipologia padrão decidir. */
     aberturas: Record<number, Abertura | null>
+    /**
+     * A QUANTIDADE DE MÓDULOS ESCRITA NO ITEM (25/11/2026, pedido 0026), pela ordem do item em que caiu: "05 módulos verticais" → verticais 5. Vira
+     * variável gravada depois de a tipologia do item estar resolvida (a conversa sabe a variável pelo motor). Só inteiro maior que zero.
+     */
+    modulosDitos: Record<number, { horizontais?: number; verticais?: number }>
     /** As esquadrias (pela ordem) cuja quantidade é o 1 do padrão, não a dita (06/11/2026): o agrupamento não a deixa substituir a gravada. */
     quantidadesPadrao: number[]
     /**
@@ -204,6 +209,7 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
     let descartados = 0
     let semEsquadria = false
     const recusas: RecusaDaTipologia[] = []
+    const modulosDitos: Record<number, { horizontais?: number; verticais?: number }> = {}
     const coresForaDaLista: Array<{ ordem: number; cor: string }> = []
     const aberturas: Record<number, Abertura | null> = {}
     const tipologias = [...new Set(ctx.candidatos.map((c) => c.tipologia))]
@@ -263,6 +269,9 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
         }
         if (!alvo) { semEsquadria = true; continue }
         tocadas.add(alvo.ordem)
+        // os módulos escritos NESTE item viajam com a ordem dele: a variável só se sabe com a tipologia resolvida
+        const modulosDoItem = { ...(ordemValida(b.modulos_horizontais) ? { horizontais: b.modulos_horizontais } : {}), ...(ordemValida(b.modulos_verticais) ? { verticais: b.modulos_verticais } : {}) }
+        if (Object.keys(modulosDoItem).length > 0) modulosDitos[alvo.ordem] = { ...(modulosDitos[alvo.ordem] ?? {}), ...modulosDoItem }
         if (corFora !== null) coresForaDaLista.push({ ordem: alvo.ordem, cor: corFora })
 
         // PORTA × JANELA (decisão 1): a palavra do vendedor — a do item, se ele a escreveu, senão a da mensagem — contra a PRIMEIRA palavra
@@ -349,7 +358,7 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
     for (const i of itens) {
         if (i.quantidade === null && CAMPOS_DA_ESQUADRIA.some((c) => c !== 'quantidade' && !vazio(i[c]))) { i.quantidade = 1; quantidadesPadrao.push(i.ordem) }
     }
-    return { itens, propostos, descartados, semEsquadria, recusas, aberturas, quantidadesPadrao, coresForaDaLista }
+    return { itens, propostos, descartados, semEsquadria, recusas, aberturas, quantidadesPadrao, coresForaDaLista, modulosDitos }
 }
 
 // ── O AGRUPAMENTO (dono do produto, 03/11/2026) ─────────────────────────────────────────────

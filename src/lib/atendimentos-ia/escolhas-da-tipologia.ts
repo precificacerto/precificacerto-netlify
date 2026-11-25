@@ -254,6 +254,15 @@ export function variaveisDeQuantidadeDeModulos(tipologia: VariaveisDaTipologia):
         .filter((v) => DESCRICAO_DA_QUANTIDADE_DE_MODULOS.test((v.descricao ?? '').trim()) && !(opcoesDaVariavel(v.opcoes)?.length))
         .map((v) => v.variavel)
 }
+/**
+ * A variável que dá a quantidade de módulos num SENTIDO (25/11/2026, pedido 0026: "Número escrito na descrição vira variável gravada: '05 módulos
+ * verticais' é V=5, não o padrão"). Nula quando a tipologia não tem essa variável (o sentido é fixo na descrição, ou ela não é de módulos).
+ */
+export function variavelDeModulos(tipologia: VariaveisDaTipologia, sentido: 'horizontais' | 'verticais'): string | null {
+    const alvo = sentido === 'horizontais' ? 'HORIZONTAIS' : 'VERTICAIS'
+    const v = tipologia.variaveis.find((x) => DESCRICAO_DA_QUANTIDADE_DE_MODULOS.exec((x.descricao ?? '').trim())?.[1]?.toUpperCase() === alvo && !(opcoesDaVariavel(x.opcoes)?.length))
+    return v ? v.variavel : null
+}
 /** As quantidades de módulos que o item ainda NÃO tem gravadas: uma (`MODULOS_QUANDO_NAO_DITO`) em cada. O que já está gravado não muda. */
 export function modulosNaoDitos(tipologia: VariaveisDaTipologia, gravadas: Readonly<Record<string, number | null>> | null): Record<string, number> {
     return Object.fromEntries(variaveisDeQuantidadeDeModulos(tipologia)

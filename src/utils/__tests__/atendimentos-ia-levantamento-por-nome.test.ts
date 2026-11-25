@@ -1408,7 +1408,7 @@ describe('(8) a ferramenta NÃO vai strict; o esquema continua restrito por addi
     // a medida passou de 24 a 41 opcionais em 06/11/2026: os dados do levantamento (o cliente, as condições, o vendedor e a opção entre homônimos,
     // e os ambientes e a obs do item) — sem `strict`, o limite de 24 da gramática não se aplica
     // e a 42 em 18/11/2026: o `texto_da_imagem` (o texto copiado da foto ou do PDF, para conferir o nome, a cidade e o vidro)
-    it('o esquema ENVIADO: UMA ferramenta, SEM `strict` (nem true nem false: o campo não vai), e a medida de hoje — 0 uniões, 42 opcionais', async () => {
+    it('o esquema ENVIADO: UMA ferramenta, SEM `strict` (nem true nem false: o campo não vai), e a medida de hoje — 0 uniões, 44 opcionais', async () => {
         await chamar('oi')
         const tools = estado.chamadasDaLlm[0].corpo.tools as Array<Record<string, unknown>>
         expect(tools).toHaveLength(1)
@@ -1416,7 +1416,8 @@ describe('(8) a ferramenta NÃO vai strict; o esquema continua restrito por addi
         expect(JSON.stringify(estado.chamadasDaLlm[0].corpo)).not.toContain('"strict"')
         const { unioes, opcionais } = contar(tools[0].input_schema)
         expect(unioes).toBe(0)
-        expect(opcionais).toBe(42)
+        // 44 desde 25/11/2026 (pedido 0026): os módulos escritos na linha de cada esquadria (`modulos_horizontais`, `modulos_verticais`)
+        expect(opcionais).toBe(44)
     })
 })
 
@@ -1466,7 +1467,7 @@ describe('(9) o contrato da chamada à Anthropic', () => {
         // `abertura` (03/11/2026): a palavra do vendedor por esquadria — porta ou janela, só essas duas
         // `vidro_padrao` (04/11/2026): o padrão da instrução, só quando o vendedor não disse o vidro
         // `ambientes` e `obs` (06/11/2026): o que vai às linhas AMBIENTES e OBS do arquivo
-        expect(Object.keys(item.properties).sort()).toEqual(['abertura', 'altura_mm', 'ambientes', 'cor_perfil', 'familia', 'fornecedor', 'largura_mm', 'obs', 'ordem', 'quantidade', 'tipologia', 'vidro', 'vidro_padrao'])
+        expect(Object.keys(item.properties).sort()).toEqual(['abertura', 'altura_mm', 'ambientes', 'cor_perfil', 'familia', 'fornecedor', 'largura_mm', 'modulos_horizontais', 'modulos_verticais', 'obs', 'ordem', 'quantidade', 'tipologia', 'vidro', 'vidro_padrao'])
         const ambiente = item.properties.ambientes.items as Esquema
         expect(ambiente.additionalProperties).toBe(false)
         expect(ambiente.properties.quantidade.type).toBe('integer')
@@ -2952,6 +2953,86 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
             expect(levantamentos()[0].estado).toBe('EM_MONTAGEM')
         })
 
+        // A DÚVIDA ABERTA BLOQUEIA A ENTREGA (dono do produto, 25/11/2026; pedido 0026 — o levantamento 28: o pedido de limite da DP-69 saiu, o modelo
+        // pôs a DP-65 no lugar, o pedido foi "limpo" e o arquivo foi entregue no mesmo minuto)
+        it('O MODELO NÃO RESOLVE A DÚVIDA: a tipologia que ele escolhe para o item com pedido em aberto NÃO entra — nenhum arquivo sai, o pedido se repete, e o log conta', async () => {
+            await pedir()
+            for (const itens of [[{ ordem: 1, tipologia: 'DP-01' }], [{ tipologia: 'DP-01' }]]) {
+                llmResponde({ itens })
+                await chamar('pode ser de outro jeito')
+                expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, limite_tipologia: 'DP-02', limite_largura_mm: 1200, limite_altura_mm: 2500, limite_autorizado_por: null }))
+                expect(levantamentos()[0].estado).toBe('EM_MONTAGEM')
+                expect(estado.documentos).toHaveLength(0)
+                expect(ultimoEnviado()).toContain('Autoriza fabricar assim, fora do limite?')
+                expect(linhaIa().pop()).toContain(' tipologia_do_modelo_recusada=1')
+                expect(linhaIa().pop()).not.toMatch(/limite=\S*limpou/)
+            }
+        })
+        it('O VENDEDOR resolve a dúvida escrevendo OUTRO código: o código que está na mensagem é dito, entra, e o pedido antigo vence', async () => {
+            await pedir()
+            llmResponde({ itens: [{ ordem: 1, tipologia: 'DP-01' }] })
+            await chamar('faz como DP-01 então')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: 'DP-01' }))
+            expect(linhaIa().pop()).not.toContain('tipologia_do_modelo_recusada')
+            expect(linhaIa().pop()).toMatch(/ limite=limpou:e1(\s|$)/)
+        })
+        it('o item com pedido em aberto que o modelo manda de novo com a MESMA tipologia e a medida corrigida: é a resposta ao pedido, e entra', async () => {
+            await pedir()
+            llmResponde({ itens: [{ ordem: 1, tipologia: 'DP-02', altura_mm: 1000 }] })
+            await chamar('a altura é 1000')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: 'DP-02', altura_mm: 1000 }))
+            expect(linhaIa().pop()).not.toContain('tipologia_do_modelo_recusada')
+        })
+        it('o item SEM pedido, no mesmo levantamento, continua podendo receber a tipologia que o modelo escolhe — a trava é só do item com a dúvida', async () => {
+            llmResponde({ cliente: 'Ana', itens: [{ ...FORA }, { largura_mm: 900, altura_mm: 900, quantidade: 1, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm' }], escolhas: ESCOLHAS_QUE_FECHAM })
+            await chamar(`${ANA}\noutra 900 x 900, branco, temperado 5mm`)
+            expect([item(0).limite_tipologia, itensDe(levantamentos()[0].id)[1].limite_tipologia ?? null]).toEqual(['DP-02', null])
+            llmResponde({ itens: [{ ordem: 2, tipologia: 'DP-01' }] })
+            await chamar('a segunda é maxim-ar')
+            expect(itensDe(levantamentos()[0].id).map((i) => i.tipologia)).toEqual([null, 'DP-01'])
+            expect(linhaIa().pop()).not.toContain('tipologia_do_modelo_recusada')
+        })
+        it('a AUTORIZAÇÃO já dada não trava o item: só o pedido EM ABERTO trava — depois do "sim", o modelo pode trocar a tipologia quando o vendedor pede', async () => {
+            await pedir()
+            llmResponde({ confirma: true })
+            await chamar('sim, pode fabricar assim')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: 'DP-02', limite_autorizado_por: VENDEDOR }))
+            llmResponde({ nome: 'Ana', alteracao: 'alterar', itens: [{ ordem: 1, tipologia: 'DP-01' }] })
+            await chamar('Ana: troca para maxim-ar')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: 'DP-01' }))
+            expect(linhaIa().pop()).not.toContain('tipologia_do_modelo_recusada')
+        })
+        it('NEM O PADRÃO DO CÓDIGO resolve a dúvida: o item com pedido em aberto que o padrão fecharia em OUTRA tipologia continua sem ela, e o pedido se repete', async () => {
+            // o vendedor ESCREVEU o código (DP-02) numa linha que também diz "maxim-ar": o padrão do código, sozinho, fecharia a maxim-ar (DP-01, sem limite)
+            llmResponde({ cliente: 'Ana', itens: [{ ...FORA }], escolhas: ESCOLHAS_QUE_FECHAM })
+            await chamar('Cliente: Ana. DP-02 janela maxim-ar 1200 x 2500, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, limite_tipologia: 'DP-02' }))
+            llmResponde({})
+            await chamar('e aí?')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, limite_tipologia: 'DP-02', limite_autorizado_por: null }))
+            expect(estado.documentos).toHaveLength(0)
+            expect(ultimoEnviado()).toContain('Autoriza fabricar assim, fora do limite?')
+        })
+        it('o contraste: a tipologia que o MODELO escolheu (o código NÃO está na mensagem) e não coube não prende o item — o padrão do código decide pelo que o vendedor escreveu', async () => {
+            llmResponde({ cliente: 'Ana', itens: [{ ...FORA }], escolhas: ESCOLHAS_QUE_FECHAM })
+            await chamar('Cliente: Ana. janela maxim-ar 1200 x 2500, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: 'DP-01' }))
+            expect(enviados().some((e) => e.includes('fora do limite'))).toBe(false)
+        })
+        it('a medida corrigida SEM repetir a tipologia: o pedido deixa de estar em aberto (a medida mudou), e a tipologia volta pelo caminho de sempre', async () => {
+            await pedir()
+            llmResponde({ itens: [{ ordem: 1, altura_mm: 1000 }] })
+            await chamar('a altura é 1000')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: 'DP-02', altura_mm: 1000 }))
+        })
+        it('DOIS itens fora do limite na mesma lista: os DOIS pedidos saem de uma vez, cada um com a medida do próprio item', async () => {
+            llmResponde({ cliente: 'Ana', itens: [{ ...FORA }, { ...FORA, largura_mm: 1300 }], escolhas: ESCOLHAS_QUE_FECHAM })
+            await chamar(`${ANA}\nJanela de correr 1300 x 2500, 1 unidade, branco, temperado 5mm`)
+            expect(ultimoEnviado()).toBe(`Item 1: ${pedido(1200, 2500)}\nItem 2: ${pedido(1300, 2500)}`)
+            expect(linhaIa()[0]).toMatch(/ limite=pediu:e1,pediu:e2(\s|$)/)
+            expect(estado.documentos).toHaveLength(0)
+        })
+
         it('o pedido em aberto vai ao modelo como a pergunta em aberto da mensagem seguinte', async () => {
             await pedir()
             llmResponde({})
@@ -3170,18 +3251,18 @@ describe('(25) o resgate do levantamento antigo e o contexto que não se perde (
         await chamar('Cliente: Geronimo. Janela de correr 1,50x1,20 vidro 4mm')
     }
 
-    it('DECISÃO 1 — o caso real: "Cliente: Geronimo Silva" com o "Geronimo Silva" já gravado é IGUAL, não parecido — sem pergunta de NOME; e, pela regra de 21/11/2026, a frase que não diz se é para alterar ou acrescentar PERGUNTA antes de gravar', async () => {
+    it('DECISÃO 1 — o caso real: "Cliente: Geronimo Silva" com o "Geronimo Silva" já gravado é IGUAL, não parecido — sem pergunta de NOME; e a LISTA de duas esquadrias substitui o levantamento, sem pergunta (25/11/2026)', async () => {
         await fecharDp02('Geronimo Silva')
         llmResponde({ cliente: 'Geronimo Silva', itens: [{ ...JANELA, abertura: 'janela' }, { ...PORTA, abertura: 'porta' }] })
         await chamar(MSG_GERONIMO)
         expect(levantamentos().map((l) => l.nome)).toEqual(['Geronimo Silva'])
         expect(enviados().some((e) => e.includes('pode ser'))).toBe(false)
         expect(linhaIa().pop()).toMatch(/ rota=ALTERACAO .* nome=do_cliente /)
-        expect(itensDe(levantamentos()[0].id)).toHaveLength(1)
-        expect(ultimoEnviado()).toContain('são novos, para acrescentar, ou alteram')
-        llmResponde({ alteracao: 'acrescentar' })
-        await chamar('acrescenta as duas')
-        expect(itensDe(levantamentos()[0].id)).toHaveLength(3)
+        // A LISTA INTEIRA SUBSTITUI, SEM PERGUNTA (dono do produto, 25/11/2026, pedido 0026 — vale sobre a regra de 21/11 para a LISTA): as duas
+        // esquadrias da mensagem passam a ser o levantamento; o item de antes não sobra, e nenhuma pergunta de "alterar ou acrescentar" sai
+        expect(enviados().some((e) => e.includes('para acrescentar, ou alteram'))).toBe(false)
+        expect(linhaIa().pop()).toContain(' intencao=substituir')
+        expect(itensDe(levantamentos()[0].id).map((i) => [i.ordem, i.largura_mm, i.altura_mm])).toEqual([[1, JANELA.largura_mm, JANELA.altura_mm], [2, PORTA.largura_mm, PORTA.altura_mm]])
     })
 
     it('DECISÃO 1 — o levantamento de antes, gravado COM o prefixo, é IGUAL ao nome do cliente sem ele; e nenhum nome novo ganha o prefixo', async () => {
@@ -5917,7 +5998,10 @@ describe('(40) o reenvio da mesma esquadria: a quantidade dita substitui, nunca 
         expect(textoDoArquivo()).toContain('Levantamento 1 · 2 itens · 2 peças ·')
         const linha = linhaIa().pop() as string
         expect(linha).toMatch(/ rota=ALTERACAO /)
-        expect(linha).toMatch(/ caminhos=e1:IGNORADA_IGUAL,e2:IGNORADA_IGUAL(\s|$)/)
+        // desde 25/11/2026 (pedido 0026) a LISTA inteira substitui: reenviada igual, o conteúdo fica o mesmo (as linhas gravadas nem são tocadas —
+        // `fotoDosItens` acima), a contagem fecha, e a resposta segue como se a mensagem tivesse vindo uma vez
+        expect(linha).toContain(' intencao=substituir')
+        expect(linha).toContain(' contagem=lidas:2/itens:2 unidades:2/2')
         expect(linha).toMatch(/ desfecho=arquivo /)
     })
 
@@ -7810,6 +7894,98 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         const falhas = erros.filter((l) => l.startsWith('[TRILHOS]'))
         expect(falhas.length).toBeGreaterThan(0)
         for (const f of falhas) expect(f).toMatch(/^\[TRILHOS\] a leitura dos marcos falhou: orcamentista_motor_perfil codigo=\S+$/)
+    })
+    // A LISTA INTEIRA SUBSTITUI (dono do produto, 25/11/2026; pedido 0026 — o levantamento 28: a tabela nova de 11 itens foi aplicada por posição
+    // sobre o levantamento de 12, a tipologia nova foi conferida com a medida velha, e sobrou o décimo segundo item)
+    const J = (largura_mm: number, altura_mm = 1000, mais: Record<string, unknown> = {}) => ({ ...DP02, largura_mm, altura_mm, ...mais })
+    const medidasDe = (nome: string) => itensDe((levantamentos().find((l) => l.nome === nome) as Linha).id).map((i) => [i.ordem, i.tipologia, i.largura_mm, i.altura_mm])
+    it('A LISTA NOVA para o cliente que já tem levantamento: o conteúdo passa a ser EXATAMENTE o da lista — sem mescla por posição, sem pergunta, sem sobra', async () => {
+        llmResponde({ nome: 'Marcelo e Rita', itens: [J(1200), J(1300), J(1400)], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Marcelo e Rita: DP-02 1200 x 1000; DP-02 1300 x 1000; DP-02 1400 x 1000; branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        expect(medidasDe('Marcelo e Rita')).toEqual([[1, 'DP-02', 1200, 1000], [2, 'DP-02', 1300, 1000], [3, 'DP-02', 1400, 1000]])
+        // a lista nova, de DOIS itens, com o número de item que o modelo costuma pôr — e SEM as escolhas, que o vendedor não repetiu
+        llmResponde({ nome: 'Marcelo e Rita', itens: [{ ...J(1500, 1100), ordem: 1 }, { ...J(1600, 1100), ordem: 2 }] })
+        await chamar('Levantamento Marcelo e Rita:\n1 DP-02 1500 x 1100 branco temperado 5mm\n2 DP-02 1600 x 1100 branco temperado 5mm')
+        expect(medidasDe('Marcelo e Rita')).toEqual([[1, 'DP-02', 1500, 1100], [2, 'DP-02', 1600, 1100]])
+        expect(levantamentos()).toHaveLength(1)
+        expect(enviados().some((e) => e.includes('para acrescentar, ou alteram'))).toBe(false)
+        const ia = linhaIa().pop() ?? ''
+        expect(ia).toMatch(/ rota=ALTERACAO /)
+        expect(ia).toContain(' intencao=substituir')
+        expect(ia).toContain(' contagem=lidas:2/itens:2 unidades:2/2')
+    })
+    it('A LISTA NOVA é conferida com a medida DELA: a medida antiga do item, fora do limite, não gera pedido de autorização para a tipologia nova', async () => {
+        // o levantamento de antes: três itens DP-01 (o maxim-ar não tem limite na fixture) com 2.500 de altura — fora do limite da DP-02 (388 a 2.439)
+        llmResponde({ nome: 'Marcelo e Rita', itens: [1, 2, 3].map((k) => ({ ...DP02, tipologia: 'DP-01', largura_mm: 600 + k * 100, altura_mm: 2500 })) })
+        await chamar('Levantamento Marcelo e Rita: DP-01 700 x 2500; DP-01 800 x 2500; DP-01 900 x 2500; branco, temperado 5mm')
+        expect(medidasDe('Marcelo e Rita').map((x) => x[3])).toEqual([2500, 2500, 2500])
+        // a lista nova traz a DP-02 SÓ com a tipologia no primeiro item lido e as medidas certas: na mescla por posição, a DP-02 cairia sobre os 2.500
+        llmResponde({ nome: 'Marcelo e Rita', itens: [{ ...J(1500, 1100), ordem: 1 }, { ...J(1600, 1100), ordem: 2 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Marcelo e Rita:\n1 DP-02 1500 x 1100 branco temperado 5mm\n2 DP-02 1600 x 1100 branco temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        expect(medidasDe('Marcelo e Rita')).toEqual([[1, 'DP-02', 1500, 1100], [2, 'DP-02', 1600, 1100]])
+        expect(enviados().some((e) => e.includes('fora do limite'))).toBe(false)
+        expect(linhaIa().pop()).not.toMatch(/limite=\S*pediu/)
+    })
+    it('a lista REENVIADA igual deixa os mesmos itens, sem duplicar; "acrescenta" dito continua acrescentando; e UM item só continua perguntando alterar ou acrescentar', async () => {
+        llmResponde({ nome: 'Marcelo e Rita', itens: [J(1200), J(1300)], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Marcelo e Rita: DP-02 1200 x 1000; DP-02 1300 x 1000; branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        // a mesma lista de novo: o conteúdo fica exatamente o dela — os mesmos dois itens, nenhum duplicado
+        llmResponde({ nome: 'Marcelo e Rita', itens: [J(1200), J(1300)], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Marcelo e Rita: DP-02 1200 x 1000; DP-02 1300 x 1000; branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        expect(medidasDe('Marcelo e Rita')).toEqual([[1, 'DP-02', 1200, 1000], [2, 'DP-02', 1300, 1000]])
+        // "acrescenta" dito: os dois novos entram AO LADO dos de antes
+        llmResponde({ nome: 'Marcelo e Rita', alteracao: 'acrescentar', itens: [J(1500), J(1600)] })
+        await chamar('Marcelo e Rita: acrescenta DP-02 1500 x 1000 e DP-02 1600 x 1000, branco, temperado 5mm')
+        expect(linhaIa().pop()).toContain(' intencao=acrescentar')
+        expect(medidasDe('Marcelo e Rita').map((x) => x[2])).toEqual([1200, 1300, 1500, 1600])
+        // um item só, sem dizer: a pergunta de sempre
+        llmResponde({ nome: 'Marcelo e Rita', itens: [J(1700)] })
+        await chamar('Marcelo e Rita: DP-02 1700 x 1000 branco temperado 5mm')
+        expect(ultimoEnviado()).toContain('é novo, para acrescentar, ou altera')
+        expect(medidasDe('Marcelo e Rita')).toHaveLength(4)
+    })
+    it('"substitui" DITO com um item só: o levantamento passa a ser esse item', async () => {
+        llmResponde({ nome: 'Marcelo e Rita', itens: [J(1200), J(1300)], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Marcelo e Rita: DP-02 1200 x 1000; DP-02 1300 x 1000; branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        llmResponde({ nome: 'Marcelo e Rita', alteracao: 'substituir', itens: [J(1700)] })
+        await chamar('Marcelo e Rita: substitui tudo por DP-02 1700 x 1000 branco temperado 5mm')
+        expect(medidasDe('Marcelo e Rita')).toEqual([[1, 'DP-02', 1700, 1000]])
+    })
+    it('O NÚMERO ESCRITO NA LINHA DO ITEM vira variável gravada: "05 módulos verticais" é V = 5 NAQUELE item; o outro item da lista fica com um', async () => {
+        comModulosNoMotor()
+        const modelo = (estado.db.orcamentista_motor_variavel as Linha[]).find((v) => v.variavel === 'N' && v.id === 'v-n') as Linha
+        ;(estado.db.orcamentista_motor_variavel as Linha[]).push({ ...modelo, id: 'v-v', variavel: 'V', descricao: 'QUANTIDADE DE MÓDULOS VERTICAIS', ordem: 9999 })
+        llmResponde({ nome: 'Marcelo e Rita', itens: [J(1200, 1000, { modulos_verticais: 5 }), J(1300, 1000, { modulos_horizontais: 2, modulos_verticais: 0 })], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Marcelo e Rita:\nDP-02 com 05 módulos verticais 1200 x 1000\nDP-02 com 02 módulos horizontais 1300 x 1000\nbranco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        expect(escolhasDoItem('Marcelo e Rita').map((e) => [e?.N, e?.V])).toEqual([[1, 5], [2, 1]])
+        const casar = erros.filter((l) => l.startsWith('[ETAPA 2 ')).pop() ?? ''
+        expect(casar).toContain('V=5/dito')
+        expect(casar).toContain('N=2/dito')
+        // o zero escrito não é quantidade: não vira variável dita
+        expect(casar).not.toContain('V=0')
+        // os DOIS sentidos escritos no mesmo item: os dois gravados (nenhum fica para o padrão)
+        llmResponde({ nome: 'Marcelo e Rita', alteracao: 'substituir', itens: [J(1700, 1000, { modulos_horizontais: 2, modulos_verticais: 3 })] })
+        await chamar('Marcelo e Rita: substitui por DP-02 com 02 módulos horizontais e 03 módulos verticais 1700 x 1000 branco temperado 5mm')
+        expect(escolhasDoItem('Marcelo e Rita').map((e) => [e?.N, e?.V])).toEqual([[2, 3]])
+        // e a esquadria RETIDA (esperando o nome do levantamento) não perde os módulos escritos
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { esquadriasDaProposta } = require('@/lib/atendimentos-ia/pergunta-em-aberto') as typeof import('@/lib/atendimentos-ia/pergunta-em-aberto')
+        expect(esquadriasDaProposta({ itens: [{ tipologia: 'DP-02', modulos_horizontais: 2, modulos_verticais: 5, outro: 1 }] })).toEqual([{ tipologia: 'DP-02', modulos_horizontais: 2, modulos_verticais: 5 }])
+    })
+    it('A CONTAGEM QUE NÃO FECHA: duas esquadrias lidas que caem no MESMO item — nada é gravado, e a resposta diz os números', async () => {
+        llmResponde({ nome: 'Marcelo e Rita', itens: [{ ...J(1200), ordem: 1 }, { ...J(1300), ordem: 1 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Marcelo e Rita: DP-02 1200 x 1000; DP-02 1300 x 1000; branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        expect(ultimoEnviado()).toBe(conversa.fraseDaContagemQueNaoFecha(2, 1, 2, 1))
+        expect(ultimoEnviado()).toBe('Não consegui montar a lista inteira: li 2 itens (2 unidades) e só 1 (1 unidades) fecharam. Nada foi gravado. Mande a lista de novo, com um item por linha.')
+        expect(levantamentos()).toHaveLength(0)
+        expect(estado.documentos).toHaveLength(0)
+        expect(linhaIa().pop()).toContain(' contagem=lidas:2/itens:1 unidades:2/1')
+    })
+    it('A CONTAGEM pelas UNIDADES: a quantidade lida que não vale (zero) conta como uma — a lista fecha, com a quantidade 1 do padrão', async () => {
+        llmResponde({ nome: 'Marcelo e Rita', itens: [J(1200, 1000, { quantidade: 3 }), J(1300, 1000, { quantidade: 0 })], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Marcelo e Rita: 3 DP-02 1200 x 1000; DP-02 1300 x 1000; branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        expect(linhaIa().pop()).toContain(' contagem=lidas:2/itens:2 unidades:4/4')
+        expect(itensDe(levantamentos()[0].id).map((i) => i.quantidade)).toEqual([3, 1])
     })
     it('o prompt diz ao modelo que NÃO pergunte os módulos e que só mande a quantidade DITA', async () => {
         llmResponde({})
