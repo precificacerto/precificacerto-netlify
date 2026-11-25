@@ -270,3 +270,55 @@ export function juntarEsquadrias(retidas: readonly EsquadriaProposta[], novas: r
     }
     return { itens, reenviadas }
 }
+
+/**
+ * O COMPLEMENTO NA MESMA MENSAGEM (dono do produto, 25/11/2026; pedido 0029 — o levantamento 28, 20:44: a tabela "Item → Vidro" foi lida como
+ * lista de esquadrias, e o modelo reconstruiu tipologias do levantamento antigo para as linhas dela). A linha que só COMPLETA — o vidro ou a cor,
+ * sem medida e sem tipologia escrita pelo vendedor — vai ao item de MESMO NÚMERO da mesma mensagem: não cria esquadria, não muda tipologia, não
+ * conta como acréscimo nem como alteração. "Não especificado" é vidro não dito (o padrão da base entra). A tipologia que o modelo pôs numa linha
+ * de complemento (`tipologia_dita` ausente) sai: o acréscimo e a alteração só se calculam contra o que o vendedor mandou.
+ */
+export function juntarComplementos(itens: unknown): { itens: unknown; juntados: number; tipologiasDescartadas: number } {
+    if (!Array.isArray(itens)) return { itens, juntados: 0, tipologiasDescartadas: 0 }
+    const NAO_ESPECIFICADO = /^\s*(vidro\s+)?n[aã]o\s+(especificad[oa]|informad[oa]|definid[oa])\s*\.?\s*$/i
+    const copia = itens.map((i) => {
+        if (!i || typeof i !== 'object') return i
+        const o = { ...(i as Record<string, unknown>) }
+        if (typeof o.vidro === 'string' && NAO_ESPECIFICADO.test(o.vidro)) delete o.vidro
+        return o
+    })
+    const num = (o: Record<string, unknown>) => {
+        const v = typeof o.ordem === 'number' ? o.ordem : o.numero
+        return typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null
+    }
+    const semMedida = (o: Record<string, unknown>) => !presente(o.largura_mm) && !presente(o.altura_mm)
+    const esquadria = (o: Record<string, unknown>) => !semMedida(o) || (o.tipologia_dita === true && presente(o.tipologia))
+    // a linha de vidro com a tipologia DO PRÓPRIO item de mesmo número (o modelo repetiu o código da lista) também é complemento
+    const mesmaDoItem = (o: Record<string, unknown>, k: number) => presente(o.tipologia) && copia.some((x, j) => j !== k && !!x && typeof x === 'object'
+        && esquadria(x as Record<string, unknown>) && num(x as Record<string, unknown>) === num(o) && (x as Record<string, unknown>).tipologia === o.tipologia)
+    const complemento = (o: Record<string, unknown>, k: number) => semMedida(o) && (o.tipologia_dita !== true || mesmaDoItem(o, k))
+        && (presente(o.vidro) || presente(o.cor_perfil)) && !presente(o.quantidade) && !presente(o.ambientes)
+    let juntados = 0
+    let tipologiasDescartadas = 0
+    const saem = new Set<number>()
+    copia.forEach((i, k) => {
+        if (!i || typeof i !== 'object') return
+        const o = i as Record<string, unknown>
+        if (!complemento(o, k)) return
+        const n = num(o)
+        const alvo = n === null ? -1 : copia.findIndex((x, j) => j !== k && !saem.has(j) && !!x && typeof x === 'object' && esquadria(x as Record<string, unknown>) && num(x as Record<string, unknown>) === n)
+        if (alvo >= 0) {
+            const a = copia[alvo] as Record<string, unknown>
+            const campos = ['vidro', 'cor_perfil', 'vidro_padrao'].filter((c) => presente(o[c]))
+            // o item que JÁ diz o campo: a linha é uma correção dele ("roxo não, preto") e segue como sempre, pelo número
+            if (campos.some((c) => presente(a[c]))) return
+            for (const c of campos) a[c] = o[c]
+            saem.add(k)
+            juntados += 1
+        } else if (presente(o.tipologia)) {
+            delete o.tipologia
+            tipologiasDescartadas += 1
+        }
+    })
+    return { itens: copia.filter((_, k) => !saem.has(k)), juntados, tipologiasDescartadas }
+}

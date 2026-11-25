@@ -56,7 +56,16 @@ export type Leitura =
 export type BlocoDaMidia =
     | { type: 'image'; source: { type: 'base64'; media_type: TipoDeImagem; data: string } }
     | { type: 'document'; source: { type: 'base64'; media_type: 'application/pdf'; data: string } }
-export type AnexoParaOModelo = { bloco: BlocoDaMidia; instrucao: string; como: 'imagem' | 'pdf' }
+/** `extras`: as outras fotos ou PDFs da MESMA rajada (pedido 0029), entregues antes do bloco do turno, na mesma chamada. */
+export type AnexoParaOModelo = { bloco: BlocoDaMidia; instrucao: string; como: 'imagem' | 'pdf'; extras?: BlocoDaMidia[] }
+
+/**
+ * A instrução da rajada (pedido 0029): as imagens são UM envio — e a tabela de "item → vidro" (ou de cor) completa a lista pelo número do item,
+ * nunca é lista de esquadrias.
+ */
+export const instrucaoDaRajada = (n: number) =>
+    `São ${n} imagens ou arquivos do MESMO envio do vendedor: leia todos juntos, como uma mensagem só. Uma tabela de item → vidro (ou de cor) `
+    + 'COMPLETA a lista: ponha o vidro no item de mesmo número (ordem) e não crie esquadria para ela. "Não especificado" é vidro não dito: omita.'
 
 const mimeBase = (m: string | null) => (m ?? '').split(';')[0].trim().toLowerCase()
 const ehPlanilha = (m: MidiaDaMensagem) => PLANILHA_MIME.test(mimeBase(m.mimetype)) || (m.nome !== null && PLANILHA_EXT.test(m.nome))
