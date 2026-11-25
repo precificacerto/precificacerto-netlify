@@ -113,7 +113,7 @@ import { descreverArremate, lerEscolhasGravadas, paraOAgente, semAsPecasNaoPedid
 import {
     formatarReais, levantarBarras,
     type ItemDaTabela, type RegraDoDePara, type ResultadoDoLevantamento,
-    type RecusaDoLevantamento, type FaltaDePreco,
+    type FaltaDePreco,
 } from '@/lib/atendimentos-ia/levantamento-de-barras'
 import { maoDeObraPeloCaminhoDaTela, type DadosDaEmpresaParaMaoDeObra } from '@/utils/mao-de-obra-pelo-caminho-da-tela'
 import { familiaDaEsquadria, rotulosDasOpcoes, type FamiliaDoCodigo, type FamiliasDoCodigo } from '@/lib/atendimentos-ia/levantamento-em-montagem'
