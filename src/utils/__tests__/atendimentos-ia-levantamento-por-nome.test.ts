@@ -4226,7 +4226,7 @@ describe('(31) os prazos das chamadas externas: 45 s no modelo, 15 s na redaçã
         expect(PRAZO_DO_MODELO + PRAZO_DA_REDACAO + PRAZO_DO_ENVIO + 11_000).toBeLessThan((config.maxDuration * 1000) / 2)
     })
 
-    it('a 1ª chamada ao modelo não volta: sem cabeçalhos em 10 s ela é repetida UMA vez, e aos 20 s (10 + 10) é abortada — o vendedor recebe a falha nomeada, nada é gravado, e a linha [IA] sai ANTES do envio, com o motivo', async () => {
+    it('a 1ª chamada ao modelo não volta: sem cabeçalhos em 10 s ela é repetida UMA vez, e aos 30 s (10 + 20, pedido 0027) é abortada — o vendedor recebe a falha nomeada, nada é gravado, e a linha [IA] sai ANTES do envio, com o motivo', async () => {
         const { turno } = await turnoPendurado(() => { estado.llmPendura = true }, 'Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
         const ATE_OS_CABECALHOS = 10_000
         // um milissegundo antes do prazo dos cabeçalhos, uma tentativa só, em voo
@@ -4238,7 +4238,13 @@ describe('(31) os prazos das chamadas externas: 45 s no modelo, 15 s na redaçã
         expect(estado.chamadasDaLlm).toHaveLength(2)
         expect(enviados()).toEqual([])
         expect(linhaIa()).toEqual([])
-        await avancar(ATE_OS_CABECALHOS - 1)
+        // a repetição espera 20 s (25/11/2026, pedido 0027): aos 10 s dela, ainda em voo — o corte antigo teria desistido aqui
+        const NA_REPETICAO = 20_000
+        await avancar(ATE_OS_CABECALHOS)
+        await drenarDeVerdade()
+        expect(enviados()).toEqual([])
+        expect(estado.chamadasDaLlm).toHaveLength(2)
+        await avancar(NA_REPETICAO - ATE_OS_CABECALHOS - 1)
         await drenarDeVerdade()
         expect(enviados()).toEqual([])
         await avancar(1)
@@ -4249,14 +4255,62 @@ describe('(31) os prazos das chamadas externas: 45 s no modelo, 15 s na redaçã
         // a linha do estouro sai ANTES do envio (se a função morrer depois, o motivo já está no log); a de sempre sai no fim, com o envio
         const [noEstouro, noFim] = linhaIa()
         expect(noEstouro).toMatch(/enviou=nao desfecho=prazo-esgotado/)
-        expect(noEstouro).toContain(`limite_ms=${PRAZO_DO_MODELO} sem_cabecalhos_ms=${ATE_OS_CABECALHOS} tentativas=2`)
+        expect(noEstouro).toContain(`limite_ms=${PRAZO_DO_MODELO} sem_cabecalhos_ms=${ATE_OS_CABECALHOS}+${NA_REPETICAO} tentativas=2`)
         expect(noEstouro).toContain('antes_do_envio=sim')
-        expect(noEstouro).toContain(`ia_ms=${2 * ATE_OS_CABECALHOS} ia_entrada=- ia_saida=-`)
+        expect(noEstouro).toContain(`ia_ms=${ATE_OS_CABECALHOS + NA_REPETICAO} ia_entrada=- ia_saida=-`)
         expect(noEstouro).toContain('ia_cabecalhos_ms=- ia_primeiro_token_ms=- ia_tentativas=2 ia_request_id=-')
         expect(noFim).toMatch(/enviou=sim desfecho=prazo-esgotado/)
         expect(linhaIa()).toHaveLength(2)
         // a saída é gravada como qualquer resposta: o reenvio do WUZAPI acha a resposta e não conduz de novo
         expect(mensagens()[1]).toEqual(expect.objectContaining({ direcao: 'saida', texto: conversa.FALHA_PRAZO_DA_IA, wuzapi_mensagem_id: 'WAMID_SAIDA' }))
+    })
+
+    // UM ENVIO, UMA RESPOSTA (dono do produto, 25/11/2026; pedido 0027 — o levantamento 28: duas fotos com 0,7 s entre elas, dois requests; um
+    // respondeu, o outro ficou sem cabeçalho e mandou "demorou demais" por cima da resposta): o aviso só sai se nenhuma da mesma rajada respondeu
+    const MSG_DO_JOAO = 'Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm'
+    const ateOFimDoPrazo = async (turno: Promise<{ status: number }>) => {
+        await avancar(10_000); await drenarDeVerdade(); await avancar(20_000)
+        return (await turno).status
+    }
+    it('a OUTRA mensagem da mesma conversa, na rajada, já foi respondida: o "demorou demais" NÃO sai, e o log diz por quê', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        await chamar(MSG_DO_JOAO)
+        expect(enviados()).toHaveLength(1)
+        const { turno } = await turnoPendurado(() => { estado.llmPendura = true }, '[imagem]')
+        expect(await ateOFimDoPrazo(turno)).toBe(200)
+        expect(enviados()).toHaveLength(1)
+        expect(enviados()).not.toContain(conversa.FALHA_PRAZO_DA_IA)
+        const ultima = linhaIa().pop() ?? ''
+        expect(ultima).toMatch(/enviou=nao desfecho=prazo-esgotado/)
+        expect(ultima).toContain(' aviso=suprimido_outra_respondeu')
+        expect(ultima).not.toContain('antes_do_envio=sim')
+    })
+    it('o contraste: a outra mensagem NÃO foi entregue (o envio falhou) — o aviso sai, como sempre', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        estado.envioStatus = 500
+        await chamar(MSG_DO_JOAO)
+        estado.envioStatus = 200
+        const { turno } = await turnoPendurado(() => { estado.llmPendura = true }, '[imagem]')
+        expect(await ateOFimDoPrazo(turno)).toBe(200)
+        expect(enviados().pop()).toBe(conversa.FALHA_PRAZO_DA_IA)
+        expect(linhaIa().join('\n')).not.toContain('aviso=suprimido')
+    })
+    it('o contraste: a resposta da outra é de FORA da rajada (mais de 30 s antes) — o aviso sai', async () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const G = require('@/lib/atendimentos-ia/conversa-gravada') as typeof import('@/lib/atendimentos-ia/conversa-gravada')
+        expect(G.JANELA_DA_RAJADA_MS).toBe(30_000)
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        await chamar(MSG_DO_JOAO)
+        // o banco falso carimba a conversa gravada a 1 s por linha, a partir de 1 h antes do teste: a resposta de antes vai para muito antes disso
+        const antes = mensagens().map((m) => m.id)
+        const longe = new Date(Date.UTC(2026, 0, 1)).toISOString()
+        for (const m of mensagens()) m.criado_em = longe
+        const { turno } = await turnoPendurado(() => { estado.llmPendura = true }, '[imagem]')
+        expect(await ateOFimDoPrazo(turno)).toBe(200)
+        expect(enviados().pop()).toBe(conversa.FALHA_PRAZO_DA_IA)
+        // e a entrada nova ficou DEPOIS da janela das de antes (a premissa do caso)
+        const nova = mensagens().find((m) => m.direcao === 'entrada' && !antes.includes(m.id)) as Linha
+        expect(new Date(String(nova.criado_em)).getTime() - new Date(longe).getTime()).toBeGreaterThan(G.JANELA_DA_RAJADA_MS)
     })
 
     it('o contraste: a falha de rede na 1ª chamada continua sendo FALHA_DA_IA (erro-da-llm), não a do prazo', async () => {
@@ -4829,6 +4883,10 @@ describe('(36) a 1ª chamada em fluxo: stream, 10 s até os cabeçalhos, uma rep
         expect(P().PRAZO_ATE_OS_CABECALHOS_MS).toBe(10_000)
         expect(P().TENTATIVAS_DA_PRIMEIRA_CHAMADA).toBe(2)
         expect(P().PRAZO_ATE_OS_CABECALHOS_MS * P().TENTATIVAS_DA_PRIMEIRA_CHAMADA).toBeLessThan(conversa.PRAZO_DA_PRIMEIRA_CHAMADA_MS)
+        // o prazo POR TENTATIVA (25/11/2026, pedido 0027): 10 s e 20 s, uma para cada tentativa, e a soma deixa tempo para o corpo nos 45 s
+        expect(P().PRAZOS_ATE_OS_CABECALHOS_MS).toEqual([10_000, 20_000])
+        expect(P().PRAZOS_ATE_OS_CABECALHOS_MS).toHaveLength(P().TENTATIVAS_DA_PRIMEIRA_CHAMADA)
+        expect(P().PRAZOS_ATE_OS_CABECALHOS_MS.reduce((a, b) => a + b, 0)).toBeLessThan(conversa.PRAZO_DA_PRIMEIRA_CHAMADA_MS)
     })
 
     it('o pedido vai com stream: true, e o resto do corpo é o de antes', async () => {

@@ -203,9 +203,9 @@ import { agruparIguais,
     CAMPOS_DA_ESQUADRIA, aplicarProposta, familiaDaEsquadria, itemVazio, pendenciasDoLevantamento, perguntaDasPendencias, resolverFamilias,
     type DefinicaoDaTipologia, type ItemDoLevantamento, type Pendencia,
 } from '@/lib/atendimentos-ia/levantamento-em-montagem'
-import { JANELA_EM_VOO_MS, contextoDaConversa, gravarSaida, lerHistorico, marcarEnvio, saidaDaEntrada, type Entrada, type MensagemDoHistorico } from '@/lib/atendimentos-ia/conversa-gravada'
+import { JANELA_EM_VOO_MS, contextoDaConversa, gravarSaida, outraEntradaRespondida, lerHistorico, marcarEnvio, saidaDaEntrada, type Entrada, type MensagemDoHistorico } from '@/lib/atendimentos-ia/conversa-gravada'
 import { prazo } from '@/lib/atendimentos-ia/prazo'
-import { CONTINUACOES_DA_LISTA_CORTADA, MAX_TOKENS_DA_PRIMEIRA_CHAMADA, PRAZO_ATE_OS_CABECALHOS_MS, TENTATIVAS_DA_PRIMEIRA_CHAMADA, blocosDoSistema, instrucaoDaContinuacao, itensCompletosDoJsonCortado } from '@/lib/atendimentos-ia/pedido-ao-modelo'
+import { CONTINUACOES_DA_LISTA_CORTADA, MAX_TOKENS_DA_PRIMEIRA_CHAMADA, PRAZO_ATE_OS_CABECALHOS_MS, PRAZOS_ATE_OS_CABECALHOS_MS, TENTATIVAS_DA_PRIMEIRA_CHAMADA, blocosDoSistema, instrucaoDaContinuacao, itensCompletosDoJsonCortado } from '@/lib/atendimentos-ia/pedido-ao-modelo'
 import { lerFluxo } from '@/lib/atendimentos-ia/resposta-em-fluxo'
 import { CODIGO_DE_FORNECEDOR, PALAVRA_ESQUADRIA, redigir, type MotivoDaRedacao, type Redacao } from '@/lib/atendimentos-ia/redacao-da-resposta'
 import { vidroPodado } from '@/lib/atendimentos-ia/vidro'
@@ -946,7 +946,7 @@ async function umaChamadaALlm(chave: string, mensagem: string, contexto: Context
     // ATÉ OS CABEÇALHOS: 10 s por tentativa, duas tentativas (05/11/2026). O abort da primeira derruba o socket dela; a segunda abre outro
     for (let tentativa = 1; tentativa <= TENTATIVAS_DA_PRIMEIRA_CHAMADA; tentativa++) {
         medida.tentativas = tentativa
-        const cabecalhos = prazo(PRAZO_ATE_OS_CABECALHOS_MS)
+        const cabecalhos = prazo(PRAZOS_ATE_OS_CABECALHOS_MS[tentativa - 1] ?? PRAZO_ATE_OS_CABECALHOS_MS)
         try {
             r = await fetch(URL_DA_API_ANTHROPIC, {
                 method: 'POST',
@@ -963,7 +963,7 @@ async function umaChamadaALlm(chave: string, mensagem: string, contexto: Context
             if (cabecalhos.estourou()) {
                 if (tentativa < TENTATIVAS_DA_PRIMEIRA_CHAMADA) continue
                 medida.ms = Date.now() - inicio; limite.limpar()
-                return { tipo: 'prazo-esgotado', detalhe: `limite_ms=${PRAZO_DA_PRIMEIRA_CHAMADA_MS} sem_cabecalhos_ms=${PRAZO_ATE_OS_CABECALHOS_MS} tentativas=${tentativa}` }
+                return { tipo: 'prazo-esgotado', detalhe: `limite_ms=${PRAZO_DA_PRIMEIRA_CHAMADA_MS} sem_cabecalhos_ms=${PRAZOS_ATE_OS_CABECALHOS_MS.slice(0, tentativa).join('+')} tentativas=${tentativa}` }
             }
             medida.ms = Date.now() - inicio; limite.limpar()
             return { tipo: 'erro-da-llm', detalhe: `excecao=${e instanceof Error ? e.name : 'desconhecida'} tentativas=${tentativa}` }
@@ -1723,7 +1723,12 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         if (resposta.tipo !== 'ok') {
             rastro.etapas.coletar = `historico=${rastro.historico} ia=${resposta.tipo} faltou=ia linhas_msg=${linhasDaMensagem} lidas=0`
             // o prazo estourou (04/11/2026): a linha [IA] sai AGORA, antes de qualquer envio — se a função morrer depois, o motivo já está no log
-            if (resposta.tipo === 'prazo-esgotado') anotar(rastro, 'prazo-esgotado', `${resposta.detalhe} antes_do_envio=sim`)
+            if (resposta.tipo === 'prazo-esgotado') {
+                // UM ENVIO, UMA RESPOSTA (pedido 0027): a outra mensagem da mesma rajada já respondeu — o aviso não sai, e o log diz por quê
+                const outra = await outraEntradaRespondida(c.tenantId, c.conversaId, c.entrada).catch((): false => false)
+                if (outra === true) return fim('prazo-esgotado', `${resposta.detalhe} aviso=suprimido_outra_respondeu`)
+                anotar(rastro, 'prazo-esgotado', `${resposta.detalhe} antes_do_envio=sim`)
+            }
             // DEFEITO 3: o vendedor sempre fica sabendo — sem detalhe técnico
             const frase = resposta.tipo === 'sem-saldo' ? FALHA_SEM_SALDO : resposta.tipo === 'recusa' ? FALHA_RECUSA : resposta.tipo === 'prazo-esgotado' ? FALHA_PRAZO_DA_IA : FALHA_DA_IA
             return await responder(frase, resposta.tipo, resposta.detalhe)

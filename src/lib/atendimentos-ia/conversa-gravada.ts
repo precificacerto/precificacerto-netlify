@@ -97,6 +97,26 @@ export async function saidaDaEntrada(tenantId: string, entradaId: string): Promi
 }
 
 /**
+ * A RAJADA (dono do produto, 25/11/2026; pedido 0027: "Um envio, uma resposta [...] O aviso 'demorou demais' só sai se nenhum request da mesma
+ * mensagem respondeu"): o vendedor manda a foto e o texto, ou duas fotos, com décimos de segundo entre elas, e cada uma é um request. A
+ * entrada cujo modelo estourou o prazo não manda o aviso quando OUTRA entrada da mesma conversa, na janela da rajada, já teve a saída ENVIADA.
+ */
+export const JANELA_DA_RAJADA_MS = 30_000
+
+/** Há saída ENVIADA, de outra entrada da conversa, desde `janela` antes desta entrada? `sem_migracao` sem a coluna `responde_a`. */
+export async function outraEntradaRespondida(tenantId: string, conversaId: string, entrada: Pick<Entrada, 'id' | 'criadoEm'>, janela = JANELA_DA_RAJADA_MS): Promise<boolean | 'sem_migracao'> {
+    const desde = new Date(new Date(entrada.criadoEm).getTime() - janela).toISOString()
+    const { data, error } = await supabaseAdmin.from('orcamentista_mensagem').select('id, responde_a')
+        .eq('tenant_id', tenantId).eq('conversa_id', conversaId).eq('direcao', 'saida').not('wuzapi_mensagem_id', 'is', null).gte('criado_em', desde)
+        .order('criado_em', { ascending: false }).limit(20)
+    if (error) {
+        if (colunaAusente(error)) return 'sem_migracao'
+        throw new Error(`orcamentista_mensagem: ${error.message}`)
+    }
+    return ((data ?? []) as Array<{ responde_a: string | null }>).some((l) => typeof l.responde_a === 'string' && l.responde_a !== entrada.id)
+}
+
+/**
  * Grava a saída — o texto como foi enviado, a entrada a que responde, o id do envio (nulo quando o envio falhou) e o LEVANTAMENTO que o turno
  * tratou (o contexto do turno seguinte, 18/11/2026; nulo quando não tratou nenhum). Sem a coluna `levantamento_id` (a 20261118000005
  * pendente), grava sem ela: `sem_contexto`. Sem `responde_a` também, `sem_migracao`.
