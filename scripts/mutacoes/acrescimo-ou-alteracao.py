@@ -3,6 +3,8 @@ import subprocess, sys, os
 # a linha do que foi feito; a lista completa substitui; duas fotos da rajada, uma pergunta so e as retidas juntas pelo numero.
 # Roda SOZINHO na arvore (nada le a arvore enquanto roda). SO=<trecho> roda so as mutacoes cujo texto contem o trecho.
 # O trecho que nao aparece UMA vez aborta (codigo 3) antes de rodar suite.
+# 1a passada 26/30: a condicao do numero com outra tipologia era redundante (o numero escrito ja aciona a distincao) e saiu, com a mutacao;
+# o item unico do ambiente, a corrida das duas fotos e os dois itens inteiros de mesmo numero ganharam teste.
 R = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')) + '/'
 U = 'src/utils/__tests__/'
 T = [U + 'atendimentos-ia-levantamento-por-nome.test.ts']
@@ -27,7 +29,6 @@ M = [
  (CI, "if (d.tipo === 'alterar') { if (d.inteira) refazer.add(d.ordem); return { ...semIntencao, ordem: d.ordem } }", "if (d.tipo === 'alterar') { return { ...semIntencao, ordem: d.ordem } }"),
  (CI, "const atuais = alvo && !substituir ? alvo.itens.map((i) => (refazer.has(i.ordem) ? itemVazio(i.ordem) : i)) : [itemVazio(1)]", "const atuais = alvo && !substituir ? alvo.itens : [itemVazio(1)]"),
  (CI, "        const confirmouAtualizar = confirmouAcrescimo && !soAcrescentar(retidas)", "        const confirmouAtualizar = false"),
- (CI, "            return !!doNumero && typeof e.tipologia === 'string' && e.tipologia !== '' && e.tipologia !== doNumero.tipologia", "            return false"),
  (CI, " && intencao !== 'substituir' && distinguido === null) {", " && distinguido === null) {"),
  (CI, "                return await responder(`${atualizacao ? `${atualizacao}\\n\\n` : ''}${textoDoEnvioDoArquivo(dados.numero, dados.cliente.nome)}`, 'arquivo', doArquivo)", "                return await responder(textoDoEnvioDoArquivo(dados.numero, dados.cliente.nome), 'arquivo', doArquivo)"),
  (CI, "substituidos: substituir ? aplicada.itens.length : null })", "substituidos: null })"),

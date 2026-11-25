@@ -7609,6 +7609,29 @@ describe('(30) a FOTO e o PDF do vendedor (dono do produto, 18/11/2026): baixado
             // os códigos escritos na foto ficam marcados como do vendedor
             expect(retidas.every((r) => r.tipologia_dita === true)).toBe(true)
         })
+        it('(0028-f) a CORRIDA: as duas fotos processadas ao mesmo tempo — a segunda leu a conversa antes de a primeira gravar a pergunta; ao gravar, ela relê, junta e não manda nada', async () => {
+            await dozeGravados()
+            estado.download = { bytes: FOTO }
+            fotoDosVidros()
+            await chamarComMidia(foto({ caption: undefined }))
+            const daPrimeira = JSON.parse(JSON.stringify(estado.db.orcamentista_pergunta_em_aberto)) as Linha[]
+            expect(daPrimeira[0].pergunta).toBe('SEM_NOME')
+            // a segunda começou ANTES de a primeira gravar: não acha pergunta nenhuma; a da primeira aparece enquanto o modelo lê a segunda foto
+            estado.db.orcamentista_pergunta_em_aberto = []
+            const itensDaSegunda = ONZE.map(([tipologia, largura_mm, altura_mm], k) => ({ ordem: k + 1, tipologia, largura_mm, altura_mm, quantidade: 1, cor_perfil: 'BRANCO' }))
+            let uma = true
+            estado.llmPeloPrompt = (m) => {
+                if (!uma || !m.includes('[imagem]')) return null
+                uma = false
+                estado.db.orcamentista_pergunta_em_aberto = daPrimeira
+                return { texto_da_imagem: LISTA, itens: itensDaSegunda }
+            }
+            const antes = enviados().length
+            await chamarComMidia(foto({ caption: undefined }))
+            expect(enviados().length - antes).toBe(0)
+            const retidas = (estado.db.orcamentista_pergunta_em_aberto ?? [])[0].itens as Linha[]
+            expect(retidas.map((r) => [r.numero, r.tipologia, r.vidro ?? null])).toEqual(ONZE.map(([t], k) => [k + 1, t, 'incolor laminado 4+4']))
+        })
         it('(0028-d) O CASO EXATO, pelo caminho das fotos: o nome "marcelo e rita" substitui o levantamento — 11 itens, V=5 no 1, a DP-69 no 9 e no 10, sem o 12; uma linha diz o que foi feito, e nada é listado', async () => {
             await dozeGravados()
             estado.download = { bytes: FOTO }
@@ -8689,6 +8712,8 @@ describe('(47) alterar ou acrescentar: a intenção dita manda; sem ela, a conve
     })
     it('a função pura: a ordem da correspondência — o número, a mesma esquadria, o ambiente — e a ambígua; e as frases', () => {
         const A = acrescimo()
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const PA = () => require('@/lib/atendimentos-ia/pergunta-em-aberto') as typeof import('@/lib/atendimentos-ia/pergunta-em-aberto')
         const existentes = [
             { ordem: 1, tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, ambientes: [{ ambiente: 'Sala' }] },
             { ordem: 2, tipologia: 'DP-02', largura_mm: 1300, altura_mm: 1000, ambientes: [{ ambiente: 'Quarto' }] },
@@ -8707,6 +8732,13 @@ describe('(47) alterar ou acrescentar: a intenção dita manda; sem ela, a conve
         // o ambiente: a mesma tipologia no mesmo ambiente; o único item do ambiente
         expect(A.distinguirItens([{ tipologia: 'DP-02', largura_mm: 800, altura_mm: 800, ambientes: [{ ambiente: 'Quarto' }] }], existentes)).toEqual([{ tipo: 'alterar', ordem: 2, inteira: true }])
         expect(A.distinguirItens([{ tipologia: 'DP-01', largura_mm: 800, altura_mm: 800, ambientes: [{ ambiente: 'Cozinha' }] }], existentes)).toEqual([{ tipo: 'acrescentar' }])
+        // outra tipologia no ambiente que tem UM item só: é ele
+        expect(A.distinguirItens([{ tipologia: 'DP-01', largura_mm: 800, altura_mm: 800, ambientes: [{ ambiente: 'Sala' }] }], existentes)).toEqual([{ tipo: 'alterar', ordem: 1, inteira: true }])
+        // a junção das retidas pelo número só vale para o item que COMPLETA: dois itens inteiros de mesmo número (de duas listas) ficam dois
+        const juntos = PA().juntarEsquadrias([{ numero: 1, tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000 }], [{ ordem: 1, tipologia: 'DP-04', largura_mm: 900, altura_mm: 900 }])
+        expect(juntos.itens).toHaveLength(2)
+        const completo = PA().juntarEsquadrias([{ numero: 1, vidro: 'laminado 4+4' }], [{ ordem: 1, tipologia: 'DP-04', largura_mm: 900, altura_mm: 900 }])
+        expect(completo.itens).toEqual([{ ordem: 1, tipologia: 'DP-04', largura_mm: 900, altura_mm: 900, vidro: 'laminado 4+4', numero: 1 }])
         // dois itens da mensagem no MESMO item: os dois ambíguos
         expect(A.distinguirItens([{ numero: 1, tipologia: 'DP-02', largura_mm: 900, altura_mm: 900 }, { tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000 }], existentes)).toEqual([{ tipo: 'ambiguo', ordem: 1 }, { tipo: 'ambiguo', ordem: 1 }])
         // a correção sem número (não é inteira): o caminho de sempre

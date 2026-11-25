@@ -2230,17 +2230,11 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // nenhum entra somada, e as duas coisas valem na mesma mensagem. Só a que não se decide pergunta: UMA pergunta curta, sem a lista. A resposta
         // ("substitui" ou "é mais um") decide as ambíguas; as outras seguem com o destino delas
         let distinguido: { alterados: number; acrescentados: number } | null = null
-        // o número de um item que existe com OUTRA tipologia: pode ser o item 1 dele, ou um item novo que o vendedor numerou — não se presume
-        const numeradaComOutraTipologia = alvo !== null && emEspera.some((e) => {
-            const n = numeroDoItem(e)
-            const doNumero = n === null ? undefined : alvo!.itens.find((i) => i.ordem === n)
-            return !!doNumero && typeof e.tipologia === 'string' && e.tipologia !== '' && e.tipologia !== doNumero.tipologia
-        })
         const refazer = new Set<number>()
         let itensDistinguidos: unknown[] | null = null
         const resolverAmbiguas = daPergunta && aberta?.p.pergunta === 'CONFIRMAR_ACRESCIMO' && alvo !== null && alvo.id === aberta.citados[0]?.id
             && (intencaoDita === 'alterar' || intencaoDita === 'acrescentar') ? intencaoDita : null
-        if (alvo !== null && (alvo.estado !== EM_MONTAGEM || daPergunta) && alvo.itens.length > 0 && (intencao === null || resolverAmbiguas !== null) && emEspera.length > 0 && (algumaNova || resolverAmbiguas !== null || confirmouAtualizar || numeradaComOutraTipologia || emEspera.some((e) => numeroDoItem(e) !== null)) && emEspera.some(esquadriaInteira)) {
+        if (alvo !== null && (alvo.estado !== EM_MONTAGEM || daPergunta) && alvo.itens.length > 0 && (intencao === null || resolverAmbiguas !== null) && emEspera.length > 0 && (algumaNova || resolverAmbiguas !== null || confirmouAtualizar || emEspera.some((e) => numeroDoItem(e) !== null)) && emEspera.some(esquadriaInteira)) {
             const destinos = distinguirItens(emEspera, alvo.itens)
             if (destinos === null) {
                 if (intencao === null && algumaNova) {
