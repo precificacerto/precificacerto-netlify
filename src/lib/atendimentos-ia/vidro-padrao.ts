@@ -13,7 +13,8 @@
  *     tabela VIDRO do fornecedor PRINCIPAL da categoria VIDRO da conta (`principaisDaConta` + `derivarTabelasDaConta`, as mesmas do custo).
  *   - "item_codigo NÃO TEM FK [...] vale a regra da falta: o orçamento vai até o fim, a falta vem NOMEADA com o código e a tipologia, PDF carimbado
  *     PARCIAL. Não recusa, não estoura, não chuta outro vidro." O código que a tabela do principal não tem continua sendo o padrão; o custo o
- *     acusa (`VIDRO_CODIGO_FORA_DA_TABELA`, `vidro-da-tabela.ts`), e o texto do vidro fica sendo o próprio código.
+ *     acusa (`VIDRO_CODIGO_FORA_DA_TABELA`, `vidro-da-tabela.ts`). O TEXTO do vidro, nesse caso, diz em linguagem de obra que o padrão não está na
+ *     tabela vigente (25/11/2026, pedido 0025: a sigla nunca vai para o vendedor) — antes era o próprio código.
  *   - "a instrução de VIDRO deixando de valer como padrão mas seguindo visível": o `vidro_padrao` da ferramenta não preenche mais o vidro
  *     (`levantamento-em-montagem.ts`); a instrução continua no prompt, como as das outras categorias.
  *   - QUEM LÊ: "service_role em rota de servidor". A RLS da tabela só deixa passar `is_super_admin()`; com o JWT de um usuário a leitura voltaria
@@ -183,21 +184,27 @@ async function descricoesNoPrincipal(tenantId: string, codigos: readonly string[
         const d = (i.descricao ?? '').trim()
         if (d) vistas.set(i.codigo_wvetro, new Set([...(vistas.get(i.codigo_wvetro) ?? []), d]))
     }
-    // a descrição só vale quando é UMA: o mesmo código com duas descrições no principal não escolhe nenhuma (o texto fica sendo o código)
+    // a descrição só vale quando é UMA: o mesmo código com duas descrições no principal não escolhe nenhuma (o texto diz que o padrão não está na tabela)
     return new Map([...vistas].filter(([, ds]) => ds.size === 1).map(([c, ds]) => [c, [...ds][0]]))
 }
 
 /**
- * O vidro que o padrão põe na esquadria: o TEXTO (a descrição da tabela do principal, ou o próprio código quando ela não o tem) e o CÓDIGO
+ * O vidro que o padrão põe na esquadria: o TEXTO (a descrição da tabela do principal, ou a frase de que o padrão não está nela) e o CÓDIGO
  * (o que o custo usa — `vidro_codigo`, que vence o texto). Null sem padrão: a esquadria fica sem vidro, e a conversa pergunta.
  */
 export type VidroAplicado = { texto: string; codigo: string; padrao: VidroPadrao; noPrincipal: boolean }
+/**
+ * O TEXTO do vidro quando a referência do padrão NÃO acha item na tabela vigente (dono do produto, 25/11/2026, pedido 0025: "No levantamento —
+ * Vidro: deve ser descrito, não em sigla"). A sigla nunca vai para o vendedor: ele lê, em linguagem de obra, que o vidro padrão não está na tabela.
+ * O CÓDIGO continua gravado em `vidro_codigo` (é por ele que o custo nomeia a falta), e o orçamento segue até o fim, como antes.
+ */
+export const textoDoVidroForaDaTabela = (p: VidroPadrao): string => `vidro ${origemNaFrase(p)} — não está na tabela de vidros vigente`
 export function vidroDoPadrao(conta: VidrosPadraoDaConta, c: { tipologia: string; familia: string; descricao: string | null; tipo: string | null; linha: string | null }): VidroAplicado | null {
     if (!conta.ok) return null
     const padrao = padraoDoVidro(conta.porFamilia.get(c.familia) ?? [], c)
     if (padrao === null) return null
     const descricao = conta.descricaoDo.get(padrao.codigo)
-    return { texto: descricao ?? padrao.codigo, codigo: padrao.codigo, padrao, noPrincipal: descricao !== undefined }
+    return { texto: descricao ?? textoDoVidroForaDaTabela(padrao), codigo: padrao.codigo, padrao, noPrincipal: descricao !== undefined }
 }
 
 /** A candidata da esquadria, como a lista do motor a traz: o código, a família, a descrição, o tipo e a linha. */
@@ -231,5 +238,6 @@ export function vidroCodigoDaEsquadria(conta: VidrosPadraoDaConta, item: { tipol
 export function vidroNoConsiderado(conta: VidrosPadraoDaConta, item: { tipologia: string | null; familia: string | null; vidro: string | null }, candidatas: readonly CandidataDoPadrao[]): string | null {
     const aplicado = vidroPadraoDaEsquadria(conta, item, candidatas)
     if (aplicado === null || item.tipologia === null || item.vidro !== aplicado.texto) return null
-    return `vidro ${aplicado.codigo}, ${origemNaFrase(aplicado.padrao)}`
+    // sem a sigla (25/11/2026): a descrição do vidro está na célula VIDRO; aqui só a ORIGEM. Fora da tabela, o próprio texto do vidro já diz tudo
+    return aplicado.noPrincipal ? `vidro ${origemNaFrase(aplicado.padrao)}` : null
 }

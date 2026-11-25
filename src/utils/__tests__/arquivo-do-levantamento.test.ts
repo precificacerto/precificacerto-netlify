@@ -5,7 +5,7 @@
  */
 // o módulo lê o banco nas funções de leitura; aqui só as puras são exercitadas
 jest.mock('@/supabase/admin', () => ({ supabaseAdmin: {} }))
-import { corDoAcessorio, montarDadosDaFolha, resumoDoArquivo, resumoDoArquivoParaOPrompt, variaveisDitas, type LevantamentoDoArquivo } from '@/lib/atendimentos-ia/arquivo-do-levantamento'
+import { corDoAcessorio, montarDadosDaFolha, resumoDoArquivo, resumoDoArquivoParaOPrompt, trilhosIndeterminados, variaveisDitas, type LevantamentoDoArquivo } from '@/lib/atendimentos-ia/arquivo-do-levantamento'
 import { conferirFolha, desenhoDaTipologia, gerarFolhaDoLevantamento, linhaDasVariaveis } from '@/lib/atendimentos-ia/folha-do-levantamento'
 import { itemVazio, type DefinicaoDaTipologia, type ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
@@ -204,11 +204,11 @@ describe('O PADRÃO APARECE NA FOLHA, montado do que está gravado (dono do prod
         montarDadosDaFolha({ empresa: 'Empresa X', levantamento: LEV, itens, definicao: () => COM_N, detalhe: comTipo, geradoEm: new Date(Date.UTC(2026, 10, 11, 12)), doVendedor: null })
 
     it('o item recebe o CONSIDERADO: o tipo, as folhas e os extras que decidem o natural', () => {
-        expect(montarCom([item(1, {})]).itens[0].considerado).toBe('correr, 2 folhas · sem persiana · sem bandeira · sem peitoril')
+        expect(montarCom([item(1, {})]).itens[0].considerado).toBe('correr, 2 folhas')
     })
     it('a maxim-ar: o módulo pelo "N" padrão da aba (1), e pelo "N" DITO quando o vendedor disse (3)', () => {
-        expect(montarCom([item(1, { tipologia: 'DP-01' })]).itens[0].considerado).toBe('maxim-ar · sem persiana · sem bandeira · sem peitoril')
-        expect(montarCom([item(1, { tipologia: 'DP-01', escolhas: { N: 3 } })]).itens[0].considerado).toBe('maxim-ar, 3 módulos · sem persiana · sem bandeira · sem peitoril')
+        expect(montarCom([item(1, { tipologia: 'DP-01' })]).itens[0].considerado).toBe('maxim-ar')
+        expect(montarCom([item(1, { tipologia: 'DP-01', escolhas: { N: 3 } })]).itens[0].considerado).toBe('maxim-ar, 3 módulos')
     })
     it('o NOME do item (dono do produto, 24/11/2026, pedido 0023): a descrição resolvida — um módulo não se escreve; sem a linha; nunca o código', () => {
         // o item antigo, sem N gravado: vale o Padrão do motor (1), o mesmo número do cálculo
@@ -221,6 +221,32 @@ describe('O PADRÃO APARECE NA FOLHA, montado do que está gravado (dono do prod
         expect(semPadrao.itens[0].nome).toBe('Maxim-ar com módulos horizontais a definir')
         // a tipologia que o motor não descreve fica sem nome: o código não entra no lugar
         expect(montarCom([item(1, { tipologia: 'DP-99' })]).itens[0].nome).toBe('')
+    })
+    it('EM QUANTOS TRILHOS (dono do produto, 25/11/2026, pedido 0025): pelo marco que o motor escolhe para o item; indeterminado, nada se escreve e a pendência é nomeada', () => {
+        const PORTA = { descricao: 'PORTA DE CORRER 06 FOLHAS MÓVEIS | FECHAMENTO CENTRAL | EUROPA 60', linha: 'PVC WOLFF EUROPA 60', tipo: 'Correr' }
+        const doisMarcos = [{ trilhos: 2, condicao: '(TM=1)' }, { trilhos: 3, condicao: '(TM=2)' }]
+        const com = (marcos: { marcos: Array<{ trilhos: number; condicao: string }>; padroes: Record<string, number> } | null | undefined, escolhas: Record<string, number> | null = null) => {
+            const itens = [item(1, { tipologia: 'DP-90', escolhas })]
+            const detalhe = () => ({ ...PORTA, marcos })
+            return { nome: montarDadosDaFolha({ empresa: 'Empresa X', levantamento: LEV, itens, definicao: () => null, detalhe, geradoEm: new Date(0), doVendedor: null }).itens[0].nome,
+                pendencias: trilhosIndeterminados(itens, detalhe) }
+        }
+        // a DP-90 do pedido: só o marco de 3 trilhos
+        expect(com({ marcos: [{ trilhos: 3, condicao: 'sempre' }], padroes: {} })).toEqual({ nome: 'Porta de correr 06 folhas móveis em 3 trilhos | Fechamento central', pendencias: [] })
+        // a tipologia com os dois marcos: o Padrão do motor, e a escolha gravada no item
+        expect(com({ marcos: doisMarcos, padroes: { TM: 1 } }).nome).toBe('Porta de correr 06 folhas móveis em 2 trilhos | Fechamento central')
+        expect(com({ marcos: doisMarcos, padroes: { TM: 1 } }, { TM: 2 }).nome).toBe('Porta de correr 06 folhas móveis em 3 trilhos | Fechamento central')
+        // não se determina (a TM sem valor): nenhum trilho escrito, e a pendência nomeia o item, a tipologia e o motivo
+        expect(com({ marcos: doisMarcos, padroes: {} })).toEqual({ nome: 'Porta de correr 06 folhas móveis | Fechamento central',
+            pendencias: ['item=1 tipologia=DP-90 motivo="a condição "(TM=1)" do marco não se avalia com as escolhas do item"'] })
+        // a pendência lê as ESCOLHAS do item: a TM gravada que nenhum marco atende é pendência; a que um atende, não
+        expect(com({ marcos: doisMarcos, padroes: { TM: 1 } }, { TM: 3 }).pendencias).toEqual(['item=1 tipologia=DP-90 motivo="nenhum marco de correr vale para as escolhas do item"'])
+        expect(com({ marcos: doisMarcos, padroes: {} }, { TM: 2 })).toEqual({ nome: 'Porta de correr 06 folhas móveis em 3 trilhos | Fechamento central', pendencias: [] })
+        // sem marco de correr (não lidos, ou a tipologia não tem): nada escrito, e nada a registrar
+        const semMarco: Array<Parameters<typeof com>[0]> = [null, undefined, { marcos: [], padroes: {} }]
+        for (const m of semMarco) expect(com(m)).toEqual({ nome: 'Porta de correr 06 folhas móveis | Fechamento central', pendencias: [] })
+        // o item sem tipologia não tem o que registrar
+        expect(trilhosIndeterminados([item(1, { tipologia: null })], () => ({ ...PORTA, marcos: { marcos: doisMarcos, padroes: {} } }))).toEqual([])
     })
     it('a quantidade de módulos que muda MUDA o resumo (R2): o arquivo novo sai', () => {
         const um = montarCom([item(1, { tipologia: 'DP-01', escolhas: { N: 1 } })]), tres = montarCom([item(1, { tipologia: 'DP-01', escolhas: { N: 3 } })])
@@ -236,12 +262,12 @@ describe('O PADRÃO APARECE NA FOLHA, montado do que está gravado (dono do prod
     it('a persiana de pano fixo diz o pano (13/11/2026, dito-que-confere-com-a-tipologia): DP-07 sem QP → "(1 pano)"; DP-16 com QP, nada presumido', () => {
         const QP = { variaveis: [{ variavel: 'QP', descricao: 'QUANTIDADE DE PANOS DE PERSIANA', padrao: '2', condicao: 'sempre', opcoes: '2 = 02 PANOS; 3 = 03 PANOS ASSIMÉTRICOS' }] } as unknown as VariaveisDaTipologia
         const com = (itens: ItemDoLevantamento[]) => montarDadosDaFolha({ empresa: 'Empresa X', levantamento: LEV, itens, definicao: (e) => (e.tipologia === 'DP-16' ? QP : COM_N), detalhe: comTipo, geradoEm: new Date(Date.UTC(2026, 10, 13, 12)), doVendedor: null })
-        expect(com([item(1, { tipologia: 'DP-07' })]).itens[0].considerado).toBe('correr, 2 folhas · com persiana (1 pano) · sem bandeira · sem peitoril')
-        expect(com([item(1, { tipologia: 'DP-16' })]).itens[0].considerado).toBe('correr, 3 folhas · com persiana · sem bandeira · sem peitoril')
+        expect(com([item(1, { tipologia: 'DP-07' })]).itens[0].considerado).toBe('correr, 2 folhas · com persiana (1 pano)')
+        expect(com([item(1, { tipologia: 'DP-16' })]).itens[0].considerado).toBe('correr, 3 folhas · com persiana')
     })
     it('o pano da persiana E o vidro padrão juntos no CONSIDERADO (o rebase do #271 sobre o #270, 13/11/2026): o pano no extra, o vidro no fim', () => {
         const d = montarDadosDaFolha({ empresa: 'Empresa X', levantamento: LEV, itens: [item(1, { tipologia: 'DP-07' })], definicao: () => COM_N, detalhe: comTipo,
-            geradoEm: new Date(Date.UTC(2026, 10, 13, 12)), doVendedor: null, vidroPadrao: () => 'vidro VIN05, padrão da empresa para janela de correr' })
-        expect(d.itens[0].considerado).toBe('correr, 2 folhas · com persiana (1 pano) · sem bandeira · sem peitoril · vidro VIN05, padrão da empresa para janela de correr')
+            geradoEm: new Date(Date.UTC(2026, 10, 13, 12)), doVendedor: null, vidroPadrao: () => 'vidro padrão da empresa para janela de correr' })
+        expect(d.itens[0].considerado).toBe('correr, 2 folhas · com persiana (1 pano) · vidro padrão da empresa para janela de correr')
     })
 })

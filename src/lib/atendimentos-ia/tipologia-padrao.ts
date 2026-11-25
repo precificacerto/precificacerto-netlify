@@ -523,7 +523,8 @@ function decidir(restantes: ReadonlyArray<{ c: CandidatoDeTipologia; a: Atributo
 // ── O PADRÃO NA FOLHA (dono do produto, 11/11/2026: "aplicar o padrão é certo; aplicar em silêncio não é") ─────────────────────────────
 /**
  * O que a esquadria É, escrito ao lado do item na folha do levantamento: o tipo e a quantidade (folhas, ou módulos), e os extras que decidem
- * o natural — "correr, 2 folhas · sem persiana · sem bandeira · sem peitoril"; "maxim-ar · …" (com um módulo não se escreve módulo, 24/11/2026); "correr, 2 folhas · com persiana · …".
+ * o natural que ela TEM — "correr, 2 folhas"; "maxim-ar" (com um módulo não se escreve módulo, 24/11/2026); "correr, 2 folhas · com persiana (1 pano)". O que ela
+ * não tem não se escreve (25/11/2026: ausência não se escreve).
  * Vale para a tipologia como foi escolhida (pelo vendedor, pelo modelo ou pelo padrão): o vendedor lê e corrige antes do "sim".
  * `modulosDitos` é o número de módulos horizontais (a variável "N" da descrição), o dito ou o padrão da aba Variáveis; null quando não há.
  */
@@ -538,9 +539,12 @@ export function oQueAEsquadriaE(c: Pick<CandidatoDeTipologia, 'descricao' | 'tip
         partes.push(total === 1 ? a.tipo : `${a.tipo}, ${total} módulos`)
     } else partes.push(a.tipo)
     for (const e of ['persiana', 'bandeira', 'peitoril'] as const) {
+        // AUSÊNCIA NÃO SE ESCREVE (dono do produto, 25/11/2026, pedido 0025: "Remover do Levantamento — Considerado: 'sem persiana · sem bandeira ·
+        // sem peitoril'. Essa variável existe quando for mencionada."): só o que a esquadria TEM entra
+        if (!a.extras.has(e)) continue
         // a persiana de pano fixo diz quantos (13/11/2026: o "1 pano" dito é absorvido e ESCRITO aqui, e vale para quem não o disse — é o que ela é)
-        const panos = e === 'persiana' && a.extras.has(e) && panosDaPersiana !== null ? ` (${emPanos(panosDaPersiana)})` : ''
-        partes.push(`${a.extras.has(e) ? 'com' : 'sem'} ${e}${panos}`)
+        const panos = e === 'persiana' && panosDaPersiana !== null ? ` (${emPanos(panosDaPersiana)})` : ''
+        partes.push(`com ${e}${panos}`)
     }
     return partes.join(' · ')
 }

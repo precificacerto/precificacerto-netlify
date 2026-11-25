@@ -170,7 +170,9 @@ describe('A REGRA GERAL DA QUANTIDADE (dono do produto, 11/11/2026): CORRER = 2 
         expect(padrao('janela maxim ar com bandeira 1 módulo', 'janela', com)).toEqual({ tipologia: 'DP-129' })
         expect(padrao('janela maxim ar com bandeira 2 módulos', 'janela', com)).toEqual({ motivo: 'MODULOS_DITOS' })
         // e na folha: um módulo não se escreve (24/11/2026), com bandeira
-        expect(oQueAEsquadriaE(CANDIDATOS.find((c) => c.tipologia === 'DP-129')!, 1)).toBe('maxim-ar · sem persiana · com bandeira · sem peitoril')
+        expect(oQueAEsquadriaE(CANDIDATOS.find((c) => c.tipologia === 'DP-129')!, 1)).toBe('maxim-ar · com bandeira')
+        // o pano é da PERSIANA: a bandeira não ganha "(1 pano)"
+        expect(oQueAEsquadriaE(CANDIDATOS.find((c) => c.tipologia === 'DP-129')!, 1, 1)).toBe('maxim-ar · com bandeira')
     })
     it('MODULAÇÃO COM BANDEIRA (3b): DP-129 (perfil) × DP-134 (travessa) — a divisão é atributo da bandeira e SE PERGUNTA; nunca uma das duas', () => {
         const d = padrao('janela maxim ar com bandeira', 'janela')
@@ -311,20 +313,20 @@ describe('os atributos lidos da descrição e do que foi dito, pelas mesmas pala
 
 describe('O PADRÃO NA FOLHA: o que a esquadria é, escrito', () => {
     const de = (t: string, n: number | null = null) => oQueAEsquadriaE(CANDIDATOS.find((x) => x.tipologia === t)!, n)
-    it('"correr, 2 folhas · sem persiana · sem bandeira · sem peitoril" e cada variação', () => {
-        expect(de('DP-02')).toBe('correr, 2 folhas · sem persiana · sem bandeira · sem peitoril')
-        expect(de('DP-07')).toBe('correr, 2 folhas · com persiana · sem bandeira · sem peitoril')
-        expect(de('DP-06')).toBe('correr, 2 folhas · sem persiana · com bandeira · com peitoril')
-        expect(de('DP-113')).toBe('abrir, 1 folha · sem persiana · sem bandeira · sem peitoril')
+    it('"correr, 2 folhas" e cada variação', () => {
+        expect(de('DP-02')).toBe('correr, 2 folhas')
+        expect(de('DP-07')).toBe('correr, 2 folhas · com persiana')
+        expect(de('DP-06')).toBe('correr, 2 folhas · com bandeira · com peitoril')
+        expect(de('DP-113')).toBe('abrir, 1 folha')
     })
     it('maxim-ar: o módulo pelo número que o cálculo usa (o "N" dito, ou o padrão da aba)', () => {
         // com um módulo não se escreve módulo (dono do produto, 24/11/2026, pedido 0023)
-        expect(de('DP-01', 1)).toBe('maxim-ar · sem persiana · sem bandeira · sem peitoril')
-        expect(de('DP-01', 2)).toBe('maxim-ar, 2 módulos · sem persiana · sem bandeira · sem peitoril')
-        expect(de('DP-137', 1)).toBe('maxim-ar, 2 módulos · sem persiana · sem bandeira · sem peitoril')
+        expect(de('DP-01', 1)).toBe('maxim-ar')
+        expect(de('DP-01', 2)).toBe('maxim-ar, 2 módulos')
+        expect(de('DP-137', 1)).toBe('maxim-ar, 2 módulos')
         // o número de módulos que não se sabe não é escrito
-        expect(de('DP-01', null)).toBe('maxim-ar · sem persiana · sem bandeira · sem peitoril')
-        expect(de('DP-133', 1)).toBe('maxim-ar · sem persiana · sem bandeira · sem peitoril')
+        expect(de('DP-01', null)).toBe('maxim-ar')
+        expect(de('DP-133', 1)).toBe('maxim-ar')
     })
     it('sem tipo no motor, nada é escrito', () => {
         expect(oQueAEsquadriaE({ descricao: 'ALGO', tipo: null, linha: null }, null)).toBeNull()

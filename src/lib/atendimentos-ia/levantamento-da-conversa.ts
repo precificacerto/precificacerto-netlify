@@ -102,6 +102,7 @@
  *
  * Portão: `src/utils/__tests__/levantamento-da-conversa.test.ts`.
  */
+import { marcosDeCorrer, variaveisDasCondicoes, type MarcoDeCorrer, type MarcosDaTipologia } from '@/lib/atendimentos-ia/trilhos-do-marco'
 import { descricaoNoPrompt, limitesNoPrompt, numeroOuNulo } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { supabaseAdmin } from '@/supabase/admin'
 import { COLUNA_DA_CATEGORIA_DO_FORNECEDOR } from '@/utils/atendimentos-ia-importacao-celula'
@@ -512,6 +513,55 @@ export async function lerTipologiasDoBanco(motorId: string, codigos: readonly st
  * escolhas. Com a tabela ainda ausente no banco, nenhuma definição: a conversa segue sem escolhas, e o levantamento recusa
  * nomeando a aba que falta.
  */
+/**
+ * OS MARCOS DE CORRER de todas as tipologias do motor (dono do produto, 25/11/2026; pedido 0025, `trilhos-do-marco.ts`): as linhas da aba Perfis
+ * cuja descrição é "MARCO DE CORRER - N TRILHOS", com a condição, e o Padrão das variáveis que essas condições leem (a TM) — é o que diz em
+ * quantos trilhos as folhas de cada item correm. Só lê, pelo `motor_id`. A tabela ausente, ou a leitura que falha, não derruba a conversa: sem
+ * marcos, a descrição sai sem trilho nenhum (nada é presumido) e o log diz por quê.
+ */
+export async function lerMarcosDasTipologias(motorId: string): Promise<Record<string, MarcosDaTipologia>> {
+    try {
+        return await marcosDoMotor(motorId)
+    } catch (e) {
+        // a exceção da leitura também não derruba a conversa: sem marcos, nenhum trilho é escrito — e o log diz
+        console.error(`[TRILHOS] a leitura dos marcos falhou: ${e instanceof Error ? e.message : 'excecao desconhecida'}`)
+        return {}
+    }
+}
+async function marcosDoMotor(motorId: string): Promise<Record<string, MarcosDaTipologia>> {
+    const linhas: Array<{ tipologia: unknown; descricao: string | null; condicao: string | null; obs: string | null }> = []
+    for (let de = 0; ; de += PAGINA) {
+        const { data, error } = await supabaseAdmin.from('orcamentista_motor_perfil').select('tipologia, descricao, condicao, obs').eq('motor_id', motorId)
+            .ilike('descricao', 'MARCO DE CORRER%').order('tipologia', { ascending: true }).order('ordem', { ascending: true }).range(de, de + PAGINA - 1)
+        // a aba ausente (o motor sem ela) não é falha: nenhum marco, em silêncio. A leitura que falha é exceção, e o log a nomeia
+        if (error) { if (tabelaAusente(error)) return {}; throw new Error(`orcamentista_motor_perfil codigo=${error.code ?? '-'}`) }
+        linhas.push(...((data ?? []) as typeof linhas))
+        if ((data ?? []).length < PAGINA) break
+    }
+    const marcosDe = new Map<string, MarcoDeCorrer[]>()
+    for (const [tipologia, doCodigo] of agrupar(linhas.filter((l): l is typeof l & { tipologia: string } => typeof l.tipologia === 'string'), (l) => l.tipologia)) {
+        marcosDe.set(tipologia, marcosDeCorrer(doCodigo))
+    }
+    // o Padrão das variáveis das condições (a TM): o mesmo número que o cálculo usa quando ninguém escolheu
+    const nomes = [...new Set([...marcosDe.values()].flatMap(variaveisDasCondicoes))]
+    const padroes = new Map<string, Record<string, number>>()
+    if (nomes.length > 0) {
+        const { data, error } = await supabaseAdmin.from('orcamentista_motor_variavel').select('tipologia, variavel, padrao').eq('motor_id', motorId).in('variavel', nomes)
+        if (error) throw new Error(`orcamentista_motor_variavel codigo=${error.code ?? '-'}`)
+        for (const v of (data ?? []) as Array<{ tipologia: unknown; variavel: unknown; padrao: unknown }>) {
+            const padrao = typeof v.padrao === 'string' ? v.padrao.trim() : ''
+            if (typeof v.tipologia !== 'string' || typeof v.variavel !== 'string' || !/^\d+$/.test(padrao)) continue
+            padroes.set(v.tipologia, { ...(padroes.get(v.tipologia) ?? {}), [v.variavel]: Number(padrao) })
+        }
+    }
+    return Object.fromEntries([...marcosDe].map(([tipologia, marcos]) => [tipologia, { marcos, padroes: padroes.get(tipologia) ?? {} }]))
+}
+function agrupar<T>(itens: readonly T[], chave: (i: T) => string): Map<string, T[]> {
+    const grupos = new Map<string, T[]>()
+    for (const i of itens) grupos.set(chave(i), [...(grupos.get(chave(i)) ?? []), i])
+    return grupos
+}
+
 export async function lerVariaveisDasTipologias(motorId: string, para: 'agente' | 'documento' = 'agente'): Promise<Record<string, VariaveisDaTipologia>> {
     const aba = abaDeclarada('Variáveis')
     const lida = await lerTudo(aba.tabela, motorId, ORDEM_DAS_ABAS)

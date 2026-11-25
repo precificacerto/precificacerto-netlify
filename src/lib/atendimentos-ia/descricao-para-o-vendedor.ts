@@ -84,11 +84,14 @@ const doisDigitos = (n: number) => String(n).padStart(2, '0')
  */
 export type VariavelSemValor = 'a_definir' | 'omite' | 'aberta'
 export function descricaoParaOVendedor(descricao: string | null | undefined, valores: Readonly<Record<string, unknown>> | null = null,
-    semValor: VariavelSemValor = 'a_definir'): string | null {
+    semValor: VariavelSemValor = 'a_definir', trilhos: number | null = null): string | null {
     const { principal, tem } = trechosDaDescricao(descricao)
     if (principal === '') return null
     // o que a esquadria tem vem depois do nome, como o motor separa (com a barra): "Janela de correr 02 folhas móveis | Bandeira fixa"
-    const comOQueTem = (nome: string) => [nome, ...tem.map(comInicialMaiuscula)].join(' | ')
+    // EM QUANTOS TRILHOS as folhas correm (dono do produto, 25/11/2026, pedido 0025): logo depois das folhas — "Porta de correr 06 folhas móveis
+    // em 3 trilhos | Fechamento central". O número vem do marco que o motor escolhe para o item (`trilhos-do-marco.ts`); sem ele, nada se escreve
+    const emTrilhos = typeof trilhos === 'number' && Number.isInteger(trilhos) && trilhos > 0 ? ` em ${trilhos} ${trilhos === 1 ? 'trilho' : 'trilhos'}` : ''
+    const comOQueTem = (nome: string) => [`${nome}${emTrilhos}`, ...tem.map(comInicialMaiuscula)].join(' | ')
     const m = modulosDaDescricao(descricao)
     if (m === null) return comOQueTem(comInicialMaiuscula(principal))
     const quantidade = (q: QuantidadeDeModulos | null): number | 'a_definir' | 'aberta' | null => {

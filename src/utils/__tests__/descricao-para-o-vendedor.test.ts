@@ -37,6 +37,19 @@ describe('com um módulo não se escreve módulo', () => {
     })
 })
 
+describe('em quantos trilhos as folhas correm (dono do produto, 25/11/2026; pedido 0025)', () => {
+    const DP90 = 'PORTA DE CORRER 06 FOLHAS MÓVEIS | FECHAMENTO CENTRAL | EUROPA 60'
+    it('os trilhos vêm logo depois das folhas, antes do que a esquadria tem', () => {
+        expect(ler(DP90, null, 'a_definir', 3)).toBe('Porta de correr 06 folhas móveis em 3 trilhos | Fechamento central')
+        expect(ler(DP02, null, 'a_definir', 2)).toBe('Janela de correr 02 folhas móveis em 2 trilhos')
+        expect(ler(DP02, null, 'a_definir', 1)).toBe('Janela de correr 02 folhas móveis em 1 trilho')
+    })
+    it('sem o número (não é de correr, ou não se determinou), NADA se escreve — nunca um trilho presumido', () => {
+        expect(ler(DP90)).toBe('Porta de correr 06 folhas móveis | Fechamento central')
+        for (const t of [null, 0, -1, 2.5, Number.NaN]) expect(ler(DP90, null, 'a_definir', t)).toBe('Porta de correr 06 folhas móveis | Fechamento central')
+    })
+})
+
 describe('a descrição que não é de módulos', () => {
     it('sai como está, sem a linha de perfil, com a inicial maiúscula; o que a esquadria TEM (o trecho do meio) fica', () => {
         expect(ler(DP02)).toBe('Janela de correr 02 folhas móveis')

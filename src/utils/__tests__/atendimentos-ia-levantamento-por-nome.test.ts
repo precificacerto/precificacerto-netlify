@@ -170,6 +170,8 @@ const estado = {
     checkSemDaImagem: false,
     /** As LEITURAS feitas (18/11/2026): a tabela e os filtros por igualdade — para provar que o turno nem lê o levantamento fora do contexto. */
     leituras: [] as Array<{ tabela: string; filtros: Array<[string, unknown]> }>,
+    /** Os filtros `ilike` pedidos (25/11/2026): a leitura dos marcos pede SÓ as linhas de marco, nunca a aba Perfis inteira. */
+    ilikes: [] as Array<{ tabela: string; coluna: string; padrao: string }>,
     /**
      * Quando preenchida, a LLM falsa responde a partir do PROMPT, como a de verdade: o código da variável
      * só se o prompt o der ("ARI = ARREMATE INTERNO" ou "ARI: ARREMATE INTERNO"), senão a descrição que
@@ -311,6 +313,7 @@ function montar() {
     estado.checkSemQualOrcamento = false
     estado.checkSemDaImagem = false
     estado.leituras = []
+    estado.ilikes = []
     estado.redacoes = []
     estado.redacao = null
     estado.falhaAoGravarSaida = false
@@ -399,6 +402,8 @@ jest.mock('@/supabase/admin', () => ({
                 return q
             }
             q.in = (c: string, vs: unknown[]) => { predicados.push((l) => vs.includes(l[c])); return q }
+            // o `ilike` do PostgREST com o padrão "PREFIXO%" (a leitura dos marcos de correr, 25/11/2026): sem diferença de caixa
+            q.ilike = (c: string, padrao: string) => { estado.ilikes.push({ tabela, coluna: c, padrao }); predicados.push((l) => typeof l[c] === 'string' && (l[c] as string).toLowerCase().startsWith(padrao.replace(/%$/, '').toLowerCase())); return q }
             // `.not(c, 'is', null)`, como o PostgREST: só as linhas com a coluna preenchida (a coluna ausente da fixture é null)
             q.not = (c: string, op: string, v: unknown) => {
                 if (op !== 'is' || v !== null) throw new Error(`o banco falso só conhece .not(c, 'is', null), e veio ${op} ${String(v)}`)
@@ -2021,7 +2026,8 @@ describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/202
         expect(enviados().some((t) => t.includes('Apanhado do levantamento'))).toBe(false)
         const arquivo = textoDoArquivo()
         // a faixa do item: o número e a descrição resolvida — sem o código da tipologia e sem a linha de perfil (24/11/2026, pedido 0023)
-        expect(arquivo).toContain('Item 1 Janela de correr 02 folhas móveis 1 1.200 1.000')
+        // e em quantos trilhos as folhas correm (25/11/2026, pedido 0025): o marco HF88 da DP-02 da fixture é de 2 trilhos
+        expect(arquivo).toContain('Item 1 Janela de correr 02 folhas móveis em 2 trilhos 1 1.200 1.000')
         expect(arquivo).not.toContain(DP02.tipologia)
         expect(arquivo).not.toMatch(/europa/i)
         // a linha do item com os rótulos do mockup: "PERFIL / ACESSÓRIO:" (cor do perfil / cor do acessório, "padrão" não dita) e "VIDRO:"
@@ -2077,7 +2083,8 @@ describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/202
             'Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm; outra DP-02 1500 x 1000, 3 unidades, branco, laminado 8mm')
         const arquivo = textoDoArquivo()
         // a faixa do item: o número e a descrição resolvida — sem o código da tipologia e sem a linha de perfil (24/11/2026, pedido 0023)
-        expect(arquivo).toContain('Item 1 Janela de correr 02 folhas móveis 1 1.200 1.000')
+        // e em quantos trilhos as folhas correm (25/11/2026, pedido 0025): o marco HF88 da DP-02 da fixture é de 2 trilhos
+        expect(arquivo).toContain('Item 1 Janela de correr 02 folhas móveis em 2 trilhos 1 1.200 1.000')
         expect(arquivo).not.toContain(DP02.tipologia)
         expect(arquivo).not.toMatch(/europa/i)
         expect(arquivo).toContain('Item 2 Janela de correr 02 folhas móveis')
@@ -3912,7 +3919,9 @@ describe('(29) o vidro copiado, a forma canônica e a dedupe por equivalência (
         await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, sem arremate interno, arremate externo com folga de 50')
         expect(itensDe(levantamentos()[0].id)[0]).toMatchObject({ vidro: 'VIDRO TEMPERADO INCOLOR 05MM', vidro_codigo: 'VTIN05' })
         expect(linhaIa().pop()).toMatch(/ vidro_padrao=1(\s|$)/)
-        expect(textoDoArquivo()).toContain('vidro VTIN05, padrão da empresa para janela de correr')
+        // achou o item na tabela: não é falta
+        expect(linhaIa().pop()).not.toContain('vidro_fora_da_tabela')
+        expect(textoDoArquivo()).toContain('vidro padrão da empresa para janela de correr')
         // o turno seguinte muda a largura: o vidro e o código ficam
         llmResponde({ nome: 'Casa do João', alteracao: true, itens: [{ ordem: 1, largura_mm: 1300 }] })
         await chamar('Casa do João: largura 1300')
@@ -4267,7 +4276,8 @@ describe('(32) as leituras antes do modelo vão em ondas: o que não depende de 
         expect(enviados()).toHaveLength(1)
         // a lista inteira, onda a onda: a conta, a conversa, as instruções e o PREÇO (tabelas-da-conta) vão com a primeira leitura do motor;
         // a última onda é a das Variáveis com a pergunta em aberto. Paralelo não é pular: são as mesmas 20 leituras de antes
-        expect(ondas).toEqual([...ONDAS_DA_FAMILIA, ['orcamentista_motor_variavel', 'orcamentista_pergunta_em_aberto']])
+        // (25/11/2026: os marcos de correr, da aba Perfis, vão na MESMA onda das Variáveis — nenhuma ida em série a mais)
+        expect(ondas).toEqual([...ONDAS_DA_FAMILIA, ['orcamentista_motor_perfil', 'orcamentista_motor_variavel', 'orcamentista_pergunta_em_aberto']])
     })
 
     it('com instrução de categoria preenchida: o catálogo de categorias e as matérias-primas das instruções vão juntos, na segunda onda', async () => {
@@ -4292,7 +4302,7 @@ describe('(32) as leituras antes do modelo vão em ondas: o que não depende de 
         await turno
         expect(estado.chamadasDaLlm).toHaveLength(1)
         // REVISTO em 18/11/2026: o pedido de autorização da medida fora do limite, gravado no item, é lido na MESMA onda dos itens (uma ida a mais à tabela, não uma onda)
-        expect(ondas).toEqual([...ONDAS_DA_FAMILIA, ['orcamentista_levantamento_item', 'orcamentista_levantamento_item', 'orcamentista_motor_variavel', 'orcamentista_pergunta_em_aberto']])
+        expect(ondas).toEqual([...ONDAS_DA_FAMILIA, ['orcamentista_levantamento_item', 'orcamentista_levantamento_item', 'orcamentista_motor_perfil', 'orcamentista_motor_variavel', 'orcamentista_pergunta_em_aberto']])
     })
 
     it('a aba de Variáveis com mais de 1.000 linhas: a primeira página dá a contagem e as demais vão JUNTAS, e nenhuma linha se perde nem se repete', async () => {
@@ -5502,8 +5512,10 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
                 + 'persiana=sem/padrao_da_tipologia;bandeira=sem/padrao_da_tipologia;peitoril=sem/padrao_da_tipologia;cor=Branco/base_de_conhecimento;'
                 + 'vidro=VTIN05/base_de_conhecimento;quantidade=1/padrao_do_apanhado')
             // o que o rastro diz é o que foi gravado
-            // (`comPredominante` deixa a conta sem a categoria VIDRO, logo sem principal: o texto é o próprio código, e o custo o acusa como falta nomeada)
-            expect(itens('Ana')[0]).toMatchObject({ tipologia: 'DP-39', cor_perfil: 'Branco', vidro: 'VTIN05', vidro_codigo: 'VTIN05', quantidade: 1 })
+            // (`comPredominante` deixa a conta sem a categoria VIDRO, logo sem principal: o texto diz que o padrão não está na tabela — NUNCA a sigla,
+            // 25/11/2026 —, o código segue gravado, o custo o acusa como falta nomeada, e a linha [IA] conta a falta)
+            expect(itens('Ana')[0]).toMatchObject({ tipologia: 'DP-39', cor_perfil: 'Branco', vidro: 'vidro padrão da empresa para porta de correr — não está na tabela de vidros vigente', vidro_codigo: 'VTIN05', quantidade: 1 })
+            expect(linhaIa().pop()).toContain(' vidro_padrao=1 vidro_fora_da_tabela=1')
             // e o dito é dito: com tipo, folhas e cor na mensagem, só os extras ficam no padrão
             llmResponde({ cliente: 'Bia', itens: [{ ...PORTA, abertura: 'porta', cor_perfil: 'Preto' }] })
             await chamar('Cliente: Bia. 1 porta de correr 2 folhas 2,50 x 2,20, preto, vidro comum 6 mm incolor', { senderAlt: TELEFONE_DO_OUTRO })
@@ -7723,6 +7735,81 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         llmResponde({ nome: 'Daiane Pilger', itens: [{ ...DP02 }], escolhas: [...ESCOLHAS_QUE_FECHAM, { variavel: 'N', opcao: 2 }] })
         await chamar(MSG_DA_DAIANE)
         expect(escolhasDoItem('Daiane Pilger').map((e) => 'N' in (e ?? {}))).toEqual([false])
+    })
+    // EM QUANTOS TRILHOS AS FOLHAS CORREM (dono do produto, 25/11/2026; pedido 0025): lido do MARCO da aba Perfis do motor, nunca presumido
+    const marcosDaDP02 = () => (estado.db.orcamentista_motor_perfil as Linha[]).filter((p) => p.tipologia === 'DP-02' && /^MARCO DE CORRER/.test(String(p.descricao)))
+    const arquivoDaDaiane = async () => {
+        llmResponde({ nome: 'Daiane Pilger', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar(MSG_DA_DAIANE)
+        return textoDoArquivo()
+    }
+    it('OS TRILHOS na folha: o marco "sempre" da DP-02 é de 2 trilhos; trocado no motor por um de 3, a folha diz 3 — é o motor que manda', async () => {
+        expect(marcosDaDP02().map((p) => [p.descricao, p.condicao])).toEqual([['MARCO DE CORRER - 2 TRILHOS', 'sempre'], ['MARCO DE CORRER - 2 TRILHOS', 'sempre']])
+        for (const p of marcosDaDP02()) p.descricao = 'MARCO DE CORRER - 3 TRILHOS'
+        estado.ilikes = []; estado.leituras = []
+        expect(await arquivoDaDaiane()).toContain('Item 1 Janela de correr 02 folhas móveis em 3 trilhos 1 1.200 1.000')
+        // a leitura pede SÓ as linhas de marco (a aba Perfis inteira são milhares de linhas por turno), e só as do motor da família
+        expect(estado.ilikes.filter((x) => x.tabela === 'orcamentista_motor_perfil')).toEqual([{ tabela: 'orcamentista_motor_perfil', coluna: 'descricao', padrao: 'MARCO DE CORRER%' }])
+        const doMarco = estado.leituras.filter((r) => r.tabela === 'orcamentista_motor_perfil')
+        expect(doMarco.length).toBeGreaterThan(0)
+        for (const r of doMarco) expect(r.filtros).toContainEqual(['motor_id', MOTOR])
+    })
+    it('OS TRILHOS com os dois marcos pela TM: vale o Padrão do motor (TM = 1, 2 trilhos); o marco REFILADO da monovia não conta', async () => {
+        const [largura, altura] = marcosDaDP02()
+        largura.condicao = '(TM=1)'; altura.condicao = '(TM=1)'
+        const perfis = estado.db.orcamentista_motor_perfil as Linha[]
+        perfis.push({ ...largura, id: 'marco-3', descricao: 'MARCO DE CORRER - 3 TRILHOS', condicao: '(TM=2)' })
+        // o refilado, "sempre" e com OUTRO número: se contasse, dois marcos valeriam e nenhum trilho seria escrito
+        perfis.push({ ...largura, id: 'marco-refilado', descricao: 'MARCO DE CORRER - 4 TRILHOS', condicao: 'sempre', obs: 'MARCO - LARGURA (REFILADO)' })
+        const modelo = (estado.db.orcamentista_motor_variavel as Linha[]).find((v) => v.tipologia === 'DP-02') as Linha
+        ;(estado.db.orcamentista_motor_variavel as Linha[]).push({ ...modelo, id: 'v-tm', variavel: 'TM', descricao: 'TIPO DE MONTAGEM', padrao: '1', opcoes: '1 = MONTAGEM COM MARCO 02 VIAS - HF88; 2 = MONTAGEM COM MARCO 03 VIAS - HF112', condicao: 'sempre', min_max: null, ordem: 9997 })
+        // a TM de OUTRO motor, com outro Padrão, não vale para este
+        ;(estado.db.orcamentista_motor_variavel as Linha[]).push({ ...modelo, id: 'v-tm-outro', motor_id: 'outro-motor', variavel: 'TM', descricao: 'TIPO DE MONTAGEM', padrao: '2', opcoes: null, condicao: 'sempre', min_max: null, ordem: 9996 })
+        estado.leituras = []
+        expect(await arquivoDaDaiane()).toContain('Item 1 Janela de correr 02 folhas móveis em 2 trilhos 1 1.200 1.000')
+        expect(erros.filter((l) => l.startsWith('[TRILHOS]'))).toEqual([])
+        for (const r of estado.leituras.filter((x) => x.tabela === 'orcamentista_motor_variavel')) expect(r.filtros).toContainEqual(['motor_id', MOTOR])
+    })
+    it('OS TRILHOS com a TM de Padrão que NÃO é número no motor: a condição não se avalia — nenhum trilho, e a pendência diz isso (o texto não vira número)', async () => {
+        for (const p of marcosDaDP02()) p.condicao = '(TM=1)'
+        const modelo = (estado.db.orcamentista_motor_variavel as Linha[]).find((v) => v.tipologia === 'DP-02') as Linha
+        ;(estado.db.orcamentista_motor_variavel as Linha[]).push({ ...modelo, id: 'v-tm', variavel: 'TM', descricao: 'TIPO DE MONTAGEM', padrao: 'HF88', opcoes: null, condicao: 'sempre', min_max: null, ordem: 9997 })
+        const arquivo = await arquivoDaDaiane()
+        expect(arquivo).toContain('Item 1 Janela de correr 02 folhas móveis 1 1.200 1.000')
+        expect(arquivo).not.toMatch(/trilho/i)
+        expect(erros.filter((l) => l.startsWith('[TRILHOS]'))[0]).toContain('motivo="a condição "(TM=1)" do marco não se avalia com as escolhas do item"')
+    })
+    it('OS TRILHOS de OUTRO motor não entram: o marco de 3 trilhos da mesma tipologia em outro motor não muda os 2 deste', async () => {
+        ;(estado.db.orcamentista_motor_perfil as Linha[]).push({ ...marcosDaDP02()[0], id: 'marco-de-outro', motor_id: 'outro-motor', descricao: 'MARCO DE CORRER - 3 TRILHOS' })
+        expect(await arquivoDaDaiane()).toContain('Item 1 Janela de correr 02 folhas móveis em 2 trilhos 1 1.200 1.000')
+        expect(erros.filter((l) => l.startsWith('[TRILHOS]'))).toEqual([])
+    })
+    it('OS TRILHOS que não se determinam (dois marcos valendo, com números diferentes): NENHUM trilho na folha, e a pendência no log — com o item e a tipologia, sem texto do vendedor', async () => {
+        const perfis = estado.db.orcamentista_motor_perfil as Linha[]
+        perfis.push({ ...marcosDaDP02()[0], id: 'marco-3', descricao: 'MARCO DE CORRER - 3 TRILHOS' })
+        const arquivo = await arquivoDaDaiane()
+        expect(arquivo).toContain('Item 1 Janela de correr 02 folhas móveis 1 1.200 1.000')
+        expect(arquivo).not.toMatch(/trilho/i)
+        const pendencias = erros.filter((l) => l.startsWith('[TRILHOS]'))
+        expect(pendencias.length).toBeGreaterThan(0)
+        expect(pendencias[0]).toMatch(/^\[TRILHOS\] indeterminado levantamento=\S+ item=1 tipologia=DP-02 motivo="mais de um marco vale para o item \(2 e 3 trilhos\)"$/)
+    })
+    it('OS TRILHOS com a aba Perfis ausente, ou a leitura que falha: a conversa segue, a folha sai sem trilho, e nada é presumido', async () => {
+        estado.ausentes.add('orcamentista_motor_perfil')
+        const arquivo = await arquivoDaDaiane()
+        expect(arquivo).toContain('Item 1 Janela de correr 02 folhas móveis 1 1.200 1.000')
+        expect(arquivo).not.toMatch(/trilho/i)
+        // a aba ausente não é falha: nada no log
+        expect(erros.filter((l) => l.startsWith('[TRILHOS]'))).toEqual([])
+    })
+    it('OS TRILHOS com a leitura que FALHA (não é tabela ausente): a conversa segue, a folha sai sem trilho, e o log nomeia a tabela e o código — nada do vendedor', async () => {
+        estado.leiturasQueFalham.add('orcamentista_motor_perfil')
+        const arquivo = await arquivoDaDaiane()
+        expect(arquivo).toContain('Item 1 Janela de correr 02 folhas móveis 1 1.200 1.000')
+        expect(arquivo).not.toMatch(/trilho/i)
+        const falhas = erros.filter((l) => l.startsWith('[TRILHOS]'))
+        expect(falhas.length).toBeGreaterThan(0)
+        for (const f of falhas) expect(f).toMatch(/^\[TRILHOS\] a leitura dos marcos falhou: orcamentista_motor_perfil codigo=\S+$/)
     })
     it('o prompt diz ao modelo que NÃO pergunte os módulos e que só mande a quantidade DITA', async () => {
         llmResponde({})
