@@ -203,6 +203,7 @@ import { agruparIguais,
     CAMPOS_DA_ESQUADRIA, aplicarProposta, familiaDaEsquadria, itemVazio, pendenciasDoLevantamento, perguntaDasPendencias, resolverFamilias,
     type DefinicaoDaTipologia, type ItemDoLevantamento, type Pendencia,
 } from '@/lib/atendimentos-ia/levantamento-em-montagem'
+import { distinguirItens, fraseDaAtualizacao, numeroDoItem, fraseDaCorrespondenciaAmbigua, type DestinoDoItem } from '@/lib/atendimentos-ia/acrescimo-ou-alteracao'
 import { JANELA_EM_VOO_MS, contextoDaConversa, gravarSaida, outraEntradaRespondida, lerHistorico, marcarEnvio, saidaDaEntrada, type Entrada, type MensagemDoHistorico } from '@/lib/atendimentos-ia/conversa-gravada'
 import { prazo } from '@/lib/atendimentos-ia/prazo'
 import { CONTINUACOES_DA_LISTA_CORTADA, MAX_TOKENS_DA_PRIMEIRA_CHAMADA, PRAZO_ATE_OS_CABECALHOS_MS, PRAZOS_ATE_OS_CABECALHOS_MS, TENTATIVAS_DA_PRIMEIRA_CHAMADA, blocosDoSistema, instrucaoDaContinuacao, itensCompletosDoJsonCortado } from '@/lib/atendimentos-ia/pedido-ao-modelo'
@@ -266,6 +267,8 @@ export type DesfechoDaIa =
     | 'perguntou' | 'sem-cores' | 'sem-linha' | 'padrao-nomeado' | 'levantou' | 'recusou' | 'envio-falhou' | 'erro' | 'nenhuma-cabe'
     /** O reenvio do WUZAPI de uma entrada já respondida (200 sem conduzir), e o reenvio da saída cujo primeiro envio falhou (03/11/2026). */
     | 'repetida' | 'reenviada'
+    /** A outra imagem da mesma rajada já fez esta pergunta (pedido 0028): as retidas se juntam, e nada sai de novo. */
+    | 'retida-na-rajada'
     /** A mídia do vendedor que não foi lida — o áudio, o vídeo, a planilha, o que passou do limite ou falhou ao baixar (18/11/2026): a resposta diz o quê. */
     | 'midia-nao-lida'
     /** O PEDIDO DE ORÇAMENTO pelo nome (18/11/2026): a lista para escolher; o arquivo mandado de novo; o orçamento sem arquivo, nomeado. */
@@ -279,11 +282,16 @@ export type IntencaoNoLevantamento = 'alterar' | 'acrescentar' | 'substituir'
  * A PERGUNTA, quando a frase não diz (dono do produto, 21/11/2026): "se a frase não disser qual dos dois, PERGUNTE em vez de escolher". As
  * esquadrias ficam retidas; a resposta "acrescenta" (ou o "sim") acrescenta, e "altera o item N" altera aquele item.
  */
-export const fraseDeAlterarOuAcrescentar = (nome: string, nExistentes: number, esquadrias: Array<Record<string, unknown>>, nomeDe: NomeDaTipologia) =>
-    `O levantamento “${nome}” já tem ${nExistentes} item(ns). ${esquadrias.length > 1 ? `Estes ${esquadrias.length} itens` : 'Este item'} — `
-    + `${esquadrias.map((e) => esquadriaPorExtenso(e, nomeDe)).join('; ')} — ${esquadrias.length > 1 ? 'são novos, para acrescentar, ou alteram' : 'é novo, para acrescentar, ou altera'} `
-    + `um item que já está lá? Se for alteração, diga qual item.`
+// NUNCA A LISTA NA CONVERSA (dono do produto, 25/11/2026; pedido 0028): "PROIBIDO listar os itens do levantamento na conversa, em qualquer
+// desfecho. O levantamento sai só no arquivo." A pergunta é curta e nomeia o levantamento; os itens não são repetidos
+export const fraseDeAlterarOuAcrescentar = (nome: string, _nExistentes: number, esquadrias: Array<Record<string, unknown>>): string =>
+    fraseDaCorrespondenciaAmbigua(nome, esquadrias.map((): null => null))
 
+/**
+ * As retidas que ALTERAM itens de um levantamento que já existe, quando o vendedor só disse o nome dele (pedido 0028, item 3): a confirmação é
+ * sim ou não, sem a lista — "É para atualizar o orçamento de marcelo e rita?".
+ */
+export const fraseDeAtualizarOOrcamento = (nome: string) => `É para atualizar o orçamento de “${nome}”? Responda sim ou não.`
 /** A mesma pergunta em outras palavras (R2). */
 export const fraseDeAlterarOuAcrescentarEmOutrasPalavras = (nome: string) =>
     `Preciso saber, para o “${nome}”: é um item novo, para acrescentar, ou é para alterar um item que já está lá (e qual)?`
@@ -362,7 +370,7 @@ type Rastro = {
     /** As instruções escritas em etapas que não falam com o modelo, `numero:ACAO:caracteres` separadas por vírgula; '' quando não há. */
     instrucoesSemEfeito: string
     /** A intenção sobre o levantamento que já existe (21/11/2026): alterar, acrescentar, ou a pergunta feita por não ter sido dita. */
-    intencao: IntencaoNoLevantamento | 'perguntou' | '-'
+    intencao: IntencaoNoLevantamento | 'perguntou' | '-' | `distinguiu:${string}`
     /** Quantos itens iguais se fundiram nesta mensagem (03/11/2026). */
     fundidos: number
     /**
@@ -584,9 +592,8 @@ export const esquadriaPorExtenso = (e: Record<string, unknown>, nomeDe: NomeDaTi
  * A esquadria que veio ANTES de o vendedor dizer o levantamento não entra num que já existe sem ele
  * confirmar (dono do produto, 26/10/2026: "Confirma antes").
  */
-export const fraseDeConfirmarAcrescimo = (nome: string, nExistentes: number, esquadrias: Array<Record<string, unknown>>, nomeDe: NomeDaTipologia) =>
-    `Vou acrescentar ao levantamento “${nome}”, que tem ${nExistentes} item(ns), ${esquadrias.length > 1 ? `estes ${esquadrias.length} itens` : 'este item'}: `
-    + `${esquadrias.map((e) => esquadriaPorExtenso(e, nomeDe)).join('; ')}. Confirma? Responda sim para acrescentar, ou diga o nome de outro levantamento.`
+export const fraseDeConfirmarAcrescimo = (nome: string, _nExistentes: number, esquadrias: Array<Record<string, unknown>>) =>
+    `Vou acrescentar ${esquadrias.length > 1 ? `${esquadrias.length} itens` : '1 item'} ao levantamento “${nome}”. Confirma? Responda sim para acrescentar, ou diga o nome de outro levantamento.`
 /** A mesma confirmação em outras palavras (R2 no roteamento pelo nome, sem "Não consegui registrar"). */
 export const fraseDeConfirmarAcrescimoEmOutrasPalavras = (nome: string) =>
     `Para eu acrescentar ao “${nome}”, preciso do seu sim. Se for de outro levantamento, me diga de qual.`
@@ -1394,10 +1401,14 @@ async function refazerPergunta(
     }
     if (citados.length === 0) return null
     if (p.itens.length === 0) return null
-    const nExistentes = (await lerItens(tenantId, citados[0].id)).length
-    // a pergunta guardada diz de qual das duas é pela intenção que as retidas levam (21/11/2026): "acrescentar" dito é a confirmação de antes; sem
-    // intenção, a pergunta "alterar ou acrescentar"
-    return { p, citados: [citados[0]], texto: soAcrescentar(p.itens) ? fraseDeConfirmarAcrescimo(citados[0].nome, nExistentes, p.itens, nomePelaDetalhe(detalhe)) : fraseDeAlterarOuAcrescentar(citados[0].nome, nExistentes, p.itens, nomePelaDetalhe(detalhe)) }
+    const existentes = await lerItens(tenantId, citados[0].id)
+    // a pergunta guardada diz de qual das duas é pela intenção que as retidas levam (21/11/2026): "acrescentar" dito é a confirmação de antes. Sem
+    // intenção (pedido 0028), a pergunta é refeita pelo mesmo critério com que foi feita: a correspondência que não se decide pergunta se
+    // substitui ou é mais um; a que se decide pergunta só se é para atualizar o orçamento
+    if (soAcrescentar(p.itens)) return { p, citados: [citados[0]], texto: fraseDeConfirmarAcrescimo(citados[0].nome, existentes.length, p.itens) }
+    const destinos = distinguirItens(p.itens, existentes)
+    const ambiguas = destinos === null ? p.itens.map((): null => null) : destinos.flatMap((d) => (d.tipo === 'ambiguo' ? [d.ordem] : []))
+    return { p, citados: [citados[0]], texto: ambiguas.length > 0 ? fraseDaCorrespondenciaAmbigua(citados[0].nome, ambiguas) : fraseDeAtualizarOOrcamento(citados[0].nome) }
 }
 
 /**
@@ -1802,6 +1813,8 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             if (!i || typeof i !== 'object') return i
             const item = { ...(i as Record<string, unknown>) }
             for (const k of ['fornecedor', 'familia']) if (k in item && !ditoNaMensagem(item[k], c.texto)) item[k] = undefined
+            // a tipologia ESCRITA (na mensagem ou na foto) fica marcada: retida, ela continua sendo do vendedor no turno seguinte (pedido 0028)
+            if (typeof item.tipologia === 'string' && origemDaTipologiaProposta(item.tipologia, textoComImagem) === 'dito') item.tipologia_dita = true
             if (item.vidro !== undefined && item.vidro !== null) {
                 // O VIDRO DA FOTO É DO VENDEDOR (dono do produto, 25/11/2026; pedido 0027 — o levantamento 28: a tabela de vidros veio numa foto com a
                 // legenda "Alterar orçamento", e os 10 vidros caíram como "não ditos"): com a foto, a poda é contra o texto da mensagem MAIS o lido
@@ -1816,6 +1829,8 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         }) : itens)
         // AS ESQUADRIAS RETIDAS NUNCA SE PERDEM (03/11/2026): as da pergunta em aberto MAIS as desta mensagem; a reenviada idêntica conta uma vez
         const retidas: EsquadriaProposta[] = aberta?.p.itens ?? []
+        /** Onde o código da tipologia conta como DITO: a mensagem, a foto dela, e os códigos que as retidas trouxeram escritos (pedido 0028). */
+        const textoDosCodigos = [textoComImagem, ...retidas.filter((r) => r.tipologia_dita === true && typeof r.tipologia === 'string').map((r) => String(r.tipologia))].join('\n')
         const daMensagemBrutas = semFornecedorInventado(dadosDaMensagem.proposta.itens)
         // o item que o modelo devolve SEM nenhum campo da esquadria (05/11/2026) não entra em lugar nenhum — e a linha [IA] passa a dizer quantos
         rastro.itensSemCampos = Array.isArray(daMensagemBrutas) ? daMensagemBrutas.filter((i) => !!i && typeof i === 'object' && esquadriasDaProposta({ itens: [i] }).length === 0).length : 0
@@ -1863,6 +1878,22 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
          * que estava em aberto, a resposta diz que não registrou — nunca a mesma pergunta como se nada fosse.
          */
         const perguntar = async (p: PerguntaEmAberto, textoDaPergunta: string, desfecho: DesfechoDaIa): Promise<DesfechoDaIa> => {
+            // UM ENVIO, UMA RESPOSTA, TAMBÉM PARA A IMAGEM (dono do produto, 25/11/2026; pedido 0028 — o levantamento 28: a foto dos 11 itens e a foto
+            // da tabela de vidros, 0,6 s uma da outra, cada uma num request, cada uma com o seu "Qual é o cliente desta imagem?", e a segunda gravou
+            // a pergunta por cima da primeira — os vidros se perderam). A imagem que vai perguntar o MESMO que a outra imagem da rajada perguntou
+            // depois de esta ler a conversa: as retidas das duas se juntam (o item que só completa vai ao de mesmo número), e, se a outra já foi
+            // respondida, esta não manda nada
+            if (c.midia && guardaPergunta && (p.pergunta === 'SEM_NOME' || p.pergunta === 'CONFIRMAR_DA_IMAGEM')) {
+                const agora = await lerPerguntaEmAberto(c.tenantId, c.remetenteId).catch((): null => null)
+                if (agora && typeof agora === 'object' && agora.pergunta === p.pergunta && agora.itens.length > 0) {
+                    p = { ...p, itens: esquadriasDaProposta({ itens: juntarEsquadrias(agora.itens, p.itens).itens }) }
+                    const outra = await outraEntradaRespondida(c.tenantId, c.conversaId, c.entrada).catch((): false => false)
+                    if (outra === true) {
+                        await gravarPerguntaEmAberto(c.tenantId, c.remetenteId, p)
+                        return fim('retida-na-rajada', `retidas=${p.itens.length}`)
+                    }
+                }
+            }
             // a QUAL_ORCAMENTO que o banco ainda não aceita (a 20261118000002 pendente): a lista vai, sem ficar guardada — e o log diz
             if (guardaPergunta && !(await gravarPerguntaEmAberto(c.tenantId, c.remetenteId, p)) && p.pergunta === 'QUAL_ORCAMENTO') rastro.qualOrcamento = 'sem_migracao'
             const repetida = aberta !== null && aberta.texto === textoDaPergunta
@@ -2155,7 +2186,10 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // entra com a intenção dita — "alterar" (o item dito, ou o único) ou "acrescentar" (sempre um item novo). O "sim" à confirmação do
         // acréscimo é "acrescentar". Sem intenção, a conversa PERGUNTA, com as esquadrias retidas — nunca decide sozinha
         const confirmouAcrescimo = confirma === true && aberta?.p.pergunta === 'CONFIRMAR_ACRESCIMO' && alvo !== null && alvo.id === aberta.citados[0]?.id
-        if (intencao === null && confirmouAcrescimo) intencao = 'acrescentar'
+        // o "sim" à confirmação de ACRESCENTAR acrescenta; o "sim" a "É para atualizar o orçamento?" (pedido 0028) atualiza: cada retida vai ao
+        // item que lhe corresponde, e a que não corresponde a nenhum entra somada
+        const confirmouAtualizar = confirmouAcrescimo && !soAcrescentar(retidas)
+        if (intencao === null && confirmouAcrescimo && !confirmouAtualizar) intencao = 'acrescentar'
         // "altera o item 2", em resposta à pergunta: o número dito sem esquadria vai para a única retida
         if (intencaoDita === 'alterar' && retidas.length === 1 && Array.isArray(daMensagemBrutas)) {
             const numero = daMensagemBrutas.map((i) => (i && typeof i === 'object' ? (i as Record<string, unknown>).ordem : undefined)).find((o): o is number => typeof o === 'number' && Number.isInteger(o) && o > 0)
@@ -2178,16 +2212,64 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // alteração do antigo e SUBSTITUI. O "altera" com poucas esquadrias continua a alteração por item: é lista de reformulação a que traz três ou
         // mais esquadrias inteiras, ou tantas quantas o levantamento tem
         const inteirasDaLista = emEspera.filter(esquadriaInteira).length
-        const reformulacao = intencao === null || (intencao === 'alterar' && alvo !== null && (inteirasDaLista >= 3 || inteirasDaLista >= alvo.itens.length))
+        // A LISTA COMPLETA (dono do produto, 25/11/2026; pedido 0028: "Lista completa reenviada (o levantamento inteiro de novo): substitui o
+        // conteúdo inteiro"; e "item sem correspondência entra somado"): sem a intenção dita, a lista substitui quando é o levantamento de novo — os
+        // itens dela correspondem a todos os que existem menos um, no máximo, ou ela tem três ou mais esquadrias e o tamanho do levantamento (menos
+        // um). Duas esquadrias novas para um levantamento que não as tem são acréscimo, não substituição
+        const listaCompleta = alvo !== null && (() => {
+            const destinos = distinguirItens(emEspera, alvo.itens)
+            const correspondentes = destinos === null ? 0 : destinos.filter((d) => d.tipo === 'alterar' || (d.tipo === 'ambiguo' && d.ordem !== null)).length
+            return correspondentes >= Math.max(2, alvo.itens.length - 1) || (inteirasDaLista >= 3 && inteirasDaLista >= alvo.itens.length - 1)
+        })()
+        const reformulacao = (intencao === null && listaCompleta) || (intencao === 'alterar' && alvo !== null && (inteirasDaLista >= 3 || inteirasDaLista >= alvo.itens.length))
         if (alvo !== null && rastro.rota !== 'MONTAGEM' && alvo.itens.length > 0 && reformulacao && ehListaInteira(emEspera)) intencao = 'substituir'
         // em MONTAGEM, a mensagem completa a esquadria que está sendo montada (a regra de sempre); a esquadria RETIDA, que esperava o levantamento,
         // pergunta também ali
-        if (alvo !== null && (alvo.estado !== EM_MONTAGEM || daPergunta) && alvo.itens.length > 0 && intencao === null && algumaNova) {
-            rastro.intencao = 'perguntou'
-            return await perguntar(
-                { pergunta: 'CONFIRMAR_ACRESCIMO', nome: null, levantamentos: [alvo.id], itens: emEspera },
-                fraseDeAlterarOuAcrescentar(alvo.nome, alvo.itens.length, emEspera, nomePelaDetalhe(detalhe)), 'alterar-ou-acrescentar',
-            )
+        // ACRÉSCIMO OU ALTERAÇÃO, ITEM A ITEM (dono do produto, 25/11/2026; pedido 0028): sem a intenção dita, o AGENTE distingue — a esquadria que
+        // corresponde a um item que já existe o altera (e o refaz, quando é inteira: nada do antigo daquele item sobra), a que não corresponde a
+        // nenhum entra somada, e as duas coisas valem na mesma mensagem. Só a que não se decide pergunta: UMA pergunta curta, sem a lista. A resposta
+        // ("substitui" ou "é mais um") decide as ambíguas; as outras seguem com o destino delas
+        let distinguido: { alterados: number; acrescentados: number } | null = null
+        const refazer = new Set<number>()
+        let itensDistinguidos: unknown[] | null = null
+        const resolverAmbiguas = daPergunta && aberta?.p.pergunta === 'CONFIRMAR_ACRESCIMO' && alvo !== null && alvo.id === aberta.citados[0]?.id
+            && (intencaoDita === 'alterar' || intencaoDita === 'acrescentar') ? intencaoDita : null
+        if (alvo !== null && (alvo.estado !== EM_MONTAGEM || daPergunta) && alvo.itens.length > 0 && (intencao === null || resolverAmbiguas !== null) && emEspera.length > 0 && (algumaNova || resolverAmbiguas !== null || confirmouAtualizar || emEspera.some((e) => numeroDoItem(e) !== null)) && emEspera.some(esquadriaInteira)) {
+            const destinos = distinguirItens(emEspera, alvo.itens)
+            if (destinos === null) {
+                if (intencao === null && algumaNova) {
+                    rastro.intencao = 'perguntou'
+                    return await perguntar({ pergunta: 'CONFIRMAR_ACRESCIMO', nome: null, levantamentos: [alvo.id], itens: emEspera },
+                        fraseDaCorrespondenciaAmbigua(alvo.nome, emEspera.map((): null => null)), 'alterar-ou-acrescentar')
+                }
+            } else {
+                const ambiguas = destinos.filter((d): d is Extract<DestinoDoItem, { tipo: 'ambiguo' }> => d.tipo === 'ambiguo')
+                if (ambiguas.length > 0 && resolverAmbiguas === null) {
+                    rastro.intencao = 'perguntou'
+                    return await perguntar({ pergunta: 'CONFIRMAR_ACRESCIMO', nome: null, levantamentos: [alvo.id], itens: emEspera },
+                        fraseDaCorrespondenciaAmbigua(alvo.nome, ambiguas.map((d) => d.ordem)), 'alterar-ou-acrescentar')
+                }
+                // "substitui" para a ambígua sem item candidato (a mesma esquadria em dois itens) não diz qual: fica com a regra de sempre (o número do modelo)
+                if (resolverAmbiguas === 'alterar' && ambiguas.some((d) => d.ordem === null)) intencao = 'alterar'
+                else {
+                    const finais: DestinoDoItem[] = destinos.map((d) => (d.tipo !== 'ambiguo' ? d
+                        : resolverAmbiguas === 'alterar' && d.ordem !== null ? { tipo: 'alterar', ordem: d.ordem, inteira: true } : { tipo: 'acrescentar' }))
+                    let proxima = Math.max(0, ...alvo.itens.map((i) => i.ordem))
+                    let k = 0
+                    itensDistinguidos = juncao.itens.map((raw) => {
+                        if (!raw || typeof raw !== 'object' || esquadriasDaProposta({ itens: [raw] }).length === 0) return raw
+                        const d = finais[k++]
+                        const semIntencao = { ...(raw as Record<string, unknown>) }
+                        delete semIntencao.intencao
+                        if (d.tipo === 'alterar') { if (d.inteira) refazer.add(d.ordem); return { ...semIntencao, ordem: d.ordem } }
+                        proxima += 1
+                        return { ...semIntencao, ordem: proxima }
+                    })
+                    distinguido = { alterados: finais.filter((d) => d.tipo === 'alterar').length, acrescentados: finais.filter((d) => d.tipo === 'acrescentar').length }
+                    intencao = null
+                    rastro.intencao = `distinguiu:alterados=${distinguido.alterados},acrescentados=${distinguido.acrescentados}`
+                }
+            }
         }
         if (intencao !== null) rastro.intencao = intencao
         const acrescentar = alvo !== null && intencao === 'acrescentar'
@@ -2197,7 +2279,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // SUBSTITUIR (25/11/2026): a lista entra num levantamento VAZIO — nada do que estava gravado é mesclado (nem tipologia nova com medida velha),
         // e as linhas que não voltam saem na gravação (`gravarLevantamento`: o DELETE conferido das que sumiram)
         const substituir = alvo !== null && intencao === 'substituir'
-        const atuais = alvo && !substituir ? alvo.itens : [itemVazio(1)]
+        // o item que a esquadria INTEIRA altera é refeito (pedido 0028): nada do antigo daquele item sobra — nem o vidro, nem as escolhas
+        const atuais = alvo && !substituir ? alvo.itens.map((i) => (refazer.has(i.ordem) ? itemVazio(i.ordem) : i)) : [itemVazio(1)]
+        if (itensDistinguidos !== null) efetiva.itens = itensDistinguidos
         // A AUTORIZAÇÃO DA MEDIDA FORA DO LIMITE (dono do produto, 18/11/2026, decisão 1): o pedido e a liberação gravados nos itens do levantamento
         const limites: Map<number, LimiteDoItem> | 'sem_migracao' = !alvo ? await limitesDisponiveis(c.tenantId)
             : emMontagem && alvo.id === emMontagem.id ? limitesDaMontagem : await lerLimites(c.tenantId, alvo.id)
@@ -2213,7 +2297,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const naLinhaPadrao = efetiva.itens.map((raw) => {
             if (typeof raw !== 'object' || raw === null) return raw
             const r = raw as Record<string, unknown>
-            if (typeof r.tipologia !== 'string' || origemDaTipologiaProposta(r.tipologia, c.texto) !== 'escolha_do_modelo') return raw
+            if (typeof r.tipologia !== 'string' || origemDaTipologiaProposta(r.tipologia, textoDosCodigos) !== 'escolha_do_modelo') return raw
             const ordem = typeof r.ordem === 'number' ? r.ordem : null
             const atual = ordem !== null ? atuais.find((i) => i.ordem === ordem) : undefined
             if (atual && tipologiaGravada.get(atual.ordem) === r.tipologia) return raw
@@ -2236,7 +2320,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const semTrocaPeloModelo = pedidosAbertos.size === 0 ? naLinhaPadrao : naLinhaPadrao.map((raw) => {
             if (typeof raw !== 'object' || raw === null) return raw
             const r = raw as Record<string, unknown>
-            if (typeof r.tipologia !== 'string' || origemDaTipologiaProposta(r.tipologia, c.texto) !== 'escolha_do_modelo') return raw
+            if (typeof r.tipologia !== 'string' || origemDaTipologiaProposta(r.tipologia, textoDosCodigos) !== 'escolha_do_modelo') return raw
             const ordem = typeof r.ordem === 'number' ? r.ordem : null
             if (ordem !== null && !pedidosAbertos.has(ordem)) return raw
             // a MESMA tipologia do pedido (com a medida corrigida) é a resposta dele, não uma troca
@@ -2263,7 +2347,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const tipologiaAntes = new Map(atuais.map((i) => [i.ordem, i.tipologia]))
         for (const item of proposta_.itens) {
             if (item.tipologia !== null && item.tipologia !== tipologiaAntes.get(item.ordem)) {
-                assumir(item.ordem, [{ atributo: 'tipologia', valor: item.tipologia, origem: origemDaTipologiaProposta(item.tipologia, c.texto) }])
+                assumir(item.ordem, [{ atributo: 'tipologia', valor: item.tipologia, origem: origemDaTipologiaProposta(item.tipologia, textoDosCodigos) }])
             }
         }
         // O "SIM" AO PEDIDO DE AUTORIZAÇÃO (18/11/2026): o item cujo pedido está em aberto, com a mesma medida, recebe a tipologia pedida e a
@@ -2295,7 +2379,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 const doPedido = tabela.candidatos.filter((x) => x.tipologia === pedidoDoItem.tipologia).slice(0, 1)
                 if (doPedido.length) faltasDoPadrao.push({ ordem: item.ordem, frase: fraseDoPedidoDeAutorizacao(item, doPedido, doPedido[0]), motivo: 'LIMITES' })
                 pedir.set(item.ordem, pedidoDoItem.tipologia)
-            } else if (item.tipologia === null && limites !== 'sem_migracao' && proposta_.recusas.some((r) => r.ordem === item.ordem && r.motivo === 'LIMITES' && origemDaTipologiaProposta(r.tipologia, c.texto) === 'dito')) {
+            } else if (item.tipologia === null && limites !== 'sem_migracao' && proposta_.recusas.some((r) => r.ordem === item.ordem && r.motivo === 'LIMITES' && origemDaTipologiaProposta(r.tipologia, textoDosCodigos) === 'dito')) {
                 // A TIPOLOGIA QUE O VENDEDOR ESCREVEU E NÃO COUBE (25/11/2026, pedido 0026: "Se a tipologia dita não couber, pergunta-se; não se escolhe
                 // outra"): o padrão do código não põe outra no lugar — o pedido de autorização para ELA sai adiante (`pedir`, pelas recusas)
             } else if (item.tipologia === null) {
@@ -2444,10 +2528,10 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const confirmado = confirma === true && aberta?.p.pergunta === 'CONFIRMAR_ACRESCIMO' && alvo?.id === aberta.citados[0]?.id
         // a resposta à pergunta "alterar ou acrescentar" (a intenção dita, sobre o levantamento que ela citou) já é a confirmação
         const respondeuAPergunta = intencaoDita !== null && aberta?.p.pergunta === 'CONFIRMAR_ACRESCIMO' && alvo?.id === aberta.citados[0]?.id
-        if (daPergunta && alvo && !nadaMudou && !confirmado && !respondeuAPergunta && intencao !== 'alterar') {
+        if (daPergunta && alvo && !nadaMudou && !confirmado && !respondeuAPergunta && intencao !== 'alterar' && intencao !== 'substituir' && distinguido === null) {
             return await perguntar(
                 { pergunta: 'CONFIRMAR_ACRESCIMO', nome: null, levantamentos: [alvo.id], itens: emEspera },
-                soAcrescentar(emEspera) ? fraseDeConfirmarAcrescimo(alvo.nome, alvo.itens.length, emEspera, nomePelaDetalhe(detalhe)) : fraseDeAlterarOuAcrescentar(alvo.nome, alvo.itens.length, emEspera, nomePelaDetalhe(detalhe)),
+                soAcrescentar(emEspera) ? fraseDeConfirmarAcrescimo(alvo.nome, alvo.itens.length, emEspera) : fraseDeAtualizarOOrcamento(alvo.nome),
                 soAcrescentar(emEspera) ? 'confirmar-acrescimo' : 'alterar-ou-acrescentar',
             )
         }
@@ -2684,7 +2768,10 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 const envio = await enviarDocumento(c.wuzapiToken, c.telefone, folha.nomeDoArquivo, folha.pdf)
                 const doArquivo = `arquivo_paginas=${folha.paginas} arquivo_enviado=${envio.ok ? 'sim' : `nao status_arquivo=${statusDoEnvio(envio)}`}`
                 if (!envio.ok) return await responder(FALHA_NO_ENVIO_DO_ARQUIVO, 'arquivo-nao-enviado', doArquivo, false)
-                return await responder(textoDoEnvioDoArquivo(dados.numero, dados.cliente.nome), 'arquivo', doArquivo)
+                // O QUE FOI FEITO, EM UMA LINHA (pedido 0028, item 4): nunca a lista — o levantamento está no arquivo
+                const atualizacao = alvo === null ? null
+                    : fraseDaAtualizacao(alvo.nome, { alterados: distinguido?.alterados ?? 0, acrescentados: distinguido?.acrescentados ?? 0, substituidos: substituir ? aplicada.itens.length : null })
+                return await responder(`${atualizacao ? `${atualizacao}\n\n` : ''}${textoDoEnvioDoArquivo(dados.numero, dados.cliente.nome)}`, 'arquivo', doArquivo)
             }
             // sem a tabela ou sem o valor na CHECK (migração 20261026000003 pendente): o formal, como antes
             semApanhado = 'confirmacao=sem_migracao'
