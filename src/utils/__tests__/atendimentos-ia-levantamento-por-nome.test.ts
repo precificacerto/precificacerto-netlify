@@ -4285,6 +4285,17 @@ describe('(31) os prazos das chamadas externas: 45 s no modelo, 15 s na redaçã
         expect(ultima).toContain(' aviso=suprimido_outra_respondeu')
         expect(ultima).not.toContain('antes_do_envio=sim')
     })
+    it('outraEntradaRespondida: a saída enviada da PRÓPRIA entrada não conta como "outra"; a de outra entrada, sim', async () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const G = require('@/lib/atendimentos-ia/conversa-gravada') as typeof import('@/lib/atendimentos-ia/conversa-gravada')
+        const agora = new Date().toISOString()
+        estado.db.orcamentista_mensagem = [
+            { id: 'e1', tenant_id: TENANT, conversa_id: 'c1', direcao: 'entrada', texto: 'x', criado_em: agora },
+            { id: 's1', tenant_id: TENANT, conversa_id: 'c1', direcao: 'saida', texto: 'y', wuzapi_mensagem_id: 'WA1', responde_a: 'e1', criado_em: agora },
+        ]
+        expect(await G.outraEntradaRespondida(TENANT, 'c1', { id: 'e1', criadoEm: agora })).toBe(false)
+        expect(await G.outraEntradaRespondida(TENANT, 'c1', { id: 'e2', criadoEm: agora })).toBe(true)
+    })
     it('o contraste: a outra mensagem NÃO foi entregue (o envio falhou) — o aviso sai, como sempre', async () => {
         llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
         estado.envioStatus = 500
@@ -7831,6 +7842,36 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         expect(estado.documentosDoOrcamento).toHaveLength(1)
         expect(linhaIa().pop()).toContain(" qual_orcamento=0 ")
         expect(erros.filter((l) => l.startsWith(conversa.PREFIXO_DO_LOG_DA_ETAPA) && l.includes(" montar]")).pop()).toContain(" orcamento_pedido=sim")
+    })
+    // O "SIM" NÃO É BLOQUEADO PELO RUÍDO DO MODELO (25/11/2026, pedido 0027): o modelo que devolve, junto do "sim", um vidro que a mensagem não diz
+    // (podado) não faz do "sim" uma "mensagem com itens que nada valeram" — o "sim" confirma o arquivo e o orçamento sai
+    it('o "sim" do arquivo com um vidro inventado pelo modelo (podado): o "sim" vale — o orçamento sai, e a frase dos itens sem nada não', async () => {
+        await levantamentoDaDaiane(true)
+        llmResponde({ confirma: true, itens: [{ ordem: 1, vidro: 'laminado 6+6' }] })
+        await chamar('sim')
+        expect(enviados()).not.toContain(conversa.fraseDosItensSemNada(1))
+        expect(((estado.db.orcamentista_orcamento ?? []) as Linha[]).length).toBe(1)
+    })
+    // "ALTERAR" COM A LISTA (25/11/2026, pedido 0027 — o levantamento 28 veio com intencao=alterar): três ou mais esquadrias inteiras, ou tantas
+    // quantas o levantamento tem, substituem; menos do que isso continua a alteração por item
+    const comTres = async () => {
+        llmResponde({ nome: 'Marcelo e Rita', itens: [1200, 1300, 1400].map((l) => ({ ...DP02, largura_mm: l })), escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Marcelo e Rita: DP-02 1200 x 1000; DP-02 1300 x 1000; DP-02 1400 x 1000; branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+    }
+    const larguras = () => itensDe((levantamentos().find((l) => l.nome === 'Marcelo e Rita') as Linha).id).map((i) => i.largura_mm)
+    it('"alterar" com TRÊS esquadrias inteiras para o levantamento de três: substitui — o conteúdo é o da lista', async () => {
+        await comTres()
+        llmResponde({ nome: 'Marcelo e Rita', alteracao: 'alterar', itens: [1500, 1600, 1700].map((l) => ({ ...DP02, largura_mm: l })) })
+        await chamar('Alterar Marcelo e Rita: DP-02 1500 x 1000; DP-02 1600 x 1000; DP-02 1700 x 1000; branco, temperado 5mm')
+        expect(larguras()).toEqual([1500, 1600, 1700])
+        expect(linhaIa().pop()).toContain(' intencao=substituir')
+    })
+    it('"alterar" com DUAS esquadrias inteiras para o levantamento de três: continua a alteração por item, nada é substituído', async () => {
+        await comTres()
+        llmResponde({ nome: 'Marcelo e Rita', alteracao: 'alterar', itens: [{ ...DP02, ordem: 1, largura_mm: 1500 }, { ...DP02, ordem: 2, largura_mm: 1600 }] })
+        await chamar('Alterar Marcelo e Rita: item 1 DP-02 1500 x 1000; item 2 DP-02 1600 x 1000; branco, temperado 5mm')
+        expect(linhaIa().pop()).not.toContain(' intencao=substituir')
+        expect(larguras()).toHaveLength(3)
     })
     it('com o arquivo de uma alteração esperando o "sim" e o orçamento JÁ FEITO: o pedido traz o orçamento que existe (o último), sem recalcular', async () => {
         await fecharDp02('Daiane Pilger')

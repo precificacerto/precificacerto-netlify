@@ -3,6 +3,7 @@ import subprocess, sys, os
 # substitui antes de qualquer calculo; a mensagem que trouxe itens e nada valeu nao calcula; um envio, uma resposta.
 # Roda SOZINHO na arvore (nada le a arvore enquanto roda). SO=<trecho> roda so as mutacoes cujo texto contem o trecho.
 # O trecho que nao aparece UMA vez aborta (codigo 3) antes de rodar suite.
+# 1a passada 14/18: o "sim" com ruido do modelo, o "alterar" com 3 e com 2 de 3, e a saida da propria entrada ganharam teste; 2a passada 18/18.
 R = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')) + '/'
 U = 'src/utils/__tests__/'
 T = [U + 'atendimentos-ia-levantamento-por-nome.test.ts', U + 'levantamento-da-conversa.test.ts', U + 'vidro.test.ts']
