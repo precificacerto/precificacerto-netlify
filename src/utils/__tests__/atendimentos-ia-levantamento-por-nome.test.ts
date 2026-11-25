@@ -7450,6 +7450,76 @@ describe('(30) a FOTO e o PDF do vendedor (dono do produto, 18/11/2026): baixado
         })
     })
 
+    // O CASO DO LEVANTAMENTO 28 (produção, 25/11/2026 16:54 UTC; pedido 0027): "Marcelo e Rita" tinha 12 itens; o vendedor mandou a foto da lista
+    // nova, de 11, com a legenda "Alterar orçamento". O vidro só da foto foi podado, os 11 itens ficaram sem nada, e o pedido de orçamento calculou
+    // com os 12 velhos. Agora a lista da foto substitui o levantamento inteiro ANTES de qualquer cálculo
+    describe('(30c) a lista inteira reenviada pela FOTO, para o levantamento que já existe: substitui tudo antes de qualquer cálculo', () => {
+        /** A DP-69 do caso, sintética: as abas da DP-02 com outro código (a fixture do motor só tem a DP-02 inteira). */
+        const comADP69NoMotor = () => {
+            for (const [tabela, linhas] of Object.entries(abasDaDP02NoBanco(MOTOR, 'motor'))) {
+                const destino = (estado.db[tabela] ??= []) as Linha[]
+                for (const l of linhas) destino.push({ ...l, tipologia: 'DP-69', ...('id' in l ? { id: `${String(l.id)}-dp69` } : {}), ...(tabela === 'orcamentista_motor_tipologia_detalhe' ? { descricao: 'PORTA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42' } : {}) })
+            }
+            ;(estado.db.orcamentista_motor_tipologia as Linha[]).push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-69', tempo_fabricacao_min: 999, tempo_origem: 'IMPORTADO' })
+            for (const r of estado.db.orcamentista_motor_regra as Linha[]) r.tipologias = [...(r.tipologias as string[]), 'DP-69']
+            const modelo = (estado.db.orcamentista_motor_variavel as Linha[]).find((v) => v.tipologia === 'DP-02') as Linha
+            ;(estado.db.orcamentista_motor_variavel as Linha[]).push({ ...modelo, id: 'v-v', variavel: 'V', descricao: 'QUANTIDADE DE MÓDULOS VERTICAIS', padrao: '1', opcoes: null, condicao: 'sempre', min_max: null, ordem: 9999 })
+            ;(estado.db.orcamentista_tabela_item as Linha[]).push({ ...ITENS_DE_VIDRO[0], codigo: 'VLIN4+4', codigo_wvetro: 'VLIN4+4', descricao: 'VIDRO LAMINADO INCOLOR 4+4MM (8MM)' })
+        }
+        /** As medidas do arquivo do levantamento 28: os oito primeiros na DP-02, o 9 e o 10 na DP-69, o 11 de novo na DP-02. */
+        const ONZE: Array<[string, number, number]> = [
+            ['DP-02', 1200, 1000], ['DP-02', 1300, 1000], ['DP-02', 1400, 1000], ['DP-02', 1500, 1000], ['DP-02', 1600, 1000], ['DP-02', 1700, 1000],
+            ['DP-02', 1800, 1000], ['DP-02', 1900, 1000], ['DP-69', 2300, 2350], ['DP-69', 2200, 2350], ['DP-02', 1000, 1000],
+        ]
+        const LIDO = ONZE.map(([t, l, a], k) => `${k + 1} ${t} ${l} x ${a}${k === 0 ? ' com 05 módulos verticais' : ''} branco incolor laminado 4+4`).join('\n')
+        const daFoto = () => llmResponde({
+            nome: 'Marcelo e Rita', texto_da_imagem: LIDO, escolhas: ESCOLHAS_QUE_FECHAM,
+            itens: ONZE.map(([tipologia, largura_mm, altura_mm], k) => ({ ordem: k + 1, tipologia, largura_mm, altura_mm, quantidade: 1, cor_perfil: 'BRANCO', vidro: 'incolor laminado 4+4', ...(k === 0 ? { modulos_verticais: 5 } : {}) })),
+        })
+        const medidas = () => itensDe(levantamentos()[0].id).map((i) => [i.ordem, i.tipologia, i.largura_mm, i.altura_mm])
+
+        it('O CASO: 12 itens gravados, a foto de 11 com "Alterar orçamento" — o levantamento passa a ser os 11 (V=5 no 1, a DP-69 no 9 e no 10, sem o 12), e nada é calculado', async () => {
+            comADP69NoMotor()
+            llmResponde({ nome: 'Marcelo e Rita', itens: Array.from({ length: 12 }, (_, k) => ({ ...DP02, largura_mm: 1000 + k * 100 })), escolhas: ESCOLHAS_QUE_FECHAM })
+            await chamar('Levantamento Marcelo e Rita: 12 DP-02 de 1000 a 2100 x 1000, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+            expect(itensDe(levantamentos()[0].id)).toHaveLength(12)
+            estado.download = { bytes: FOTO }
+            daFoto()
+            await chamarComMidia(foto({ caption: 'Alterar orçamento' }))
+            expect(levantamentos()).toHaveLength(1)
+            expect(medidas()).toEqual(ONZE.map(([t, l, a], k) => [k + 1, t, l, a]))
+            const itens = itensDe(levantamentos()[0].id)
+            expect((itens[0].escolhas as Record<string, number>).V).toBe(5)
+            // os outros itens da DP-02 ficam com um; a DP-69 sintética não tem a variável V
+            expect(itens.slice(1).map((i) => (i.escolhas as Record<string, number> | null)?.V)).toEqual([1, 1, 1, 1, 1, 1, 1, undefined, undefined, 1])
+            // o vidro da foto é o do vendedor: gravado como ele escreveu, casado pela referência composta (4+4 = 8 mm)
+            expect(new Set(itens.map((i) => i.vidro))).toEqual(new Set(['incolor laminado 4+4']))
+            // nada foi calculado com os itens velhos (nem com os novos: a legenda não é o "sim" do arquivo novo)
+            expect((estado.db.orcamentista_orcamento ?? []) as Linha[]).toEqual([])
+            const ia = linhaIa().pop() ?? ''
+            expect(ia).toContain(' intencao=substituir')
+            expect(ia).toContain(' contagem=lidas:11/itens:11 unidades:11/11')
+            expect(ia).not.toMatch(/vidro_nao_dito=[1-9]/)
+            for (const e of enviados()) {
+                expect(e).not.toContain('ESPESSURA_DO_VIDRO_AUSENTE')
+                expect(e).not.toMatch(/Para trocar|troque para/i)
+            }
+        })
+
+        it('a foto cujos itens o modelo lê SEM NADA que mude (nenhum campo sobrou): nada é alterado, nada é calculado, e a resposta diz quantos foram lidos', async () => {
+            llmResponde({ nome: 'Marcelo e Rita', itens: [DP02, { ...DP02, largura_mm: 1300 }], escolhas: ESCOLHAS_QUE_FECHAM })
+            await chamar('Levantamento Marcelo e Rita: DP-02 1200 x 1000; DP-02 1300 x 1000; branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+            estado.download = { bytes: FOTO }
+            // o modelo inventa o fornecedor e o vidro sem a foto dizer nada: a poda tira tudo
+            llmResponde({ nome: 'Marcelo e Rita', texto_da_imagem: 'lista', itens: [{ ordem: 1, vidro: 'laminado 6+6' }, { ordem: 2, vidro: 'laminado 6+6' }] })
+            await chamarComMidia(foto({ caption: 'Alterar orçamento' }))
+            expect(ultimoEnviado()).toBe(conversa.fraseDosItensSemNada(2))
+            expect(ultimoEnviado()).toBe('Li 2 itens na sua mensagem, mas não consegui tirar deles o que muda (tipologia, medida, quantidade, cor ou vidro). Nada foi alterado. Mande de novo, com o que muda em cada item.')
+            expect(itensDe(levantamentos()[0].id).map((i) => [i.largura_mm, i.vidro])).toEqual([[1200, 'Temperado 5mm'], [1300, 'Temperado 5mm']])
+            expect((estado.db.orcamentista_orcamento ?? []) as Linha[]).toEqual([])
+        })
+    })
+
     it('a mensagem de TEXTO continua indo ao modelo como texto puro (o pedido de antes, byte a byte)', async () => {
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
         await chamar('Levantamento Casa do Pedro')
