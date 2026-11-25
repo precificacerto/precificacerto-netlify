@@ -6920,7 +6920,9 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             await chamar(MENSAGEM.replace('8mm', '4mm'))
             llmResponde({ confirma: true, fala: FALA_DO_VALOR })
             await chamar('sim')
-            expect(ultimoEnviado()).toContain('Para trocar, diga: muda o vidro do item 1 para temperado incolor 5 mm.')
+            // nenhum vidro que o vendedor não escreveu (25/11/2026, pedido 0027): a falta diz o que a tipologia aceita, sem propor substituto
+            expect(ultimoEnviado()).toContain('o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm')
+            expect(ultimoEnviado()).not.toContain('Para trocar')
             llmResponde({ nome: 'Gerson Boss', alteracao: true, itens: [{ ordem: 1, vidro: 'temperado incolor 5 mm' }], fala: 'Combinado, troquei o vidro.' })
             await chamar('muda o vidro da esquadria 1 para temperado incolor 5 mm')
             // a fala que não fala de valor continua abrindo a resposta
@@ -6966,10 +6968,9 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             await chamar(MENSAGEM.replace('8mm', '4mm'))
             expect(estado.documentos).toHaveLength(1)
             const recusa = corpo(await confirmarApanhado())
-            // o caminho que resolve, em uma linha: o vidro que ele disse, com uma das espessuras aceitas
+            // a falta, sem propor um vidro que o vendedor não escreveu (25/11/2026, pedido 0027)
             expect(recusa).toBe(recusaDoSim(
                 ['o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm (item 1, DP-39)'],
-                ['Para trocar, diga: muda o vidro do item 1 para temperado incolor 5 mm.'],
             ))
             // a definição MUDA: o arquivo sai de novo, e o "sim" de antes não vale para ela
             llmResponde({ nome: 'Gerson Boss', alteracao: true, itens: [{ ordem: 1, vidro: 'temperado incolor 8mm' }] })
@@ -6983,13 +6984,14 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             expect(estado.documentosDoOrcamento).toHaveLength(1)
         })
 
-        it('A FRASE DO CAMINHO seguida AO PÉ DA LETRA fecha o levantamento: "muda o vidro da esquadria 1 para temperado incolor 5 mm", e o "sim"', async () => {
+        it('NENHUM VIDRO SUGERIDO (25/11/2026, pedido 0027): a recusa não propõe substituto; o vendedor diz o vidro dele, e o levantamento fecha', async () => {
             estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
             llmResponde({ nome: 'Gerson Boss', itens: [{ ...ESQUADRIAS[0], vidro: 'temperado incolor 4mm' }, { ...ESQUADRIAS[1] }] })
             await chamar(MENSAGEM.replace('8mm', '4mm'))
             const recusa = await confirmarApanhado()
-            const frase = /Para trocar, diga: (.+)\.$/m.exec(recusa)?.[1] as string
-            expect(frase).toBe('muda o vidro do item 1 para temperado incolor 5 mm')
+            expect(recusa).not.toMatch(/Para trocar|muda o vidro/)
+            expect(recusa).not.toContain('5 mm.')
+            const frase = 'muda o vidro da esquadria 1 para temperado incolor 5 mm'
             llmResponde({ nome: 'Gerson Boss', alteracao: true, itens: [{ ordem: 1, vidro: 'temperado incolor 5 mm' }] })
             await chamar(frase)
             expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('temperado incolor 5 mm')

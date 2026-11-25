@@ -784,7 +784,9 @@ describe('(3) a espessura do vidro', () => {
         ['Temperado 6mm', 6],
         ['temperado 8 MM', 8],
         ['Laminado 6,38 mm', 6.38],
-        ['Laminado 4+4 mm', null],
+        // a composição do laminado é a soma das lâminas (25/11/2026, pedido 0027): 4+4 = 8
+        ['Laminado 4+4 mm', 8],
+        ['incolor laminado 4+4', 8],
         ['Temperado incolor', null],
         ['Temperado 6', null],
         ['6 mm ou 8 mm', null],
@@ -1490,7 +1492,6 @@ describe('(R) a frase curta da falta: o nome e o que falta, e a mesma falta uma 
         // a falta curta e, em uma linha, o CAMINHO que a resolve (08/11/2026): o vidro que ele disse, com a menor espessura aceita acima dos 4 mm
         expect(r.texto).toBe([
             'Não consegui fechar o levantamento “Renan Bauer”. Falta: o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm.',
-            'Para trocar, diga: muda o vidro do item 1 para incolor 5 mm comum.',
         ].join('\n'))
         expect(r.texto).not.toContain('GB25')
         expect(r.texto).not.toContain('Arremate e guarnição')
@@ -1515,7 +1516,6 @@ describe('(R) a frase curta da falta: o nome e o que falta, e a mesma falta uma 
         const r = await M().mensagemDoLevantamento(TENANT, t, { nome: 'Antonio Rock', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'incolor 4' }] })
         expect(r.texto).toBe([
             'Não consegui fechar o levantamento “Antonio Rock”. Falta: a espessura do vidro: os baguetes desta tipologia dependem dela, e aceitam 5, 6, 8, 18, 20, 21 e 24 mm.',
-            'Para trocar, diga: muda o vidro do item 1 para incolor 5 mm.',
         ].join('\n'))
         // seguido ao pé da letra, fecha
         expect((await M().mensagemDoLevantamento(TENANT, t, { nome: 'Antonio Rock', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'incolor 5 mm' }] })).desfecho).toBe('levantou')
@@ -1546,13 +1546,10 @@ describe('(R) a frase curta da falta: o nome e o que falta, e a mesma falta uma 
         // uma falta só; os caminhos, um por vidro sugerido — as esquadrias com o mesmo vidro numa frase só
         expect(todas.texto).toBe([
             'Não consegui fechar o levantamento “Renan Bauer”. Falta: o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm (itens 1, 2 e 3, DP-02).',
-            'Para trocar, diga: muda o vidro dos itens 1 e 2 para 5 mm.',
-            'Para trocar, diga: muda o vidro do item 3 para vidro 5 mm.',
         ].join('\n'))
         const duas = await M().mensagemDoLevantamento(TENANT, t, tres(['4mm', '6mm', '4mm']))
         expect(duas.texto).toBe([
             'Não consegui fechar o levantamento “Renan Bauer”. Falta: o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm (itens 1 e 3, DP-02).',
-            'Para trocar, diga: muda o vidro dos itens 1 e 3 para 5 mm.',
         ].join('\n'))
     })
 
@@ -1575,7 +1572,6 @@ describe('(R) a frase curta da falta: o nome e o que falta, e a mesma falta uma 
         expect(r.desfecho).toBe('recusou')
         expect(r.texto.split('\n')).toEqual([
             'Não consegui fechar o levantamento “Renan Bauer”. Falta: o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm (item 2, DP-02).',
-            'Para trocar, diga: muda o vidro do item 2 para 5 mm.',
         ])
     })
 
@@ -1584,7 +1580,6 @@ describe('(R) a frase curta da falta: o nome e o que falta, e a mesma falta uma 
         const r = await M().mensagemDoLevantamento(TENANT, t, { nome: 'Renan Bauer', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'mini boreal' }] })
         expect(r.texto).toBe([
             'Não consegui fechar o levantamento “Renan Bauer”. Falta: a espessura do vidro: os baguetes desta tipologia dependem dela, e aceitam 5, 6, 8, 18, 20, 21 e 24 mm.',
-            'Para trocar, diga: muda o vidro do item 1 para mini boreal 5 mm.',
         ].join('\n'))
         expect(r.texto).not.toMatch(/Linha \d+ da aba Perfis/)
         // seguido ao pé da letra, fecha

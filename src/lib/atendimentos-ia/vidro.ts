@@ -74,11 +74,14 @@ const numeroNormal = (p: string) => p.split('+').map((x) => String(Number(x))).j
  *   - mais de um número: o que vem com unidade ganha; nenhum com unidade, ganha o que está na lista aceita; dois que valem → AMBÍGUO, e o agente
  *     pergunta (`espessuras_ambiguas`);
  *   - texto sem número ("mini boreal") → espessura nula, sem erro: há tipologia cujo baguete não depende da espessura.
- * A composição ("4+4 mm") não é UMA espessura: fica nula, como antes — nada é suposto — e o tipo, sem palavra, é laminado.
+ * A COMPOSIÇÃO DO LAMINADO (dono do produto, 25/11/2026; pedido 0027): "Vidro laminado A+B tem espessura A+B mm (3+3=6, 4+4=8, 5+5=10, 6+6=12).
+ * [...] Vale para todo vidro composto da tabela. Nunca acusar ESPESSURA_DO_VIDRO_AUSENTE nesse caso." A composição é a espessura SOMADA, e vale
+ * como a escrita com unidade (a composição não é um número solto que se confunda com outro dado) — antes de 25/11 ficava nula. O tipo, sem
+ * palavra, é laminado.
  */
 export type LeituraDoVidro = {
     texto_original: string | null
-    /** A espessura, em mm; nula quando o texto não diz uma (sem número, número fora da lista, composição) ou quando é ambíguo. */
+    /** A espessura, em mm; nula quando o texto não diz uma (sem número, número fora da lista) ou quando é ambíguo. A composição "4+4" é 8. */
     espessura_mm: number | null
     /** As espessuras que valem, quando mais de uma vale — então `espessura_mm` é nula e o agente pergunta qual. Nula quando não é ambíguo. */
     espessuras_ambiguas: number[] | null
@@ -98,8 +101,12 @@ const NUMERO_DO_VIDRO = /(?<![\d.,+])(\d+(?:[.,]\d+)?(?:\s*\+\s*\d+(?:[.,]\d+)?)
 function numerosNoTexto(texto: string): NumeroNoTexto[] {
     return [...texto.matchAll(NUMERO_DO_VIDRO)].map((m) => {
         const numero = numeroNormal(m[1].replace(/\s+/g, '').replace(/,/g, '.'))
-        const valor = numero.includes('+') ? null : Number(numero)
-        return { inicio: m.index ?? 0, fim: (m.index ?? 0) + m[0].length, numero, valor: valor !== null && Number.isFinite(valor) && valor > 0 ? valor : null, comUnidade: m[2] !== undefined }
+        // a composição "A+B" é A+B mm (25/11/2026): a soma das lâminas, e vale como a espessura escrita com unidade
+        const composta = numero.includes('+')
+        const valor = composta ? numero.split('+').reduce((s, x) => s + Number(x), 0) : Number(numero)
+        // a soma sai sem o resíduo do ponto flutuante ("3.5+3.5" → 7, nunca 7.000000001)
+        const exato = Number.isFinite(valor) && valor > 0 ? Math.round(valor * 1000) / 1000 : null
+        return { inicio: m.index ?? 0, fim: (m.index ?? 0) + m[0].length, numero, valor: exato, comUnidade: m[2] !== undefined || composta }
     })
 }
 
