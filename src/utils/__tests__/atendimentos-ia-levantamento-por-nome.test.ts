@@ -7769,6 +7769,25 @@ describe('(30) a FOTO e o PDF do vendedor (dono do produto, 18/11/2026): baixado
                 expect(enviados().length).toBe(antes)
                 expect(linhaIa().pop()).toMatch(/ enviou=nao desfecho=repetida .*rajada=seguidora$/)
             })
+            it('a rajada de antes, JÁ RESPONDIDA, não volta: a foto seguinte, logo depois, segue sozinha — a seguidora de antes não entra de novo', async () => {
+                await asDuasFotos()
+                fotoDosItens()
+                await chamarComMidia(foto({ caption: undefined }))
+                const ultima = linhaIa().pop() ?? ''
+                expect(ultima).not.toContain('rajada=')
+                expect(ultima).not.toContain('desfecho=rajada-seguidora')
+            })
+            it('a foto e uma mensagem de TEXTO no mesmo segundo: o texto não faz a foto virar seguidora — cada uma é respondida', async () => {
+                await dozeGravados()
+                Object.assign(G().RAJADA, { gapMs: 60_000, esperaMs: 40 })
+                estado.download = { bytes: FOTO }
+                fotoDosItens()
+                llmResponde({ nome: 'Marcelo e Rita' })
+                const antes = enviados().length
+                await Promise.all([chamarComMidia(foto({ caption: undefined })), chamar('marcelo e rita')])
+                expect(enviados().length - antes).toBe(2)
+                expect(linhaIa().join('\n')).not.toContain('rajada-seguidora')
+            })
             it('SEM A MIGRAÇÃO (a coluna `midia` ausente): cada foto segue sozinha, como antes — a entrada é gravada sem a mídia', async () => {
                 await dozeGravados()
                 estado.colunasAusentes.add('orcamentista_mensagem.midia')
@@ -7776,7 +7795,10 @@ describe('(30) a FOTO e o PDF do vendedor (dono do produto, 18/11/2026): baixado
                 fotoDosItens()
                 await chamarComMidia(foto({ caption: undefined }))
                 const entrada = ((estado.db.orcamentista_mensagem ?? []) as Linha[]).filter((m) => m.direcao === 'entrada').pop() as Linha
+                // a entrada DESTA foto foi gravada (sem a mídia), e a foto foi conduzida e respondida
+                expect(entrada.texto).toBe('[imagem]')
                 expect('midia' in entrada).toBe(false)
+                expect(((estado.db.orcamentista_mensagem ?? []) as Linha[]).some((m) => m.direcao === 'saida' && m.responde_a === entrada.id)).toBe(true)
                 expect(linhaIa().join('\n')).not.toContain('rajada=')
             })
             it('juntarComplementos: o vidro vai ao item de mesmo número; "Não especificado" sai; a tipologia do modelo na linha de vidro sai; a correção fica', () => {

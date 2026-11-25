@@ -3,6 +3,8 @@ import subprocess, sys, os
 # o complemento de vidro vai ao item pelo numero; "Nao especificado" e vidro nao dito; a tipologia do modelo no complemento sai.
 # Roda SOZINHO na arvore (nada le a arvore enquanto roda). SO=<trecho> roda so as mutacoes cujo texto contem o trecho.
 # O trecho que nao aparece UMA vez aborta (codigo 3) antes de rodar suite.
+# 1a passada 16/19: a rajada respondida que fecha a de antes, a foto que nao vira seguidora de um texto e a entrada gravada sem a
+# coluna ganharam teste; 2a passada 19/19.
 R = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')) + '/'
 U = 'src/utils/__tests__/'
 T = [U + 'atendimentos-ia-levantamento-por-nome.test.ts', U + 'atendimentos-ia-inbound.test.ts']
