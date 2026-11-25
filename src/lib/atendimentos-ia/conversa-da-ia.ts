@@ -203,9 +203,9 @@ import { agruparIguais,
     CAMPOS_DA_ESQUADRIA, aplicarProposta, familiaDaEsquadria, itemVazio, pendenciasDoLevantamento, perguntaDasPendencias, resolverFamilias,
     type DefinicaoDaTipologia, type ItemDoLevantamento, type Pendencia,
 } from '@/lib/atendimentos-ia/levantamento-em-montagem'
-import { JANELA_EM_VOO_MS, contextoDaConversa, gravarSaida, lerHistorico, marcarEnvio, saidaDaEntrada, type Entrada, type MensagemDoHistorico } from '@/lib/atendimentos-ia/conversa-gravada'
+import { JANELA_EM_VOO_MS, contextoDaConversa, gravarSaida, outraEntradaRespondida, lerHistorico, marcarEnvio, saidaDaEntrada, type Entrada, type MensagemDoHistorico } from '@/lib/atendimentos-ia/conversa-gravada'
 import { prazo } from '@/lib/atendimentos-ia/prazo'
-import { CONTINUACOES_DA_LISTA_CORTADA, MAX_TOKENS_DA_PRIMEIRA_CHAMADA, PRAZO_ATE_OS_CABECALHOS_MS, TENTATIVAS_DA_PRIMEIRA_CHAMADA, blocosDoSistema, instrucaoDaContinuacao, itensCompletosDoJsonCortado } from '@/lib/atendimentos-ia/pedido-ao-modelo'
+import { CONTINUACOES_DA_LISTA_CORTADA, MAX_TOKENS_DA_PRIMEIRA_CHAMADA, PRAZO_ATE_OS_CABECALHOS_MS, PRAZOS_ATE_OS_CABECALHOS_MS, TENTATIVAS_DA_PRIMEIRA_CHAMADA, blocosDoSistema, instrucaoDaContinuacao, itensCompletosDoJsonCortado } from '@/lib/atendimentos-ia/pedido-ao-modelo'
 import { lerFluxo } from '@/lib/atendimentos-ia/resposta-em-fluxo'
 import { CODIGO_DE_FORNECEDOR, PALAVRA_ESQUADRIA, redigir, type MotivoDaRedacao, type Redacao } from '@/lib/atendimentos-ia/redacao-da-resposta'
 import { vidroPodado } from '@/lib/atendimentos-ia/vidro'
@@ -294,6 +294,10 @@ export const fraseDeAlterarOuAcrescentarEmOutrasPalavras = (nome: string) =>
  */
 export const esquadriaInteira = (e: Record<string, unknown>) => (typeof e.tipologia === 'string' && e.tipologia !== '') || (e.largura_mm != null && e.altura_mm != null)
 export const ehListaInteira = (esquadrias: ReadonlyArray<Record<string, unknown>>) => esquadrias.filter(esquadriaInteira).length >= 2
+/** Os itens lidos que não trouxeram nada que valesse (25/11/2026, pedido 0027): nada foi alterado, e nada se calcula com o que estava antes. */
+export const fraseDosItensSemNada = (lidos: number) =>
+    `Li ${lidos} ${lidos === 1 ? 'item' : 'itens'} na sua mensagem, mas não consegui tirar deles o que muda (tipologia, medida, quantidade, cor ou vidro). `
+    + 'Nada foi alterado. Mande de novo, com o que muda em cada item.'
 /** A lista que não vira o mesmo número de itens e de unidades: nada é gravado, e a resposta diz os números (25/11/2026, pedido 0026). */
 export const fraseDaContagemQueNaoFecha = (lidas: number, montados: number, somaLida: number, somaMontada: number) =>
     `Não consegui montar a lista inteira: li ${lidas} itens (${somaLida} unidades) e só ${montados} (${somaMontada} unidades) fecharam. `
@@ -789,6 +793,7 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
         '- itens: as esquadrias desta mensagem, com os campos que ela diz. Um campo vale também quando o vendedor o deu para todas numa mensagem anterior ("todas brancas") ou se referiu a ele ("a mesma cor"). Numa alteração, só os campos que mudam. Não invente, não deduza.',
         '- cor_perfil: a cor do perfil que o vendedor DISSE. Se ela é uma das cores da empresa (lista abaixo), escreva-a como está na lista; se é outra, escreva-a como ele disse — o código confere e pergunta. Se ele não disse cor, NÃO preencha.',
         '- vidro: COPIE o vidro como o vendedor o escreveu nesta mensagem ("vidro 4mm" → vidro 4mm; "temperado 8mm" → temperado 8mm). NUNCA acrescente têmpera, cor ou qualquer palavra que ele não disse — nem da instrução da categoria VIDRO: "8mm" não vira "comum 8 mm" nem "temperado 8 mm". Se ele NÃO disse o vidro desta esquadria e a instrução de VIDRO define um padrão para ela, ponha o padrão em vidro_padrao, copiado da instrução; senão, omita os dois.',
+        '- NUNCA proponha ao vendedor um vidro que ele não escreveu (nem "troque para incolor 5 mm", nem outra espessura, nem outro tipo): faltando algo do vidro, pergunte só o que falta.',
         '- tipologia: o CÓDIGO (ex.: DP-02) de UMA das tipologias da lista abaixo, escolhida pela descrição. NUNCA invente código nem preencha com as palavras do vendedor. HAVENDO NATURAL, APLIQUE E NÃO PERGUNTE: o vendedor fala só quando foge do padrão, e o silêncio é a forma natural — o que ele não disse depois do tipo vale o natural (correr, janela ou porta = 2 folhas; todo o resto = 1 folha ou 1 módulo, e mais de um só se dito; sem persiana, sem bandeira, sem peitoril, sem motor, salvo se dito). Escolha a tipologia que tem exatamente o que ele disse e, no resto, o natural. Só se ainda couber em mais de uma, NÃO preencha: em `pergunta`, pergunte qual é, citando a descrição INTEIRA de cada uma, sem o código. Se não dá para concluir, NÃO preencha: em `pergunta`, pergunte em linguagem de obra o que falta (janela ou porta, como abre) — nunca "qual a tipologia".',
         '- abertura: a PALAVRA que o vendedor usou para a esquadria — "porta" (também "porta-janela" e "porta janela") ou "janela". Só se ele a escreveu; senão, omita. Porta NUNCA vira tipologia cuja descrição começa com JANELA, e janela NUNCA vira PORTA; maxim-ar e fixo servem às duas.',
         '- Os limites de cada tipologia estão na lista (largura e altura): a medida dita fora da faixa DESCARTA a tipologia; a medida que a lista não limita (sem L ou sem A) não descarta. Se nenhuma cabe, NÃO escolha a mais próxima: deixe a tipologia vazia e diga em `pergunta` que nenhuma cabe.',
@@ -941,7 +946,7 @@ async function umaChamadaALlm(chave: string, mensagem: string, contexto: Context
     // ATÉ OS CABEÇALHOS: 10 s por tentativa, duas tentativas (05/11/2026). O abort da primeira derruba o socket dela; a segunda abre outro
     for (let tentativa = 1; tentativa <= TENTATIVAS_DA_PRIMEIRA_CHAMADA; tentativa++) {
         medida.tentativas = tentativa
-        const cabecalhos = prazo(PRAZO_ATE_OS_CABECALHOS_MS)
+        const cabecalhos = prazo(PRAZOS_ATE_OS_CABECALHOS_MS[tentativa - 1] ?? PRAZO_ATE_OS_CABECALHOS_MS)
         try {
             r = await fetch(URL_DA_API_ANTHROPIC, {
                 method: 'POST',
@@ -958,7 +963,7 @@ async function umaChamadaALlm(chave: string, mensagem: string, contexto: Context
             if (cabecalhos.estourou()) {
                 if (tentativa < TENTATIVAS_DA_PRIMEIRA_CHAMADA) continue
                 medida.ms = Date.now() - inicio; limite.limpar()
-                return { tipo: 'prazo-esgotado', detalhe: `limite_ms=${PRAZO_DA_PRIMEIRA_CHAMADA_MS} sem_cabecalhos_ms=${PRAZO_ATE_OS_CABECALHOS_MS} tentativas=${tentativa}` }
+                return { tipo: 'prazo-esgotado', detalhe: `limite_ms=${PRAZO_DA_PRIMEIRA_CHAMADA_MS} sem_cabecalhos_ms=${PRAZOS_ATE_OS_CABECALHOS_MS.slice(0, tentativa).join('+')} tentativas=${tentativa}` }
             }
             medida.ms = Date.now() - inicio; limite.limpar()
             return { tipo: 'erro-da-llm', detalhe: `excecao=${e instanceof Error ? e.name : 'desconhecida'} tentativas=${tentativa}` }
@@ -1718,7 +1723,12 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         if (resposta.tipo !== 'ok') {
             rastro.etapas.coletar = `historico=${rastro.historico} ia=${resposta.tipo} faltou=ia linhas_msg=${linhasDaMensagem} lidas=0`
             // o prazo estourou (04/11/2026): a linha [IA] sai AGORA, antes de qualquer envio — se a função morrer depois, o motivo já está no log
-            if (resposta.tipo === 'prazo-esgotado') anotar(rastro, 'prazo-esgotado', `${resposta.detalhe} antes_do_envio=sim`)
+            if (resposta.tipo === 'prazo-esgotado') {
+                // UM ENVIO, UMA RESPOSTA (pedido 0027): a outra mensagem da mesma rajada já respondeu — o aviso não sai, e o log diz por quê
+                const outra = await outraEntradaRespondida(c.tenantId, c.conversaId, c.entrada).catch((): false => false)
+                if (outra === true) return fim('prazo-esgotado', `${resposta.detalhe} aviso=suprimido_outra_respondeu`)
+                anotar(rastro, 'prazo-esgotado', `${resposta.detalhe} antes_do_envio=sim`)
+            }
             // DEFEITO 3: o vendedor sempre fica sabendo — sem detalhe técnico
             const frase = resposta.tipo === 'sem-saldo' ? FALHA_SEM_SALDO : resposta.tipo === 'recusa' ? FALHA_RECUSA : resposta.tipo === 'prazo-esgotado' ? FALHA_PRAZO_DA_IA : FALHA_DA_IA
             return await responder(frase, resposta.tipo, resposta.detalhe)
@@ -1793,7 +1803,11 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             const item = { ...(i as Record<string, unknown>) }
             for (const k of ['fornecedor', 'familia']) if (k in item && !ditoNaMensagem(item[k], c.texto)) item[k] = undefined
             if (item.vidro !== undefined && item.vidro !== null) {
-                const podado = vidroPodado(item.vidro, comImagem ? textoComImagem : c.texto)
+                // O VIDRO DA FOTO É DO VENDEDOR (dono do produto, 25/11/2026; pedido 0027 — o levantamento 28: a tabela de vidros veio numa foto com a
+                // legenda "Alterar orçamento", e os 10 vidros caíram como "não ditos"): com a foto, a poda é contra o texto da mensagem MAIS o lido
+                // da foto. A exceção é a de 18/11/2026: quando o NOME veio só da foto, o que só a foto diz espera o "sim" curto (`comImagem`)
+                const contra = comImagem || (textoDaImagem !== null && nomeDaImagem === null) ? textoComImagem : c.texto
+                const podado = vidroPodado(item.vidro, contra)
                 if (comImagem) item.vidro = podado ?? undefined
                 else if (podado === null) { item.vidro = undefined; rastro.vidrosNaoDitos += 1 }
                 else if (podado !== String(item.vidro).trim()) { item.vidro = podado; rastro.vidrosPodados += 1 }
@@ -1836,6 +1850,14 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 + ` itens_sem_campos=${rastro.itensSemCampos} faltou=${listaNoLog(naoDitos)}`
         }
         const efetiva = { ...proposta, itens: juncao.itens }
+        /**
+         * A MENSAGEM QUE TROUXE ITENS E NADA VALEU (dono do produto, 25/11/2026; pedido 0027: "A etapa 1 não pode propor zero e seguir para o cálculo
+         * com os dados velhos"): o modelo leu campos de esquadria nesta mensagem (antes da poda) e nenhum sobrou. Não é pedido de orçamento, e nada se
+         * calcula nem se grava com o que estava antes: a resposta diz quantos itens foram lidos e que nada foi alterado. O item que só diz a família
+         * ou o fornecedor (a resposta de "de qual família?") não é isso: ele não trazia campo de esquadria
+         */
+        const lidosComCampos = esquadriasDaProposta({ itens: Array.isArray(dadosDaMensagem.proposta.itens) ? dadosDaMensagem.proposta.itens : [] }).length
+        const leuItensSemNada = lidosComCampos > 0 && emEspera.length === 0
         /**
          * R2 em TODO caminho que pergunta: guarda a pergunta (com o que espera resposta) e, se ela é a MESMA
          * que estava em aberto, a resposta diz que não registrou — nunca a mesma pergunta como se nada fosse.
@@ -1928,7 +1950,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 const vendedor = deOutro ? (await nomesDosVendedores(c.tenantId, [doApanhado.remetente_id])).get(doApanhado.remetente_id) ?? VENDEDOR_SEM_NOME : null
                 // o PEDIDO DE ORÇAMENTO com o arquivo esperando o "sim" (19/11/2026, o caso da Daiane Pilger): pedir orçamento traz o ORÇAMENTO — o que
                 // existe (o mais recente), ou o feito agora do levantamento; nunca o arquivo do levantamento de novo para conferir
-                if (lido !== null && proposta.novo !== true && emEspera.length === 0 && pedidoDoResgate(c.texto) === 'orcamento') {
+                if (lido !== null && proposta.novo !== true && emEspera.length === 0 && !leuItensSemNada && pedidoDoResgate(c.texto) === 'orcamento') {
                     const orcamentos = ordemDoOrcamento(await lerOrcamentosDosLevantamentos(c.tenantId, [doApanhado]))
                     rastro.qualOrcamento = String(orcamentos.length)
                     // UM ORÇAMENTO POR FAMÍLIA (23/11/2026): o levantamento é um só, e o orçamento dele são TODOS os das famílias — vão todos, na
@@ -1993,7 +2015,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                             fraseDeQualOrcamento(qualOrcamento.p.nome ?? '', lista), 'qual-orcamento')
                     }
                 }
-                if (lido !== null && proposta.novo !== true && emEspera.length === 0 && pedidoDoResgate(c.texto) === 'orcamento') {
+                if (lido !== null && proposta.novo !== true && emEspera.length === 0 && !leuItensSemNada && pedidoDoResgate(c.texto) === 'orcamento') {
                     const doNome = compararNome(lido, doRemetente ?? await lerLevantamentos(c.tenantId, c.remetenteId, false))
                     const levantamentosDoNome = 'existente' in doNome ? [doNome.existente] : 'existentes' in doNome ? doNome.existentes : []
                     const orcamentos = ordemDoOrcamento(await lerOrcamentosDosLevantamentos(c.tenantId, levantamentosDoNome))
@@ -2152,7 +2174,12 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // JÁ EXISTE não se mesclam item a item — o conteúdo passa a ser exatamente o da lista. Fora disso fica como era: a montagem em curso (a mensagem
         // completa o que está sendo montado) e a intenção dita ("acrescenta", "altera o item 2"). A lista REENVIADA igual segue a mesma regra: o
         // conteúdo fica exatamente o dela, nada muda, e a resposta segue como se a mensagem tivesse vindo uma vez (06/11/2026)
-        if (alvo !== null && rastro.rota !== 'MONTAGEM' && alvo.itens.length > 0 && intencao === null && ehListaInteira(emEspera)) intencao = 'substituir'
+        // "ALTERAR" COM A LISTA INTEIRA (25/11/2026, pedido 0027 — o levantamento 28: "Alterar orçamento" com a tabela nova): a reformulação é uma
+        // alteração do antigo e SUBSTITUI. O "altera" com poucas esquadrias continua a alteração por item: é lista de reformulação a que traz três ou
+        // mais esquadrias inteiras, ou tantas quantas o levantamento tem
+        const inteirasDaLista = emEspera.filter(esquadriaInteira).length
+        const reformulacao = intencao === null || (intencao === 'alterar' && alvo !== null && (inteirasDaLista >= 3 || inteirasDaLista >= alvo.itens.length))
+        if (alvo !== null && rastro.rota !== 'MONTAGEM' && alvo.itens.length > 0 && reformulacao && ehListaInteira(emEspera)) intencao = 'substituir'
         // em MONTAGEM, a mensagem completa a esquadria que está sendo montada (a regra de sempre); a esquadria RETIDA, que esperava o levantamento,
         // pergunta também ali
         if (alvo !== null && (alvo.estado !== EM_MONTAGEM || daPergunta) && alvo.itens.length > 0 && intencao === null && algumaNova) {
@@ -2165,6 +2192,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         if (intencao !== null) rastro.intencao = intencao
         const acrescentar = alvo !== null && intencao === 'acrescentar'
 
+        if (leuItensSemNada && confirma !== true) return await responder(fraseDosItensSemNada(lidosComCampos), 'nao-avancou')
         // ── a proposta, validada ──
         // SUBSTITUIR (25/11/2026): a lista entra num levantamento VAZIO — nada do que estava gravado é mesclado (nem tipologia nova com medida velha),
         // e as linhas que não voltam saem na gravação (`gravarLevantamento`: o DELETE conferido das que sumiram)

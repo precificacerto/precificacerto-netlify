@@ -166,9 +166,17 @@ describe('(L) lerVidro: o único leitor do texto do vidro', () => {
         expect(V().lerVidro('incolor 4 ou 7', DP02)).toMatchObject({ espessura_mm: 4, espessuras_ambiguas: null })
     })
 
-    it('a composição não é UMA espessura: nula, e laminado por construção', () => {
-        expect(V().lerVidro('Laminado 4+4 mm', DP02)).toMatchObject({ espessura_mm: null, espessuras_ambiguas: null, tipo: 'laminado', numeros: ['4+4'] })
-        expect(V().lerVidro('vidro 3 + 3', DP02)).toMatchObject({ espessura_mm: null, tipo: 'laminado', numeros: ['3+3'] })
+    it('A COMPOSIÇÃO DO LAMINADO (25/11/2026, pedido 0027): A+B é A+B mm — 3+3=6, 4+4=8, 5+5=10, 6+6=12 —, com ou sem "mm", e laminado por construção', () => {
+        expect(V().lerVidro('Laminado 4+4 mm', DP02)).toMatchObject({ espessura_mm: 8, espessuras_ambiguas: null, tipo: 'laminado', numeros: ['4+4'] })
+        expect(V().lerVidro('vidro 3 + 3', DP02)).toMatchObject({ espessura_mm: 6, tipo: 'laminado', numeros: ['3+3'] })
+        // o caso de 25/11: "incolor laminado 4+4", sem unidade — a composição vale como a espessura escrita, mesmo sem a lista de aceitas
+        expect(V().lerVidro('incolor laminado 4+4', DP02)).toMatchObject({ espessura_mm: 8, espessuras_ambiguas: null, tipo: 'laminado', cor: 'incolor' })
+        expect(V().lerVidro('incolor laminado 4+4')).toMatchObject({ espessura_mm: 8 })
+        for (const [texto, mm] of [['5+5', 10], ['6+6', 12], ['laminado 3,5+3,5', 7], ['8+8 mm', 16]] as const) expect([texto, V().lerVidro(texto).espessura_mm]).toEqual([texto, mm])
+        // a composição e o total entre parênteses (a descrição da tabela: "4+4MM (8MM)") dizem a MESMA espessura: não é ambíguo
+        expect(V().lerVidro('VIDRO LAMINADO INCOLOR 4+4MM (8MM)')).toMatchObject({ espessura_mm: 8, espessuras_ambiguas: null })
+        // e a composição que não fecha com o total dito É ambígua: nada é suposto
+        expect(V().lerVidro('laminado 4+4 10 mm')).toMatchObject({ espessura_mm: null, espessuras_ambiguas: [8, 10] })
     })
 
     it('tipo e cor saem do mesmo leitor; o que não é vidro nenhum dá nulos', () => {

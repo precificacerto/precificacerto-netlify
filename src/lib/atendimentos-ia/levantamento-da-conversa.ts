@@ -113,7 +113,7 @@ import { descreverArremate, lerEscolhasGravadas, paraOAgente, semAsPecasNaoPedid
 import {
     formatarReais, levantarBarras,
     type ItemDaTabela, type RegraDoDePara, type ResultadoDoLevantamento,
-    type RecusaDoLevantamento, type FaltaDePreco,
+    type FaltaDePreco,
 } from '@/lib/atendimentos-ia/levantamento-de-barras'
 import { maoDeObraPeloCaminhoDaTela, type DadosDaEmpresaParaMaoDeObra } from '@/utils/mao-de-obra-pelo-caminho-da-tela'
 import { familiaDaEsquadria, rotulosDasOpcoes, type FamiliaDoCodigo, type FamiliasDoCodigo } from '@/lib/atendimentos-ia/levantamento-em-montagem'
@@ -122,7 +122,7 @@ import { derivarTabelasDaConta } from '@/lib/atendimentos-ia/tabelas-da-conta'
 import { FRASE_SEM_LISTA_DE_TIPOLOGIAS, SECAO_DAS_FAMILIAS, SECAO_DOS_FORNECEDORES, fraseDeFalta, lerMotoresDaConta, type FonteDaFamilia, type MotivoDaFalta } from '@/lib/atendimentos-ia/motor-da-familia'
 export { FRASE_SEM_LISTA_DE_TIPOLOGIAS }
 import { normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
-import { lerVidro, vidroComEspessura } from '@/lib/atendimentos-ia/vidro'
+import { lerVidro } from '@/lib/atendimentos-ia/vidro'
 import { tabelaNoEscopo, type CorDoFornecedor } from '@/lib/atendimentos-ia/resolucao-de-referencia'
 import { lerCoresDosFornecedores } from '@/lib/atendimentos-ia/cores-do-fornecedor'
 
@@ -785,7 +785,7 @@ export function fraseDaRecusa(d: DadosDoLevantamento, faltas: readonly string[],
     const listadas = faltas.slice(0, MAXIMO_DE_FALTAS).map((f) => `• ${ehCurta(f) ? comPonto(f) : f}`)
     const resto = faltas.length > MAXIMO_DE_FALTAS ? [`• e mais ${faltas.length - MAXIMO_DE_FALTAS} falta(s) do mesmo levantamento.`] : []
     const corpo = faltas.length === 1 ? [ehCurta(faltas[0]) ? `${inicio} Falta: ${comPonto(faltas[0])}` : `${inicio} ${faltas[0]}`] : [`${inicio} Falta:`, ...listadas, ...resto]
-    // o caminho de alteração, quando há (08/11/2026), em uma linha depois das faltas
+    // o caminho de alteração (08/11/2026) não sai mais ao vendedor (25/11/2026, pedido 0027): `caminhos` chega vazio
     return [...corpo, ...caminhos].join('\n')
 }
 
@@ -1238,36 +1238,14 @@ async function calcularFamilia(
             faltas: [...recusas.map(frase), ...semTempo.map((t) => t.frase), ...precoQueFalta], rotulos,
             codigos: [...recusas.map((x) => codigoDaRecusa(x, x.esquadrias.map((k) => numeros[k - 1] ?? k))), ...semTempo.map((t) => t.codigo),
                 ...('recusas' in r ? [] : r.faltas.map((f) => `e${numeros[f.esquadria - 1] ?? f.esquadria}:${f.motivo}:${f.codigo_do_motor}`))],
-            // o CAMINHO DE ALTERAÇÃO de cada falta que tem um (08/11/2026): "Para trocar, diga: muda o vidro da esquadria 1 para 8 mm."
-            caminhos: caminhosDasRecusas(recusas, numeros, itensDoGrupo),
+            // NENHUM VIDRO QUE O VENDEDOR NÃO ESCREVEU (dono do produto, 25/11/2026; pedido 0027: "Nunca sugerir ao vendedor um vidro que ele não
+            // escreveu [...] Se faltar algo, perguntar pelo que falta, sem propor substituto"). O "Para trocar, diga: muda o vidro do item 1 para
+            // incolor 5 mm" de 08/11/2026 saiu: a falta já diz o que falta e o que a tipologia aceita, e o vendedor diz o vidro dele
+            caminhos: [],
             rastro,
         }
     }
     return { d: dg, r, maos, rotulos, itens, daFamilia, cores: coresDoFornecedor, vidros, rastro }
-}
-
-/**
- * O CAMINHO DE ALTERAÇÃO de cada falta que tem um (dono do produto, 08/11/2026): a frase que o vendedor manda, com o atributo e o número da esquadria
- * reais — "Para trocar, diga: muda o vidro da esquadria 1 para temperado incolor 5 mm." O vidro sugerido é o que ele disse, com a espessura trocada
- * pela sugerida (ou acrescentada, se ele não disse nenhuma): trocar só o número não perde o resto do produto. Esquadrias com o mesmo vidro sugerido
- * vão numa frase só. Nada de frase genérica: a falta sem caminho (`caminho` nulo — o cadastro, o motor, a configuração) não ganha linha nenhuma.
- */
-function caminhosDasRecusas(recusas: readonly RecusaDoLevantamento[], numeros: readonly number[], itensDoGrupo: readonly EsquadriaGravada[]): string[] {
-    const porAlvo = new Map<string, number[]>()
-    for (const x of recusas) {
-        if (x.caminho === null) continue
-        for (const k of x.esquadrias) {
-            const alvo = vidroComEspessura(itensDoGrupo[k - 1]?.vidro, x.caminho.espessura_mm)
-            const lista = porAlvo.get(alvo) ?? []
-            const n = numeros[k - 1] ?? k
-            if (!lista.includes(n)) lista.push(n)
-            porAlvo.set(alvo, lista)
-        }
-    }
-    return [...porAlvo.entries()].map(([alvo, ns]) => {
-        const quem = ns.length > 1 ? `dos itens ${listaDeNumerosBR([...ns].sort((a, b) => a - b))}` : `do item ${ns[0]}`
-        return `Para trocar, diga: muda o vidro ${quem} para ${alvo}.`
-    })
 }
 
 /**

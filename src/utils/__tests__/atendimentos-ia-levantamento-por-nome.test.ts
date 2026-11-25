@@ -4226,7 +4226,7 @@ describe('(31) os prazos das chamadas externas: 45 s no modelo, 15 s na redaçã
         expect(PRAZO_DO_MODELO + PRAZO_DA_REDACAO + PRAZO_DO_ENVIO + 11_000).toBeLessThan((config.maxDuration * 1000) / 2)
     })
 
-    it('a 1ª chamada ao modelo não volta: sem cabeçalhos em 10 s ela é repetida UMA vez, e aos 20 s (10 + 10) é abortada — o vendedor recebe a falha nomeada, nada é gravado, e a linha [IA] sai ANTES do envio, com o motivo', async () => {
+    it('a 1ª chamada ao modelo não volta: sem cabeçalhos em 10 s ela é repetida UMA vez, e aos 30 s (10 + 20, pedido 0027) é abortada — o vendedor recebe a falha nomeada, nada é gravado, e a linha [IA] sai ANTES do envio, com o motivo', async () => {
         const { turno } = await turnoPendurado(() => { estado.llmPendura = true }, 'Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
         const ATE_OS_CABECALHOS = 10_000
         // um milissegundo antes do prazo dos cabeçalhos, uma tentativa só, em voo
@@ -4238,7 +4238,13 @@ describe('(31) os prazos das chamadas externas: 45 s no modelo, 15 s na redaçã
         expect(estado.chamadasDaLlm).toHaveLength(2)
         expect(enviados()).toEqual([])
         expect(linhaIa()).toEqual([])
-        await avancar(ATE_OS_CABECALHOS - 1)
+        // a repetição espera 20 s (25/11/2026, pedido 0027): aos 10 s dela, ainda em voo — o corte antigo teria desistido aqui
+        const NA_REPETICAO = 20_000
+        await avancar(ATE_OS_CABECALHOS)
+        await drenarDeVerdade()
+        expect(enviados()).toEqual([])
+        expect(estado.chamadasDaLlm).toHaveLength(2)
+        await avancar(NA_REPETICAO - ATE_OS_CABECALHOS - 1)
         await drenarDeVerdade()
         expect(enviados()).toEqual([])
         await avancar(1)
@@ -4249,14 +4255,73 @@ describe('(31) os prazos das chamadas externas: 45 s no modelo, 15 s na redaçã
         // a linha do estouro sai ANTES do envio (se a função morrer depois, o motivo já está no log); a de sempre sai no fim, com o envio
         const [noEstouro, noFim] = linhaIa()
         expect(noEstouro).toMatch(/enviou=nao desfecho=prazo-esgotado/)
-        expect(noEstouro).toContain(`limite_ms=${PRAZO_DO_MODELO} sem_cabecalhos_ms=${ATE_OS_CABECALHOS} tentativas=2`)
+        expect(noEstouro).toContain(`limite_ms=${PRAZO_DO_MODELO} sem_cabecalhos_ms=${ATE_OS_CABECALHOS}+${NA_REPETICAO} tentativas=2`)
         expect(noEstouro).toContain('antes_do_envio=sim')
-        expect(noEstouro).toContain(`ia_ms=${2 * ATE_OS_CABECALHOS} ia_entrada=- ia_saida=-`)
+        expect(noEstouro).toContain(`ia_ms=${ATE_OS_CABECALHOS + NA_REPETICAO} ia_entrada=- ia_saida=-`)
         expect(noEstouro).toContain('ia_cabecalhos_ms=- ia_primeiro_token_ms=- ia_tentativas=2 ia_request_id=-')
         expect(noFim).toMatch(/enviou=sim desfecho=prazo-esgotado/)
         expect(linhaIa()).toHaveLength(2)
         // a saída é gravada como qualquer resposta: o reenvio do WUZAPI acha a resposta e não conduz de novo
         expect(mensagens()[1]).toEqual(expect.objectContaining({ direcao: 'saida', texto: conversa.FALHA_PRAZO_DA_IA, wuzapi_mensagem_id: 'WAMID_SAIDA' }))
+    })
+
+    // UM ENVIO, UMA RESPOSTA (dono do produto, 25/11/2026; pedido 0027 — o levantamento 28: duas fotos com 0,7 s entre elas, dois requests; um
+    // respondeu, o outro ficou sem cabeçalho e mandou "demorou demais" por cima da resposta): o aviso só sai se nenhuma da mesma rajada respondeu
+    const MSG_DO_JOAO = 'Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm'
+    const ateOFimDoPrazo = async (turno: Promise<{ status: number }>) => {
+        await avancar(10_000); await drenarDeVerdade(); await avancar(20_000)
+        return (await turno).status
+    }
+    it('a OUTRA mensagem da mesma conversa, na rajada, já foi respondida: o "demorou demais" NÃO sai, e o log diz por quê', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        await chamar(MSG_DO_JOAO)
+        expect(enviados()).toHaveLength(1)
+        const { turno } = await turnoPendurado(() => { estado.llmPendura = true }, '[imagem]')
+        expect(await ateOFimDoPrazo(turno)).toBe(200)
+        expect(enviados()).toHaveLength(1)
+        expect(enviados()).not.toContain(conversa.FALHA_PRAZO_DA_IA)
+        const ultima = linhaIa().pop() ?? ''
+        expect(ultima).toMatch(/enviou=nao desfecho=prazo-esgotado/)
+        expect(ultima).toContain(' aviso=suprimido_outra_respondeu')
+        expect(ultima).not.toContain('antes_do_envio=sim')
+    })
+    it('outraEntradaRespondida: a saída enviada da PRÓPRIA entrada não conta como "outra"; a de outra entrada, sim', async () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const G = require('@/lib/atendimentos-ia/conversa-gravada') as typeof import('@/lib/atendimentos-ia/conversa-gravada')
+        const agora = new Date().toISOString()
+        estado.db.orcamentista_mensagem = [
+            { id: 'e1', tenant_id: TENANT, conversa_id: 'c1', direcao: 'entrada', texto: 'x', criado_em: agora },
+            { id: 's1', tenant_id: TENANT, conversa_id: 'c1', direcao: 'saida', texto: 'y', wuzapi_mensagem_id: 'WA1', responde_a: 'e1', criado_em: agora },
+        ]
+        expect(await G.outraEntradaRespondida(TENANT, 'c1', { id: 'e1', criadoEm: agora })).toBe(false)
+        expect(await G.outraEntradaRespondida(TENANT, 'c1', { id: 'e2', criadoEm: agora })).toBe(true)
+    })
+    it('o contraste: a outra mensagem NÃO foi entregue (o envio falhou) — o aviso sai, como sempre', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        estado.envioStatus = 500
+        await chamar(MSG_DO_JOAO)
+        estado.envioStatus = 200
+        const { turno } = await turnoPendurado(() => { estado.llmPendura = true }, '[imagem]')
+        expect(await ateOFimDoPrazo(turno)).toBe(200)
+        expect(enviados().pop()).toBe(conversa.FALHA_PRAZO_DA_IA)
+        expect(linhaIa().join('\n')).not.toContain('aviso=suprimido')
+    })
+    it('o contraste: a resposta da outra é de FORA da rajada (mais de 30 s antes) — o aviso sai', async () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const G = require('@/lib/atendimentos-ia/conversa-gravada') as typeof import('@/lib/atendimentos-ia/conversa-gravada')
+        expect(G.JANELA_DA_RAJADA_MS).toBe(30_000)
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        await chamar(MSG_DO_JOAO)
+        // o banco falso carimba a conversa gravada a 1 s por linha, a partir de 1 h antes do teste: a resposta de antes vai para muito antes disso
+        const antes = mensagens().map((m) => m.id)
+        const longe = new Date(Date.UTC(2026, 0, 1)).toISOString()
+        for (const m of mensagens()) m.criado_em = longe
+        const { turno } = await turnoPendurado(() => { estado.llmPendura = true }, '[imagem]')
+        expect(await ateOFimDoPrazo(turno)).toBe(200)
+        expect(enviados().pop()).toBe(conversa.FALHA_PRAZO_DA_IA)
+        // e a entrada nova ficou DEPOIS da janela das de antes (a premissa do caso)
+        const nova = mensagens().find((m) => m.direcao === 'entrada' && !antes.includes(m.id)) as Linha
+        expect(new Date(String(nova.criado_em)).getTime() - new Date(longe).getTime()).toBeGreaterThan(G.JANELA_DA_RAJADA_MS)
     })
 
     it('o contraste: a falha de rede na 1ª chamada continua sendo FALHA_DA_IA (erro-da-llm), não a do prazo', async () => {
@@ -4829,6 +4894,10 @@ describe('(36) a 1ª chamada em fluxo: stream, 10 s até os cabeçalhos, uma rep
         expect(P().PRAZO_ATE_OS_CABECALHOS_MS).toBe(10_000)
         expect(P().TENTATIVAS_DA_PRIMEIRA_CHAMADA).toBe(2)
         expect(P().PRAZO_ATE_OS_CABECALHOS_MS * P().TENTATIVAS_DA_PRIMEIRA_CHAMADA).toBeLessThan(conversa.PRAZO_DA_PRIMEIRA_CHAMADA_MS)
+        // o prazo POR TENTATIVA (25/11/2026, pedido 0027): 10 s e 20 s, uma para cada tentativa, e a soma deixa tempo para o corpo nos 45 s
+        expect(P().PRAZOS_ATE_OS_CABECALHOS_MS).toEqual([10_000, 20_000])
+        expect(P().PRAZOS_ATE_OS_CABECALHOS_MS).toHaveLength(P().TENTATIVAS_DA_PRIMEIRA_CHAMADA)
+        expect(P().PRAZOS_ATE_OS_CABECALHOS_MS.reduce((a, b) => a + b, 0)).toBeLessThan(conversa.PRAZO_DA_PRIMEIRA_CHAMADA_MS)
     })
 
     it('o pedido vai com stream: true, e o resto do corpo é o de antes', async () => {
@@ -6920,7 +6989,9 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             await chamar(MENSAGEM.replace('8mm', '4mm'))
             llmResponde({ confirma: true, fala: FALA_DO_VALOR })
             await chamar('sim')
-            expect(ultimoEnviado()).toContain('Para trocar, diga: muda o vidro do item 1 para temperado incolor 5 mm.')
+            // nenhum vidro que o vendedor não escreveu (25/11/2026, pedido 0027): a falta diz o que a tipologia aceita, sem propor substituto
+            expect(ultimoEnviado()).toContain('o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm')
+            expect(ultimoEnviado()).not.toContain('Para trocar')
             llmResponde({ nome: 'Gerson Boss', alteracao: true, itens: [{ ordem: 1, vidro: 'temperado incolor 5 mm' }], fala: 'Combinado, troquei o vidro.' })
             await chamar('muda o vidro da esquadria 1 para temperado incolor 5 mm')
             // a fala que não fala de valor continua abrindo a resposta
@@ -6966,10 +7037,9 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             await chamar(MENSAGEM.replace('8mm', '4mm'))
             expect(estado.documentos).toHaveLength(1)
             const recusa = corpo(await confirmarApanhado())
-            // o caminho que resolve, em uma linha: o vidro que ele disse, com uma das espessuras aceitas
+            // a falta, sem propor um vidro que o vendedor não escreveu (25/11/2026, pedido 0027)
             expect(recusa).toBe(recusaDoSim(
                 ['o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm (item 1, DP-39)'],
-                ['Para trocar, diga: muda o vidro do item 1 para temperado incolor 5 mm.'],
             ))
             // a definição MUDA: o arquivo sai de novo, e o "sim" de antes não vale para ela
             llmResponde({ nome: 'Gerson Boss', alteracao: true, itens: [{ ordem: 1, vidro: 'temperado incolor 8mm' }] })
@@ -6983,13 +7053,14 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             expect(estado.documentosDoOrcamento).toHaveLength(1)
         })
 
-        it('A FRASE DO CAMINHO seguida AO PÉ DA LETRA fecha o levantamento: "muda o vidro da esquadria 1 para temperado incolor 5 mm", e o "sim"', async () => {
+        it('NENHUM VIDRO SUGERIDO (25/11/2026, pedido 0027): a recusa não propõe substituto; o vendedor diz o vidro dele, e o levantamento fecha', async () => {
             estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
             llmResponde({ nome: 'Gerson Boss', itens: [{ ...ESQUADRIAS[0], vidro: 'temperado incolor 4mm' }, { ...ESQUADRIAS[1] }] })
             await chamar(MENSAGEM.replace('8mm', '4mm'))
             const recusa = await confirmarApanhado()
-            const frase = /Para trocar, diga: (.+)\.$/m.exec(recusa)?.[1] as string
-            expect(frase).toBe('muda o vidro do item 1 para temperado incolor 5 mm')
+            expect(recusa).not.toMatch(/Para trocar|muda o vidro/)
+            expect(recusa).not.toContain('5 mm.')
+            const frase = 'muda o vidro da esquadria 1 para temperado incolor 5 mm'
             llmResponde({ nome: 'Gerson Boss', alteracao: true, itens: [{ ordem: 1, vidro: 'temperado incolor 5 mm' }] })
             await chamar(frase)
             expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('temperado incolor 5 mm')
@@ -7308,12 +7379,12 @@ describe('(30) a FOTO e o PDF do vendedor (dono do produto, 18/11/2026): baixado
             expect(itensDe(levantamentos()[0].id).map((i) => i.vidro)).toEqual(['4mm'])
         })
 
-        it('A LEGENDA com o nome segue DIRETO, como hoje: nenhuma confirmação, e o vidro só da foto continua podado', async () => {
+        it('A LEGENDA com o nome segue DIRETO, como hoje: nenhuma confirmação — e o vidro da foto vale (25/11/2026, pedido 0027: a foto é do vendedor)', async () => {
             estado.download = { bytes: FOTO }
             daFoto({ texto_da_imagem: `${LIDO}\nvidro 4mm`, itens: [{ ...CORRER, vidro: '4mm' }] })
             await chamarComMidia(foto({ caption: 'Alfredo Soares' }))
             expect(levantamentos()).toEqual([expect.objectContaining({ nome: 'Alfredo Soares' })])
-            expect(itensDe(levantamentos()[0].id).map((i) => i.vidro ?? null)).toEqual([null])
+            expect(itensDe(levantamentos()[0].id).map((i) => i.vidro ?? null)).toEqual(['4mm'])
             const ia = linhaIa().join('\n')
             expect(ia).not.toContain('da_imagem=')
             expect(ia).toContain('nome=veio')
@@ -7445,6 +7516,76 @@ describe('(30) a FOTO e o PDF do vendedor (dono do produto, 18/11/2026): baixado
             const ultima = (comFerramenta()[0].corpo.messages as Array<{ content: Array<{ type: string; text?: string }> }>).slice(-1)[0]
             expect(ultima.content[1].text).toContain('Copie em texto_da_imagem todo o texto escrito na foto')
             expect(ultima.content[2].text).toBe('[imagem]')
+        })
+    })
+
+    // O CASO DO LEVANTAMENTO 28 (produção, 25/11/2026 16:54 UTC; pedido 0027): "Marcelo e Rita" tinha 12 itens; o vendedor mandou a foto da lista
+    // nova, de 11, com a legenda "Alterar orçamento". O vidro só da foto foi podado, os 11 itens ficaram sem nada, e o pedido de orçamento calculou
+    // com os 12 velhos. Agora a lista da foto substitui o levantamento inteiro ANTES de qualquer cálculo
+    describe('(30c) a lista inteira reenviada pela FOTO, para o levantamento que já existe: substitui tudo antes de qualquer cálculo', () => {
+        /** A DP-69 do caso, sintética: as abas da DP-02 com outro código (a fixture do motor só tem a DP-02 inteira). */
+        const comADP69NoMotor = () => {
+            for (const [tabela, linhas] of Object.entries(abasDaDP02NoBanco(MOTOR, 'motor'))) {
+                const destino = (estado.db[tabela] ??= []) as Linha[]
+                for (const l of linhas) destino.push({ ...l, tipologia: 'DP-69', ...('id' in l ? { id: `${String(l.id)}-dp69` } : {}), ...(tabela === 'orcamentista_motor_tipologia_detalhe' ? { descricao: 'PORTA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42' } : {}) })
+            }
+            ;(estado.db.orcamentista_motor_tipologia as Linha[]).push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-69', tempo_fabricacao_min: 999, tempo_origem: 'IMPORTADO' })
+            for (const r of estado.db.orcamentista_motor_regra as Linha[]) r.tipologias = [...(r.tipologias as string[]), 'DP-69']
+            const modelo = (estado.db.orcamentista_motor_variavel as Linha[]).find((v) => v.tipologia === 'DP-02') as Linha
+            ;(estado.db.orcamentista_motor_variavel as Linha[]).push({ ...modelo, id: 'v-v', variavel: 'V', descricao: 'QUANTIDADE DE MÓDULOS VERTICAIS', padrao: '1', opcoes: null, condicao: 'sempre', min_max: null, ordem: 9999 })
+            ;(estado.db.orcamentista_tabela_item as Linha[]).push({ ...ITENS_DE_VIDRO[0], codigo: 'VLIN4+4', codigo_wvetro: 'VLIN4+4', descricao: 'VIDRO LAMINADO INCOLOR 4+4MM (8MM)' })
+        }
+        /** As medidas do arquivo do levantamento 28: os oito primeiros na DP-02, o 9 e o 10 na DP-69, o 11 de novo na DP-02. */
+        const ONZE: Array<[string, number, number]> = [
+            ['DP-02', 1200, 1000], ['DP-02', 1300, 1000], ['DP-02', 1400, 1000], ['DP-02', 1500, 1000], ['DP-02', 1600, 1000], ['DP-02', 1700, 1000],
+            ['DP-02', 1800, 1000], ['DP-02', 1900, 1000], ['DP-69', 2300, 2350], ['DP-69', 2200, 2350], ['DP-02', 1000, 1000],
+        ]
+        const LIDO = ONZE.map(([t, l, a], k) => `${k + 1} ${t} ${l} x ${a}${k === 0 ? ' com 05 módulos verticais' : ''} branco incolor laminado 4+4`).join('\n')
+        const daFoto = () => llmResponde({
+            nome: 'Marcelo e Rita', texto_da_imagem: LIDO, escolhas: ESCOLHAS_QUE_FECHAM,
+            itens: ONZE.map(([tipologia, largura_mm, altura_mm], k) => ({ ordem: k + 1, tipologia, largura_mm, altura_mm, quantidade: 1, cor_perfil: 'BRANCO', vidro: 'incolor laminado 4+4', ...(k === 0 ? { modulos_verticais: 5 } : {}) })),
+        })
+        const medidas = () => itensDe(levantamentos()[0].id).map((i) => [i.ordem, i.tipologia, i.largura_mm, i.altura_mm])
+
+        it('O CASO: 12 itens gravados, a foto de 11 com "Alterar orçamento" — o levantamento passa a ser os 11 (V=5 no 1, a DP-69 no 9 e no 10, sem o 12), e nada é calculado', async () => {
+            comADP69NoMotor()
+            llmResponde({ nome: 'Marcelo e Rita', itens: Array.from({ length: 12 }, (_, k) => ({ ...DP02, largura_mm: 1000 + k * 100 })), escolhas: ESCOLHAS_QUE_FECHAM })
+            await chamar('Levantamento Marcelo e Rita: 12 DP-02 de 1000 a 2100 x 1000, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+            expect(itensDe(levantamentos()[0].id)).toHaveLength(12)
+            estado.download = { bytes: FOTO }
+            daFoto()
+            await chamarComMidia(foto({ caption: 'Alterar orçamento' }))
+            expect(levantamentos()).toHaveLength(1)
+            expect(medidas()).toEqual(ONZE.map(([t, l, a], k) => [k + 1, t, l, a]))
+            const itens = itensDe(levantamentos()[0].id)
+            expect((itens[0].escolhas as Record<string, number>).V).toBe(5)
+            // os outros itens da DP-02 ficam com um; a DP-69 sintética não tem a variável V
+            expect(itens.slice(1).map((i) => (i.escolhas as Record<string, number> | null)?.V)).toEqual([1, 1, 1, 1, 1, 1, 1, undefined, undefined, 1])
+            // o vidro da foto é o do vendedor: gravado como ele escreveu, casado pela referência composta (4+4 = 8 mm)
+            expect(new Set(itens.map((i) => i.vidro))).toEqual(new Set(['incolor laminado 4+4']))
+            // nada foi calculado com os itens velhos (nem com os novos: a legenda não é o "sim" do arquivo novo)
+            expect((estado.db.orcamentista_orcamento ?? []) as Linha[]).toEqual([])
+            const ia = linhaIa().pop() ?? ''
+            expect(ia).toContain(' intencao=substituir')
+            expect(ia).toContain(' contagem=lidas:11/itens:11 unidades:11/11')
+            expect(ia).not.toMatch(/vidro_nao_dito=[1-9]/)
+            for (const e of enviados()) {
+                expect(e).not.toContain('ESPESSURA_DO_VIDRO_AUSENTE')
+                expect(e).not.toMatch(/Para trocar|troque para/i)
+            }
+        })
+
+        it('a foto cujos itens o modelo lê SEM NADA que mude (nenhum campo sobrou): nada é alterado, nada é calculado, e a resposta diz quantos foram lidos', async () => {
+            llmResponde({ nome: 'Marcelo e Rita', itens: [DP02, { ...DP02, largura_mm: 1300 }], escolhas: ESCOLHAS_QUE_FECHAM })
+            await chamar('Levantamento Marcelo e Rita: DP-02 1200 x 1000; DP-02 1300 x 1000; branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+            estado.download = { bytes: FOTO }
+            // o modelo inventa o fornecedor e o vidro sem a foto dizer nada: a poda tira tudo
+            llmResponde({ nome: 'Marcelo e Rita', texto_da_imagem: 'lista', itens: [{ ordem: 1, vidro: 'laminado 6+6' }, { ordem: 2, vidro: 'laminado 6+6' }] })
+            await chamarComMidia(foto({ caption: 'Alterar orçamento' }))
+            expect(ultimoEnviado()).toBe(conversa.fraseDosItensSemNada(2))
+            expect(ultimoEnviado()).toBe('Li 2 itens na sua mensagem, mas não consegui tirar deles o que muda (tipologia, medida, quantidade, cor ou vidro). Nada foi alterado. Mande de novo, com o que muda em cada item.')
+            expect(itensDe(levantamentos()[0].id).map((i) => [i.largura_mm, i.vidro])).toEqual([[1200, 'Temperado 5mm'], [1300, 'Temperado 5mm']])
+            expect((estado.db.orcamentista_orcamento ?? []) as Linha[]).toEqual([])
         })
     })
 
@@ -7701,6 +7842,36 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         expect(estado.documentosDoOrcamento).toHaveLength(1)
         expect(linhaIa().pop()).toContain(" qual_orcamento=0 ")
         expect(erros.filter((l) => l.startsWith(conversa.PREFIXO_DO_LOG_DA_ETAPA) && l.includes(" montar]")).pop()).toContain(" orcamento_pedido=sim")
+    })
+    // O "SIM" NÃO É BLOQUEADO PELO RUÍDO DO MODELO (25/11/2026, pedido 0027): o modelo que devolve, junto do "sim", um vidro que a mensagem não diz
+    // (podado) não faz do "sim" uma "mensagem com itens que nada valeram" — o "sim" confirma o arquivo e o orçamento sai
+    it('o "sim" do arquivo com um vidro inventado pelo modelo (podado): o "sim" vale — o orçamento sai, e a frase dos itens sem nada não', async () => {
+        await levantamentoDaDaiane(true)
+        llmResponde({ confirma: true, itens: [{ ordem: 1, vidro: 'laminado 6+6' }] })
+        await chamar('sim')
+        expect(enviados()).not.toContain(conversa.fraseDosItensSemNada(1))
+        expect(((estado.db.orcamentista_orcamento ?? []) as Linha[]).length).toBe(1)
+    })
+    // "ALTERAR" COM A LISTA (25/11/2026, pedido 0027 — o levantamento 28 veio com intencao=alterar): três ou mais esquadrias inteiras, ou tantas
+    // quantas o levantamento tem, substituem; menos do que isso continua a alteração por item
+    const comTres = async () => {
+        llmResponde({ nome: 'Marcelo e Rita', itens: [1200, 1300, 1400].map((l) => ({ ...DP02, largura_mm: l })), escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Marcelo e Rita: DP-02 1200 x 1000; DP-02 1300 x 1000; DP-02 1400 x 1000; branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+    }
+    const larguras = () => itensDe((levantamentos().find((l) => l.nome === 'Marcelo e Rita') as Linha).id).map((i) => i.largura_mm)
+    it('"alterar" com TRÊS esquadrias inteiras para o levantamento de três: substitui — o conteúdo é o da lista', async () => {
+        await comTres()
+        llmResponde({ nome: 'Marcelo e Rita', alteracao: 'alterar', itens: [1500, 1600, 1700].map((l) => ({ ...DP02, largura_mm: l })) })
+        await chamar('Alterar Marcelo e Rita: DP-02 1500 x 1000; DP-02 1600 x 1000; DP-02 1700 x 1000; branco, temperado 5mm')
+        expect(larguras()).toEqual([1500, 1600, 1700])
+        expect(linhaIa().pop()).toContain(' intencao=substituir')
+    })
+    it('"alterar" com DUAS esquadrias inteiras para o levantamento de três: continua a alteração por item, nada é substituído', async () => {
+        await comTres()
+        llmResponde({ nome: 'Marcelo e Rita', alteracao: 'alterar', itens: [{ ...DP02, ordem: 1, largura_mm: 1500 }, { ...DP02, ordem: 2, largura_mm: 1600 }] })
+        await chamar('Alterar Marcelo e Rita: item 1 DP-02 1500 x 1000; item 2 DP-02 1600 x 1000; branco, temperado 5mm')
+        expect(linhaIa().pop()).not.toContain(' intencao=substituir')
+        expect(larguras()).toHaveLength(3)
     })
     it('com o arquivo de uma alteração esperando o "sim" e o orçamento JÁ FEITO: o pedido traz o orçamento que existe (o último), sem recalcular', async () => {
         await fecharDp02('Daiane Pilger')

@@ -106,6 +106,12 @@ export const CACHE_DO_PREFIXO = { type: 'ephemeral' } as const
  */
 export const PRAZO_ATE_OS_CABECALHOS_MS = 10_000
 export const TENTATIVAS_DA_PRIMEIRA_CHAMADA = 2
+/**
+ * O PRAZO DE CADA TENTATIVA (dono do produto, 25/11/2026; pedido 0027: "rever o corte de 10 s sem cabeçalho"): o caso do levantamento 28 ficou
+ * duas vezes 10 s sem cabeçalho e desistiu aos 20 s dos 45 s do prazo geral. A primeira continua em 10 s (a conexão presa se corta cedo); a
+ * repetição espera 20 s — as duas somam 30 s, e a leitura do corpo ainda tem o resto dos 45 s.
+ */
+export const PRAZOS_ATE_OS_CABECALHOS_MS: readonly number[] = [PRAZO_ATE_OS_CABECALHOS_MS, 20_000]
 
 export type BlocoDoSistema = { type: 'text'; text: string; cache_control?: typeof CACHE_DO_PREFIXO }
 
