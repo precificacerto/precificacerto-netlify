@@ -32,6 +32,7 @@ import { valoresDoDesenho } from '@/lib/atendimentos-ia/desenho-do-catalogo'
 import { comAsFiguras, type ItemComDesenho } from '@/lib/atendimentos-ia/desenho-do-catalogo-servidor'
 import type { DefinicaoDaTipologia, ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import { nomeCasa, type CondicoesDoLevantamento, type ModoDaComissao, type PerfilDoVendedor } from '@/lib/atendimentos-ia/dados-do-levantamento'
+import { descricaoParaOVendedor, valoresDosModulos } from '@/lib/atendimentos-ia/descricao-para-o-vendedor'
 import { resolverPercentual } from '@/lib/atendimentos-ia/travessia-do-levantamento-plano'
 
 /** A pergunta que acompanha o arquivo: a confirmação é sobre ELE. */
@@ -213,6 +214,9 @@ export function montarDadosDaFolha(a: {
         const cor = i.cor_perfil
         return {
             ordem: i.ordem, tipologia: i.tipologia ?? '', descricao: d?.descricao ?? i.tipologia ?? '', linha: d?.linha ?? null,
+            // o NOME que o vendedor lê (dono do produto, 24/11/2026, pedido 0023): a descrição RESOLVIDA com os módulos gravados no item (no antigo, o
+            // Padrão do motor), sem a linha de perfil e sem o código. A tipologia que o motor não descreve fica sem nome — o código nunca entra no lugar
+            nome: descricaoParaOVendedor(d?.descricao, valoresDosModulos(d?.descricao, i.escolhas, (v) => a.definicao(i)?.variaveis.find((x) => x.variavel === v)?.padrao)) ?? '',
             quantidade: i.quantidade ?? 0, largura_mm: i.largura_mm ?? 0, altura_mm: i.altura_mm ?? 0,
             variaveis: variaveisDitas(i, a.definicao),
             // o que a esquadria É, escrito (11/11/2026): o padrão aplicado nunca em silêncio
@@ -274,7 +278,8 @@ export function resumoDoArquivoParaOPrompt(d: DadosDaFolha): string {
         c.obsObra && `obs da obra ${c.obsObra}`, c.dataEntrega && `entrega ${c.dataEntrega}`].filter(Boolean).join('; ')
     return [
         `Enviei ao vendedor o ARQUIVO do Levantamento ${d.numero} “${c.nome}”${cliente ? ` (${cliente})` : ''}, e ele está conferindo:`,
-        ...d.itens.map((i) => `Item ${i.ordem}: ${i.tipologia}, ${i.quantidade} unidade(s), ${i.largura_mm} x ${i.altura_mm} mm; perfil / acessório ${i.perfilEAcessorio ?? ''}; vidro ${i.vidro ?? ''}`
+        // a descrição resolvida ao lado do código: é ela que o vendedor lê na folha, e a quantidade de módulos que muda tem de mudar o resumo (R2)
+        ...d.itens.map((i) => `Item ${i.ordem}: ${i.tipologia}${i.nome ? ` (${i.nome})` : ''}, ${i.quantidade} unidade(s), ${i.largura_mm} x ${i.altura_mm} mm; perfil / acessório ${i.perfilEAcessorio ?? ''}; vidro ${i.vidro ?? ''}`
             + `${i.variaveis.filter((v) => v.semPadrao).map((v) => `; ${v.descricao.toLocaleLowerCase('pt-BR')} ${v.valor}`).join('')}`
             + `${i.ambientes ? `; ambientes: ${i.ambientes.map((x) => `${x.ambiente} ${x.quantidade}`).join(', ')}` : ''}${i.obs ? `; obs: ${i.obs}` : ''}.`),
         // o que é comum à obra (a cor, o arremate e a guarnição) mora nas pré-definições: sem esta linha, trocar o arremate não mudaria o resumo,

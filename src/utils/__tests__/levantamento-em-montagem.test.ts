@@ -218,8 +218,8 @@ describe('(V) várias famílias: a tipologia no motor de mais de uma, a pergunta
         expect([r.itens[0].familia, r.itens[0].motor_id]).toEqual([null, null])
         const p = L().proximaPendencia(r.itens, def, familiasDoCodigo)
         expect(p).toEqual({ tipo: 'FAMILIA', ordem: 1, tipologia: 'DP-02', opcoes: OPCOES })
-        expect(L().perguntaDaPendencia(p!, 1)).toBe('A DP-02 está em 2 famílias da sua empresa: Alumínio Sul ou PVC Wolf. De qual família é?')
-        expect(L().perguntaDaPendencia(p!, 2)).toBe('Item 1: A DP-02 está em 2 famílias da sua empresa: Alumínio Sul ou PVC Wolf. De qual família é?')
+        expect(L().perguntaDaPendencia(p!, 1)).toBe('Este item existe em 2 famílias da sua empresa: Alumínio Sul ou PVC Wolf. De qual família é?')
+        expect(L().perguntaDaPendencia(p!, 2)).toBe('Item 1: Este item existe em 2 famílias da sua empresa: Alumínio Sul ou PVC Wolf. De qual família é?')
     })
 
     it('a pendência da família vem logo depois da tipologia, antes das medidas', () => {
@@ -377,7 +377,7 @@ describe('(VI) todas as pendências, e a pergunta que as cobre de uma vez', () =
         const duas = (c: string) => (c === 'DP-02' ? [PVC, ALU] : [])
         const ps = L().pendenciasDoLevantamento([{ ...vazia(1), tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO' }], () => null, duas)
         expect(ps.map((p) => p.tipo)).toEqual(['FAMILIA', 'CAMPO'])
-        expect(L().perguntaDasPendencias(ps, 1)).toBe('Qual o vidro? A DP-02 está em 2 famílias da sua empresa: Alumínio Sul ou PVC Wolf. De qual família é?')
+        expect(L().perguntaDasPendencias(ps, 1)).toBe('Qual o vidro? Este item existe em 2 famílias da sua empresa: Alumínio Sul ou PVC Wolf. De qual família é?')
     })
 
     it('a cabeça da IA entra no lugar da pergunta fixa do PRIMEIRO campo, e o resto vem junto', () => {
@@ -447,10 +447,10 @@ describe('(VIII) a variável SEM PADRÃO (06/11/2026): pendência da esquadria a
 
     it('a pergunta nomeia as variáveis (a descrição, nunca o código) e a esquadria; com duas esquadrias, o número na frente', () => {
         const uma = L().pendenciasDoLevantamento([{ ...DP04, escolhas: { AM: 1 } }], def4, familias)
-        expect(L().perguntaDasPendencias(uma, 1)).toBe('Falta, na DP-04: altura da bandeira (em mm). Qual é o valor?')
+        expect(L().perguntaDasPendencias(uma, 1)).toBe('Falta, neste item: altura da bandeira (em mm). Qual é o valor?')
         const duas = L().pendenciasDoLevantamento([{ ...DP04 }, { ...DP04, ordem: 2, escolhas: { AF: 300 } }], def4, familias)
-        expect(L().perguntaDasPendencias(duas, 2)).toBe('Item 1: Falta, na DP-04: altura da bandeira (em mm) e módulos da bandeira. Quais são os valores?'
-            + '\nItem 2: Falta, na DP-04: módulos da bandeira. Qual é o valor?')
+        expect(L().perguntaDasPendencias(duas, 2)).toBe('Item 1: Falta, neste item: altura da bandeira (em mm) e módulos da bandeira. Quais são os valores?'
+            + '\nItem 2: Falta, neste item: módulos da bandeira. Qual é o valor?')
     })
 
     it('o valor dito entra na esquadria da pergunta em aberto; zero, negativo e o de variável de outra tipologia são descartados', () => {

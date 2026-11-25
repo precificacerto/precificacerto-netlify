@@ -54,14 +54,16 @@ export function descricaoComparavel(d: string | null | undefined): string {
 export const grupoComparavel = (g: string | null | undefined) =>
     (g ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim()
 
-export const fraseSemCandidata = (tipologia: string) =>
-    `o desenho da tipologia ${tipologia} não está no catálogo de desenhos: o item sai sem figura`
-export const fraseDeVariavelSemValor = (tipologia: string, variavel: string) =>
-    `o desenho da tipologia ${tipologia} depende da variável ${variavel}, que não tem valor neste item: o item sai sem figura`
-export const fraseDeDuasCandidatas = (tipologia: string, quantas: number) =>
-    `o desenho da tipologia ${tipologia} tem ${quantas} condições que casam com este item, e nenhuma desempata: o item sai sem figura`
-export const fraseSemArquivo = (tipologia: string) =>
-    `o desenho da tipologia ${tipologia} está no índice sem arquivo no Storage: o item sai sem figura`
+// As frases do SEM FIGURA saem na folha, que o vendedor lê: sem o código da tipologia (dono do produto, 24/11/2026, pedido 0023) — a linha
+// está dentro do item, e é ele que ela nomeia.
+export const fraseSemCandidata = () =>
+    'o desenho desta tipologia não está no catálogo de desenhos: o item sai sem figura'
+export const fraseDeVariavelSemValor = (variavel: string) =>
+    `o desenho desta tipologia depende da variável ${variavel}, que não tem valor neste item: o item sai sem figura`
+export const fraseDeDuasCandidatas = (quantas: number) =>
+    `o desenho desta tipologia tem ${quantas} condições que casam com este item, e nenhuma desempata: o item sai sem figura`
+export const fraseSemArquivo = () =>
+    'o desenho desta tipologia está no índice sem arquivo no Storage: o item sai sem figura'
 
 /**
  * OS VALORES que a CONDIÇÃO do desenho lê: as escolhas gravadas do item e, nas variáveis que o vendedor não disse,
@@ -123,11 +125,11 @@ export function escolherDesenho(
         }
         if (casam.length === 1) {
             const caminho = (casam[0].caminho_no_storage ?? '').trim()
-            if (caminho === '') return { motivo: 'SEM_ARQUIVO', frase: fraseSemArquivo(item.tipologia) }
+            if (caminho === '') return { motivo: 'SEM_ARQUIVO', frase: fraseSemArquivo() }
             return { caminho, degrau: 'por_variavel', condicao: casam[0].condicao }
         }
-        if (casam.length > 1) return { motivo: 'DUAS_CANDIDATAS', frase: fraseDeDuasCandidatas(item.tipologia, casam.length) }
-        if (semValor !== null) return { motivo: 'VARIAVEL_SEM_VALOR', frase: fraseDeVariavelSemValor(item.tipologia, semValor) }
+        if (casam.length > 1) return { motivo: 'DUAS_CANDIDATAS', frase: fraseDeDuasCandidatas(casam.length) }
+        if (semValor !== null) return { motivo: 'VARIAVEL_SEM_VALOR', frase: fraseDeVariavelSemValor(semValor) }
     }
 
     // DEGRAU 2: o índice principal com a mesma descrição, ignorando a linha e o grupo
@@ -145,9 +147,9 @@ export function escolherDesenho(
             // material. Sem família, ou com mais de uma no grupo, continua sendo recusa nomeada.
             const doGrupo = familiaDoGrupo(porDescricao, item.familia)
             if (doGrupo.length === 1) return { caminho: doGrupo[0], degrau: 'principal', condicao: null }
-            return { motivo: 'DUAS_CANDIDATAS', frase: fraseDeDuasCandidatas(item.tipologia, caminhos.length) }
+            return { motivo: 'DUAS_CANDIDATAS', frase: fraseDeDuasCandidatas(caminhos.length) }
         }
-        if (porDescricao.length > 0) return { motivo: 'SEM_ARQUIVO', frase: fraseSemArquivo(item.tipologia) }
+        if (porDescricao.length > 0) return { motivo: 'SEM_ARQUIVO', frase: fraseSemArquivo() }
     }
-    return { motivo: 'SEM_CANDIDATA', frase: fraseSemCandidata(item.tipologia) }
+    return { motivo: 'SEM_CANDIDATA', frase: fraseSemCandidata() }
 }

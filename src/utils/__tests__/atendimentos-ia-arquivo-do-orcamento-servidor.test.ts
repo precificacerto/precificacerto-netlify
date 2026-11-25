@@ -84,8 +84,12 @@ jest.mock('@/supabase/admin', () => ({
 // o contexto da tipologia (definição e detalhe) é o da conversa, com portão próprio: aqui ele devolve a descrição, o tipo, a linha e o fornecedor
 jest.mock('@/lib/atendimentos-ia/conversa-da-ia', () => ({
     contextoDaFolhaDaEmpresa: async () => ({
-        definicao: (): null => null,
-        detalhe: (tipologia: string, familia: string | null) => ({ descricao: `${tipologia} DA ${familia ?? 'SEM FAMÍLIA'}`, linha: 'EUROPA 60', tipo: 'Porta', fornecedor: 'Wolf' }),
+        // a maxim-ar de módulos (DP-128): o "N" com Padrão 1 na aba Variáveis; as outras não têm definição
+        definicao: (i: { tipologia: string | null }): unknown => (i.tipologia === 'DP-128'
+            ? { variaveis: [{ variavel: 'N', descricao: 'QUANTIDADE DE MÓDULOS HORIZONTAIS', padrao: '1', condicao: 'sempre', opcoes: null }], formulas: [] } : null),
+        detalhe: (tipologia: string, familia: string | null) => (tipologia === 'SEM-DETALHE' ? null : tipologia === 'DP-128'
+            ? { descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | PERFIL MODULAÇÃO | EUROPA 60', linha: 'EUROPA 60', tipo: 'Maxim-ar', fornecedor: 'Wolf' }
+            : { descricao: `${tipologia} DA ${familia ?? 'SEM FAMÍLIA'} | EUROPA 60`, linha: 'EUROPA 60', tipo: 'Porta', fornecedor: 'Wolf' }),
     }),
 }))
 
@@ -120,11 +124,25 @@ beforeEach(() => {
 })
 
 describe('os itens do arquivo, montados do que está gravado', () => {
+    it('a DESCRIÇÃO é a resolvida (dono do produto, 24/11/2026, pedido 0023): os módulos do item, sem a linha e sem o tipo de modulação; um módulo não se escreve', async () => {
+        const comN = (escolhas: Record<string, number> | null) => { estado.db.orcamentista_orcamento_item[0] = { ...estado.db.orcamentista_orcamento_item[0], tipologia: 'DP-128', escolhas } }
+        const descricao = async () => { const r = await S.itensDoArquivo(T, ORC); if ('recusa' in r) throw new Error(r.recusa); return r.itens[0].descricao }
+        // o item antigo, sem N gravado: o Padrão do motor (1)
+        comN(null)
+        expect(await descricao()).toBe('Maxim-ar')
+        comN({ N: 1 })
+        expect(await descricao()).toBe('Maxim-ar')
+        comN({ N: 2 })
+        expect(await descricao()).toBe('Maxim-ar com 02 módulos horizontais')
+        // a tipologia que o motor não descreve fica sem descrição: o código dela não entra no lugar
+        estado.db.orcamentista_orcamento_item[0] = { ...estado.db.orcamentista_orcamento_item[0], tipologia: 'SEM-DETALHE' }
+        expect(await descricao()).toBeNull()
+    })
     it('no tenant do chamador; a família do item de origem decide o detalhe; ambientes por extenso; sem medida, sem desenho', async () => {
         const r = await S.itensDoArquivo(T, ORC)
         if ('recusa' in r) throw new Error(r.recusa)
         expect(r.itens.map((i) => i.ordem)).toEqual([1, 2])
-        expect(r.itens[0]).toEqual(expect.objectContaining({ descricao: 'DP-39 DA PVC', tipo: 'Porta', fornecedor: 'Wolf', linha: 'EUROPA 60', ambientes: 'Sala (1)', vidro: 'comum 6 mm incolor' }))
+        expect(r.itens[0]).toEqual(expect.objectContaining({ descricao: 'Dp-39 da pvc', tipo: 'Porta', fornecedor: 'Wolf', linha: 'EUROPA 60', ambientes: 'Sala (1)', vidro: 'comum 6 mm incolor' }))
         expect(r.itens[0].desenho).toEqual(expect.objectContaining({ largura_mm: 2500, altura_mm: 2200 }))
         expect(r.itens[1]).toEqual(expect.objectContaining({ ambientes: null, obs: 'vão de gesso', desenho: null }))
         for (const o of estado.ops) expect(o.filtros).toContainEqual(['tenant_id', T])
@@ -231,7 +249,7 @@ describe('a figura do catálogo nos itens do arquivo', () => {
         expect(itens[0].figura).toEqual({ dados: `data:image/png;base64,${PNG.toString('base64')}`, formato: 'PNG' })
         expect(itens[0].semFigura).toBeNull()
         expect(itens[1].figura).toBeNull()
-        expect(itens[1].semFigura).toBe(fraseSemCandidata('DP-02'))
+        expect(itens[1].semFigura).toBe(fraseSemCandidata())
     })
 
     it('a linha do índice SEM ARQUIVO no Storage não desenha nada: a falta é nomeada (nunca a figura mais parecida)', async () => {
@@ -242,7 +260,7 @@ describe('a figura do catálogo nos itens do arquivo', () => {
         if ('recusa' in r) throw new Error(r.recusa)
         const itens = await S.comOsDesenhos(r.itens, r.paraODesenho)
         expect(itens[0].figura).toBeNull()
-        expect(itens[0].semFigura).toBe(fraseSemArquivo('DP-39'))
+        expect(itens[0].semFigura).toBe(fraseSemArquivo())
     })
 
     it('o arquivo que o índice aponta e o Storage não entrega: a falta diz isso, e o item não leva figura', async () => {
@@ -253,7 +271,7 @@ describe('a figura do catálogo nos itens do arquivo', () => {
         if ('recusa' in r) throw new Error(r.recusa)
         const itens = await S.comOsDesenhos(r.itens, r.paraODesenho)
         expect(itens[0].figura).toBeNull()
-        expect(itens[0].semFigura).toBe(fraseDoArquivoQueNaoBaixou('DP-39'))
+        expect(itens[0].semFigura).toBe(fraseDoArquivoQueNaoBaixou())
     })
 
     it('o item SEM TIPOLOGIA (o manual) não ganha figura NEM frase: não há tipologia a nomear', async () => {
@@ -267,7 +285,7 @@ describe('a figura do catálogo nos itens do arquivo', () => {
         expect(manual?.figura).toBeNull()
         expect(manual?.semFigura).toBeNull()
         // e os que TÊM tipologia continuam ganhando a frase da falta
-        expect(itens[0].semFigura).toBe(fraseSemCandidata('DP-39'))
+        expect(itens[0].semFigura).toBe(fraseSemCandidata())
     })
 
     it('o catálogo é lido INTEIRO, de mil em mil: a linha que importa está DEPOIS da milésima e mesmo assim acha a figura', async () => {
@@ -295,7 +313,7 @@ describe('a figura do catálogo nos itens do arquivo', () => {
         const lido = await S.lerDadosDoArquivo(T, ORC, { operacaoInterna: 7000, valorVenda: 7000, rateio: rt.itens, geradoEm: new Date('2026-11-16T15:00:00Z') })
         if ('recusa' in lido) throw new Error(lido.recusa)
         expect(lido.dados.itens[0].figura?.formato).toBe('PNG')
-        expect(lido.dados.itens[1].semFigura).toBe(fraseSemCandidata('DP-02'))
+        expect(lido.dados.itens[1].semFigura).toBe(fraseSemCandidata())
     })
 })
 

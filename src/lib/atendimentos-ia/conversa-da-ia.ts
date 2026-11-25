@@ -222,7 +222,7 @@ import { lerTextosDoCaminho } from '@/lib/atendimentos-ia/textos-do-caminho-serv
 import { blocoDasDescricoesDasEtapas, blocoDasInstrucoesDasEtapas, type InstrucaoDaEtapa } from '@/lib/atendimentos-ia/motor-da-familia'
 import { aberturaDita, cabeNosLimites, filtrarPeloAcumulado, filtrarPorAbertura, fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, linhaDaEsquadria, medidasNaOrdemEscrita, numeroOuNulo, palavrasDeAbertura } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { lerPoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa-servidor'
-import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, semAsPecasNaoPedidas, variaveisSemPadraoNoPrompt, variaveisSemPadraoParaOPrompt } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
+import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, modulosNaoDitos, semAsPecasNaoPedidas, variaveisSemPadraoNoPrompt, variaveisSemPadraoParaOPrompt } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { permissaoDoRemetente, type Permissao } from '@/lib/atendimentos-ia/permissao-do-remetente'
 import {
     gerarArquivoDoLevantamento, lerLevantamentoDoArquivo, type Funcionario, lerNomeDaEmpresa, lerPerfilDoVendedor, lerVendedorDoRemetente, funcionariosPeloNome,
@@ -236,6 +236,7 @@ import {
     apagarPerguntaEmAberto, confirmacaoVale, esquadriasDaProposta, esquadriasEquivalentes, gravarPerguntaEmAberto, juntarEsquadrias, lerPerguntaEmAberto, marcaDaConfirmacao, montagemExpirou,
     type CodigoDaPergunta, type EsquadriaProposta, type PerguntaEmAberto,
 } from '@/lib/atendimentos-ia/pergunta-em-aberto'
+import { descricaoParaOVendedor } from '@/lib/atendimentos-ia/descricao-para-o-vendedor'
 import { lerVidrosPadraoDaConta, vidroCodigoDaEsquadria, vidroNoConsiderado, vidroPadraoDaEsquadria, type VidrosPadraoDaConta } from '@/lib/atendimentos-ia/vidro-padrao'
 import { DESCRICAO_DA_FALA, blocoDoContexto, falaValida, lerContextoDoAtendimento, temDinheiro, type ContextoLido, type FalaLida } from '@/lib/atendimentos-ia/contexto-do-atendimento'
 
@@ -275,9 +276,9 @@ export type IntencaoNoLevantamento = 'alterar' | 'acrescentar'
  * A PERGUNTA, quando a frase não diz (dono do produto, 21/11/2026): "se a frase não disser qual dos dois, PERGUNTE em vez de escolher". As
  * esquadrias ficam retidas; a resposta "acrescenta" (ou o "sim") acrescenta, e "altera o item N" altera aquele item.
  */
-export const fraseDeAlterarOuAcrescentar = (nome: string, nExistentes: number, esquadrias: Array<Record<string, unknown>>) =>
+export const fraseDeAlterarOuAcrescentar = (nome: string, nExistentes: number, esquadrias: Array<Record<string, unknown>>, nomeDe: NomeDaTipologia) =>
     `O levantamento “${nome}” já tem ${nExistentes} item(ns). ${esquadrias.length > 1 ? `Estes ${esquadrias.length} itens` : 'Este item'} — `
-    + `${esquadrias.map(esquadriaPorExtenso).join('; ')} — ${esquadrias.length > 1 ? 'são novos, para acrescentar, ou alteram' : 'é novo, para acrescentar, ou altera'} `
+    + `${esquadrias.map((e) => esquadriaPorExtenso(e, nomeDe)).join('; ')} — ${esquadrias.length > 1 ? 'são novos, para acrescentar, ou alteram' : 'é novo, para acrescentar, ou altera'} `
     + `um item que já está lá? Se for alteração, diga qual item.`
 
 /** A mesma pergunta em outras palavras (R2). */
@@ -534,9 +535,22 @@ export const FRASE_O_ARQUIVO_NAO_MUDOU = 'Essa resposta não mudou nada no levan
 export const fraseDeNaoApliquei = (nome: string) =>
     `Não consegui aplicar o que você pediu no levantamento “${nome}”: o que entendi não é um valor aceito (por exemplo, uma cor, tipologia ou arremate fora da lista). Nada foi alterado. Diga de novo o que muda.`
 const milhar = (n: unknown) => (typeof n === 'number' ? new Intl.NumberFormat('pt-BR').format(n) : '?')
+/**
+ * O NOME de uma esquadria proposta como o vendedor o lê: a descrição da tipologia, resolvida com os módulos que a proposta traz. Nulo quando o
+ * motor não a descreve.
+ */
+export type NomeDaTipologia = (e: Record<string, unknown>) => string | null
+/** Os módulos que a proposta traz nas escolhas (`{variavel, opcao}`), para a descrição: só número inteiro. */
+const modulosDaProposta = (escolhas: unknown): Record<string, number> => Object.fromEntries((Array.isArray(escolhas) ? escolhas : []).flatMap((x): Array<[string, number]> =>
+    (x && typeof x === 'object' && typeof (x as { variavel?: unknown }).variavel === 'string' && typeof (x as { opcao?: unknown }).opcao === 'number'
+        ? [[(x as { variavel: string }).variavel, (x as { opcao: number }).opcao]] : [])))
+/** O nome pela Detalhe do motor: a quantidade de módulos que ninguém disse não se escreve (ainda não é um item gravado). */
+export const nomePelaDetalhe = (detalhe: DetalheDaTipologia): NomeDaTipologia => (e) =>
+    descricaoParaOVendedor(detalhe(String(e.tipologia), typeof e.familia === 'string' ? e.familia : null)?.descricao, modulosDaProposta(e.escolhas), 'omite')
 /** Uma esquadria proposta, por extenso, com o que foi dito; o que não foi dito não vira texto inventado. */
-export const esquadriaPorExtenso = (e: Record<string, unknown>) => [
-    typeof e.tipologia === 'string' ? e.tipologia : 'tipologia não dita',
+export const esquadriaPorExtenso = (e: Record<string, unknown>, nomeDe: NomeDaTipologia) => [
+    // a descrição resolvida, nunca o código (dono do produto, 24/11/2026, pedido 0023); a tipologia que o motor não descreve não ganha nome inventado
+    typeof e.tipologia === 'string' ? nomeDe(e) ?? 'tipologia sem descrição no motor' : 'tipologia não dita',
     e.largura_mm !== undefined || e.altura_mm !== undefined ? `${milhar(e.largura_mm)} x ${milhar(e.altura_mm)} mm` : null,
     typeof e.quantidade === 'number' ? `${e.quantidade} unidade(s)` : null,
     typeof e.cor_perfil === 'string' ? e.cor_perfil : null,
@@ -546,9 +560,9 @@ export const esquadriaPorExtenso = (e: Record<string, unknown>) => [
  * A esquadria que veio ANTES de o vendedor dizer o levantamento não entra num que já existe sem ele
  * confirmar (dono do produto, 26/10/2026: "Confirma antes").
  */
-export const fraseDeConfirmarAcrescimo = (nome: string, nExistentes: number, esquadrias: Array<Record<string, unknown>>) =>
+export const fraseDeConfirmarAcrescimo = (nome: string, nExistentes: number, esquadrias: Array<Record<string, unknown>>, nomeDe: NomeDaTipologia) =>
     `Vou acrescentar ao levantamento “${nome}”, que tem ${nExistentes} item(ns), ${esquadrias.length > 1 ? `estes ${esquadrias.length} itens` : 'este item'}: `
-    + `${esquadrias.map(esquadriaPorExtenso).join('; ')}. Confirma? Responda sim para acrescentar, ou diga o nome de outro levantamento.`
+    + `${esquadrias.map((e) => esquadriaPorExtenso(e, nomeDe)).join('; ')}. Confirma? Responda sim para acrescentar, ou diga o nome de outro levantamento.`
 /** A mesma confirmação em outras palavras (R2 no roteamento pelo nome, sem "Não consegui registrar"). */
 export const fraseDeConfirmarAcrescimoEmOutrasPalavras = (nome: string) =>
     `Para eu acrescentar ao “${nome}”, preciso do seu sim. Se for de outro levantamento, me diga de qual.`
@@ -761,6 +775,8 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
         '- quantidade: só a dita. Não dita é 1 — NUNCA pergunte quantas.',
         '- ARREMATE e GUARNIÇÃO: NÃO pergunte. O padrão da tipologia já vale sem ninguém dizer. NUNCA escolha sozinho: em `escolhas`, só o arremate que o vendedor DISSE, em palavras, com o código da variável e o número da opção que corresponde (lista abaixo). Se ele pedir para ver as opções, ou quiser trocar sem dizer por qual, ponha o código da variável em `opcoes_de`.',
         '- FECHAMENTO (MFI, MFE): NÃO pergunte; a política da empresa já vale. Só quando o vendedor DISSER (ex.: "com chave"), em `escolhas`, com o código da variável e o número da opção daquele item (lista abaixo). Se a tipologia não tiver a opção que ele disse, não escolha outra.',
+        // A QUANTIDADE DE MÓDULOS (24/11/2026; pedido 0023): sem o vendedor dizer, é um módulo — gravado pelo código, não pelo modelo
+        '- MÓDULOS (maxim-ar e fixo): NÃO pergunte quantos módulos. Sem o vendedor dizer, é UM módulo, e você NÃO manda nada. Só quando ele DISSER quantos ("2 módulos", "3 módulos na horizontal", "2 na vertical"), em `escolhas`: `variavel` N para os horizontais ou V para os verticais e, em `opcao`, a QUANTIDADE dita. Um módulo dito também vai (N com 1).',
         ...(c.variasFamilias ? ['- familia e fornecedor: a mesma tipologia pode estar no motor de mais de uma família da empresa. SÓ o que o vendedor disse — a família, o fornecedor, ou os dois —, escrito EXATAMENTE como está na lista. NUNCA escolha sozinho.'] : []),
         '- Os códigos das variáveis (ex.: ARI), os números das opções e os códigos de fornecedor (ex.: BZ0010) são INTERNOS: nunca os escreva em `pergunta`.',
         '- NUNCA pergunte nada sobre os padrões da empresa.',
@@ -1349,7 +1365,7 @@ async function refazerPergunta(
     const nExistentes = (await lerItens(tenantId, citados[0].id)).length
     // a pergunta guardada diz de qual das duas é pela intenção que as retidas levam (21/11/2026): "acrescentar" dito é a confirmação de antes; sem
     // intenção, a pergunta "alterar ou acrescentar"
-    return { p, citados: [citados[0]], texto: soAcrescentar(p.itens) ? fraseDeConfirmarAcrescimo(citados[0].nome, nExistentes, p.itens) : fraseDeAlterarOuAcrescentar(citados[0].nome, nExistentes, p.itens) }
+    return { p, citados: [citados[0]], texto: soAcrescentar(p.itens) ? fraseDeConfirmarAcrescimo(citados[0].nome, nExistentes, p.itens, nomePelaDetalhe(detalhe)) : fraseDeAlterarOuAcrescentar(citados[0].nome, nExistentes, p.itens, nomePelaDetalhe(detalhe)) }
 }
 
 /**
@@ -2109,7 +2125,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             rastro.intencao = 'perguntou'
             return await perguntar(
                 { pergunta: 'CONFIRMAR_ACRESCIMO', nome: null, levantamentos: [alvo.id], itens: emEspera },
-                fraseDeAlterarOuAcrescentar(alvo.nome, alvo.itens.length, emEspera), 'alterar-ou-acrescentar',
+                fraseDeAlterarOuAcrescentar(alvo.nome, alvo.itens.length, emEspera, nomePelaDetalhe(detalhe)), 'alterar-ou-acrescentar',
             )
         }
         if (intencao !== null) rastro.intencao = intencao
@@ -2245,10 +2261,16 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             const def = item.tipologia !== null ? definicao(item) : null
             if (!def || item.tipologia === null) return item
             const acrescentadas = semAsPecasNaoPedidas(def, item.escolhas, detalhe(item.tipologia, item.familia ?? null)?.descricao ?? null)
-            if (Object.keys(acrescentadas).length === 0) return item
-            rastro.pecasNaoPedidas += 1
-            assumir(item.ordem, Object.entries(acrescentadas).map(([atributo, valor]) => ({ atributo, valor: String(valor), origem: 'padrao_da_tipologia' as const })))
-            return { ...item, escolhas: { ...(item.escolhas ?? {}), ...acrescentadas } }
+            if (Object.keys(acrescentadas).length > 0) {
+                rastro.pecasNaoPedidas += 1
+                assumir(item.ordem, Object.entries(acrescentadas).map(([atributo, valor]) => ({ atributo, valor: String(valor), origem: 'padrao_da_tipologia' as const })))
+            }
+            // A QUANTIDADE DE MÓDULOS QUE NINGUÉM DISSE É UMA, E É GRAVADA (dono do produto, 24/11/2026; pedido 0023): "o agente grava em escolhas
+            // todas as variáveis que decidiu, N entre elas, inclusive quando usa o padrão" — a descrição que o vendedor lê sai do que está gravado
+            const modulos = modulosNaoDitos(def, item.escolhas)
+            if (Object.keys(modulos).length > 0) assumir(item.ordem, Object.entries(modulos).map(([atributo, valor]) => ({ atributo, valor: String(valor), origem: 'padrao_do_apanhado' as const })))
+            if (Object.keys(acrescentadas).length === 0 && Object.keys(modulos).length === 0) return item
+            return { ...item, escolhas: { ...(item.escolhas ?? {}), ...acrescentadas, ...modulos } }
         })
         const agrupamento = agruparIguais(resolvidos, {
             gravadas: new Set(alvo ? alvo.itens.map((i) => i.ordem) : []), quantidadePadrao: new Set(proposta_.quantidadesPadrao),
@@ -2320,7 +2342,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         if (daPergunta && alvo && !nadaMudou && !confirmado && !respondeuAPergunta && intencao !== 'alterar') {
             return await perguntar(
                 { pergunta: 'CONFIRMAR_ACRESCIMO', nome: null, levantamentos: [alvo.id], itens: emEspera },
-                soAcrescentar(emEspera) ? fraseDeConfirmarAcrescimo(alvo.nome, alvo.itens.length, emEspera) : fraseDeAlterarOuAcrescentar(alvo.nome, alvo.itens.length, emEspera),
+                soAcrescentar(emEspera) ? fraseDeConfirmarAcrescimo(alvo.nome, alvo.itens.length, emEspera, nomePelaDetalhe(detalhe)) : fraseDeAlterarOuAcrescentar(alvo.nome, alvo.itens.length, emEspera, nomePelaDetalhe(detalhe)),
                 soAcrescentar(emEspera) ? 'confirmar-acrescimo' : 'alterar-ou-acrescentar',
             )
         }

@@ -38,6 +38,7 @@ import type { CandidatoDeTipologia } from '@/lib/atendimentos-ia/levantamento-da
 import type { ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import { ABERTURA_SEM_PALAVRA, aberturaDaDescricao, cabeNosLimites, linhaDaEsquadria, type Abertura, type TrechoDoAcumulado } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { posicaoDaLinha, principalDoGrupo } from '@/lib/atendimentos-ia/ordem-das-tipologias'
+import { nomesDasCandidatas } from '@/lib/atendimentos-ia/descricao-para-o-vendedor'
 
 const semAcento = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
@@ -304,7 +305,7 @@ export const fraseDaSemCandidata = (esquadria: string, extrasDitos: readonly str
 type ComLimites = Pick<CandidatoDeTipologia, 'descricao' | 'larg_min_mm' | 'larg_max_mm' | 'alt_min_mm' | 'alt_max_mm'>
 const medidaQuePassa = (item: Pick<ItemDoLevantamento, 'largura_mm' | 'altura_mm'>, fora: readonly ComLimites[]) =>
     `A medida ${item.largura_mm !== null ? emMm(item.largura_mm) : '?'} x ${item.altura_mm !== null ? emMm(item.altura_mm) : '?'} mm passa do limite do motor para `
-    + `${fora.map((c) => `“${descricaoSemLinha(c)}” (${limiteNaFrase(c)})`).join(' e para ')}.`
+    + `${fora.map((c, k) => `“${nomesDasTipologias(fora)[k]}” (${limiteNaFrase(c)})`).join(' e para ')}.`
 export const fraseDoForaDoLimite = (item: Pick<ItemDoLevantamento, 'largura_mm' | 'altura_mm'>, fora: readonly ComLimites[]) =>
     `${medidaQuePassa(item, fora)} Confirme a medida.`
 /**
@@ -312,7 +313,7 @@ export const fraseDoForaDoLimite = (item: Pick<ItemDoLevantamento, 'largura_mm' 
  * A medida e o limite, e a tipologia que se fabrica fora dele — com mais de uma, a escolhida é nomeada (a primeira do motor, `paraAutorizar`).
  */
 export const fraseDoPedidoDeAutorizacao = (item: Pick<ItemDoLevantamento, 'largura_mm' | 'altura_mm'>, fora: readonly ComLimites[], escolhida: ComLimites) =>
-    `${medidaQuePassa(item, fora)} Autoriza fabricar ${fora.length > 1 ? `como “${descricaoSemLinha(escolhida)}”, ` : 'assim, '}fora do limite? `
+    `${medidaQuePassa(item, fora)} Autoriza fabricar ${fora.length > 1 ? `como “${nomesDasTipologias(fora)[fora.indexOf(escolhida)] ?? nomesDasTipologias([escolhida])[0]}”, ` : 'assim, '}fora do limite? `
     + 'Se a medida estiver errada, me mande a certa.'
 
 function decisaoDoPadrao(item: ItemDoLevantamento, abertura_: Abertura | null, trechos: readonly TrechoDoAcumulado[], candidatos: readonly CandidatoDeTipologia[],
@@ -359,8 +360,8 @@ function decisaoDoPadrao(item: ItemDoLevantamento, abertura_: Abertura | null, t
             .filter(({ a }) => a.tipo === tipo && (a.abertura === abertura || (a.abertura === null && abertura === 'janela'))
                 && (a.modulos === 'variavel' || a.modulos === ditos.modulos || a.modulos === null)
                 && mesmosExtras(semModulacao(a.extras), semModulacao(ditos.extras)))
-            .map(({ c }) => descricaoSemLinha(c))
-        return falta({ motivo: 'MODULOS_DITOS' }, fraseDosModulosDitos(ditos.modulos, opcoes))
+            .map(({ c }) => c)
+        return falta({ motivo: 'MODULOS_DITOS' }, fraseDosModulosDitos(ditos.modulos, nomesDasOpcoes(opcoes)))
     }
 
     const folhasPedidas = ditos.folhas ?? naturalDaQuantidade(tipo)
@@ -389,7 +390,7 @@ function decisaoDoPadrao(item: ItemDoLevantamento, abertura_: Abertura | null, t
         const panosDela = ditos.panos === null ? null : panosDaNatureza(escolhida.c, variaveisDe(escolhida.c))
         if (ditos.panos !== null && panosDela === null) return { motivo: 'DITO_SEM_REPRESENTACAO' }
         if (ditos.panos !== null && panosDela !== null && ditos.panos !== panosDela) {
-            return { motivo: 'CONTRADIZ_A_TIPOLOGIA', tipologia: escolhida.c.tipologia, descricao: descricaoSemLinha(escolhida.c), dito: emPanos(ditos.panos), natureza: emPanos(panosDela) }
+            return { motivo: 'CONTRADIZ_A_TIPOLOGIA', tipologia: escolhida.c.tipologia, descricao: nomesDasTipologias([escolhida.c])[0], dito: emPanos(ditos.panos), natureza: emPanos(panosDela) }
         }
         const origem = (dito: boolean): OrigemDoAtributo => (dito ? 'dito' : 'padrao_da_tipologia')
         const lista: AtributoAssumido[] = [
@@ -436,7 +437,7 @@ function decisaoDoPadrao(item: ItemDoLevantamento, abertura_: Abertura | null, t
             return comRastro(naLinhaPadrao({ tipologia: cabem[0].c.tipologia }))
         }
         // d) sem extra dito (ou nada que as distinga): falta nomeada
-        return { motivo: 'SEM_NATURAL', atributos: ['modulação'], candidatas: porModulacao.map(({ c }) => c.tipologia), descricoes: porModulacao.map(({ c }) => descricaoSemLinha(c)) }
+        return { motivo: 'SEM_NATURAL', atributos: ['modulação'], candidatas: porModulacao.map(({ c }) => c.tipologia), descricoes: nomesDasOpcoes(porModulacao.map(({ c }) => c)) }
     }
 
     // 3) LACUNA DO MOTOR: a esquadria só existe com extras A MAIS do que foi dito — nomeia a falta e as que existem; nunca outra quantidade
@@ -481,11 +482,13 @@ export function tipologiaPrincipal(codigo: string, candidatos: readonly Candidat
     return principalDoGrupo(codigo, candidatos, item, texto)
 }
 
-/** A descrição do motor sem a linha de produto do fim, para mostrar ao vendedor (nunca o código). */
-const descricaoSemLinha = (c: Pick<CandidatoDeTipologia, 'descricao'>) => {
-    const partes = (c.descricao ?? '').split('|').map((p) => p.trim())
-    return (partes.length > 1 ? partes.slice(0, -1) : partes).join(' | ')
-}
+/**
+ * As tipologias de uma frase como o vendedor as lê (24/11/2026, pedido 0023): a descrição resolvida — nunca o código, nunca a linha de perfil, e
+ * o tipo de modulação só quando é ele que separa duas delas (`nomesDasCandidatas`).
+ */
+const nomesDasTipologias = (cs: ReadonlyArray<Pick<CandidatoDeTipologia, 'descricao'>>) => nomesDasCandidatas(cs.map((c) => c.descricao))
+/** As opções de uma PERGUNTA ("pode ser A ou B"): o sentido dos módulos em aberto é dito, sem número — é o que separa uma opção da outra. */
+const nomesDasOpcoes = (cs: ReadonlyArray<Pick<CandidatoDeTipologia, 'descricao'>>) => nomesDasCandidatas(cs.map((c) => c.descricao), 'aberta')
 const emPanos = (n: number) => `${n} ${n === 1 ? 'pano' : 'panos'}`
 const quantidadeNaFrase = (a: AtributosDaTipologia | null, folhas: number) =>
     a !== null && a.folhas === null ? `${folhas} ${folhas === 1 ? 'módulo' : 'módulos'}` : `${folhas} ${folhas === 1 ? 'folha' : 'folhas'}`
@@ -502,7 +505,7 @@ function decidir(restantes: ReadonlyArray<{ c: CandidatoDeTipologia; a: Atributo
         // nada que se meça as distingue e estão na MESMA linha: o que as separa está na descrição e não tem natural — nunca "a primeira"
         if (diferem.length === 0 && linhas.size < 2) diferem.push('descrição')
         const codigos = restantes.map(({ c }) => c.tipologia)
-        if (diferem.length) return { motivo: 'SEM_NATURAL', atributos: diferem, candidatas: codigos, descricoes: restantes.map(({ c }) => descricaoSemLinha(c)) }
+        if (diferem.length) return { motivo: 'SEM_NATURAL', atributos: diferem, candidatas: codigos, descricoes: nomesDasOpcoes(restantes.map(({ c }) => c)) }
         // só a linha as distingue: a medida que cabe numa só decide; cabendo em mais de uma, a ORDEM DAS LINHAS (20/11/2026: 42, 60, DESIGN) —
         // a linha não se pergunta; só as linhas que a ordem não conhece (nem a 42, nem a 60, nem a DESIGN), empatadas, ficam como falta nomeada
         const cabem = restantes.filter(({ c }) => cabeNosLimites(c, item))
@@ -520,7 +523,7 @@ function decidir(restantes: ReadonlyArray<{ c: CandidatoDeTipologia; a: Atributo
 // ── O PADRÃO NA FOLHA (dono do produto, 11/11/2026: "aplicar o padrão é certo; aplicar em silêncio não é") ─────────────────────────────
 /**
  * O que a esquadria É, escrito ao lado do item na folha do levantamento: o tipo e a quantidade (folhas, ou módulos), e os extras que decidem
- * o natural — "correr, 2 folhas · sem persiana · sem bandeira · sem peitoril"; "maxim-ar, 1 módulo · …"; "correr, 2 folhas · com persiana · …".
+ * o natural — "correr, 2 folhas · sem persiana · sem bandeira · sem peitoril"; "maxim-ar · …" (com um módulo não se escreve módulo, 24/11/2026); "correr, 2 folhas · com persiana · …".
  * Vale para a tipologia como foi escolhida (pelo vendedor, pelo modelo ou pelo padrão): o vendedor lê e corrige antes do "sim".
  * `modulosDitos` é o número de módulos horizontais (a variável "N" da descrição), o dito ou o padrão da aba Variáveis; null quando não há.
  */
@@ -531,7 +534,8 @@ export function oQueAEsquadriaE(c: Pick<CandidatoDeTipologia, 'descricao' | 'tip
     if (a.folhas !== null) partes.push(`${a.tipo}, ${a.folhas} ${a.folhas === 1 ? 'folha' : 'folhas'}`)
     else if (a.modulos !== 'variavel' && modulosHorizontais !== null) {
         const total = modulosHorizontais * (a.modulos ?? 1)
-        partes.push(`${a.tipo}, ${total} ${total === 1 ? 'módulo' : 'módulos'}`)
+        // com um módulo não se escreve módulo (dono do produto, 24/11/2026): "maxim-ar", e não "maxim-ar, 1 módulo"
+        partes.push(total === 1 ? a.tipo : `${a.tipo}, ${total} módulos`)
     } else partes.push(a.tipo)
     for (const e of ['persiana', 'bandeira', 'peitoril'] as const) {
         // a persiana de pano fixo diz quantos (13/11/2026: o "1 pano" dito é absorvido e ESCRITO aqui, e vale para quem não o disse — é o que ela é)

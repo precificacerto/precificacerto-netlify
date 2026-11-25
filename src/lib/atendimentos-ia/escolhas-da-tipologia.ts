@@ -226,12 +226,47 @@ export function validarEscolha(tipologia: VariaveisDaTipologia, escolhas: Escolh
 export function lerEscolhasGravadas(valor: unknown, tipologia: VariaveisDaTipologia | null = null): Record<string, number> {
     if (valor === null || typeof valor !== 'object' || Array.isArray(valor)) return {}
     const deValor = new Set(tipologia ? variaveisSemPadrao(tipologia).map((v) => v.variavel) : [])
+    // a quantidade de módulos gravada (24/11/2026) vale no cálculo como foi gravada: é o que a descrição mostrada ao vendedor diz
+    const deModulos = new Set(tipologia ? variaveisDeQuantidadeDeModulos(tipologia) : [])
     const lidas: Record<string, number> = {}
     for (const [k, v] of Object.entries(valor as Record<string, unknown>)) {
         if (typeof v !== 'number' || !Number.isInteger(v)) continue
-        if (capturada(k) || (doItem(k) && v > 0) || (deValor.has(k) && v > 0) || (k in PECAS_QUE_NAO_ENTRAM_POR_PADRAO && tipologia?.variaveis.some((x) => x.variavel === k))) lidas[k] = v
+        if (capturada(k) || (doItem(k) && v > 0) || (deValor.has(k) && v > 0) || (deModulos.has(k) && v > 0) || (k in PECAS_QUE_NAO_ENTRAM_POR_PADRAO && tipologia?.variaveis.some((x) => x.variavel === k))) lidas[k] = v
     }
     return lidas
+}
+
+// ── A QUANTIDADE DE MÓDULOS (dono do produto, 24/11/2026; pedido 0023) ──────────────────────────────────────────────────
+/**
+ * "O agente grava em escolhas todas as variáveis que decidiu, N entre elas, inclusive quando usa o padrão." A tipologia é paramétrica: a DP-128
+ * (maxim-ar) e a DP-142 (fixo) têm `N = QUANTIDADE DE MÓDULOS HORIZONTAIS`; outras têm `V = QUANTIDADE DE MÓDULOS VERTICAIS`. Medido no motor
+ * 259035a9 em 24/11/2026: nas 24 tipologias de módulos, N (22) e V (4) têm Padrão 1, nenhuma opção e condição "sempre".
+ *
+ * A variável é reconhecida pela DESCRIÇÃO da aba (a sigla muda de sentido por tipologia — N também é "MÓDULOS BANDEIRA" em outras), sem opções.
+ * SEM O VENDEDOR DIZER, É UM MÓDULO ("É um módulo só. Maxiar é um módulo só.") — e isso é GRAVADO no item, não deixado para o padrão do motor:
+ * a descrição que o vendedor lê sai do que está gravado. Quando ele diz quantos, vale o que disse (inteiro maior que zero), e o cálculo usa.
+ */
+export const MODULOS_QUANDO_NAO_DITO = 1
+const DESCRICAO_DA_QUANTIDADE_DE_MODULOS = /^QUANTIDADE DE M[ÓO]DULOS (HORIZONTAIS|VERTICAIS)$/i
+/** As variáveis que dão a quantidade de módulos desta tipologia, na ordem da aba. */
+export function variaveisDeQuantidadeDeModulos(tipologia: VariaveisDaTipologia): string[] {
+    return tipologia.variaveis
+        .filter((v) => DESCRICAO_DA_QUANTIDADE_DE_MODULOS.test((v.descricao ?? '').trim()) && !(opcoesDaVariavel(v.opcoes)?.length))
+        .map((v) => v.variavel)
+}
+/** As quantidades de módulos que o item ainda NÃO tem gravadas: uma (`MODULOS_QUANDO_NAO_DITO`) em cada. O que já está gravado não muda. */
+export function modulosNaoDitos(tipologia: VariaveisDaTipologia, gravadas: Readonly<Record<string, number | null>> | null): Record<string, number> {
+    return Object.fromEntries(variaveisDeQuantidadeDeModulos(tipologia)
+        .filter((v) => { const g = gravadas?.[v]; return !(typeof g === 'number' && Number.isInteger(g) && g > 0) })
+        .map((v) => [v, MODULOS_QUANDO_NAO_DITO]))
+}
+/** A quantidade de módulos DITA, proposta pela LLM como `{ variavel, opcao: <quantidade> }`: vale se a variável é de módulos NESTA tipologia e a quantidade é um inteiro maior que zero. */
+export function validarModulos(tipologia: VariaveisDaTipologia, proposta: unknown): { variavel: string; valor: number } | null {
+    if (proposta === null || typeof proposta !== 'object') return null
+    const { variavel, opcao } = proposta as { variavel?: unknown; opcao?: unknown }
+    if (typeof variavel !== 'string' || !variaveisDeQuantidadeDeModulos(tipologia).includes(variavel)) return null
+    if (typeof opcao !== 'number' || !Number.isInteger(opcao) || opcao <= 0) return null
+    return { variavel, valor: opcao }
 }
 
 // ── AS VARIÁVEIS SEM PADRÃO (dono do produto, 06/11/2026) ──────────────────────────────────────────────────

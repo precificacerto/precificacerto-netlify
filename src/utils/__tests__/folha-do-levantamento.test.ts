@@ -17,6 +17,7 @@ import {
     type AlturasDaFolha, type DadosDaFolha, type ItemDaFolha, type VariavelDita,
 } from '@/lib/atendimentos-ia/folha-do-levantamento'
 import { FOLHA_DE_EXEMPLO, ITENS_DE_EXEMPLO } from './fixtures/folha-de-exemplo'
+import { descricaoParaOVendedor } from '@/lib/atendimentos-ia/descricao-para-o-vendedor'
 import DESCRICOES from './fixtures/descricoes-do-motor-wolff.json'
 
 const EXEMPLO = join(process.cwd(), 'docs/levantamento/exemplo-levantamento.pdf')
@@ -25,7 +26,7 @@ const PEITORIL = 'ALTURA DO PEITORIL'
 const dita = (variavel: string, descricao: string, valor: number, semPadrao = true): VariavelDita => ({ variavel, descricao, valor, semPadrao })
 const descricaoDe = (t: string) => (DESCRICOES as Array<[string, string]>).find(([c]) => c === t)![1]
 const item = (o: Partial<ItemDaFolha> = {}): ItemDaFolha => ({
-    ordem: 1, tipologia: 'DP-02', descricao: descricaoDe('DP-02'), linha: 'PVC WOLFF EUROPA 42', quantidade: 1, largura_mm: 1500, altura_mm: 1200,
+    ordem: 1, tipologia: 'DP-02', descricao: descricaoDe('DP-02'), nome: 'Janela de correr 02 folhas móveis', linha: 'PVC WOLFF EUROPA 42', quantidade: 1, largura_mm: 1500, altura_mm: 1200,
     variaveis: [], considerado: null, perfilEAcessorio: 'Branco / padrão', vidro: '4 mm', ambientes: null, obs: null, figura: null, semFigura: null, ...o,
 })
 const dados = (o: Partial<DadosDaFolha> = {}): DadosDaFolha => ({ ...FOLHA_DE_EXEMPLO, ...o })
@@ -120,7 +121,7 @@ describe('(II) a conferência antes de produzir — recusa nomeada, nunca uma fo
 
     it('a soma dos ambientes não fecha com a quantidade do item: recusa nomeando o item, os ambientes, a soma e a quantidade', () => {
         const d = dados({ itens: [item({ quantidade: 4, ambientes: [{ ambiente: 'Cozinha', quantidade: 1 }, { ambiente: 'Sala', quantidade: 2 }] })] })
-        expect(conferirFolha(d)).toEqual(['Item 1 (DP-02): a soma dos ambientes (Cozinha 1 · Sala 2 = 3) não fecha com a quantidade do item (4). Corrija os ambientes ou a quantidade.'])
+        expect(conferirFolha(d)).toEqual(['Item 1: a soma dos ambientes (Cozinha 1 · Sala 2 = 3) não fecha com a quantidade do item (4). Corrija os ambientes ou a quantidade.'])
         const r = gerarFolhaDoLevantamento(d)
         expect(r.ok).toBe(false)
         const fecha = dados({ itens: [item({ quantidade: 3, ambientes: [{ ambiente: 'Cozinha', quantidade: 1 }, { ambiente: 'Sala', quantidade: 2 }] })] })
@@ -131,7 +132,7 @@ describe('(II) a conferência antes de produzir — recusa nomeada, nunca uma fo
         expect(conferirFolha(dados({ itens: [item({ ambientes: null })] }))).toEqual([])
         expect(linhaDosAmbientes(item({ ambientes: null }))).toBe('')
         expect(conferirFolha(dados({ itens: [item({ quantidade: 2, ambientes: [{ ambiente: 'Sala', quantidade: 0 }, { ambiente: 'Sala 2', quantidade: 2 }] })] })))
-            .toEqual(['Item 1 (DP-02): todo ambiente precisa de nome e de quantidade inteira maior que zero.'])
+            .toEqual(['Item 1: todo ambiente precisa de nome e de quantidade inteira maior que zero.'])
     })
 
     it('os percentuais e o modo faltando são recusa que os nomeia; o responsável pela RT em branco NÃO é recusa', () => {
@@ -147,20 +148,20 @@ describe('(II) a conferência antes de produzir — recusa nomeada, nunca uma fo
 
     it('valor em reais nunca entra: o símbolo em qualquer texto é recusa nomeando onde; "Av. Real" e "mil" não são dinheiro', () => {
         expect(conferirFolha(dados({ itens: [item({ obs: 'cliente pagou R$ 500 de sinal' })] })))
-            .toEqual(['Item 1 (DP-02), a obs traz valor em dinheiro ("cliente pagou R$ 500 de sinal"), e o levantamento nunca traz valor em reais.'])
+            .toEqual(['Item 1, a obs traz valor em dinheiro ("cliente pagou R$ 500 de sinal"), e o levantamento nunca traz valor em reais.'])
         expect(conferirFolha(dados({ cliente: { ...FOLHA_DE_EXEMPLO.cliente, endereco: 'Av. Real, mil e cem' } }))).toEqual([])
         expect(conferirFolha(dados({ preDefinicoes: [{ rotulo: 'Vedação', valor: 'r$ 10' }] }))).toHaveLength(1)
     })
 
     it('a bandeira e o peitoril que não cabem na altura do item são recusa (o desenho nunca sai errado)', () => {
         const d = dados({ itens: [item({ tipologia: 'DP-06', descricao: descricaoDe('DP-06'), altura_mm: 900, variaveis: [dita('B', BANDEIRA, 400), dita('P', PEITORIL, 500)] })] })
-        expect(conferirFolha(d)).toEqual(['Item 1 (DP-06): a bandeira (400 mm) e o peitoril (500 mm) não cabem na altura do item (900 mm).'])
+        expect(conferirFolha(d)).toEqual(['Item 1: a bandeira (400 mm) e o peitoril (500 mm) não cabem na altura do item (900 mm).'])
         const so = dados({ itens: [item({ tipologia: 'DP-04', descricao: descricaoDe('DP-04'), altura_mm: 400, variaveis: [dita('AF', BANDEIRA, 400)] })] })
-        expect(conferirFolha(so)).toEqual(['Item 1 (DP-04): a bandeira (400 mm) não cabe na altura do item (400 mm).'])
+        expect(conferirFolha(so)).toEqual(['Item 1: a bandeira (400 mm) não cabe na altura do item (400 mm).'])
     })
 
     it('o item sem medida, sem quantidade ou sem tipologia, e o levantamento sem item, são recusas', () => {
-        expect(conferirFolha(dados({ itens: [item({ largura_mm: 0, quantidade: 1.5 })] }))).toEqual(['Item 1 (DP-02): falta a quantidade, a largura.'])
+        expect(conferirFolha(dados({ itens: [item({ largura_mm: 0, quantidade: 1.5 })] }))).toEqual(['Item 1: falta a quantidade, a largura.'])
         expect(conferirFolha(dados({ itens: [] }))).toEqual(['O levantamento não tem nenhum item.'])
         expect(conferirFolha(dados({ numero: 0 }))).toEqual(['Falta o número do levantamento.'])
         expect(conferirFolha(dados({ cliente: { ...FOLHA_DE_EXEMPLO.cliente, dataEntrega: '2027-02-31' } }))).toEqual(['A data de entrega "2027-02-31" não é uma data.'])
@@ -498,17 +499,13 @@ describe('A FIGURA DO CATÁLOGO NA PROPORÇÃO DA IMAGEM, E MENOR (dono do produ
 
 describe('(III-c) O NOME DA TIPOLOGIA NA FAIXA: primeira maiúscula por trecho, o cinza da ÚLTIMA barra, até 2 linhas com reticências', () => {
     const casos: Array<[string, string, string, string]> = [
-        // DP-01: a linha DESIGN (não é "EUROPA")
-        ['DP-01', 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | DESIGN', 'Maxim-ar com "n" módulos horizontais e 01 módulo vertical ', '| Design'],
-        ['DP-02', 'JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42', 'Janela de correr 02 folhas móveis ', '| Europa 42'],
-        ['DP-165', 'PORTA OSCILO BATENTE 01 FOLHA | EUROPA 60', 'Porta oscilo batente 01 folha ', '| Europa 60'],
-        // a barra sem espaço depois: o cinza começa nela, e nada é acrescentado nem normalizado
-        ['DP-141', 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E "V" MÓDULOS VERTICAIS | ALT IGUAIS | PERFIL COLUNA |EUROPA 60',
-            'Maxim-ar com "n" módulos horizontais e "v" módulos verticais | Alt iguais | Perfil coluna ', '|Europa 60'],
-        ['DP-11', 'JANELA DE CORRER 03 FOLHAS MÓVEIS | 01 VENEZIANA VENTILADA - 01 VENEZIANA CEGA - 01 VIDRO |EUROPA 42',
-            // o trecho que começa com número: a primeira LETRA dele é a maiúscula
-            'Janela de correr 03 folhas móveis | 01 Veneziana ventilada - 01 veneziana cega - 01 vidro ', '|Europa 42'],
-        // hipotética, sem barra: sai inteira, nada cinza
+        // um módulo: só o nome, nada cinza
+        ['um módulo', 'Maxim-ar', 'Maxim-ar', ''],
+        ['o que a esquadria tem', 'Janela de correr 02 folhas móveis | Bandeira fixa', 'Janela de correr 02 folhas móveis ', '| Bandeira fixa'],
+        // dois trechos depois do nome: o cinza começa na PRIMEIRA barra
+        ['dois trechos', 'Porta de correr 02 folhas móveis | Veneziana | Trilho pvc embutido', 'Porta de correr 02 folhas móveis ', '| Veneziana | Trilho pvc embutido'],
+        // a barra sem espaço depois: o cinza começa nela, e nada é acrescentado nem normalizado; o trecho que começa com número: a primeira LETRA dele
+        ['sem espaço', 'JANELA DE CORRER 03 FOLHAS MÓVEIS |01 VENEZIANA CEGA - 01 VIDRO', 'Janela de correr 03 folhas móveis ', '|01 Veneziana cega - 01 vidro'],
         ['sem barra', 'JANELA FIXA RETANGULAR', 'Janela fixa retangular', ''],
     ]
     it.each(casos)('%s', (_n, descricao, principal, cinza) => {
@@ -519,9 +516,9 @@ describe('(III-c) O NOME DA TIPOLOGIA NA FAIXA: primeira maiúscula por trecho, 
 
     const doc = () => new jsPDF({ unit: 'mm', format: 'a4' })
     const textoDe = (linhas: ReturnType<typeof linhasDoNome>) => linhas.map((l) => l.map((t) => t.texto).join(''))
-    it('cabe numa linha: o principal em preto e o trecho da última barra em cinza, sem reticências', () => {
-        expect(linhasDoNome(doc(), 'JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42', COLUNAS.item - 3)).toEqual([[
-            { texto: 'Janela de correr 02 folhas móveis ', cinza: false }, { texto: '| Europa 42', cinza: true },
+    it('cabe numa linha: o nome em preto e o que a esquadria tem, a partir da primeira barra, em cinza, sem reticências', () => {
+        expect(linhasDoNome(doc(), 'Janela de correr 02 folhas móveis | Bandeira fixa', COLUNAS.item - 3)).toEqual([[
+            { texto: 'Janela de correr 02 folhas móveis ', cinza: false }, { texto: '| Bandeira fixa', cinza: true },
         ]])
     })
     it('não cabe em duas: corta a segunda com "…", e o que sobra é um começo do nome', () => {
@@ -538,9 +535,14 @@ describe('(III-c) O NOME DA TIPOLOGIA NA FAIXA: primeira maiúscula por trecho, 
         d.setFont('helvetica', 'normal'); d.setFontSize(7)
         for (const t of textos) expect(d.getTextWidth(t)).toBeLessThanOrEqual(45 + 1e-9)
     })
-    it('as 164 descrições do motor: nunca mais de 2 linhas na largura da faixa', () => {
+    it('as 164 descrições do motor, como o vendedor as lê: sem linha, sem modulação e sem aspas, e nunca mais de 2 linhas na largura da faixa', () => {
         const d = doc()
-        for (const [, descricao] of DESCRICOES as unknown as string[][]) expect([descricao, linhasDoNome(d, descricao, COLUNAS.item - 3).length <= 2]).toEqual([descricao, true])
+        // o nome de cada uma como o vendedor o lê, com a quantidade de módulos mais longa de escrever (dois dígitos nos dois sentidos)
+        for (const [, descricao] of DESCRICOES as unknown as string[][]) {
+            const nome = descricaoParaOVendedor(descricao, { N: 10, V: 10 })!
+            expect(nome).not.toMatch(/europa|design|modula[çc][ãa]o|"/i)
+            expect([nome, linhasDoNome(d, nome, COLUNAS.item - 3).length <= 2]).toEqual([nome, true])
+        }
     })
 })
 
@@ -602,14 +604,14 @@ describe('(IV) o que a folha escreve', () => {
         expect(t).toContain('(Arq. Paula Exemplo)')
         expect(t).toContain('(27/11/26)')
         // as linhas do item 2: VARIÁVEIS → PERFIL / ACESSÓRIO: | VIDRO: → AMBIENTES → OBS — os rótulos exatos do mockup aprovado
-        const i2 = t.indexOf('(Item 2 · DP-04)')
+        const i2 = t.indexOf('(Item 2)')
         const ordem = ['(VARIÁVEIS)', '(PERFIL / ACESSÓRIO:)', '(VIDRO:)', '(AMBIENTES)', '(OBS)'].map((r2) => t.indexOf(r2, i2))
         expect(t).toContain('(Branco / padrão)')
         expect(t).not.toContain('Arremate e guarnição: padrão)')
         expect(ordem.every((p) => p > i2)).toBe(true)
         expect([...ordem].sort((a, b) => a - b)).toEqual(ordem)
         // o item 1 (DP-02) não tem variável sem padrão: entre ele e o item 2 não há VARIÁVEIS
-        const i1 = t.indexOf('(Item 1 · DP-02)')
+        const i1 = t.indexOf('(Item 1)')
         expect(t.slice(i1, i2)).not.toContain('(VARIÁVEIS)')
     })
 
@@ -618,8 +620,8 @@ describe('(IV) o que a folha escreve', () => {
         const r = gerarFolhaDoLevantamento(dados({ itens: [b, a] }))
         if ('recusas' in r) throw new Error(r.recusas.join(' | '))
         const t = textoDoPdf(r.pdf)
-        expect(t.indexOf('(Item 1 · DP-02)')).toBeGreaterThan(-1)
-        expect(t.indexOf('(Item 1 · DP-02)')).toBeLessThan(t.indexOf('(Item 2 · DP-04)'))
+        expect(t.indexOf('(Item 1)')).toBeGreaterThan(-1)
+        expect(t.indexOf('(Item 1)')).toBeLessThan(t.indexOf('(Item 2)'))
         expect(linhaDosAmbientes(a)).toBe('Quarto 1 (1) · Quarto 2 (1) · Escritório (1)')
     })
 

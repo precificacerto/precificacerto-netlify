@@ -90,6 +90,9 @@ const DE_PARA = { ...DE_PARA_DE_HOJE, regras: (require('./fixtures/arquivo-do-mo
 
 /** A esquadria do aceite: DP-02, 1200 x 1000, branco, temperado 5 mm. */
 const DP02 = { tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm' }
+/** O nome da tipologia como o vendedor o lê, pela Detalhe do motor do teste (24/11/2026): as frases de acréscimo não levam o código. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const nomeDoTeste = (e: Record<string, unknown>): string | null => conversa.nomePelaDetalhe((tipologia: string) => (estado.db.orcamentista_motor_tipologia_detalhe as any[]).find((x) => x.tipologia === tipologia) ?? null)(e)
 /** A pergunta do vidro: o campo que falta nos casos de montagem. */
 const PERGUNTA_DO_VIDRO = 'Qual o vidro?'
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -1873,7 +1876,18 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
         const casa = await preparar((m, sistema) => (m === 'sim' && fala(sistema, 'para acrescentar, ou altera') ? { confirma: true } : null))
         await chamar(MSG_1)
         await chamar('é o mesmo')
-        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar('Casa do João', 1, [{ ...DP02 }]))
+        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar('Casa do João', 1, [{ ...DP02 }], nomeDoTeste))
+        // o vendedor lê a descrição, sem a linha de perfil e sem o código (dono do produto, 24/11/2026, pedido 0023)
+        expect(ultimoEnviado()).toContain('Este item — Janela de correr 02 folhas móveis, 1.200 x 1.000 mm')
+        expect(ultimoEnviado()).not.toContain(DP02.tipologia)
+        expect(ultimoEnviado()).not.toMatch(/europa/i)
+        // os módulos que a proposta traz entram no nome; os que ninguém disse não se escrevem (ainda não é um item gravado)
+        const MAXIMAR = { descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | PERFIL MODULAÇÃO | EUROPA 60', linha: null as string | null }
+        const nome = conversa.nomePelaDetalhe(() => MAXIMAR)
+        expect(nome({ tipologia: 'DP-128', escolhas: [{ variavel: 'N', opcao: 2 }, { variavel: 'AM', opcao: 'x' }, null] })).toBe('Maxim-ar com 02 módulos horizontais')
+        expect(nome({ tipologia: 'DP-128' })).toBe('Maxim-ar')
+        expect(conversa.nomePelaDetalhe(() => null)({ tipologia: 'DP-999' })).toBeNull()
+        expect(conversa.esquadriaPorExtenso({ tipologia: 'DP-999' }, () => null)).toBe('tipologia sem descrição no motor')
         expect(itensDe(casa.id)).toHaveLength(1)
         expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'CONFIRMAR_ACRESCIMO', nome: null, levantamentos: [casa.id], itens: [{ ...DP02 }] })])
         await chamar('sim')
@@ -1913,7 +1927,7 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
         await chamar(MSG_1)
         await chamar('é o mesmo')
         await chamar('sim, no Obra Centro')
-        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar('Obra Centro', 1, [{ ...DP02 }]))
+        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar('Obra Centro', 1, [{ ...DP02 }], nomeDoTeste))
         expect(itensDe(obra?.id)).toHaveLength(1)
         expect(itensDe(casa.id)).toHaveLength(1)
     })
@@ -2006,9 +2020,10 @@ describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/202
         expect(texto).toBe('Levantamento 1 “Casa do Pedro”: o arquivo está acima, para você conferir.\n\nConfere? Responda sim para eu fazer o levantamento com os preços, ou diga o que muda.')
         expect(enviados().some((t) => t.includes('Apanhado do levantamento'))).toBe(false)
         const arquivo = textoDoArquivo()
-        expect(arquivo).toContain('Item 1 · DP-02')
-        // o nome da tipologia com a primeira maiúscula por trecho, e a linha no trecho da última barra (07/11/2026)
-        expect(arquivo).toContain('Janela de correr 02 folhas móveis | Europa 42')
+        // a faixa do item: o número e a descrição resolvida — sem o código da tipologia e sem a linha de perfil (24/11/2026, pedido 0023)
+        expect(arquivo).toContain('Item 1 Janela de correr 02 folhas móveis 1 1.200 1.000')
+        expect(arquivo).not.toContain(DP02.tipologia)
+        expect(arquivo).not.toMatch(/europa/i)
         // a linha do item com os rótulos do mockup: "PERFIL / ACESSÓRIO:" (cor do perfil / cor do acessório, "padrão" não dita) e "VIDRO:"
         expect(arquivo).toContain('PERFIL / ACESSÓRIO: BRANCO / padrão VIDRO: Temperado 5mm')
         // o arremate e a guarnição são comuns à obra: só no RODAPÉ, nas pré-definições — com O QUE O CÁLCULO USA (o padrão do motor, por extenso),
@@ -2061,8 +2076,11 @@ describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/202
         await pedir([{ ...DP02 }, { ...DP02, largura_mm: 1500, quantidade: 3, vidro: 'Laminado 8mm' }], [],
             'Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm; outra DP-02 1500 x 1000, 3 unidades, branco, laminado 8mm')
         const arquivo = textoDoArquivo()
-        expect(arquivo).toContain('Item 1 · DP-02')
-        expect(arquivo).toContain('Item 2 · DP-02')
+        // a faixa do item: o número e a descrição resolvida — sem o código da tipologia e sem a linha de perfil (24/11/2026, pedido 0023)
+        expect(arquivo).toContain('Item 1 Janela de correr 02 folhas móveis 1 1.200 1.000')
+        expect(arquivo).not.toContain(DP02.tipologia)
+        expect(arquivo).not.toMatch(/europa/i)
+        expect(arquivo).toContain('Item 2 Janela de correr 02 folhas móveis')
         expect(arquivo).toContain('VIDRO: Laminado 8mm')
         expect(arquivo).toContain('Cor do perfil: BRANCO · Arremate e guarnição: arremate interno: 65 mm; arremate externo: 20 mm; medida do arremate externo: medida do vão · Vedação: padrão')
         expect(arquivo).toContain('Levantamento 1 · 2 itens · 4 peças')
@@ -2192,7 +2210,7 @@ describe('(19) duas famílias com o mesmo código: a conversa pergunta de qual f
         estado.db.orcamentista_fornecedor.push({ id: 'f-sul', nome: 'Perfis Sul' })
         estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR_SUL, tipologia: 'DP-02', descricao: 'JANELA DE CORRER 02 FOLHAS | LINHA SUL', tipo: 'Correr' })
     })
-    const PERGUNTA = 'A DP-02 está em 2 famílias da sua empresa: Alumínio ou PVC. De qual família é?'
+    const PERGUNTA = 'Este item existe em 2 famílias da sua empresa: Alumínio ou PVC. De qual família é?'
     const gravado = () => itensDe(levantamentos()[0].id).map((i) => [i.familia, i.motor_id, i.motor_familia_exigida, 'tabela_id' in i])
 
     it('a esquadria com o código nos dois motores: a resposta PERGUNTA de qual família, citando as duas — e a esquadria fica sem família e sem motor', async () => {
@@ -2920,7 +2938,7 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
         it('a medida que passa do limite PERGUNTA a autorização, nomeando a medida e o limite, e grava o pedido no item — sem tipologia, nada se calcula', async () => {
             await pedir()
             expect(ultimoEnviado()).toBe(pedido())
-            expect(pedido()).toBe('A medida 1.200 x 2.500 mm passa do limite do motor para “JANELA DE CORRER 02 FOLHAS MÓVEIS” (altura de 388 a 2.439 mm). Autoriza fabricar assim, fora do limite? Se a medida estiver errada, me mande a certa.')
+            expect(pedido()).toBe('A medida 1.200 x 2.500 mm passa do limite do motor para “Janela de correr 02 folhas móveis” (altura de 388 a 2.439 mm). Autoriza fabricar assim, fora do limite? Se a medida estiver errada, me mande a certa.')
             expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, limite_tipologia: 'DP-02', limite_largura_mm: 1200, limite_altura_mm: 2500, limite_autorizado_por: null, limite_autorizado_em: null }))
             expect(typeof item(0).limite_pedido_em).toBe('string')
             expect(linhaIa()[0]).toMatch(/ limite=pediu:e1(\s|$)/)
@@ -3354,7 +3372,7 @@ describe('(25) o resgate do levantamento antigo e o contexto que não se perde (
         llmResponde({ nome: 'Geronimo Lima' })
         await chamar('Geronimo Lima')
         // a confirmação de antes presumia o acréscimo; pela regra de 21/11/2026, a frase que não diz qual dos dois PERGUNTA
-        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar('Geronimo Lima', 1, [{ ...JANELA }]))
+        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar('Geronimo Lima', 1, [{ ...JANELA }], nomeDoTeste))
     })
 
     it('"é o do Lima" grava a confirmação com o ESCOLHIDO primeiro e os outros depois — é o que a confirmação relê', async () => {
@@ -3393,7 +3411,7 @@ describe('(25) o resgate do levantamento antigo e o contexto que não se perde (
         expect(ultimoEnviado()).toBe(conversa.fraseDoNomeParecido('Casa do João 2', opcoesDe('Levantamento Casa do João')))
         llmResponde({ nome: 'Casa do João' })
         await chamar('é o mesmo')
-        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar('Levantamento Casa do João', 1, [{ ...DP02 }]))
+        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar('Levantamento Casa do João', 1, [{ ...DP02 }], nomeDoTeste))
         expect(linhaIa().pop()).toContain(' nome=da_pergunta ')
     })
 
@@ -3838,7 +3856,7 @@ describe('(29) o vidro copiado, a forma canônica e a dedupe por equivalência (
         await chamar('geronimo silva é o nome da obra\n2 uni - DP - 02\n1 uni - DP - 100')
         expect(perguntas()[0].itens).toEqual([{ ...JANELA, quantidade: 2 }, { ...PORTA, quantidade: 1 }])
         // a confirmação fala de DUAS esquadrias (não de 8), com as quantidades e o vidro como o vendedor o disse
-        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar('Geronimo Silva', 1, [{ ...JANELA, quantidade: 2 }, { ...PORTA, quantidade: 1 }]))
+        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar('Geronimo Silva', 1, [{ ...JANELA, quantidade: 2 }, { ...PORTA, quantidade: 1 }], nomeDoTeste))
         expect(ultimoEnviado()).toContain('Estes 2 itens')
         expect(ultimoEnviado()).toContain('2 unidade(s), vidro 4mm')
         expect(ultimoEnviado()).not.toContain('comum')
@@ -4645,7 +4663,7 @@ describe('(35) a pergunta em aberto expira em 24 h na leitura, como o histórico
         await perguntaComIdade(23 * H)
         await chamar('é o mesmo')
         expect(sistemaDe(estado.chamadasDaLlm.length - 1)).toContain('Pergunta em aberto:')
-        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar('Casa do João', 1, [{ ...DP02 }]))
+        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar('Casa do João', 1, [{ ...DP02 }], nomeDoTeste))
         expect(ultimaLinhaIa()).toContain(' aberta=NOME_PARECIDO ')
     })
 
@@ -4657,7 +4675,7 @@ describe('(35) a pergunta em aberto expira em 24 h na leitura, como o histórico
         expect(sistema).not.toContain('Pergunta em aberto:')
         expect(sistema).not.toContain('Casa do João 2')
         expect(enviados()).toHaveLength(antes + 1)
-        expect(ultimoEnviado()).not.toBe(conversa.fraseDeConfirmarAcrescimo('Casa do João', 1, [{ ...DP02 }]))
+        expect(ultimoEnviado()).not.toBe(conversa.fraseDeConfirmarAcrescimo('Casa do João', 1, [{ ...DP02 }], nomeDoTeste))
         expect(itensDe(casa.id)).toHaveLength(1)
         expect(ultimaLinhaIa()).toContain(' aberta=expirada ')
     })
@@ -5996,7 +6014,7 @@ describe('(41) a variável SEM PADRÃO vira pergunta ao vendedor: lida do motor,
     const ABAS_POR_TIPOLOGIA = ['orcamentista_motor_formula', 'orcamentista_motor_perfil', 'orcamentista_motor_vidro', 'orcamentista_motor_baguete', 'orcamentista_motor_variavel', 'orcamentista_motor_validacao']
     const DP04 = { ...DP02, tipologia: 'DP-04' }
     const MSG_DP04 = 'Levantamento Obra Bandeira: DP-04 1200 x 1000, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50'
-    const PERGUNTA_DA_BANDEIRA = 'Falta, na DP-04: altura da bandeira (em mm). Qual é o valor?'
+    const PERGUNTA_DA_BANDEIRA = 'Falta, neste item: altura da bandeira (em mm). Qual é o valor?'
     const montarDoTurno = () => erros.filter((l) => l.startsWith('[ETAPA 3 montar]')).slice(-1)[0]
     const sistemaDe = (k: number) => textoDoSistema(estado.chamadasDaLlm[k].corpo.system)
     const itens = () => itensDe(levantamentos()[0].id)
@@ -6153,7 +6171,7 @@ describe('(42) a coleta dos dados do levantamento: cliente, ambientes, obs, perc
         // a quantidade muda para 4 e os ambientes continuam somando 3: o arquivo é recusado, nomeando
         llmResponde({ itens: [{ ordem: 1, quantidade: 4 }] })
         await chamar('são 4 unidades')
-        expect(ultimoEnviado()).toBe(conversa.fraseDoArquivoRecusado(['Item 1 (DP-02): a soma dos ambientes (Quarto 2 · Sala 1 = 3) não fecha com a quantidade do item (4). Corrija os ambientes ou a quantidade.']))
+        expect(ultimoEnviado()).toBe(conversa.fraseDoArquivoRecusado(['Item 1: a soma dos ambientes (Quarto 2 · Sala 1 = 3) não fecha com a quantidade do item (4). Corrija os ambientes ou a quantidade.']))
         expect(estado.documentos).toHaveLength(1)
         expect(linhaIa().pop()).toMatch(/ desfecho=arquivo-recusado /)
     })
@@ -7671,6 +7689,47 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         expect(linhaIa().pop()).toMatch(/ sem_peca_nao_pedida=1(\s|$)/)
         // sem a UT no motor, nada se acrescenta
     })
+    // A QUANTIDADE DE MÓDULOS É GRAVADA (dono do produto, 24/11/2026; pedido 0023): "o agente grava em escolhas todas as variáveis que decidiu, N
+    // entre elas, inclusive quando usa o padrão". Sintética: a N na DP-02 da fixture, com a forma do motor 259035a9 (Padrão 1, sem opções)
+    const comModulosNoMotor = () => {
+        const modelo = (estado.db.orcamentista_motor_variavel as Linha[]).find((v) => v.tipologia === 'DP-02') as Linha
+        ;(estado.db.orcamentista_motor_variavel as Linha[]).push({ ...modelo, id: 'v-n', variavel: 'N', descricao: 'QUANTIDADE DE MÓDULOS HORIZONTAIS', padrao: '1', opcoes: null, condicao: 'sempre', min_max: null, ordem: 9998 })
+    }
+    const escolhasDoItem = (nome: string) => itensDe((levantamentos().find((l) => l.nome === nome) as Linha).id).map((i) => i.escolhas as Record<string, number> | null)
+    const MSG_DA_DAIANE = 'Levantamento Daiane Pilger: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50'
+    it('OS MÓDULOS NÃO DITOS: o item gravado leva N = 1 nas escolhas (antes ficava sem nada), e o rastro diz de onde veio', async () => {
+        comModulosNoMotor()
+        llmResponde({ nome: 'Daiane Pilger', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar(MSG_DA_DAIANE)
+        expect(escolhasDoItem('Daiane Pilger').map((e) => e?.N)).toEqual([1])
+        // o N entra AO LADO do que o item já tinha escolhido (os arremates ditos): nada é apagado
+        expect(Object.keys(escolhasDoItem('Daiane Pilger')[0] ?? {}).filter((k) => k !== 'N').length).toBeGreaterThan(0)
+        expect(erros.filter((l) => l.startsWith('[ETAPA 2 ')).pop()).toContain('N=1/padrao_do_apanhado')
+    })
+    it('OS MÓDULOS DITOS ("2 módulos"): vale a quantidade dita, e o um não a sobrescreve', async () => {
+        comModulosNoMotor()
+        llmResponde({ nome: 'Daiane Pilger', itens: [{ ...DP02 }], escolhas: [...ESCOLHAS_QUE_FECHAM, { variavel: 'N', opcao: 2 }] })
+        await chamar(`${MSG_DA_DAIANE}, 2 módulos`)
+        expect(escolhasDoItem('Daiane Pilger').map((e) => e?.N)).toEqual([2])
+        expect(erros.filter((l) => l.startsWith('[ETAPA 2 ')).pop()).not.toContain('N=1/padrao_do_apanhado')
+    })
+    it('a quantidade de módulos que não vale (zero) é descartada e contada — e o item fica com um', async () => {
+        comModulosNoMotor()
+        llmResponde({ nome: 'Daiane Pilger', itens: [{ ...DP02 }], escolhas: [...ESCOLHAS_QUE_FECHAM, { variavel: 'N', opcao: 0 }] })
+        await chamar(MSG_DA_DAIANE)
+        expect(escolhasDoItem('Daiane Pilger').map((e) => e?.N)).toEqual([1])
+    })
+    it('sem a variável de módulos na tipologia, as escolhas do item não ganham N — nem quando o modelo a manda', async () => {
+        llmResponde({ nome: 'Daiane Pilger', itens: [{ ...DP02 }], escolhas: [...ESCOLHAS_QUE_FECHAM, { variavel: 'N', opcao: 2 }] })
+        await chamar(MSG_DA_DAIANE)
+        expect(escolhasDoItem('Daiane Pilger').map((e) => 'N' in (e ?? {}))).toEqual([false])
+    })
+    it('o prompt diz ao modelo que NÃO pergunte os módulos e que só mande a quantidade DITA', async () => {
+        llmResponde({})
+        await chamar('oi')
+        const sistema = textoDoSistema((estado.chamadasDaLlm[0].corpo as { system: unknown }).system)
+        expect(sistema).toContain('- MÓDULOS (maxim-ar e fixo): NÃO pergunte quantos módulos. Sem o vendedor dizer, é UM módulo, e você NÃO manda nada.')
+    })
     it('sem a UT na tipologia, as escolhas do item não ganham nada e a linha [IA] não diz sem_peca_nao_pedida', async () => {
         llmResponde({ nome: 'Daiane Pilger', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
         await chamar('Levantamento Daiane Pilger: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
@@ -8033,7 +8092,7 @@ describe('(47) alterar ou acrescentar: a intenção dita manda; sem ela, a conve
         await fecharDp02(JOAO)
         llmResponde({ nome: JOAO, itens: [{ largura_mm: 900, altura_mm: 900 }] })
         await chamar(`${JOAO}: 900 x 900`)
-        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar(JOAO, 1, [{ largura_mm: 900, altura_mm: 900 }]))
+        expect(ultimoEnviado()).toBe(conversa.fraseDeAlterarOuAcrescentar(JOAO, 1, [{ largura_mm: 900, altura_mm: 900 }], nomeDoTeste))
         expect(itensDe(doJoao().id).map((i) => i.largura_mm)).toEqual([1200])
         expect(linhaIa().pop()).toContain(' intencao=perguntou')
         llmResponde({ alteracao: 'acrescentar' })

@@ -20,8 +20,8 @@ export const TABELA_DOS_DESENHOS = 'orcamentista_tipologia_desenho'
 /** As colunas que a escolha lê. `codigo_dp` NÃO está aqui: é dado, nunca chave (12/11/2026). */
 export const COLUNAS_DO_DESENHO = 'fonte, grupo, codigo, descricao, condicao, caminho_no_storage'
 export const fraseSemCatalogo = 'o catálogo de desenhos ainda não foi importado: os itens saem sem figura'
-export const fraseDoArquivoQueNaoBaixou = (tipologia: string) =>
-    `o desenho da tipologia ${tipologia} não pôde ser lido do Storage: o item sai sem figura`
+export const fraseDoArquivoQueNaoBaixou = () =>
+    'o desenho desta tipologia não pôde ser lido do Storage: o item sai sem figura'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a tabela do catálogo é posterior a `database.types.ts`
 const db = () => supabaseAdmin as any
@@ -103,10 +103,10 @@ export async function desenhosDosItens(itens: readonly ItemComDesenho[], catalog
     const caminhos = [...new Set(escolhas.flatMap((e) => ('caminho' in e ? [e.caminho] : [])))]
     const baixados = new Map<string, ImagemDoDesenho | null>()
     for (const c of caminhos) baixados.set(c, await baixarDesenho(c))
-    return escolhas.map((e, k) => {
+    return escolhas.map((e) => {
         if (!('caminho' in e)) return { frase: e.frase }
         const imagem = baixados.get(e.caminho) ?? null
-        return imagem === null ? { frase: fraseDoArquivoQueNaoBaixou(itens[k].tipologia) } : { imagem, degrau: e.degrau }
+        return imagem === null ? { frase: fraseDoArquivoQueNaoBaixou() } : { imagem, degrau: e.degrau }
     })
 }
 
