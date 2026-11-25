@@ -33,6 +33,7 @@ import { comAsFiguras, type ItemComDesenho } from '@/lib/atendimentos-ia/desenho
 import type { DefinicaoDaTipologia, ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import { nomeCasa, type CondicoesDoLevantamento, type ModoDaComissao, type PerfilDoVendedor } from '@/lib/atendimentos-ia/dados-do-levantamento'
 import { descricaoParaOVendedor, valoresDosModulos } from '@/lib/atendimentos-ia/descricao-para-o-vendedor'
+import { trilhosDoItem, type MarcosDaTipologia } from '@/lib/atendimentos-ia/trilhos-do-marco'
 import { resolverPercentual } from '@/lib/atendimentos-ia/travessia-do-levantamento-plano'
 
 /** A pergunta que acompanha o arquivo: a confirmação é sobre ELE. */
@@ -128,7 +129,11 @@ export async function lerPerfilDoVendedor(tenantId: string, employeeId: string |
 
 // ── A MONTAGEM DA FOLHA (pura) ────────────────────────────────────────────────────────────────
 /** A descrição e a linha da tipologia (a folha); o TIPO e o FORNECEDOR do motor (o arquivo do orçamento, 11/11/2026), quando o candidato os tem. */
-export type DetalheDaTipologia = (tipologia: string, familia: string | null) => { descricao: string | null; linha: string | null; tipo?: string | null; fornecedor?: string | null } | null
+export type DetalheDaTipologia = (tipologia: string, familia: string | null) => {
+    descricao: string | null; linha: string | null; tipo?: string | null; fornecedor?: string | null
+    /** Os marcos de correr da tipologia (25/11/2026, `trilhos-do-marco.ts`): é deles que sai em quantos trilhos as folhas correm. Ausente = não lidos. */
+    marcos?: MarcosDaTipologia | null
+} | null
 
 /** As variáveis ditas do item: as escolhas inteiras > 0 que a aba Variáveis da tipologia conhece, com a descrição e se é sem padrão. */
 export function variaveisDitas(item: Pick<ItemDoLevantamento, 'escolhas' | 'tipologia' | 'familia'>, definicao: DefinicaoDaTipologia): VariavelDita[] {
@@ -196,6 +201,23 @@ export function panosDaPersiana(c: { descricao: string; tipo: string | null; lin
 /** O vidro do padrão da base no fim do CONSIDERADO (13/11/2026: "a linha CONSIDERADO dizendo a origem do padrão"). */
 const comVidroPadrao = (considerado: string | null, vidro: string | null) => (considerado === null || vidro === null ? considerado : `${considerado} · ${vidro}`)
 
+/** Os trilhos que entram na descrição: o número quando o motor dá UM; nulo quando não é de correr ou quando não se determina (nada é presumido). */
+export function trilhosParaADescricao(marcos: MarcosDaTipologia | null | undefined, escolhas: unknown): number | null {
+    const t = trilhosDoItem(marcos, escolhas)
+    return t !== null && 'trilhos' in t ? t.trilhos : null
+}
+
+/**
+ * A PENDÊNCIA DOS TRILHOS, para o registro (25/11/2026, pedido 0025: "Se o número de trilhos não puder ser determinado, não se escreve trilho
+ * nenhum e a pendência é registrada"): os itens de correr cujo marco não dá UM número, com o motivo. Vazio = nada a registrar.
+ */
+export function trilhosIndeterminados(itens: ReadonlyArray<Pick<ItemDoLevantamento, 'ordem' | 'tipologia' | 'familia' | 'escolhas'>>, detalhe: DetalheDaTipologia): string[] {
+    return itens.flatMap((i) => {
+        const t = i.tipologia ? trilhosDoItem(detalhe(i.tipologia, i.familia)?.marcos, i.escolhas) : null
+        return t !== null && 'indeterminado' in t ? [`item=${i.ordem} tipologia=${i.tipologia} motivo="${t.indeterminado}"`] : []
+    })
+}
+
 export function montarDadosDaFolha(a: {
     empresa: string; levantamento: LevantamentoDoArquivo; itens: readonly ItemDoLevantamento[]; definicao: DefinicaoDaTipologia; detalhe: DetalheDaTipologia; geradoEm: Date
     /** a pré-definição do vendedor na base de conhecimento: o (b) da ordem dos três percentuais (11/11/2026) */
@@ -216,7 +238,9 @@ export function montarDadosDaFolha(a: {
             ordem: i.ordem, tipologia: i.tipologia ?? '', descricao: d?.descricao ?? i.tipologia ?? '', linha: d?.linha ?? null,
             // o NOME que o vendedor lê (dono do produto, 24/11/2026, pedido 0023): a descrição RESOLVIDA com os módulos gravados no item (no antigo, o
             // Padrão do motor), sem a linha de perfil e sem o código. A tipologia que o motor não descreve fica sem nome — o código nunca entra no lugar
-            nome: descricaoParaOVendedor(d?.descricao, valoresDosModulos(d?.descricao, i.escolhas, (v) => a.definicao(i)?.variaveis.find((x) => x.variavel === v)?.padrao)) ?? '',
+            // e EM QUANTOS TRILHOS as folhas correm (25/11/2026, pedido 0025), pelo marco que o motor escolhe para o item; indeterminado, nada se escreve
+            nome: descricaoParaOVendedor(d?.descricao, valoresDosModulos(d?.descricao, i.escolhas, (v) => a.definicao(i)?.variaveis.find((x) => x.variavel === v)?.padrao),
+                'a_definir', trilhosParaADescricao(d?.marcos, i.escolhas)) ?? '',
             quantidade: i.quantidade ?? 0, largura_mm: i.largura_mm ?? 0, altura_mm: i.altura_mm ?? 0,
             variaveis: variaveisDitas(i, a.definicao),
             // o que a esquadria É, escrito (11/11/2026): o padrão aplicado nunca em silêncio
@@ -313,6 +337,8 @@ export async function gerarArquivoDoLevantamento(a: {
     if (!levantamento) return { dados: null, folha: { ok: false, recusas: [FRASE_DO_LEVANTAMENTO_NAO_ACHADO] } }
     const [doVendedor, politica] = await Promise.all([lerPerfilDoVendedor(a.tenantId, levantamento.vendedor_employee_id), lerPoliticaDaEmpresa(a.tenantId)])
     const dados = montarDadosDaFolha({ empresa: empresa ?? '', levantamento, itens: a.itens, definicao: a.definicao, detalhe: a.detalhe, geradoEm: a.geradoEm ?? new Date(), doVendedor, vidroPadrao: a.vidroPadrao, politica })
+    // a pendência dos trilhos fica no log (25/11/2026): a folha sai sem trilho nesses itens, e nunca com um presumido
+    for (const pendencia of trilhosIndeterminados(a.itens, a.detalhe)) console.error(`[TRILHOS] indeterminado levantamento=${a.levantamentoId} ${pendencia}`)
     // A FIGURA IMPORTADA só na FOLHA, nunca em `dados` (16/11/2026): `dados` é o que vira o RESUMO que o vendedor confere,
     // e pôr a imagem nele mudaria o resumo — e, com ele, o "sim" já dado.
     const paraODesenho = desenhosParaAFolha({ itens: a.itens, definicao: a.definicao, detalhe: a.detalhe })

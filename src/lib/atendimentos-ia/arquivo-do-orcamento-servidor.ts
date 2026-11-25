@@ -24,7 +24,7 @@ import { createHash, randomUUID } from 'crypto'
 import { supabaseAdmin } from '@/supabase/admin'
 import { BUCKET_DO_CATALOGO } from '@/utils/atendimentos-ia-catalogo'
 import { contextoDaFolhaDaEmpresa } from './conversa-da-ia'
-import { corDoAcessorio, variaveisDitas } from './arquivo-do-levantamento'
+import { corDoAcessorio, trilhosParaADescricao, variaveisDitas } from './arquivo-do-levantamento'
 import { desenhoDaTipologia, linhaDosAmbientes, variavelNaFolha } from './folha-do-levantamento'
 import { escolhasDescritas, lerEscolhasDoItem, paraOAgente } from './escolhas-da-tipologia'
 import { ARREMATE_NAO_DEFINIDO } from './apanhado'
@@ -125,7 +125,8 @@ export async function itensDoArquivo(tenantId: string, orcamentoId: string):
             // a descrição RESOLVIDA (dono do produto, 24/11/2026, pedido 0023): com os módulos gravados no item (no antigo, o Padrão do motor) — com um
             // módulo não se escreve módulo —, sem a linha de perfil (ela tem o campo LINHA) e sem o tipo de modulação. Sem descrição no motor, nada: o código
             // da tipologia não entra no lugar
-            descricao: descricaoParaOVendedor(d?.descricao, valoresDosModulos(d?.descricao, escolhas, (v) => def?.variaveis.find((x) => x.variavel === v)?.padrao)),
+            descricao: descricaoParaOVendedor(d?.descricao, valoresDosModulos(d?.descricao, escolhas, (v) => def?.variaveis.find((x) => x.variavel === v)?.padrao),
+                'a_definir', trilhosParaADescricao(d?.marcos, escolhas)),
             tipo: d?.tipo ?? null, fornecedor: d?.fornecedor ?? null, linha: d?.linha ?? null,
             ambientes, corPerfil: texto(l.cor_perfil), corAcessorio: tipologia ? texto(corDoAcessorio(base, contexto.definicao)) : null, vidro: texto(l.vidro),
             variaveis: variaveis.map(variavelNaFolha), obs: texto(l.obs), definicoes,

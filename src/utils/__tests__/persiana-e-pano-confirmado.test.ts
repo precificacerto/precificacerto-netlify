@@ -71,9 +71,9 @@ describe('O CASO REAL: "2 Persiana 1,50 x 1,30 1 pano" fecha na DP-07, sem pergu
     })
     it('o CONSIDERADO da DP-07 diz o pano; o da DP-16 (com QP) não presume número', () => {
         const de = (t: string) => { const c = CANDIDATOS.find((x) => x.tipologia === t)!; return oQueAEsquadriaE(c, null, panosDaNatureza(c, VARIAVEIS(c))) }
-        expect(de('DP-07')).toBe('correr, 2 folhas · com persiana (1 pano) · sem bandeira · sem peitoril')
-        expect(de('DP-16')).toBe('correr, 3 folhas · com persiana · sem bandeira · sem peitoril')
-        expect(de('DP-02')).toBe('correr, 2 folhas · sem persiana · sem bandeira · sem peitoril')
+        expect(de('DP-07')).toBe('correr, 2 folhas · com persiana (1 pano)')
+        expect(de('DP-16')).toBe('correr, 3 folhas · com persiana')
+        expect(de('DP-02')).toBe('correr, 2 folhas')
     })
 })
 

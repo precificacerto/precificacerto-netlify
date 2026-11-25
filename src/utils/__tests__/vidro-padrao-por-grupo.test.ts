@@ -89,10 +89,16 @@ describe('O PADRÃO: a exceção vence o grupo; o PAR exato; nunca a primeira de
 
 describe('A ESQUADRIA: o texto da tabela do principal, o código gravado e o CONSIDERADO', () => {
     const item = (tipologia: string | null, vidro: string | null = null, familia: string | null = 'PVC') => ({ tipologia, familia, vidro })
-    it('o texto é a descrição do principal; sem ela (o código fora da tabela), o próprio código — o custo o acusa como falta nomeada', () => {
+    it('o texto é a descrição do principal; sem ela (o código fora da tabela), a frase em linguagem de obra — NUNCA a sigla (25/11/2026); o código segue gravado, e o custo o acusa', () => {
         expect(vidroPadraoDaEsquadria(CONTA, item('DP-02'), [DP02])).toMatchObject({ texto: 'VIDRO COMUM INCOLOR 05MM', codigo: 'VIN05', noPrincipal: true })
         const semDescricao: VidrosPadraoDaConta = { ...CONTA, descricaoDo: new Map() }
-        expect(vidroPadraoDaEsquadria(semDescricao, item('DP-02'), [DP02])).toMatchObject({ texto: 'VIN05', codigo: 'VIN05', noPrincipal: false })
+        const fora = vidroPadraoDaEsquadria(semDescricao, item('DP-02'), [DP02])!
+        expect(fora).toMatchObject({ texto: 'vidro padrão da empresa para janela de correr — não está na tabela de vidros vigente', codigo: 'VIN05', noPrincipal: false })
+        expect(fora.texto).not.toContain(fora.codigo)
+        // o código continua sendo o que se grava em vidro_codigo (é por ele que o custo nomeia a falta), com o texto novo
+        expect(vidroCodigoDaEsquadria(semDescricao, item('DP-02', fora.texto), [DP02])).toBe('VIN05')
+        // e o CONSIDERADO não repete: o próprio texto do vidro já diz que o padrão não está na tabela
+        expect(vidroNoConsiderado(semDescricao, item('DP-02', fora.texto), [DP02])).toBeNull()
     })
     it('a família da esquadria filtra as candidatas; o código em duas famílias com padrões diferentes não é padrão', () => {
         const ALU = { ...DP02, familia: 'ALUMINIO' }
@@ -108,9 +114,9 @@ describe('A ESQUADRIA: o texto da tabela do principal, o código gravado e o CON
         expect(vidroCodigoDaEsquadria(CONTA, item('DP-02', 'temperado 8mm'), [DP02])).toBeNull()
         expect(vidroCodigoDaEsquadria(CONTA, item('DP-39', 'VIDRO COMUM INCOLOR 05MM'), [DP39])).toBeNull()
     })
-    it('o CONSIDERADO diz o código e a origem, só quando o vidro é o do padrão', () => {
-        expect(vidroNoConsiderado(CONTA, item('DP-02', 'VIDRO COMUM INCOLOR 05MM'), [DP02])).toBe('vidro VIN05, padrão da empresa para janela de correr')
-        expect(vidroNoConsiderado(CONTA, item('DP-01', 'VIDRO MINI BOREAL 3,4MM'), [DP01])).toBe('vidro VBO3,4, padrão da empresa para maxim-ar')
+    it('o CONSIDERADO diz a ORIGEM, sem a sigla (25/11/2026), só quando o vidro é o do padrão', () => {
+        expect(vidroNoConsiderado(CONTA, item('DP-02', 'VIDRO COMUM INCOLOR 05MM'), [DP02])).toBe('vidro padrão da empresa para janela de correr')
+        expect(vidroNoConsiderado(CONTA, item('DP-01', 'VIDRO MINI BOREAL 3,4MM'), [DP01])).toBe('vidro padrão da empresa para maxim-ar')
         expect(vidroNoConsiderado(CONTA, item('DP-02', 'vidro 4mm'), [DP02])).toBeNull()
     })
     it('a leitura que não deu: nenhum padrão', () => {

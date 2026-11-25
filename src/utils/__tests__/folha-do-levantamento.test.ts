@@ -397,7 +397,7 @@ describe('(III-b) A DENSIDADE DO MOCKUP (dono do produto, 07/11/2026): 794 px = 
     })
 
     it('O PADRÃO APARECE NA FOLHA (dono do produto, 11/11/2026): a linha CONSIDERADO diz o que a esquadria é, antes de PERFIL / ACESSÓRIO — e sem tipologia ela não existe', () => {
-        const comPadrao = item({ considerado: 'correr, 2 folhas · sem persiana · sem bandeira · sem peitoril' })
+        const comPadrao = item({ considerado: 'correr, 2 folhas' })
         const desenhado = (i: ItemDaFolha) => {
             const r = gerarFolhaDoLevantamento(dados({ itens: [i] }))
             if (!('pdf' in r)) throw new Error('recusou')
@@ -406,7 +406,8 @@ describe('(III-b) A DENSIDADE DO MOCKUP (dono do produto, 07/11/2026): 794 px = 
         const textos = desenhado(comPadrao)
         expect(textos).toContain(ROTULO_DO_CONSIDERADO)
         expect(textos.join(' ')).toContain('correr, 2 folhas')
-        expect(textos.join(' ')).toContain('sem peitoril')
+        // ausência não se escreve (dono do produto, 25/11/2026, pedido 0025): o que a esquadria não tem não aparece na folha
+        expect(textos.join(' ')).not.toMatch(/sem (persiana|bandeira|peitoril)/)
         // a primeira linha auxiliar: desenhada antes de PERFIL / ACESSÓRIO
         expect(textos.indexOf(ROTULO_DO_CONSIDERADO)).toBeLessThan(textos.indexOf('PERFIL / ACESSÓRIO:'))
         // sem tipologia (considerado nulo), a linha não é desenhada, e o item cresce exatamente uma linha com ela
@@ -414,7 +415,7 @@ describe('(III-b) A DENSIDADE DO MOCKUP (dono do produto, 07/11/2026): 794 px = 
         expect(plano([comPadrao]).alturas.itens[0] - plano([item()]).alturas.itens[0]).toBeCloseTo(ALTURA_DA_LINHA_DO_ITEM, 3)
         // no exemplo, cada item com a sua
         for (const i of ITENS_DE_EXEMPLO) expect(i.considerado).not.toBeNull()
-        expect(ITENS_DE_EXEMPLO.find((i) => i.tipologia === 'DP-04')?.considerado).toBe('correr, 2 folhas · sem persiana · com bandeira · sem peitoril')
+        expect(ITENS_DE_EXEMPLO.find((i) => i.tipologia === 'DP-04')?.considerado).toBe('correr, 2 folhas · com bandeira')
     })
 
     it('as medidas: Fig. 15,3 mm (58 px), faixa 12,2 mm (46 px), linha auxiliar 4,2 mm (16 px)', () => {

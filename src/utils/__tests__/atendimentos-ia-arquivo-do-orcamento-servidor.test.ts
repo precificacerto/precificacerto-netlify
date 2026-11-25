@@ -89,6 +89,9 @@ jest.mock('@/lib/atendimentos-ia/conversa-da-ia', () => ({
             ? { variaveis: [{ variavel: 'N', descricao: 'QUANTIDADE DE MÓDULOS HORIZONTAIS', padrao: '1', condicao: 'sempre', opcoes: null }], formulas: [] } : null),
         detalhe: (tipologia: string, familia: string | null) => (tipologia === 'SEM-DETALHE' ? null : tipologia === 'DP-128'
             ? { descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | PERFIL MODULAÇÃO | EUROPA 60', linha: 'EUROPA 60', tipo: 'Maxim-ar', fornecedor: 'Wolf' }
+            // a porta de correr com os dois marcos, pela TM (Padrão 1): 2 trilhos, ou 3 com a TM = 2 gravada no item
+            : tipologia === 'DP-17' ? { descricao: 'PORTA DE CORRER 04 FOLHAS MÓVEIS | FECHAMENTO CENTRAL | EUROPA 60', linha: 'EUROPA 60', tipo: 'Correr', fornecedor: 'Wolf',
+                marcos: { marcos: [{ trilhos: 2, condicao: '(TM=1)' }, { trilhos: 3, condicao: '(TM=2)' }], padroes: { TM: 1 } } }
             : { descricao: `${tipologia} DA ${familia ?? 'SEM FAMÍLIA'} | EUROPA 60`, linha: 'EUROPA 60', tipo: 'Porta', fornecedor: 'Wolf' }),
     }),
 }))
@@ -134,6 +137,11 @@ describe('os itens do arquivo, montados do que está gravado', () => {
         expect(await descricao()).toBe('Maxim-ar')
         comN({ N: 2 })
         expect(await descricao()).toBe('Maxim-ar com 02 módulos horizontais')
+        // em quantos trilhos as folhas correm (25/11/2026, pedido 0025): pelo marco que o motor escolhe para o item
+        estado.db.orcamentista_orcamento_item[0] = { ...estado.db.orcamentista_orcamento_item[0], tipologia: 'DP-17', escolhas: null }
+        expect(await descricao()).toBe('Porta de correr 04 folhas móveis em 2 trilhos | Fechamento central')
+        estado.db.orcamentista_orcamento_item[0] = { ...estado.db.orcamentista_orcamento_item[0], tipologia: 'DP-17', escolhas: { TM: 2 } }
+        expect(await descricao()).toBe('Porta de correr 04 folhas móveis em 3 trilhos | Fechamento central')
         // a tipologia que o motor não descreve fica sem descrição: o código dela não entra no lugar
         estado.db.orcamentista_orcamento_item[0] = { ...estado.db.orcamentista_orcamento_item[0], tipologia: 'SEM-DETALHE' }
         expect(await descricao()).toBeNull()

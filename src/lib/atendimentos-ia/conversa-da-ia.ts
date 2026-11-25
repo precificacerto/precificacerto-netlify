@@ -195,7 +195,7 @@ import { fraseDoArquivoQueNaoChegou } from '@/lib/atendimentos-ia/arquivo-que-na
 import { MODELO_PADRAO_DA_IA, URL_DA_API_ANTHROPIC, VERSAO_DA_API_ANTHROPIC } from '@/lib/atendimentos-ia/modelo-da-ia'
 import { paraOLog } from '@/utils/atendimentos-ia-mascara-do-log'
 import {
-    FRASE_SEM_CORES, familiasDoCodigo, lerPerfilDaEmpresa, lerFamiliasDaEmpresa, linhaDoCandidato, lerVariaveisDasTipologias, mensagemDoLevantamento,
+    FRASE_SEM_CORES, familiasDoCodigo, lerPerfilDaEmpresa, lerFamiliasDaEmpresa, linhaDoCandidato, lerVariaveisDasTipologias, lerMarcosDasTipologias, mensagemDoLevantamento,
     type CandidatoDeTipologia, type FamiliasDaEmpresaLidas,
 } from '@/lib/atendimentos-ia/levantamento-da-conversa'
 import type { FolhaGerada, FolhaRecusada } from '@/lib/atendimentos-ia/folha-do-levantamento'
@@ -237,6 +237,7 @@ import {
     type CodigoDaPergunta, type EsquadriaProposta, type PerguntaEmAberto,
 } from '@/lib/atendimentos-ia/pergunta-em-aberto'
 import { descricaoParaOVendedor } from '@/lib/atendimentos-ia/descricao-para-o-vendedor'
+import type { MarcosDaTipologia } from '@/lib/atendimentos-ia/trilhos-do-marco'
 import { lerVidrosPadraoDaConta, vidroCodigoDaEsquadria, vidroNoConsiderado, vidroPadraoDaEsquadria, type VidrosPadraoDaConta } from '@/lib/atendimentos-ia/vidro-padrao'
 import { DESCRICAO_DA_FALA, blocoDoContexto, falaValida, lerContextoDoAtendimento, temDinheiro, type ContextoLido, type FalaLida } from '@/lib/atendimentos-ia/contexto-do-atendimento'
 
@@ -366,6 +367,8 @@ type Rastro = {
     vidrosPodados: number
     /** Esquadrias que receberam o vidro padrão da base de conhecimento — o CÓDIGO, por grupo de tipologia (13/11/2026; era o da instrução até então). */
     vidrosPadrao: number
+    /** Os vidros do padrão cuja referência não achou item na tabela vigente (25/11/2026): a falta fica no log, e o vendedor lê a frase, nunca a sigla. */
+    vidrosForaDaTabela: number
     /** A leitura dos padrões de vidro que NÃO deu (a tabela ausente ou a leitura que falhou): nenhum padrão entrou, e a conversa pergunta. */
     vidroPadraoLeitura: '-' | 'sem_migracao' | 'falhou'
     /** A lista do prompt pelo ACUMULADO (05/11/2026): `enviadas/total` e quantos trechos filtraram; '-' sem chamada. */
@@ -423,7 +426,7 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
         + (r.instrucoesSemEfeito === '' ? '' : ` instrucao_sem_efeito=${r.instrucoesSemEfeito}`)
         + (r.fundidos > 0 ? ` agrupados=${r.fundidos}` : '') + (r.caminhos.length > 0 ? ` caminhos=${r.caminhos.join(',')}` : '') + (r.reenviadas > 0 ? ` reenviadas=${r.reenviadas}` : '')
         + (r.historico === '-' ? '' : ` historico=${r.historico}`) + (r.gravacao === '-' ? '' : ` gravacao=${r.gravacao}`) + (r.redacao === '-' ? '' : ` redacao=${r.redacao}`)
-        + (r.vidrosNaoDitos > 0 ? ` vidro_nao_dito=${r.vidrosNaoDitos}` : '') + (r.vidrosPodados > 0 ? ` vidro_podado=${r.vidrosPodados}` : '') + (r.vidrosPadrao > 0 ? ` vidro_padrao=${r.vidrosPadrao}` : '') + (r.vidroPadraoLeitura === '-' ? '' : ` vidro_padrao_leitura=${r.vidroPadraoLeitura}`)
+        + (r.vidrosNaoDitos > 0 ? ` vidro_nao_dito=${r.vidrosNaoDitos}` : '') + (r.vidrosPodados > 0 ? ` vidro_podado=${r.vidrosPodados}` : '') + (r.vidrosPadrao > 0 ? ` vidro_padrao=${r.vidrosPadrao}` : '') + (r.vidrosForaDaTabela > 0 ? ` vidro_fora_da_tabela=${r.vidrosForaDaTabela}` : '') + (r.vidroPadraoLeitura === '-' ? '' : ` vidro_padrao_leitura=${r.vidroPadraoLeitura}`)
         // a lista pelo acumulado e os itens vazios (05/11/2026): só números
         + (r.lista === '-' ? '' : ` lista=${r.lista} trechos=${r.trechos}`) + (r.trechosSemCandidata > 0 ? ` trechos_sem_candidata=${r.trechosSemCandidata}` : '')
         + (r.itensSemCampos > 0 ? ` itens_sem_campos=${r.itensSemCampos}` : '')
@@ -1084,7 +1087,8 @@ async function nomesDosVendedores(tenantId: string, remetenteIds: string[]): Pro
  * A DEFINIÇÃO (as Variáveis de cada tipologia, pela família da esquadria) e o DETALHE (a descrição e a linha da tipologia, da Detalhe do motor)
  * que a folha do levantamento usa. Uma montagem só, para a conversa e para a tela dos Levantamentos I.A. (`copia-divergente.md`).
  */
-function definicaoEDetalhe(tabela: FamiliasDaEmpresaLidas, variaveisPorFamilia: Record<string, Record<string, VariaveisDaTipologia>>, doCodigo: ReturnType<typeof familiasDoCodigo>) {
+function definicaoEDetalhe(tabela: FamiliasDaEmpresaLidas, variaveisPorFamilia: Record<string, Record<string, VariaveisDaTipologia>>, doCodigo: ReturnType<typeof familiasDoCodigo>,
+    marcosPorFamilia: Record<string, Record<string, MarcosDaTipologia>>) {
     const definicao: DefinicaoDaTipologia = (e) => {
         const daEsquadria = familiaDaEsquadria(e, doCodigo)
         return e.tipologia !== null && daEsquadria && 'familia' in daEsquadria ? variaveisPorFamilia[daEsquadria.familia]?.[e.tipologia] ?? null : null
@@ -1092,7 +1096,8 @@ function definicaoEDetalhe(tabela: FamiliasDaEmpresaLidas, variaveisPorFamilia: 
     // a descrição e a linha da tipologia, da Detalhe do motor (os candidatos já lidos): é o que a folha do levantamento escreve na faixa do item
     const detalhe: DetalheDaTipologia = (tipologia, familia) => {
         const d = tabela.candidatos.find((x) => x.tipologia === tipologia && (familia === null || x.familia === familia)) ?? tabela.candidatos.find((x) => x.tipologia === tipologia)
-        return d ? { descricao: d.descricao, linha: d.linha, tipo: d.tipo, fornecedor: d.fornecedor } : null
+        // os marcos de correr da tipologia, da aba Perfis do motor da família (25/11/2026): é deles que sai em quantos trilhos as folhas correm
+        return d ? { descricao: d.descricao, linha: d.linha, tipo: d.tipo, fornecedor: d.fornecedor, marcos: marcosPorFamilia[d.familia]?.[tipologia] ?? null } : null
     }
     return { definicao, detalhe }
 }
@@ -1120,8 +1125,11 @@ export async function contextoDaFolhaDaEmpresa(tenantId: string): Promise<{ defi
     const tabela = await lerFamiliasDaEmpresa(tenantId)
     if ('frase' in tabela) return { recusa: tabela.frase }
     // o documento mostra o que foi calculado: a aba completa, com o Padrão (a conversa, não — `paraOAgente`)
-    const variaveisLidas = await Promise.all(tabela.familias.map(async (f) => [f.familia, await lerVariaveisDasTipologias(f.levantamento.id, 'documento')] as const))
-    return { ...definicaoEDetalhe(tabela, Object.fromEntries(variaveisLidas), familiasDoCodigo(tabela)), candidatos: tabela.candidatos }
+    const [variaveisLidas, marcosLidos] = await Promise.all([
+        Promise.all(tabela.familias.map(async (f) => [f.familia, await lerVariaveisDasTipologias(f.levantamento.id, 'documento')] as const)),
+        Promise.all(tabela.familias.map(async (f) => [f.familia, await lerMarcosDasTipologias(f.levantamento.id)] as const)),
+    ])
+    return { ...definicaoEDetalhe(tabela, Object.fromEntries(variaveisLidas), familiasDoCodigo(tabela), Object.fromEntries(marcosLidos)), candidatos: tabela.candidatos }
 }
 
 async function lerItens(tenantId: string, levantamentoId: string): Promise<ItemGravado[]> {
@@ -1422,7 +1430,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = {
         etapas: { coletar: null, casar: null, montar: null, calcular: null },
         levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null, raciocinio: null, parada: null, cacheLido: null, cacheEscrito: null, cabecalhosMs: null, primeiroTokenMs: null, tentativas: null, requestId: null },
-        midia: '-', contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', intencao: '-', descricoesDasEtapas: '-', textosDoCaminho: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', contextoDoTurno: '-', coresPadrao: 0, tipologiasPadrao: 0, linhaPadrao: 0, pecasNaoPedidas: 0, limite: '-', qualOrcamento: '-', daImagem: '-', medidasNaOrdem: 0,
+        midia: '-', contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', intencao: '-', descricoesDasEtapas: '-', textosDoCaminho: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, vidrosForaDaTabela: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', contextoDoTurno: '-', coresPadrao: 0, tipologiasPadrao: 0, linhaPadrao: 0, pecasNaoPedidas: 0, limite: '-', qualOrcamento: '-', daImagem: '-', medidasNaOrdem: 0,
     }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
@@ -1566,8 +1574,10 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // Segunda onda: o que depende da família ou da montagem. As Variáveis de cada tipologia, POR FAMÍLIA, do motor do LEVANTAMENTO dela
         // (a etapa com GERAR_LEVANTAMENTO), por motor_id; os itens da montagem; e a pergunta em aberto do roteamento pelo nome — só fora da
         // montagem, que guarda a sua no levantamento — com os levantamentos do remetente que ela cita
-        const [variaveisLidas, itensDaMontagem, pergunta, limitesDaMontagem] = await Promise.all([
+        const [variaveisLidas, marcosLidos, itensDaMontagem, pergunta, limitesDaMontagem] = await Promise.all([
             Promise.all(tabela.familias.map(async (f) => [f.familia, await lerVariaveisDasTipologias(f.levantamento.id)] as const)),
+            // os marcos de correr (25/11/2026), na MESMA onda das Variáveis: a descrição da folha diz em quantos trilhos as folhas correm
+            Promise.all(tabela.familias.map(async (f) => [f.familia, await lerMarcosDasTipologias(f.levantamento.id)] as const)),
             emMontagem ? lerItens(c.tenantId, emMontagem.id) : Promise.resolve([] as ItemGravado[]),
             // lida também na montagem (05/11/2026): a mensagem que traz OUTRO cliente, ou "novo", sai da montagem e aí a pergunta vale
             (async (): Promise<{ lida: PerguntaEmAberto | null | 'ausente' | 'expirada'; valida: PerguntaEmAberto | null; doRemetente: Levantamento[] | null }> => {
@@ -1581,7 +1591,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             // o pedido de autorização da medida fora do limite, gravado no item (18/11/2026)
             emMontagem ? lerLimites(c.tenantId, emMontagem.id) : Promise.resolve(new Map<number, LimiteDoItem>()),
         ] as const)
-        const { definicao, detalhe } = definicaoEDetalhe(tabela, Object.fromEntries(variaveisLidas), doCodigo)
+        const { definicao, detalhe } = definicaoEDetalhe(tabela, Object.fromEntries(variaveisLidas), doCodigo, Object.fromEntries(marcosLidos))
         // TODAS as pendências da montagem (03/11/2026): a pergunta em aberto é uma só, e cobre todas
         const pendenciasAbertas = emMontagem ? pendenciasDoLevantamento(itensDaMontagem, definicao, doCodigo) : []
         const pendenciaAberta = pendenciasAbertas[0] ?? null
@@ -2247,6 +2257,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             const aplicado = vidroPadraoDaEsquadria(vidrosDaConta, item, tabela.candidatos)
             if (aplicado === null) continue
             item.vidro = aplicado.texto; rastro.vidrosPadrao += 1
+            if (!aplicado.noPrincipal) rastro.vidrosForaDaTabela += 1
             assumir(item.ordem, [{ atributo: 'vidro', valor: aplicado.codigo, origem: 'base_de_conhecimento' }])
         }
         // a quantidade não dita, que a montagem pôs (12/11/2026: nomeada no rastro, com a origem)
