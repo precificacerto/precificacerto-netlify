@@ -7310,12 +7310,12 @@ describe('(30) a FOTO e o PDF do vendedor (dono do produto, 18/11/2026): baixado
             expect(itensDe(levantamentos()[0].id).map((i) => i.vidro)).toEqual(['4mm'])
         })
 
-        it('A LEGENDA com o nome segue DIRETO, como hoje: nenhuma confirmação, e o vidro só da foto continua podado', async () => {
+        it('A LEGENDA com o nome segue DIRETO, como hoje: nenhuma confirmação — e o vidro da foto vale (25/11/2026, pedido 0027: a foto é do vendedor)', async () => {
             estado.download = { bytes: FOTO }
             daFoto({ texto_da_imagem: `${LIDO}\nvidro 4mm`, itens: [{ ...CORRER, vidro: '4mm' }] })
             await chamarComMidia(foto({ caption: 'Alfredo Soares' }))
             expect(levantamentos()).toEqual([expect.objectContaining({ nome: 'Alfredo Soares' })])
-            expect(itensDe(levantamentos()[0].id).map((i) => i.vidro ?? null)).toEqual([null])
+            expect(itensDe(levantamentos()[0].id).map((i) => i.vidro ?? null)).toEqual(['4mm'])
             const ia = linhaIa().join('\n')
             expect(ia).not.toContain('da_imagem=')
             expect(ia).toContain('nome=veio')
