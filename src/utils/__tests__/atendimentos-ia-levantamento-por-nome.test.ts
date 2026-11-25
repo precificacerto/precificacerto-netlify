@@ -1408,7 +1408,7 @@ describe('(8) a ferramenta NÃO vai strict; o esquema continua restrito por addi
     // a medida passou de 24 a 41 opcionais em 06/11/2026: os dados do levantamento (o cliente, as condições, o vendedor e a opção entre homônimos,
     // e os ambientes e a obs do item) — sem `strict`, o limite de 24 da gramática não se aplica
     // e a 42 em 18/11/2026: o `texto_da_imagem` (o texto copiado da foto ou do PDF, para conferir o nome, a cidade e o vidro)
-    it('o esquema ENVIADO: UMA ferramenta, SEM `strict` (nem true nem false: o campo não vai), e a medida de hoje — 0 uniões, 42 opcionais', async () => {
+    it('o esquema ENVIADO: UMA ferramenta, SEM `strict` (nem true nem false: o campo não vai), e a medida de hoje — 0 uniões, 44 opcionais', async () => {
         await chamar('oi')
         const tools = estado.chamadasDaLlm[0].corpo.tools as Array<Record<string, unknown>>
         expect(tools).toHaveLength(1)
@@ -1416,7 +1416,8 @@ describe('(8) a ferramenta NÃO vai strict; o esquema continua restrito por addi
         expect(JSON.stringify(estado.chamadasDaLlm[0].corpo)).not.toContain('"strict"')
         const { unioes, opcionais } = contar(tools[0].input_schema)
         expect(unioes).toBe(0)
-        expect(opcionais).toBe(42)
+        // 44 desde 25/11/2026 (pedido 0026): os módulos escritos na linha de cada esquadria (`modulos_horizontais`, `modulos_verticais`)
+        expect(opcionais).toBe(44)
     })
 })
 
@@ -1466,7 +1467,7 @@ describe('(9) o contrato da chamada à Anthropic', () => {
         // `abertura` (03/11/2026): a palavra do vendedor por esquadria — porta ou janela, só essas duas
         // `vidro_padrao` (04/11/2026): o padrão da instrução, só quando o vendedor não disse o vidro
         // `ambientes` e `obs` (06/11/2026): o que vai às linhas AMBIENTES e OBS do arquivo
-        expect(Object.keys(item.properties).sort()).toEqual(['abertura', 'altura_mm', 'ambientes', 'cor_perfil', 'familia', 'fornecedor', 'largura_mm', 'obs', 'ordem', 'quantidade', 'tipologia', 'vidro', 'vidro_padrao'])
+        expect(Object.keys(item.properties).sort()).toEqual(['abertura', 'altura_mm', 'ambientes', 'cor_perfil', 'familia', 'fornecedor', 'largura_mm', 'modulos_horizontais', 'modulos_verticais', 'obs', 'ordem', 'quantidade', 'tipologia', 'vidro', 'vidro_padrao'])
         const ambiente = item.properties.ambientes.items as Esquema
         expect(ambiente.additionalProperties).toBe(false)
         expect(ambiente.properties.quantidade.type).toBe('integer')

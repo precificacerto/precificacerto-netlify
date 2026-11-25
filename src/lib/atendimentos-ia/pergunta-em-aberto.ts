@@ -113,7 +113,7 @@ export function esquadriasDaProposta(proposta: unknown): EsquadriaProposta[] {
         const b = bruto as Record<string, unknown>
         // o `vidro_padrao` (04/11/2026) viaja com a esquadria retida: é aplicado só quando ela fica sem vidro (`aplicarProposta`); os ambientes e a obs
         // (06/11/2026) também, já validados contra a mensagem em que foram ditos
-        const campos: Record<string, unknown> = Object.fromEntries([...CAMPOS_DA_ESQUADRIA, 'vidro_padrao', 'ambientes', 'obs'].filter((c) => b[c] !== undefined && b[c] !== null && b[c] !== '').map((c) => [c, b[c]]))
+        const campos: Record<string, unknown> = Object.fromEntries([...CAMPOS_DA_ESQUADRIA, 'vidro_padrao', 'ambientes', 'obs', 'modulos_horizontais', 'modulos_verticais'].filter((c) => b[c] !== undefined && b[c] !== null && b[c] !== '').map((c) => [c, b[c]]))
         if (!CAMPOS_DA_ESQUADRIA.some((c) => c in campos)) return []
         // A INTENÇÃO VIAJA COM A RETIDA (dono do produto, 21/11/2026, o achado da 0016): a alteração retida para perguntar o nome não volta como
         // acréscimo. Na ALTERAÇÃO o número também viaja: é o item do levantamento que o vendedor vai nomear. Fora dela, o número não viaja

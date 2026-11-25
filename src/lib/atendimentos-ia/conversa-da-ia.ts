@@ -222,7 +222,7 @@ import { lerTextosDoCaminho } from '@/lib/atendimentos-ia/textos-do-caminho-serv
 import { blocoDasDescricoesDasEtapas, blocoDasInstrucoesDasEtapas, type InstrucaoDaEtapa } from '@/lib/atendimentos-ia/motor-da-familia'
 import { aberturaDita, cabeNosLimites, filtrarPeloAcumulado, filtrarPorAbertura, fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, linhaDaEsquadria, medidasNaOrdemEscrita, numeroOuNulo, palavrasDeAbertura } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { lerPoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa-servidor'
-import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, modulosNaoDitos, semAsPecasNaoPedidas, variaveisSemPadraoNoPrompt, variaveisSemPadraoParaOPrompt } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
+import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, modulosNaoDitos, variavelDeModulos, semAsPecasNaoPedidas, variaveisSemPadraoNoPrompt, variaveisSemPadraoParaOPrompt } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { permissaoDoRemetente, type Permissao } from '@/lib/atendimentos-ia/permissao-do-remetente'
 import {
     gerarArquivoDoLevantamento, lerLevantamentoDoArquivo, type Funcionario, lerNomeDaEmpresa, lerPerfilDoVendedor, lerVendedorDoRemetente, funcionariosPeloNome,
@@ -258,6 +258,8 @@ export type DesfechoDaIa =
     | 'sem-nome' | 'nome-parecido' | 'nome-existe' | 'qual-esquadria' | 'nao-encontrado' | 'qual-vendedor' | 'alteracao-incompleta'
     /** A frase não disse se é para alterar um item do levantamento que já existe ou acrescentar outro: a conversa pergunta (21/11/2026). */
     | 'alterar-ou-acrescentar'
+    /** a lista lida não virou o mesmo número de itens e de unidades: nada gravado (25/11/2026, pedido 0026) */
+    | 'contagem-nao-fecha'
     | 'nao-avancou' | 'confirmar-acrescimo' | 'confirmar-resgate' | 'nao-acrescentou' | 'nao-confirmou'
     /** O ARQUIVO do levantamento enviado para conferir (06/11/2026); recusado pelo gerador; não enviado; o vendedor dito que não está no cadastro. */
     | 'arquivo' | 'arquivo-recusado' | 'arquivo-nao-enviado' | 'vendedor-nao-achado'
@@ -292,6 +294,10 @@ export const fraseDeAlterarOuAcrescentarEmOutrasPalavras = (nome: string) =>
  */
 export const esquadriaInteira = (e: Record<string, unknown>) => (typeof e.tipologia === 'string' && e.tipologia !== '') || (e.largura_mm != null && e.altura_mm != null)
 export const ehListaInteira = (esquadrias: ReadonlyArray<Record<string, unknown>>) => esquadrias.filter(esquadriaInteira).length >= 2
+/** A lista que não vira o mesmo número de itens e de unidades: nada é gravado, e a resposta diz os números (25/11/2026, pedido 0026). */
+export const fraseDaContagemQueNaoFecha = (lidas: number, montados: number, somaLida: number, somaMontada: number) =>
+    `Não consegui montar a lista inteira: li ${lidas} itens (${somaLida} unidades) e só ${montados} (${somaMontada} unidades) fecharam. `
+    + 'Nada foi gravado. Mande a lista de novo, com um item por linha.'
 /** As retidas dizem todas "acrescentar": a confirmação de antes (o levantamento), não a pergunta de qual das duas. */
 const soAcrescentar = (itens: ReadonlyArray<Record<string, unknown>>) => itens.length > 0 && itens.every((i) => i.intencao === 'acrescentar')
 
@@ -374,6 +380,8 @@ type Rastro = {
     vidrosPodados: number
     /** Esquadrias que receberam o vidro padrão da base de conhecimento — o CÓDIGO, por grupo de tipologia (13/11/2026; era o da instrução até então). */
     vidrosPadrao: number
+    /** A conferência da lista (25/11/2026): "lidas:N/itens:K unidades:A/B"; '-' quando a mensagem não é a lista inteira do levantamento. */
+    contagem: string
     /** As tipologias que o MODELO escolheu para um item com pedido de autorização em aberto, e que não entraram (25/11/2026, pedido 0026). */
     tipologiasDoModeloRecusadas: number
     /** Os vidros do padrão cuja referência não achou item na tabela vigente (25/11/2026): a falta fica no log, e o vendedor lê a frase, nunca a sigla. */
@@ -435,7 +443,7 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
         + (r.instrucoesSemEfeito === '' ? '' : ` instrucao_sem_efeito=${r.instrucoesSemEfeito}`)
         + (r.fundidos > 0 ? ` agrupados=${r.fundidos}` : '') + (r.caminhos.length > 0 ? ` caminhos=${r.caminhos.join(',')}` : '') + (r.reenviadas > 0 ? ` reenviadas=${r.reenviadas}` : '')
         + (r.historico === '-' ? '' : ` historico=${r.historico}`) + (r.gravacao === '-' ? '' : ` gravacao=${r.gravacao}`) + (r.redacao === '-' ? '' : ` redacao=${r.redacao}`)
-        + (r.vidrosNaoDitos > 0 ? ` vidro_nao_dito=${r.vidrosNaoDitos}` : '') + (r.vidrosPodados > 0 ? ` vidro_podado=${r.vidrosPodados}` : '') + (r.vidrosPadrao > 0 ? ` vidro_padrao=${r.vidrosPadrao}` : '') + (r.tipologiasDoModeloRecusadas > 0 ? ` tipologia_do_modelo_recusada=${r.tipologiasDoModeloRecusadas}` : '') + (r.vidrosForaDaTabela > 0 ? ` vidro_fora_da_tabela=${r.vidrosForaDaTabela}` : '') + (r.vidroPadraoLeitura === '-' ? '' : ` vidro_padrao_leitura=${r.vidroPadraoLeitura}`)
+        + (r.vidrosNaoDitos > 0 ? ` vidro_nao_dito=${r.vidrosNaoDitos}` : '') + (r.vidrosPodados > 0 ? ` vidro_podado=${r.vidrosPodados}` : '') + (r.vidrosPadrao > 0 ? ` vidro_padrao=${r.vidrosPadrao}` : '') + (r.contagem === '-' ? '' : ` contagem=${r.contagem}`) + (r.tipologiasDoModeloRecusadas > 0 ? ` tipologia_do_modelo_recusada=${r.tipologiasDoModeloRecusadas}` : '') + (r.vidrosForaDaTabela > 0 ? ` vidro_fora_da_tabela=${r.vidrosForaDaTabela}` : '') + (r.vidroPadraoLeitura === '-' ? '' : ` vidro_padrao_leitura=${r.vidroPadraoLeitura}`)
         // a lista pelo acumulado e os itens vazios (05/11/2026): só números
         + (r.lista === '-' ? '' : ` lista=${r.lista} trechos=${r.trechos}`) + (r.trechosSemCandidata > 0 ? ` trechos_sem_candidata=${r.trechosSemCandidata}` : '')
         + (r.itensSemCampos > 0 ? ` itens_sem_campos=${r.itensSemCampos}` : '')
@@ -665,6 +673,8 @@ export const FERRAMENTA = {
                     properties: {
                         ordem: { ...inteiro, description: 'O número da esquadria, SÓ quando o vendedor disse qual é.' },
                         tipologia: texto, largura_mm: inteiro, altura_mm: inteiro, quantidade: inteiro, cor_perfil: texto,
+                        modulos_horizontais: { ...inteiro, description: 'SÓ quando a linha DESTA esquadria escreve quantos módulos HORIZONTAIS ela tem ("com 03 módulos horizontais"): o número escrito. Omita se não está escrito.' },
+                        modulos_verticais: { ...inteiro, description: 'SÓ quando a linha DESTA esquadria escreve quantos módulos VERTICAIS ela tem ("e 05 módulos verticais"): o número escrito. Omita se não está escrito.' },
                         vidro: { ...texto, description: 'O vidro COMO o vendedor o escreveu NESTA mensagem ("vidro 4mm" → vidro 4mm), sem acrescentar têmpera, cor ou qualquer palavra que ele não disse. Omita se ele não disse.' },
                         vidro_padrao: { ...texto, description: 'SÓ quando o vendedor NÃO disse o vidro desta esquadria e a instrução da categoria VIDRO define um padrão para ela: o padrão, copiado da instrução. Senão, omita.' },
                         abertura: { type: 'string', enum: ['porta', 'janela'], description: 'A PALAVRA que o vendedor usou para esta esquadria: "porta" (também porta-janela e porta janela) ou "janela". SÓ se ele a escreveu; senão, omita.' },
@@ -788,7 +798,7 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
         '- ARREMATE e GUARNIÇÃO: NÃO pergunte. O padrão da tipologia já vale sem ninguém dizer. NUNCA escolha sozinho: em `escolhas`, só o arremate que o vendedor DISSE, em palavras, com o código da variável e o número da opção que corresponde (lista abaixo). Se ele pedir para ver as opções, ou quiser trocar sem dizer por qual, ponha o código da variável em `opcoes_de`.',
         '- FECHAMENTO (MFI, MFE): NÃO pergunte; a política da empresa já vale. Só quando o vendedor DISSER (ex.: "com chave"), em `escolhas`, com o código da variável e o número da opção daquele item (lista abaixo). Se a tipologia não tiver a opção que ele disse, não escolha outra.',
         // A QUANTIDADE DE MÓDULOS (24/11/2026; pedido 0023): sem o vendedor dizer, é um módulo — gravado pelo código, não pelo modelo
-        '- MÓDULOS (maxim-ar e fixo): NÃO pergunte quantos módulos. Sem o vendedor dizer, é UM módulo, e você NÃO manda nada. Só quando ele DISSER quantos ("2 módulos", "3 módulos na horizontal", "2 na vertical"), em `escolhas`: `variavel` N para os horizontais ou V para os verticais e, em `opcao`, a QUANTIDADE dita. Um módulo dito também vai (N com 1).',
+        '- MÓDULOS (maxim-ar e fixo): NÃO pergunte quantos módulos. Sem o vendedor dizer, é UM módulo, e você NÃO manda nada. Só quando ele DISSER quantos ("2 módulos", "3 módulos na horizontal", "2 na vertical"), em `escolhas`: `variavel` N para os horizontais ou V para os verticais e, em `opcao`, a QUANTIDADE dita. Um módulo dito também vai (N com 1). Quando a quantidade está escrita NA LINHA de uma esquadria ("Fixo com 01 módulo horizontal e 05 módulos verticais"), ponha-a NO ITEM dela, em `modulos_horizontais` e `modulos_verticais` — é assim que cada item de uma lista leva os seus.',
         ...(c.variasFamilias ? ['- familia e fornecedor: a mesma tipologia pode estar no motor de mais de uma família da empresa. SÓ o que o vendedor disse — a família, o fornecedor, ou os dois —, escrito EXATAMENTE como está na lista. NUNCA escolha sozinho.'] : []),
         '- Os códigos das variáveis (ex.: ARI), os números das opções e os códigos de fornecedor (ex.: BZ0010) são INTERNOS: nunca os escreva em `pergunta`.',
         '- NUNCA pergunte nada sobre os padrões da empresa.',
@@ -1439,7 +1449,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = {
         etapas: { coletar: null, casar: null, montar: null, calcular: null },
         levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null, raciocinio: null, parada: null, cacheLido: null, cacheEscrito: null, cabecalhosMs: null, primeiroTokenMs: null, tentativas: null, requestId: null },
-        midia: '-', contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', intencao: '-', descricoesDasEtapas: '-', textosDoCaminho: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, tipologiasDoModeloRecusadas: 0, vidrosForaDaTabela: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', contextoDoTurno: '-', coresPadrao: 0, tipologiasPadrao: 0, linhaPadrao: 0, pecasNaoPedidas: 0, limite: '-', qualOrcamento: '-', daImagem: '-', medidasNaOrdem: 0,
+        midia: '-', contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', intencao: '-', descricoesDasEtapas: '-', textosDoCaminho: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, contagem: '-', tipologiasDoModeloRecusadas: 0, vidrosForaDaTabela: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', contextoDoTurno: '-', coresPadrao: 0, tipologiasPadrao: 0, linhaPadrao: 0, pecasNaoPedidas: 0, limite: '-', qualOrcamento: '-', daImagem: '-', medidasNaOrdem: 0,
     }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
@@ -2321,10 +2331,19 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             }
             // A QUANTIDADE DE MÓDULOS QUE NINGUÉM DISSE É UMA, E É GRAVADA (dono do produto, 24/11/2026; pedido 0023): "o agente grava em escolhas
             // todas as variáveis que decidiu, N entre elas, inclusive quando usa o padrão" — a descrição que o vendedor lê sai do que está gravado
-            const modulos = modulosNaoDitos(def, item.escolhas)
+            // O NÚMERO ESCRITO NA DESCRIÇÃO VIRA VARIÁVEL GRAVADA (dono do produto, 25/11/2026; pedido 0026): "05 módulos verticais" é V=5, não o
+            // padrão. A variável é a do SENTIDO na aba Variáveis desta tipologia; sem ela (o sentido é fixo na descrição), nada é gravado
+            const escritos: Record<string, number> = {}
+            for (const sentido of ['horizontais', 'verticais'] as const) {
+                const quantos = proposta_.modulosDitos[item.ordem]?.[sentido]
+                const variavel = quantos !== undefined ? variavelDeModulos(def, sentido) : null
+                if (variavel !== null && quantos !== undefined) escritos[variavel] = quantos
+            }
+            if (Object.keys(escritos).length > 0) assumir(item.ordem, Object.entries(escritos).map(([atributo, valor]) => ({ atributo, valor: String(valor), origem: 'dito' as const })))
+            const modulos = modulosNaoDitos(def, { ...(item.escolhas ?? {}), ...escritos })
             if (Object.keys(modulos).length > 0) assumir(item.ordem, Object.entries(modulos).map(([atributo, valor]) => ({ atributo, valor: String(valor), origem: 'padrao_do_apanhado' as const })))
-            if (Object.keys(acrescentadas).length === 0 && Object.keys(modulos).length === 0) return item
-            return { ...item, escolhas: { ...(item.escolhas ?? {}), ...acrescentadas, ...modulos } }
+            if (Object.keys(acrescentadas).length === 0 && Object.keys(modulos).length === 0 && Object.keys(escritos).length === 0) return item
+            return { ...item, escolhas: { ...(item.escolhas ?? {}), ...acrescentadas, ...escritos, ...modulos } }
         })
         const agrupamento = agruparIguais(resolvidos, {
             gravadas: new Set(alvo ? alvo.itens.map((i) => i.ordem) : []), quantidadePadrao: new Set(proposta_.quantidadesPadrao),
@@ -2441,6 +2460,18 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const reenvioIgual = aplicada.descartados === 0 && agrupamento.caminhos.length > 0 && agrupamento.caminhos.every((x) => x.caminho === 'IGNORADA_IGUAL')
         if (nadaMudou && aplicada.propostos > 0 && !reenvioIgual) return await falar(fraseDeNaoApliquei(nome), 'nao-avancou')
 
+        // A CONTAGEM FINAL CONFERE COM A MENSAGEM (dono do produto, 25/11/2026; pedido 0026: "linhas lidas = itens gravados, e a soma das quantidades
+        // bate. Se não bater, não entrega"). Vale para a LISTA que é o conteúdo inteiro do levantamento (o novo, ou o substituído): cada esquadria
+        // lida tem de virar um item, e a soma das quantidades (a não dita é 1) tem de ser a mesma. Não fechando, NADA é gravado e a resposta diz os
+        // dois números — nunca um levantamento com item a menos
+        if (ehListaInteira(emEspera) && (alvo === null || substituir)) {
+            const lidas = emEspera.length
+            const somaLida = emEspera.reduce((s, e) => s + (typeof e.quantidade === 'number' && Number.isInteger(e.quantidade) && e.quantidade > 0 ? e.quantidade : 1), 0)
+            const montados = proposta_.itens.filter(dizAlgo).length
+            const somaMontada = aplicada.itens.filter(dizAlgo).reduce((s, i) => s + (i.quantidade ?? 0), 0)
+            rastro.contagem = `lidas:${lidas}/itens:${montados} unidades:${somaLida}/${somaMontada}`
+            if (montados !== lidas || somaMontada !== somaLida) return await responder(fraseDaContagemQueNaoFecha(lidas, montados, somaLida, somaMontada), 'contagem-nao-fecha')
+        }
         // ── grava, e SÓ DEPOIS responde: o trajeto inteiro, a partir do que ficou doLevantamento ──
         const pendencias = pendenciasDoLevantamento(aplicada.itens, definicao, doCodigo)
         const pendencia = pendencias[0] ?? null
