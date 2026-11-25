@@ -556,7 +556,8 @@ function comoFluxo(m: Record<string, unknown>): string {
     blocos.forEach((b, index) => {
         if (b.type === 'tool_use') {
             sse += ev('content_block_start', { index, content_block: { type: 'tool_use', id: b.id ?? 't', name: b.name, input: {} } })
-            const json = JSON.stringify(b.input ?? {})
+            // `json_cru` (24/11/2026): o JSON da ferramenta COMO ESTÁ, para montar a resposta cortada no meio (inválida de propósito)
+            const json = typeof b.json_cru === 'string' ? b.json_cru : JSON.stringify(b.input ?? {})
             // picado em pedaços de 17 caracteres: nenhum pedaço é JSON válido sozinho
             for (let k = 0; k < json.length; k += 17) sse += ev('content_block_delta', { index, delta: { type: 'input_json_delta', partial_json: json.slice(k, k + 17) } })
         } else if (b.type === 'text') {
@@ -566,6 +567,8 @@ function comoFluxo(m: Record<string, unknown>): string {
         sse += ev('content_block_stop', { index })
     })
     if (estado.fluxoComErro) sse += ev('error', { error: estado.fluxoComErro })
+    // o erro no meio do fluxo de UMA resposta só (24/11/2026): a continuação que a API abandona
+    if (m.erro_no_fluxo) sse += ev('error', { error: m.erro_no_fluxo })
     sse += ev('message_delta', { delta: { stop_reason: m.stop_reason ?? 'end_turn', stop_sequence: null }, usage: { output_tokens: output_tokens ?? 1, ...(output_tokens_details ? { output_tokens_details } : {}) } })
     sse += ev('message_stop', {})
     return sse
@@ -4305,16 +4308,17 @@ describe('(33) o pedido ao modelo: SEM thinking (o between_tools do #226 saiu em
     const P = () => require('@/lib/atendimentos-ia/pedido-ao-modelo') as typeof import('@/lib/atendimentos-ia/pedido-ao-modelo')
     const MAIOR_SAIDA_MEDIDA = 574
 
-    it('a 1ª chamada vai SEM `thinking` (medido 05/11/2026: 3,7 s e ~400 tokens contra 7 s e ~700 com between_tools), effort low, e o teto de 2.000 — mais de três vezes a maior saída medida', async () => {
+    it('a 1ª chamada vai SEM `thinking` (medido 05/11/2026: 3,7 s e ~400 tokens contra 7 s e ~700 com between_tools), effort low, e o teto é o MÁXIMO DO MODELO (24/11/2026: a lista do vendedor não é cortada por constante nossa)', async () => {
         llmResponde({})
         await chamar('oi')
         const [{ corpo }] = estado.chamadasDaLlm
         expect(corpo).not.toHaveProperty('thinking')
         expect(JSON.stringify(corpo)).not.toContain('between_tools')
         expect(corpo.output_config).toEqual({ effort: 'low' })
-        expect(corpo.max_tokens).toBe(2000)
-        expect(P().MAX_TOKENS_DA_PRIMEIRA_CHAMADA).toBe(2000)
-        expect(P().MAX_TOKENS_DA_PRIMEIRA_CHAMADA).toBeGreaterThanOrEqual(MAIOR_SAIDA_MEDIDA * 3)
+        expect(corpo.max_tokens).toBe(128000)
+        expect(P().MAX_TOKENS_DA_PRIMEIRA_CHAMADA).toBe(128000)
+        // o caso de produção de 24/11: 14 esquadrias não couberam em 2.000 com 871 de raciocínio; 40 esquadrias a ~90 tokens cada cabem com folga
+        expect(P().MAX_TOKENS_DA_PRIMEIRA_CHAMADA).toBeGreaterThanOrEqual(40 * 90 * 10 + MAIOR_SAIDA_MEDIDA)
         // a redação não mudou de teto
         expect(estado.redacoes[0].corpo.max_tokens).toBe(400)
     })
@@ -4335,14 +4339,164 @@ describe('(33) o pedido ao modelo: SEM thinking (o between_tools do #226 saiu em
         expect(linhaIa()[0]).toContain(' ia_entrada=100 ia_saida=50 ia_raciocinio=- ia_parada=tool_use ia_cache_lido=- ia_cache_escrito=-')
     })
 
-    it('o teto cortou (stop_reason max_tokens, sem a ferramenta): a falha da IA ao vendedor, nada gravado, e a linha diz ia_parada=max_tokens', async () => {
+})
+
+// ═════════════════════════════════════════════════════════════════════════════════════
+/**
+ * (33b) A LISTA DO VENDEDOR NÃO É CORTADA PELO TETO DE SAÍDA (dono do produto, 24/11/2026; pedido 0024). Medido em produção às 20h07 UTC, duas
+ * vezes: 14 esquadrias, `ia_saida=2000 ia_raciocinio=871 ia_parada=max_tokens`, `faltou=ia`, e o vendedor leu "o serviço de IA não respondeu".
+ * `stop_reason=max_tokens` nunca vira "não respondeu": a conversa guarda as esquadrias que vieram inteiras, pede as que faltam, junta as
+ * partes — e só depois avisa, dizendo a verdade.
+ */
+describe('(33b) a resposta cortada em max_tokens: a continuação é pedida, as partes se juntam, e o aviso diz a verdade', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const P = () => require('@/lib/atendimentos-ia/pedido-ao-modelo') as typeof import('@/lib/atendimentos-ia/pedido-ao-modelo')
+    const esquadria = (k: number) => ({ tipologia: 'DP-02', largura_mm: 1000 + k * 10, altura_mm: 1000, quantidade: 1, cor_perfil: 'branco', vidro: 'temperado 5mm' })
+    /** A resposta cortada: o JSON da ferramenta com `inteiras` esquadrias completas e a seguinte pela metade. */
+    const cortada = (nome: string, inteiras: number[], saida = 2000, raciocinio: number | null = 871) => estado.respostasDaLlm.push({ status: 200, corpo: {
+        id: 'msg_cortada', type: 'message', role: 'assistant', stop_reason: 'max_tokens',
+        content: [{ type: 'tool_use', id: 'toolu_cortada', name: conversa.NOME_DA_FERRAMENTA,
+            json_cru: `{"nome":"${nome}","itens":[${inteiras.map((k) => JSON.stringify(esquadria(k))).join(',')}${inteiras.length ? ',' : ''}{"tipologia":"DP-02","largura_mm":99` }],
+        usage: { input_tokens: 2015, output_tokens: saida, ...(raciocinio === null ? {} : { output_tokens_details: { thinking_tokens: raciocinio } }) },
+    } })
+    const MSG = 'Levantamento Casa do João:\n' + [1, 2, 3, 4].map((k) => `DP-02 ${1000 + k * 10} x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50`).join('\n')
+    /** A linha da etapa N deste turno (a última), como sai no log. */
+    const doTurnoDaEtapa = (n: number) => erros.filter((l) => l.startsWith(`[ETAPA ${n} `)).pop() ?? ''
+    const textoDoPedido = (corpo: { messages: Array<{ content: unknown }> }) => {
+        const c = corpo.messages[corpo.messages.length - 1].content
+        return typeof c === 'string' ? [c] : (c as Array<{ type: string; text?: string }>).filter((b) => b.type === 'text').map((b) => b.text as string)
+    }
+
+    it('CORTADA depois de 2 esquadrias, a continuação traz as outras 2: as QUATRO são gravadas, na ordem — e o vendedor não lê falha nenhuma', async () => {
+        cortada('Casa do João', [1, 2])
+        llmResponde({ nome: 'Casa do João', itens: [esquadria(3), esquadria(4)], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar(MSG)
+        expect(estado.chamadasDaLlm).toHaveLength(2)
+        expect(enviados().join('\n')).not.toContain('Não consegui')
+        expect(itensDe(levantamentos()[0].id).map((i) => i.largura_mm)).toEqual([1010, 1020, 1030, 1040])
+        // a continuação é a MESMA mensagem, com o aviso do que já está guardado — e a primeira chamada não o levava
+        expect(textoDoPedido(estado.chamadasDaLlm[0].corpo as never)).toEqual([MSG])
+        expect(textoDoPedido(estado.chamadasDaLlm[1].corpo as never)).toEqual([MSG, P().instrucaoDaContinuacao(2)])
+        expect(P().instrucaoDaContinuacao(2)).toContain('SÓ os itens a partir do de número 3 da lista')
+        // a medida SOMA as duas chamadas, diz quantas continuações houve, e a parada é a da que fechou
+        expect(linhaIa()[0]).toContain(' ia_entrada=2115 ia_saida=2050 ia_raciocinio=871 ia_parada=tool_use ')
+        expect(linhaIa()[0]).toContain(' ia_continuacoes=1')
+        expect(linhaIa()[0]).not.toContain('desfecho=sem-proposta')
+        // as linhas da mensagem contra as lidas
+        expect(doTurnoDaEtapa(1)).toContain(' linhas_msg=5 lidas=4 ')
+    })
+
+    it('a esquadria que o corte pegou NO MEIO não é aproveitada (a medida cortada seria outra medida): só as inteiras entram', async () => {
+        cortada('Casa do João', [1])
+        llmResponde({ nome: 'Casa do João', itens: [esquadria(2)], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar(MSG)
+        expect(itensDe(levantamentos()[0].id).map((i) => i.largura_mm)).toEqual([1010, 1020])
+        expect(itensDe(levantamentos()[0].id).some((i) => i.largura_mm === 99)).toBe(false)
+    })
+
+    it('cortada DUAS vezes e fechada na terceira: as três partes se juntam (2 + 1 + 1), e cada continuação diz quantas já estão guardadas', async () => {
+        cortada('Casa do João', [1, 2])
+        cortada('Casa do João', [3])
+        llmResponde({ nome: 'Casa do João', itens: [esquadria(4)], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar(MSG)
+        expect(estado.chamadasDaLlm).toHaveLength(3)
+        expect(itensDe(levantamentos()[0].id).map((i) => i.largura_mm)).toEqual([1010, 1020, 1030, 1040])
+        expect(textoDoPedido(estado.chamadasDaLlm[2].corpo as never)).toEqual([MSG, P().instrucaoDaContinuacao(3)])
+        expect(linhaIa()[0]).toContain(' ia_continuacoes=2')
+    })
+
+    it('cortada TODAS as vezes (a primeira e as duas continuações): NADA é gravado, e o vendedor lê a VERDADE — a lista é grande demais, mande em duas partes — nunca "o serviço de IA não respondeu"', async () => {
+        cortada('Casa do João', [1, 2])
+        cortada('Casa do João', [3])
+        cortada('Casa do João', [])
+        await chamar(MSG)
+        expect(estado.chamadasDaLlm).toHaveLength(1 + P().CONTINUACOES_DA_LISTA_CORTADA)
+        expect(enviados()).toEqual([conversa.falhaDaListaCortada(3)])
+        expect(enviados()[0]).toBe('Não consegui ler a sua lista inteira: ela é grande demais para uma resposta só, e a leitura parou depois de 3 itens. Nada foi gravado. Me mande a lista em duas partes, uma mensagem para cada metade.')
+        expect(enviados()[0]).not.toContain('não respondeu')
+        expect(escritasNoEstado()).toEqual([])
+        expect(linhaIa()[0]).toContain('desfecho=lista-cortada')
+        expect(linhaIa()[0]).toContain(' ia_parada=max_tokens')
+        expect(linhaIa()[0]).toContain('stop_reason=max_tokens continuacoes=2 lidas=3')
+        expect(linhaIa()[0]).toContain(' ia_saida=6000 ia_raciocinio=2613 ')
+        expect(doTurnoDaEtapa(1)).toBe('[ETAPA 1 coletar] historico=0 ia=lista-cortada faltou=lista_inteira linhas_msg=5 lidas=3')
+    })
+
+    it('cortada ANTES da primeira esquadria (o raciocínio comeu a saída, só texto veio): a continuação pede a lista inteira, e a que fecha é gravada', async () => {
         estado.respostasDaLlm.push({ status: 200, corpo: { ...respostaComFerramenta({}), stop_reason: 'max_tokens', content: [{ type: 'text', text: 'Vou anotar' }] } })
-        await chamar('Levantamento Casa do João: DP-02 1200 x 1000')
+        llmResponde({ nome: 'Casa do João', itens: [esquadria(1)], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar(MSG)
+        expect(textoDoPedido(estado.chamadasDaLlm[1].corpo as never)).toEqual([MSG, P().instrucaoDaContinuacao(0)])
+        expect(P().instrucaoDaContinuacao(0)).toContain('antes de trazer o primeiro item da lista')
+        expect(itensDe(levantamentos()[0].id).map((i) => i.largura_mm)).toEqual([1010])
+    })
+
+    it('cortada antes da primeira esquadria TODAS as vezes: a frase diz que parou antes da primeira, e nada é gravado', async () => {
+        for (let k = 0; k <= P().CONTINUACOES_DA_LISTA_CORTADA; k++) estado.respostasDaLlm.push({ status: 200, corpo: { ...respostaComFerramenta({}), stop_reason: 'max_tokens', content: [{ type: 'text', text: 'Vou anotar' }] } })
+        await chamar(MSG)
+        expect(enviados()).toEqual(['Não consegui ler a sua lista: ela é grande demais para uma resposta só, e a leitura parou antes do primeiro item. Nada foi gravado. Me mande a lista em duas partes, uma mensagem para cada metade.'])
+        expect(escritasNoEstado()).toEqual([])
+        expect(linhaIa()[0]).toContain('desfecho=lista-cortada')
+    })
+
+    it('a continuação que FALHA de outro jeito (a API devolve erro) diz a falha DELA, não a da lista: nada gravado', async () => {
+        cortada('Casa do João', [1, 2])
+        estado.respostasDaLlm.push({ status: 500, corpo: { type: 'error', error: { type: 'api_error', message: 'x' } } })
+        await chamar(MSG)
         expect(enviados()).toEqual([conversa.FALHA_DA_IA])
         expect(escritasNoEstado()).toEqual([])
-        expect(linhaIa()[0]).toContain('desfecho=sem-proposta')
-        expect(linhaIa()[0]).toContain(' ia_parada=max_tokens')
-        expect(linhaIa()[0]).toContain('stop_reason=max_tokens')
+        expect(linhaIa()[0]).toContain(' ia_continuacoes=1')
+        // a chamada que falhou não trouxe `usage`: a soma é só a da primeira (não repete os tokens dela)
+        expect(linhaIa()[0]).toContain(' ia_entrada=2015 ia_saida=2000 ia_raciocinio=871 ')
+    })
+
+    it('a continuação que a API ABANDONA no meio do fluxo (sem `usage`): a falha é a dela, e a soma dos tokens é só a da primeira chamada — não a repete', async () => {
+        cortada('Casa do João', [1, 2])
+        estado.respostasDaLlm.push({ status: 200, corpo: { ...respostaComFerramenta({}), content: [], erro_no_fluxo: { type: 'overloaded_error', message: 'Overloaded' } } })
+        await chamar(MSG)
+        expect(enviados()).toEqual([conversa.FALHA_DA_IA])
+        expect(escritasNoEstado()).toEqual([])
+        expect(linhaIa()[0]).toContain(' ia_entrada=2015 ia_saida=2000 ia_raciocinio=871 ')
+        expect(linhaIa()[0]).toContain(' ia_continuacoes=1')
+    })
+
+    it('max_tokens com a ferramenta FECHADA (o JSON veio inteiro): não é corte da lista — segue como resposta normal, sem continuação', async () => {
+        estado.respostasDaLlm.push({ status: 200, corpo: { ...respostaComFerramenta({ nome: 'Casa do João', itens: [esquadria(1)], escolhas: ESCOLHAS_QUE_FECHAM }), stop_reason: 'max_tokens' } })
+        await chamar(MSG)
+        expect(estado.chamadasDaLlm).toHaveLength(1)
+        expect(itensDe(levantamentos()[0].id).map((i) => i.largura_mm)).toEqual([1010])
+        expect(linhaIa()[0]).not.toContain('ia_continuacoes')
+    })
+})
+
+describe('(33c) as esquadrias inteiras do JSON cortado', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { itensCompletosDoJsonCortado: inteiras } = require('@/lib/atendimentos-ia/pedido-ao-modelo') as typeof import('@/lib/atendimentos-ia/pedido-ao-modelo')
+    it('os objetos completos de `itens`, na ordem; o cortado no meio fica de fora', () => {
+        expect(inteiras('{"nome":"X","itens":[{"tipologia":"DP-02","largura_mm":1200},{"tipologia":"DP-39","largura_mm":90')).toEqual([{ tipologia: 'DP-02', largura_mm: 1200 }])
+        expect(inteiras('{"itens":[{"a":1},{"a":2},{"a":3}')).toEqual([{ a: 1 }, { a: 2 }, { a: 3 }])
+        expect(inteiras('{"itens":[{"a":1},{"a":2}],"escolhas":[{"b"')).toEqual([{ a: 1 }, { a: 2 }])
+    })
+    it('o corte antes do array, ou sem ele: vazio', () => {
+        for (const json of ['', '{', '{"nome":"Casa', '{"nome":"Casa do João","ite', '{"nome":"X","itens":', '{"nome":"X","itens":[', '{"nome":"X","itens":[{"tipologia":"DP']) expect(inteiras(json)).toEqual([])
+    })
+    it('só o `itens` da RAIZ conta: um array de objetos em outra chave, ou um `itens` aninhado, não é a lista', () => {
+        expect(inteiras('{"escolhas":[{"esquadria":1,"variavel":"MAE"}],"itens":[{"a":1}')).toEqual([{ a: 1 }])
+        expect(inteiras('{"cliente":{"itens":[{"x":1}]},"itens":[{"a":1},{"a"')).toEqual([{ a: 1 }])
+        expect(inteiras('{"escolhas":[{"itens":[{"x":1}]}')).toEqual([])
+        // o `itens` de DENTRO de outro objeto não é a lista — nem o que vem depois dele na mesma profundidade
+        expect(inteiras('{"cliente":{"itens":[1],"endereco":{"a":1}},"x')).toEqual([])
+        // o `itens` que não é lista (um objeto): nada dele é esquadria
+        expect(inteiras('{"itens":{"lista":[1],"z":{"a":1}},"x')).toEqual([])
+        // fechado o array da lista, o que vem depois (as escolhas, com objetos na mesma profundidade) NÃO é esquadria
+        expect(inteiras('{"itens":[{"a":1}],"escolhas":[{"b":2}],"x')).toEqual([{ a: 1 }])
+    })
+    it('chaves, colchetes, aspas e barras DENTRO de um texto não confundem o leitor', () => {
+        expect(inteiras('{"itens":[{"vidro":"temperado } ] { [ \\"8mm\\" \\\\","obs":"a, b: c"},{"vidro":"x')).toEqual([{ vidro: 'temperado } ] { [ "8mm" \\', obs: 'a, b: c' }])
+        expect(inteiras('{"nome":"itens\\":[{","itens":[{"a":1}')).toEqual([{ a: 1 }])
+    })
+    it('o objeto com objeto e lista dentro (os ambientes da esquadria) vem inteiro', () => {
+        expect(inteiras('{"itens":[{"a":1,"ambientes":["sala","cozinha"],"x":{"y":[1,2]}},{"a":2,"ambientes":["su')).toEqual([{ a: 1, ambientes: ['sala', 'cozinha'], x: { y: [1, 2] } }])
     })
 })
 
@@ -4573,7 +4727,7 @@ describe('(36) a 1ª chamada em fluxo: stream, 10 s até os cabeçalhos, uma rep
         await chamar('oi')
         const [{ corpo }] = estado.chamadasDaLlm
         expect(corpo.stream).toBe(true)
-        expect(corpo.max_tokens).toBe(2000)
+        expect(corpo.max_tokens).toBe(128000)
         expect(corpo).not.toHaveProperty('thinking')
         // a redação continua sem fluxo
         expect(estado.redacoes[0].corpo.stream).toBeUndefined()
@@ -5618,7 +5772,7 @@ describe('(39) observabilidade por etapa: coletar, casar, montar, calcular e res
         llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
         await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
         const [coletar, casar, montar, calcular, responder] = doTurno()
-        expect(coletar).toBe('[ETAPA 1 coletar] historico=0 retidas=0 esquadrias=1 campos=6 itens_sem_campos=0 faltou=-')
+        expect(coletar).toBe('[ETAPA 1 coletar] historico=0 retidas=0 esquadrias=1 campos=6 linhas_msg=1 lidas=1 itens_sem_campos=0 faltou=-')
         expect(casar).toMatch(/^\[ETAPA 2 casar\] lista=\d+\/\d+ trechos=\d+ propostos=8 descartados=0 escolhidas=e1:DP-02 padrao=- recusadas=- sem_tipologia=0 assumidos=e1:tipologia=DP-02\/dito$/)
         expect(montar).toBe('[ETAPA 3 montar] rota=NOVO esquadrias=1 agrupadas=0 caminhos=e1:GRAVADA_NOVA pendencias=0 gravadas=1 estado=COMPLETO faltou=-')
         expect(calcular).toBe('[ETAPA 4 calcular] nao_chegou')
@@ -5667,7 +5821,7 @@ describe('(39) observabilidade por etapa: coletar, casar, montar, calcular e res
         estado.respostasDaLlm.push({ status: 400, corpo: { type: 'error', error: { type: 'invalid_request_error', message: 'max_tokens: invalid' } } })
         await chamar('oi')
         const [coletar, casar, montar, calcular] = doTurno()
-        expect(coletar).toMatch(/^\[ETAPA 1 coletar\] historico=\d+ ia=\S+ faltou=ia$/)
+        expect(coletar).toMatch(/^\[ETAPA 1 coletar\] historico=\d+ ia=\S+ faltou=ia linhas_msg=1 lidas=0$/)
         expect([casar, montar, calcular]).toEqual(['[ETAPA 2 casar] nao_chegou', '[ETAPA 3 montar] nao_chegou', '[ETAPA 4 calcular] nao_chegou'])
     })
 

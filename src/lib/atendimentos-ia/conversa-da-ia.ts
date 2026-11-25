@@ -205,7 +205,7 @@ import { agruparIguais,
 } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import { JANELA_EM_VOO_MS, contextoDaConversa, gravarSaida, lerHistorico, marcarEnvio, saidaDaEntrada, type Entrada, type MensagemDoHistorico } from '@/lib/atendimentos-ia/conversa-gravada'
 import { prazo } from '@/lib/atendimentos-ia/prazo'
-import { MAX_TOKENS_DA_PRIMEIRA_CHAMADA, PRAZO_ATE_OS_CABECALHOS_MS, TENTATIVAS_DA_PRIMEIRA_CHAMADA, blocosDoSistema } from '@/lib/atendimentos-ia/pedido-ao-modelo'
+import { CONTINUACOES_DA_LISTA_CORTADA, MAX_TOKENS_DA_PRIMEIRA_CHAMADA, PRAZO_ATE_OS_CABECALHOS_MS, TENTATIVAS_DA_PRIMEIRA_CHAMADA, blocosDoSistema, instrucaoDaContinuacao, itensCompletosDoJsonCortado } from '@/lib/atendimentos-ia/pedido-ao-modelo'
 import { lerFluxo } from '@/lib/atendimentos-ia/resposta-em-fluxo'
 import { CODIGO_DE_FORNECEDOR, PALAVRA_ESQUADRIA, redigir, type MotivoDaRedacao, type Redacao } from '@/lib/atendimentos-ia/redacao-da-resposta'
 import { vidroPodado } from '@/lib/atendimentos-ia/vidro'
@@ -249,6 +249,8 @@ const wuzapi = () => (process.env.WUZAPI_BASE_URL || 'https://usapi.adabtech.sho
 
 export type DesfechoDaIa =
     | 'sem-chave' | 'sem-saldo' | 'erro-da-llm' | 'recusa' | 'sem-proposta' | 'sem-tipologias'
+    /** A resposta do modelo foi cortada pelo limite de saída e as continuações não fecharam a lista (24/11/2026): nunca "não respondeu". */
+    | 'lista-cortada'
     /** A 1ª chamada ao modelo não voltou no prazo (04/11/2026): a linha sai no instante do estouro E no fim do turno. */
     | 'prazo-esgotado'
     | 'sem-nome' | 'nome-parecido' | 'nome-existe' | 'qual-esquadria' | 'nao-encontrado' | 'qual-vendedor' | 'alteracao-incompleta'
@@ -307,6 +309,8 @@ type MedidaDaIa = {
     cacheLido: number | null; cacheEscrito: number | null
     /** Em fluxo (05/11/2026): ms até os cabeçalhos da tentativa que respondeu, ms até o primeiro token, quantas tentativas, e o request-id da API. */
     cabecalhosMs: number | null; primeiroTokenMs: number | null; tentativas: number | null; requestId: string | null
+    /** Quantas vezes a resposta veio cortada e a continuação foi pedida (24/11/2026); os tokens das chamadas somam em `entrada`, `saida` e `raciocinio`. */
+    continuacoes?: number | null
 }
 /**
  * A OBSERVABILIDADE POR ETAPA (dono do produto, 06/11/2026): "cada etapa do atendimento tem de dizer, no log, o que recebeu, o que fez e o
@@ -410,6 +414,7 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
     const ia = r.ia.ms === null ? '' : ` ia_ms=${r.ia.ms} ia_entrada=${r.ia.entrada ?? '-'} ia_saida=${r.ia.saida ?? '-'}`
         + ` ia_raciocinio=${r.ia.raciocinio ?? '-'} ia_parada=${r.ia.parada ?? '-'} ia_cache_lido=${r.ia.cacheLido ?? '-'} ia_cache_escrito=${r.ia.cacheEscrito ?? '-'}`
         + ` ia_cabecalhos_ms=${r.ia.cabecalhosMs ?? '-'} ia_primeiro_token_ms=${r.ia.primeiroTokenMs ?? '-'} ia_tentativas=${r.ia.tentativas ?? '-'} ia_request_id=${r.ia.requestId ?? '-'}`
+        + (r.ia.continuacoes ? ` ia_continuacoes=${r.ia.continuacoes}` : '')
     // o contexto e a fala: o ESTADO, nunca o texto
     const contexto = (r.contexto === '-' ? '' : ` contexto=${r.contexto}${r.fala === '-' ? '' : ` fala=${FALA_NO_LOG[r.fala]}`}`)
         + (r.instrucoes === '-' ? '' : ` instrucoes=${r.instrucoes}`) + (r.instrucoesDasEtapas === '-' ? '' : ` instrucao_etapa=${r.instrucoesDasEtapas}`)
@@ -555,6 +560,13 @@ export const fraseDoAcrescimoRecusado = (nome: string) =>
 /** DEFEITO 3: o remetente autorizado sempre recebe resposta, e ela diz o que falhou. */
 export const FALHA_SEM_CHAVE = 'Não consegui processar a sua mensagem: o atendimento por IA está sem a chave de acesso configurada. Avise o administrador.'
 export const FALHA_SEM_SALDO = 'Não consegui processar a sua mensagem: a conta do serviço de IA está sem saldo de créditos. Avise o administrador.'
+/**
+ * A LISTA GRANDE DEMAIS (dono do produto, 24/11/2026): a resposta do modelo foi cortada pelo limite de saída e, pedida a continuação, não fechou.
+ * O vendedor lê a VERDADE — não "o serviço de IA não respondeu": a IA respondeu, e a lista não coube. Nada é gravado pela metade.
+ */
+export const falhaDaListaCortada = (lidas: number): string => (lidas > 0
+    ? `Não consegui ler a sua lista inteira: ela é grande demais para uma resposta só, e a leitura parou depois de ${lidas} ${lidas === 1 ? 'item' : 'itens'}. Nada foi gravado. Me mande a lista em duas partes, uma mensagem para cada metade.`
+    : 'Não consegui ler a sua lista: ela é grande demais para uma resposta só, e a leitura parou antes do primeiro item. Nada foi gravado. Me mande a lista em duas partes, uma mensagem para cada metade.')
 export const FALHA_DA_IA = 'Não consegui processar a sua mensagem: o serviço de IA não respondeu. Nada foi gravado; mande de novo em alguns minutos.'
 /** O prazo da 1ª chamada estourou (dono do produto, 04/11/2026: "não consegui processar agora, me mande de novo"). */
 export const FALHA_PRAZO_DA_IA = 'Não consegui processar a sua mensagem agora: o serviço de IA demorou demais para responder. Nada foi gravado; me mande de novo.'
@@ -793,6 +805,10 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
 type ResultadoDaLlm =
     | { tipo: 'ok'; proposta: Record<string, unknown> }
     | { tipo: 'sem-saldo' | 'erro-da-llm' | 'recusa' | 'sem-proposta' | 'prazo-esgotado' | 'midia-recusada'; detalhe: string }
+    /** Cortada em `max_tokens` mesmo depois das continuações: `lidas` são as esquadrias que vieram inteiras (nenhuma é gravada). */
+    | { tipo: 'lista-cortada'; detalhe: string; lidas: number }
+/** UMA chamada: o resultado, ou `cortada` (parou em `max_tokens` sem fechar a ferramenta) com as esquadrias que vieram inteiras. */
+type ResultadoDeUmaChamada = ResultadoDaLlm | { tipo: 'cortada'; itens: Array<Record<string, unknown>>; detalhe: string }
 
 /** Sem saldo: 402 `billing_error`, ou o 400 com "credit balance" que a API também já devolveu. */
 function ehSemSaldo(status: number, erro: { type?: unknown; message?: unknown } | undefined): boolean {
@@ -816,16 +832,56 @@ const tokens = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && 
  */
 export const PRAZO_DA_PRIMEIRA_CHAMADA_MS = 45_000
 
+/**
+ * A 1ª CHAMADA, COM A CONTINUAÇÃO DA LISTA CORTADA (dono do produto, 24/11/2026): `stop_reason=max_tokens` nunca vira "não respondeu". As
+ * esquadrias que vieram inteiras são guardadas, a conversa pede SÓ as que faltam e junta as partes na ordem; os outros campos valem os da
+ * chamada que fechou. O prazo de 45 s é o da chamada INTEIRA, continuações incluídas; os tokens de todas somam na medida.
+ */
 async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPrompt, medida: MedidaDaIa, historico: readonly MensagemDoHistorico[], anexo: AnexoParaOModelo | null = null): Promise<ResultadoDaLlm> {
     const inicio = Date.now()
-    // o prazo GERAL (45 s) vale para a chamada inteira: as tentativas e a leitura do corpo em fluxo
-    const limite = prazo(PRAZO_DA_PRIMEIRA_CHAMADA_MS)
+    const guardadas: Array<Record<string, unknown>> = []
+    const soma = { entrada: null as number | null, saida: null as number | null, raciocinio: null as number | null }
+    const somar = (a: number | null, b: number | null) => (a === null && b === null ? null : (a ?? 0) + (b ?? 0))
+    const fechar = <R extends ResultadoDaLlm>(r: R, continuacoes: number): R => {
+        medida.entrada = soma.entrada; medida.saida = soma.saida; medida.raciocinio = soma.raciocinio
+        medida.ms = Date.now() - inicio
+        if (continuacoes > 0) medida.continuacoes = continuacoes
+        return r
+    }
+    for (let volta = 0; ; volta++) {
+        const restante = PRAZO_DA_PRIMEIRA_CHAMADA_MS - (Date.now() - inicio)
+        const r = await umaChamadaALlm(chave, mensagem, contexto, medida, historico, anexo, volta === 0 ? null : guardadas.length, restante)
+        soma.entrada = somar(soma.entrada, medida.entrada); soma.saida = somar(soma.saida, medida.saida); soma.raciocinio = somar(soma.raciocinio, medida.raciocinio)
+        if (r.tipo === 'ok') {
+            // as partes juntas, na ordem: as guardadas das respostas cortadas e as desta
+            if (guardadas.length > 0) r.proposta.itens = [...guardadas, ...(Array.isArray(r.proposta.itens) ? r.proposta.itens : [])]
+            return fechar(r, volta)
+        }
+        if (r.tipo !== 'cortada') return fechar(r, volta)
+        guardadas.push(...r.itens)
+        // sem continuação que reste, ou sem prazo para outra: a verdade — a lista não coube
+        const semPrazo = PRAZO_DA_PRIMEIRA_CHAMADA_MS - (Date.now() - inicio) <= PRAZO_ATE_OS_CABECALHOS_MS
+        if (volta >= CONTINUACOES_DA_LISTA_CORTADA || semPrazo) {
+            return fechar({ tipo: 'lista-cortada', lidas: guardadas.length, detalhe: `stop_reason=max_tokens continuacoes=${volta} lidas=${guardadas.length}${semPrazo && volta < CONTINUACOES_DA_LISTA_CORTADA ? ' sem_prazo=sim' : ''}` }, volta)
+        }
+    }
+}
+
+/** UMA chamada ao modelo. `guardadas` (só na continuação) é quantas esquadrias as respostas cortadas já trouxeram inteiras; `prazoMs`, o que resta do prazo geral. */
+async function umaChamadaALlm(chave: string, mensagem: string, contexto: ContextoDoPrompt, medida: MedidaDaIa, historico: readonly MensagemDoHistorico[], anexo: AnexoParaOModelo | null, guardadas: number | null, prazoMs: number): Promise<ResultadoDeUmaChamada> {
+    const inicio = Date.now()
+    // o prazo GERAL (45 s) vale para a chamada inteira: as tentativas, a leitura do corpo em fluxo e as continuações da lista cortada
+    const limite = prazo(Math.max(1, prazoMs))
+    // a continuação (24/11/2026): a MESMA mensagem, com o aviso de quantas esquadrias já estão guardadas — o modelo devolve só as que faltam
+    const continuacao = guardadas === null ? [] : [{ type: 'text' as const, text: instrucaoDaContinuacao(guardadas) }]
+    // a medida é DESTA chamada: quem soma as continuações é quem chama (sem isto, a chamada que falha antes do `usage` repetiria a anterior)
+    medida.entrada = null; medida.saida = null; medida.raciocinio = null
     const s = sistema(contexto)
     const corpoDoPedido = JSON.stringify({
         // O MODELO POR CONTA entraria aqui, junto do teto: hoje não há coluna para ele —
         // `orcamentista_config.modelo` é o modelo de ATENDIMENTO (ver `modelo-da-ia.ts`).
         model: MODELO_PADRAO_DA_IA,
-        // o teto é o tamanho real da ferramenta mais folga (05/11/2026): era 16.000
+        // o teto é o MÁXIMO DO MODELO (24/11/2026): a lista do vendedor não é cortada por uma constante nossa — ver `pedido-ao-modelo.ts`
         max_tokens: MAX_TOKENS_DA_PRIMEIRA_CHAMADA,
         // SEM `thinking` (dono do produto, 05/11/2026): o `between_tools` do #226 saiu — medido com a ferramenta sem strict, a chamada sem o
         // parâmetro respondeu em 3,7 s com ~400 tokens de saída, contra 7 s e ~700 com ele. O `effort` low fica; o teto e o cache também
@@ -839,7 +895,8 @@ async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPr
         tool_choice: { type: 'auto' },
         // o HISTÓRICO da conversa (03/11/2026): as últimas mensagens, já sem dinheiro e cortadas; a desta vez por último
         // A FOTO OU O PDF (18/11/2026): o bloco antes do texto, com a instrução de não adivinhar número; sem anexo, o texto puro, como sempre
-        messages: [...historico, { role: 'user', content: anexo ? [anexo.bloco, { type: 'text', text: anexo.instrucao }, { type: 'text', text: mensagem }] : mensagem }],
+        messages: [...historico, { role: 'user', content: anexo ? [anexo.bloco, { type: 'text', text: anexo.instrucao }, { type: 'text', text: mensagem }, ...continuacao]
+            : continuacao.length ? [{ type: 'text', text: mensagem }, ...continuacao] : mensagem }],
     })
     let r: Response | null = null
     let corpo: Record<string, unknown> | null
@@ -916,6 +973,14 @@ async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPr
     if (corpo?.stop_reason === 'refusal') return { tipo: 'recusa', detalhe: '' }
     const blocos = Array.isArray(corpo?.content) ? (corpo?.content as Array<Record<string, unknown>>) : []
     const chamada = blocos.find((b) => b.type === 'tool_use' && b.name === NOME_DA_FERRAMENTA)
+    const fechou = !!chamada && !!chamada.input && typeof chamada.input === 'object'
+    // CORTADA NO TETO DE SAÍDA (24/11/2026): a ferramenta não fechou. As esquadrias que vieram INTEIRAS no JSON cortado seguem para a continuação;
+    // a que o corte pegou no meio não é aproveitada
+    if (!fechou && corpo?.stop_reason === 'max_tokens') {
+        const cortado = blocos.find((b) => b.type === 'tool_use' && b.name === NOME_DA_FERRAMENTA && typeof b.json_cortado === 'string')?.json_cortado
+        const itens = typeof cortado === 'string' ? itensCompletosDoJsonCortado(cortado) : []
+        return { tipo: 'cortada', itens, detalhe: `stop_reason=max_tokens inteiras=${itens.length}` }
+    }
     if (!chamada || !chamada.input || typeof chamada.input !== 'object') return { tipo: 'sem-proposta', detalhe: `stop_reason=${String(corpo?.stop_reason ?? '-')}` }
     return { tipo: 'ok', proposta: chamada.input as Record<string, unknown> }
 }
@@ -1598,8 +1663,15 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             rastro.midia = marcaNoLog(c.midia as MidiaDaMensagem, 'recusada_pela_ia', anexo?.como)
             return await falar(fraseDaMidiaRecusadaPelaIa(c.midia as MidiaDaMensagem), 'midia-nao-lida', resposta.detalhe)
         }
+        // AS LINHAS DA MENSAGEM CONTRA AS LIDAS (24/11/2026): quantas linhas com texto o vendedor mandou e quantas esquadrias a IA devolveu — para
+        // o corte da lista aparecer na medição em vez de sumir. Só contagem; com a foto ou o PDF, as linhas são as do texto que acompanha
+        const linhasDaMensagem = c.texto.split('\n').filter((l) => l.trim() !== '').length
+        if (resposta.tipo === 'lista-cortada') {
+            rastro.etapas.coletar = `historico=${rastro.historico} ia=lista-cortada faltou=lista_inteira linhas_msg=${linhasDaMensagem} lidas=${resposta.lidas}`
+            return await responder(falhaDaListaCortada(resposta.lidas), 'lista-cortada', resposta.detalhe)
+        }
         if (resposta.tipo !== 'ok') {
-            rastro.etapas.coletar = `historico=${rastro.historico} ia=${resposta.tipo} faltou=ia`
+            rastro.etapas.coletar = `historico=${rastro.historico} ia=${resposta.tipo} faltou=ia linhas_msg=${linhasDaMensagem} lidas=0`
             // o prazo estourou (04/11/2026): a linha [IA] sai AGORA, antes de qualquer envio — se a função morrer depois, o motivo já está no log
             if (resposta.tipo === 'prazo-esgotado') anotar(rastro, 'prazo-esgotado', `${resposta.detalhe} antes_do_envio=sim`)
             // DEFEITO 3: o vendedor sempre fica sabendo — sem detalhe técnico
@@ -1715,7 +1787,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             const daMensagem = esquadriasDaProposta({ itens: Array.isArray(daMensagemBrutas) ? daMensagemBrutas : [] })
             const ditos = (e: EsquadriaProposta) => CAMPOS_DA_ESQUADRIA.filter((k) => e[k] !== null && e[k] !== undefined)
             const naoDitos = emEspera.flatMap((e, i) => CAMPOS_DA_ESQUADRIA.filter((k) => k !== 'quantidade' && (e[k] === null || e[k] === undefined)).map((k) => `e${i + 1}:${campoNoLog(k)}`))
-            rastro.etapas.coletar = `historico=${rastro.historico} retidas=${retidas.length} esquadrias=${daMensagem.length} campos=${daMensagem.reduce((t, e) => t + ditos(e).length, 0)}`
+            rastro.etapas.coletar = `historico=${rastro.historico} retidas=${retidas.length} esquadrias=${daMensagem.length} campos=${daMensagem.reduce((t, e) => t + ditos(e).length, 0)} linhas_msg=${linhasDaMensagem} lidas=${Array.isArray(proposta.itens) ? proposta.itens.length : 0}`
                 + ` itens_sem_campos=${rastro.itensSemCampos} faltou=${listaNoLog(naoDitos)}`
         }
         const efetiva = { ...proposta, itens: juncao.itens }

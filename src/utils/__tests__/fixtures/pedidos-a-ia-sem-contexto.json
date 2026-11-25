@@ -1,7 +1,7 @@
 [
  {
   "model": "claude-sonnet-5-5",
-  "max_tokens": 2000,
+  "max_tokens": 128000,
   "output_config": {
    "effort": "low"
   },
@@ -275,7 +275,7 @@
  },
  {
   "model": "claude-sonnet-5-5",
-  "max_tokens": 2000,
+  "max_tokens": 128000,
   "output_config": {
    "effort": "low"
   },
