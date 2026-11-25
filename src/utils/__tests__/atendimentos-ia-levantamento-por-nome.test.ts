@@ -2983,6 +2983,48 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
             expect(item(0)).toEqual(expect.objectContaining({ tipologia: 'DP-02', altura_mm: 1000 }))
             expect(linhaIa().pop()).not.toContain('tipologia_do_modelo_recusada')
         })
+        it('o item SEM pedido, no mesmo levantamento, continua podendo receber a tipologia que o modelo escolhe — a trava é só do item com a dúvida', async () => {
+            llmResponde({ cliente: 'Ana', itens: [{ ...FORA }, { largura_mm: 900, altura_mm: 900, quantidade: 1, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm' }], escolhas: ESCOLHAS_QUE_FECHAM })
+            await chamar(`${ANA}\noutra 900 x 900, branco, temperado 5mm`)
+            expect([item(0).limite_tipologia, itensDe(levantamentos()[0].id)[1].limite_tipologia ?? null]).toEqual(['DP-02', null])
+            llmResponde({ itens: [{ ordem: 2, tipologia: 'DP-01' }] })
+            await chamar('a segunda é maxim-ar')
+            expect(itensDe(levantamentos()[0].id).map((i) => i.tipologia)).toEqual([null, 'DP-01'])
+            expect(linhaIa().pop()).not.toContain('tipologia_do_modelo_recusada')
+        })
+        it('a AUTORIZAÇÃO já dada não trava o item: só o pedido EM ABERTO trava — depois do "sim", o modelo pode trocar a tipologia quando o vendedor pede', async () => {
+            await pedir()
+            llmResponde({ confirma: true })
+            await chamar('sim, pode fabricar assim')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: 'DP-02', limite_autorizado_por: VENDEDOR }))
+            llmResponde({ nome: 'Ana', alteracao: 'alterar', itens: [{ ordem: 1, tipologia: 'DP-01' }] })
+            await chamar('Ana: troca para maxim-ar')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: 'DP-01' }))
+            expect(linhaIa().pop()).not.toContain('tipologia_do_modelo_recusada')
+        })
+        it('NEM O PADRÃO DO CÓDIGO resolve a dúvida: o item com pedido em aberto que o padrão fecharia em OUTRA tipologia continua sem ela, e o pedido se repete', async () => {
+            // o vendedor ESCREVEU o código (DP-02) numa linha que também diz "maxim-ar": o padrão do código, sozinho, fecharia a maxim-ar (DP-01, sem limite)
+            llmResponde({ cliente: 'Ana', itens: [{ ...FORA }], escolhas: ESCOLHAS_QUE_FECHAM })
+            await chamar('Cliente: Ana. DP-02 janela maxim-ar 1200 x 2500, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, limite_tipologia: 'DP-02' }))
+            llmResponde({})
+            await chamar('e aí?')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: null, limite_tipologia: 'DP-02', limite_autorizado_por: null }))
+            expect(estado.documentos).toHaveLength(0)
+            expect(ultimoEnviado()).toContain('Autoriza fabricar assim, fora do limite?')
+        })
+        it('o contraste: a tipologia que o MODELO escolheu (o código NÃO está na mensagem) e não coube não prende o item — o padrão do código decide pelo que o vendedor escreveu', async () => {
+            llmResponde({ cliente: 'Ana', itens: [{ ...FORA }], escolhas: ESCOLHAS_QUE_FECHAM })
+            await chamar('Cliente: Ana. janela maxim-ar 1200 x 2500, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: 'DP-01' }))
+            expect(enviados().some((e) => e.includes('fora do limite'))).toBe(false)
+        })
+        it('a medida corrigida SEM repetir a tipologia: o pedido deixa de estar em aberto (a medida mudou), e a tipologia volta pelo caminho de sempre', async () => {
+            await pedir()
+            llmResponde({ itens: [{ ordem: 1, altura_mm: 1000 }] })
+            await chamar('a altura é 1000')
+            expect(item(0)).toEqual(expect.objectContaining({ tipologia: 'DP-02', altura_mm: 1000 }))
+        })
         it('DOIS itens fora do limite na mesma lista: os DOIS pedidos saem de uma vez, cada um com a medida do próprio item', async () => {
             llmResponde({ cliente: 'Ana', itens: [{ ...FORA }, { ...FORA, largura_mm: 1300 }], escolhas: ESCOLHAS_QUE_FECHAM })
             await chamar(`${ANA}\nJanela de correr 1300 x 2500, 1 unidade, branco, temperado 5mm`)
@@ -7919,6 +7961,16 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         const casar = erros.filter((l) => l.startsWith('[ETAPA 2 ')).pop() ?? ''
         expect(casar).toContain('V=5/dito')
         expect(casar).toContain('N=2/dito')
+        // o zero escrito não é quantidade: não vira variável dita
+        expect(casar).not.toContain('V=0')
+        // os DOIS sentidos escritos no mesmo item: os dois gravados (nenhum fica para o padrão)
+        llmResponde({ nome: 'Marcelo e Rita', alteracao: 'substituir', itens: [J(1700, 1000, { modulos_horizontais: 2, modulos_verticais: 3 })] })
+        await chamar('Marcelo e Rita: substitui por DP-02 com 02 módulos horizontais e 03 módulos verticais 1700 x 1000 branco temperado 5mm')
+        expect(escolhasDoItem('Marcelo e Rita').map((e) => [e?.N, e?.V])).toEqual([[2, 3]])
+        // e a esquadria RETIDA (esperando o nome do levantamento) não perde os módulos escritos
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { esquadriasDaProposta } = require('@/lib/atendimentos-ia/pergunta-em-aberto') as typeof import('@/lib/atendimentos-ia/pergunta-em-aberto')
+        expect(esquadriasDaProposta({ itens: [{ tipologia: 'DP-02', modulos_horizontais: 2, modulos_verticais: 5, outro: 1 }] })).toEqual([{ tipologia: 'DP-02', modulos_horizontais: 2, modulos_verticais: 5 }])
     })
     it('A CONTAGEM QUE NÃO FECHA: duas esquadrias lidas que caem no MESMO item — nada é gravado, e a resposta diz os números', async () => {
         llmResponde({ nome: 'Marcelo e Rita', itens: [{ ...J(1200), ordem: 1 }, { ...J(1300), ordem: 1 }], escolhas: ESCOLHAS_QUE_FECHAM })
@@ -7928,6 +7980,12 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         expect(levantamentos()).toHaveLength(0)
         expect(estado.documentos).toHaveLength(0)
         expect(linhaIa().pop()).toContain(' contagem=lidas:2/itens:1 unidades:2/1')
+    })
+    it('A CONTAGEM pelas UNIDADES: a quantidade lida que não vale (zero) conta como uma — a lista fecha, com a quantidade 1 do padrão', async () => {
+        llmResponde({ nome: 'Marcelo e Rita', itens: [J(1200, 1000, { quantidade: 3 }), J(1300, 1000, { quantidade: 0 })], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Marcelo e Rita: 3 DP-02 1200 x 1000; DP-02 1300 x 1000; branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        expect(linhaIa().pop()).toContain(' contagem=lidas:2/itens:2 unidades:4/4')
+        expect(itensDe(levantamentos()[0].id).map((i) => i.quantidade)).toEqual([3, 1])
     })
     it('o prompt diz ao modelo que NÃO pergunte os módulos e que só mande a quantidade DITA', async () => {
         llmResponde({})

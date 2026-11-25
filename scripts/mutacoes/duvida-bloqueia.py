@@ -3,6 +3,8 @@ import subprocess, sys, os
 # entra no item com pedido em aberto; os modulos escritos na linha do item; a contagem que nao fecha nao grava.
 # Roda SOZINHO na arvore (nada le a arvore enquanto roda). SO=<trecho> roda so as mutacoes cujo texto contem o trecho.
 # O trecho que nao aparece UMA vez aborta (codigo 3) antes de rodar suite.
+# 1a passada 25/36: a condicao do numero de itens na contagem era redundante com a das unidades (a esquadria que se perde leva as unidades dela) e
+# saiu, com o filtro dos itens montados; as outras vivas ganharam teste.
 R = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')) + '/'
 U = 'src/utils/__tests__/'
 T = [U + 'atendimentos-ia-levantamento-por-nome.test.ts', U + 'levantamento-em-montagem.test.ts', U + 'quantidade-de-modulos.test.ts']
@@ -29,6 +31,8 @@ M = [
  (CI, "            if (item.tipologia === null && pedidoDoItem && pedidoEmAberto(pedidoDoItem, item) && !negados.includes(item.ordem)) {", "            if (item.tipologia === null && pedidoDoItem && !negados.includes(item.ordem)) {"),
  (CI, "            if (item.tipologia === null && pedidoDoItem && pedidoEmAberto(pedidoDoItem, item) && !negados.includes(item.ordem)) {", "            if (item.tipologia === null && pedidoDoItem && pedidoEmAberto(pedidoDoItem, item)) {"),
  (CI, "            if (pedidosDeLimite.length > 1) {", "            if (false) {"),
+ (CI, "            } else if (item.tipologia === null && limites !== 'sem_migracao' && proposta_.recusas.some((r) => r.ordem === item.ordem && r.motivo === 'LIMITES' && origemDaTipologiaProposta(r.tipologia, c.texto) === 'dito')) {", "            } else if (false) {"),
+ (CI, "r.motivo === 'LIMITES' && origemDaTipologiaProposta(r.tipologia, c.texto) === 'dito')) {", "r.motivo === 'LIMITES')) {"),
  (CI, "                const resto = pendencias.filter((p) => !(p.tipo === 'CAMPO' && p.campo === 'tipologia' && jaDitos.has(p.ordem)))\n                const linhas = [\n", "                const resto = pendencias\n                const linhas = [\n"),
  # os modulos escritos na linha do item
  (LM, "...(ordemValida(b.modulos_horizontais) ? { horizontais: b.modulos_horizontais } : {}),", "...{},"),
@@ -45,10 +49,8 @@ M = [
  (CI, "        if (ehListaInteira(emEspera) && (alvo === null || substituir)) {", "        if (false) {"),
  (CI, "        if (ehListaInteira(emEspera) && (alvo === null || substituir)) {", "        if (ehListaInteira(emEspera) && (alvo === null)) {"),
  (CI, "        if (ehListaInteira(emEspera) && (alvo === null || substituir)) {", "        if (ehListaInteira(emEspera) && (substituir)) {"),
- (CI, "            if (montados !== lidas || somaMontada !== somaLida) return", "            if (somaMontada !== somaLida) return"),
- (CI, "            if (montados !== lidas || somaMontada !== somaLida) return", "            if (montados !== lidas) return"),
+ (CI, "            if (somaMontada !== somaLida) return", "            if (false) return"),
  (CI, "Number.isInteger(e.quantidade) && e.quantidade > 0 ? e.quantidade : 1), 0)", "Number.isInteger(e.quantidade) && e.quantidade > 0 ? e.quantidade : 0), 0)"),
- (CI, "            const montados = proposta_.itens.filter(dizAlgo).length", "            const montados = proposta_.itens.length"),
 ]
 M = [x for x in M if os.environ.get('SO', '') in x[1]]
 for arq, a, b in M:

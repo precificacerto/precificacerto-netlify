@@ -5,7 +5,7 @@
  */
 import { abaDoBanco, ABAS_DO_MOTOR } from '@/utils/atendimentos-ia-abas-do-motor'
 import { avaliarTipologia, lerTipologia, type AbasDoMotor, type Tipologia } from '@/lib/atendimentos-ia/avaliador-de-formulas'
-import { lerEscolhasGravadas, MODULOS_QUANDO_NAO_DITO, modulosNaoDitos, paraOAgente, validarModulos, variaveisDeQuantidadeDeModulos } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
+import { lerEscolhasGravadas, MODULOS_QUANDO_NAO_DITO, modulosNaoDitos, paraOAgente, validarModulos, variavelDeModulos, variaveisDeQuantidadeDeModulos } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { descricaoParaOVendedor, variaveisDeModulo } from '@/lib/atendimentos-ia/descricao-para-o-vendedor'
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const MOTOR = require('./fixtures/motor-das-tipologias-do-corte.json') as { tabelas: Record<string, Array<Record<string, unknown>>> }
@@ -23,6 +23,13 @@ describe('quais variáveis são a quantidade de módulos', () => {
         expect(variaveisDeQuantidadeDeModulos(tipologia('DP-142'))).toEqual(['N'])
         expect(variaveisDeQuantidadeDeModulos(tipologia('DP-144'))).toEqual(['V'])
         expect(variaveisDeQuantidadeDeModulos(tipologia('DP-02'))).toEqual([])
+        // a variável de cada SENTIDO (25/11/2026, pedido 0026: "05 módulos verticais" é V = 5): a DP-128 só tem a dos horizontais; a DP-144, só a dos verticais
+        expect([variavelDeModulos(tipologia('DP-128'), 'horizontais'), variavelDeModulos(tipologia('DP-128'), 'verticais')]).toEqual(['N', null])
+        expect([variavelDeModulos(tipologia('DP-144'), 'horizontais'), variavelDeModulos(tipologia('DP-144'), 'verticais')]).toEqual([null, 'V'])
+        expect(variavelDeModulos(tipologia('DP-02'), 'horizontais')).toBeNull()
+        // a variável com a mesma descrição mas COM lista de opções é escolha, não quantidade livre: não é ela
+        const comOpcoes = { variaveis: tipologia('DP-128').variaveis.map((v) => (v.variavel === 'N' ? { ...v, opcoes: '1 = 01 MÓDULO; 2 = 02 MÓDULOS' } : v)) }
+        expect(variavelDeModulos(comOpcoes, 'horizontais')).toBeNull()
     })
     it('é a mesma variável que a descrição da tipologia traz entre aspas (as duas leituras concordam no motor de produção)', () => {
         for (const codigo of ['DP-128', 'DP-142', 'DP-144']) expect(variaveisDeQuantidadeDeModulos(tipologia(codigo))).toEqual(variaveisDeModulo(descricao(codigo)))

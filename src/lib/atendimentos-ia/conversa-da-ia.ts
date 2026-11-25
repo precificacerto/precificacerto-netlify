@@ -2267,6 +2267,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 const doPedido = tabela.candidatos.filter((x) => x.tipologia === pedidoDoItem.tipologia).slice(0, 1)
                 if (doPedido.length) faltasDoPadrao.push({ ordem: item.ordem, frase: fraseDoPedidoDeAutorizacao(item, doPedido, doPedido[0]), motivo: 'LIMITES' })
                 pedir.set(item.ordem, pedidoDoItem.tipologia)
+            } else if (item.tipologia === null && limites !== 'sem_migracao' && proposta_.recusas.some((r) => r.ordem === item.ordem && r.motivo === 'LIMITES' && origemDaTipologiaProposta(r.tipologia, c.texto) === 'dito')) {
+                // A TIPOLOGIA QUE O VENDEDOR ESCREVEU E NÃO COUBE (25/11/2026, pedido 0026: "Se a tipologia dita não couber, pergunta-se; não se escolhe
+                // outra"): o padrão do código não põe outra no lugar — o pedido de autorização para ELA sai adiante (`pedir`, pelas recusas)
             } else if (item.tipologia === null) {
                 const { decisao: padrao, atributos, impedimento, paraAutorizar } = padraoDaEsquadria(item, proposta_.aberturas[item.ordem] ?? null, filtro.lidos, tabela.candidatos, variaveisDaCandidata)
                 if ('tipologia' in padrao) {
@@ -2470,10 +2473,11 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         if (ehListaInteira(emEspera) && (alvo === null || substituir)) {
             const lidas = emEspera.length
             const somaLida = emEspera.reduce((s, e) => s + (typeof e.quantidade === 'number' && Number.isInteger(e.quantidade) && e.quantidade > 0 ? e.quantidade : 1), 0)
-            const montados = proposta_.itens.filter(dizAlgo).length
+            const montados = proposta_.itens.length
             const somaMontada = aplicada.itens.filter(dizAlgo).reduce((s, i) => s + (i.quantidade ?? 0), 0)
             rastro.contagem = `lidas:${lidas}/itens:${montados} unidades:${somaLida}/${somaMontada}`
-            if (montados !== lidas || somaMontada !== somaLida) return await responder(fraseDaContagemQueNaoFecha(lidas, montados, somaLida, somaMontada), 'contagem-nao-fecha')
+            // a esquadria que se perde leva as unidades dela: a soma que fecha é a prova de que nenhuma se perdeu (o número de itens vai ao log)
+            if (somaMontada !== somaLida) return await responder(fraseDaContagemQueNaoFecha(lidas, montados, somaLida, somaMontada), 'contagem-nao-fecha')
         }
         // ── grava, e SÓ DEPOIS responde: o trajeto inteiro, a partir do que ficou doLevantamento ──
         const pendencias = pendenciasDoLevantamento(aplicada.itens, definicao, doCodigo)
