@@ -673,8 +673,8 @@ export const FERRAMENTA = {
                     properties: {
                         ordem: { ...inteiro, description: 'O número da esquadria, SÓ quando o vendedor disse qual é.' },
                         tipologia: texto, largura_mm: inteiro, altura_mm: inteiro, quantidade: inteiro, cor_perfil: texto,
-                        modulos_horizontais: { ...inteiro, description: 'SÓ quando a linha DESTA esquadria escreve quantos módulos HORIZONTAIS ela tem ("com 03 módulos horizontais"): o número escrito. Omita se não está escrito.' },
-                        modulos_verticais: { ...inteiro, description: 'SÓ quando a linha DESTA esquadria escreve quantos módulos VERTICAIS ela tem ("e 05 módulos verticais"): o número escrito. Omita se não está escrito.' },
+                        modulos_horizontais: { ...inteiro, description: 'SÓ quando a linha DESTE item escreve quantos módulos HORIZONTAIS ele tem ("com 03 módulos horizontais"): o número escrito. Omita se não está escrito.' },
+                        modulos_verticais: { ...inteiro, description: 'SÓ quando a linha DESTE item escreve quantos módulos VERTICAIS ele tem ("e 05 módulos verticais"): o número escrito. Omita se não está escrito.' },
                         vidro: { ...texto, description: 'O vidro COMO o vendedor o escreveu NESTA mensagem ("vidro 4mm" → vidro 4mm), sem acrescentar têmpera, cor ou qualquer palavra que ele não disse. Omita se ele não disse.' },
                         vidro_padrao: { ...texto, description: 'SÓ quando o vendedor NÃO disse o vidro desta esquadria e a instrução da categoria VIDRO define um padrão para ela: o padrão, copiado da instrução. Senão, omita.' },
                         abertura: { type: 'string', enum: ['porta', 'janela'], description: 'A PALAVRA que o vendedor usou para esta esquadria: "porta" (também porta-janela e porta janela) ou "janela". SÓ se ele a escreveu; senão, omita.' },
@@ -798,7 +798,7 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
         '- ARREMATE e GUARNIÇÃO: NÃO pergunte. O padrão da tipologia já vale sem ninguém dizer. NUNCA escolha sozinho: em `escolhas`, só o arremate que o vendedor DISSE, em palavras, com o código da variável e o número da opção que corresponde (lista abaixo). Se ele pedir para ver as opções, ou quiser trocar sem dizer por qual, ponha o código da variável em `opcoes_de`.',
         '- FECHAMENTO (MFI, MFE): NÃO pergunte; a política da empresa já vale. Só quando o vendedor DISSER (ex.: "com chave"), em `escolhas`, com o código da variável e o número da opção daquele item (lista abaixo). Se a tipologia não tiver a opção que ele disse, não escolha outra.',
         // A QUANTIDADE DE MÓDULOS (24/11/2026; pedido 0023): sem o vendedor dizer, é um módulo — gravado pelo código, não pelo modelo
-        '- MÓDULOS (maxim-ar e fixo): NÃO pergunte quantos módulos. Sem o vendedor dizer, é UM módulo, e você NÃO manda nada. Só quando ele DISSER quantos ("2 módulos", "3 módulos na horizontal", "2 na vertical"), em `escolhas`: `variavel` N para os horizontais ou V para os verticais e, em `opcao`, a QUANTIDADE dita. Um módulo dito também vai (N com 1). Quando a quantidade está escrita NA LINHA de uma esquadria ("Fixo com 01 módulo horizontal e 05 módulos verticais"), ponha-a NO ITEM dela, em `modulos_horizontais` e `modulos_verticais` — é assim que cada item de uma lista leva os seus.',
+        '- MÓDULOS (maxim-ar e fixo): NÃO pergunte quantos módulos. Sem o vendedor dizer, é UM módulo, e você NÃO manda nada. Só quando ele DISSER quantos ("2 módulos", "3 módulos na horizontal", "2 na vertical"), em `escolhas`: `variavel` N para os horizontais ou V para os verticais e, em `opcao`, a QUANTIDADE dita. Um módulo dito também vai (N com 1). Quando a quantidade está escrita NA LINHA de um item ("Fixo com 01 módulo horizontal e 05 módulos verticais"), ponha-a NESSE ITEM, em `modulos_horizontais` e `modulos_verticais` — é assim que cada item de uma lista leva os seus.',
         ...(c.variasFamilias ? ['- familia e fornecedor: a mesma tipologia pode estar no motor de mais de uma família da empresa. SÓ o que o vendedor disse — a família, o fornecedor, ou os dois —, escrito EXATAMENTE como está na lista. NUNCA escolha sozinho.'] : []),
         '- Os códigos das variáveis (ex.: ARI), os números das opções e os códigos de fornecedor (ex.: BZ0010) são INTERNOS: nunca os escreva em `pergunta`.',
         '- NUNCA pergunte nada sobre os padrões da empresa.',
@@ -2150,9 +2150,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             && emEspera.some((e) => inteira(e) && !alvo!.itens.some((i) => esquadriasEquivalentes(e, i as unknown as EsquadriaProposta)))
         // A LISTA INTEIRA SUBSTITUI, SEM PERGUNTA (dono do produto, 25/11/2026; pedido 0026): duas ou mais esquadrias inteiras para um levantamento que
         // JÁ EXISTE não se mesclam item a item — o conteúdo passa a ser exatamente o da lista. Fora disso fica como era: a montagem em curso (a mensagem
-        // completa o que está sendo montado), a intenção dita ("acrescenta", "altera o item 2") e a lista toda IGUAL ao gravado (a mesma, reenviada)
-        const listaNova = ehListaInteira(emEspera) && !emEspera.filter(esquadriaInteira).every((e) => alvo !== null && alvo.itens.some((i) => esquadriasEquivalentes(e, i as unknown as EsquadriaProposta)))
-        if (alvo !== null && rastro.rota !== 'MONTAGEM' && alvo.itens.length > 0 && intencao === null && listaNova) intencao = 'substituir'
+        // completa o que está sendo montado) e a intenção dita ("acrescenta", "altera o item 2"). A lista REENVIADA igual segue a mesma regra: o
+        // conteúdo fica exatamente o dela, nada muda, e a resposta segue como se a mensagem tivesse vindo uma vez (06/11/2026)
+        if (alvo !== null && rastro.rota !== 'MONTAGEM' && alvo.itens.length > 0 && intencao === null && ehListaInteira(emEspera)) intencao = 'substituir'
         // em MONTAGEM, a mensagem completa a esquadria que está sendo montada (a regra de sempre); a esquadria RETIDA, que esperava o levantamento,
         // pergunta também ali
         if (alvo !== null && (alvo.estado !== EM_MONTAGEM || daPergunta) && alvo.itens.length > 0 && intencao === null && algumaNova) {
@@ -2215,7 +2215,8 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             const dosPedidos = ordem !== null ? [pedidosAbertos.get(ordem)?.tipologia] : [...pedidosAbertos.values()].map((l) => l.tipologia)
             if (dosPedidos.includes(r.tipologia)) return raw
             rastro.tipologiasDoModeloRecusadas += 1
-            const { tipologia: _recusada, ...semTipologia } = r
+            const semTipologia = { ...r }
+            delete semTipologia.tipologia
             return semTipologia
         })
         const proposta_ = aplicarProposta(atuais, { ...efetiva, itens: semTrocaPeloModelo }, {
@@ -2457,7 +2458,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         }
         // numa alteração, o que foi proposto e não valeu também aparece; sem proposta nenhuma, a conta é refeita. O REENVIO IDÊNTICO (06/11/2026) não é
         // "não apliquei": as esquadrias eram as mesmas, e a resposta segue como se a mensagem tivesse vindo uma vez
-        const reenvioIgual = aplicada.descartados === 0 && agrupamento.caminhos.length > 0 && agrupamento.caminhos.every((x) => x.caminho === 'IGNORADA_IGUAL')
+        const reenvioIgual = (aplicada.descartados === 0 && agrupamento.caminhos.length > 0 && agrupamento.caminhos.every((x) => x.caminho === 'IGNORADA_IGUAL'))
+            // a lista que SUBSTITUI e deixa tudo como estava é a mesma lista, reenviada (25/11/2026)
+            || (substituir && nadaMudou)
         if (nadaMudou && aplicada.propostos > 0 && !reenvioIgual) return await falar(fraseDeNaoApliquei(nome), 'nao-avancou')
 
         // A CONTAGEM FINAL CONFERE COM A MENSAGEM (dono do produto, 25/11/2026; pedido 0026: "linhas lidas = itens gravados, e a soma das quantidades
