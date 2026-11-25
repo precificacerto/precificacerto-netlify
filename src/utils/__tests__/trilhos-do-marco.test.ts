@@ -19,6 +19,8 @@ describe('os marcos de correr da aba Perfis', () => {
         expect(marcosDeCorrer(DP90)).toEqual([{ trilhos: 3, condicao: 'sempre' }, { trilhos: 3, condicao: 'sempre' }])
         expect(marcosDeCorrer([linha('TRILHO TRIPLO REBAIXADO ALUMÍNIO 24MM - PRETO', 'sempre'), linha('MARCO DE GIRO', 'sempre'), linha('MARCO DE CORRER', 'sempre')])).toEqual([])
         expect(marcosDeCorrer([{ descricao: null, condicao: null }])).toEqual([])
+        // a descrição INTEIRA é o marco: a peça que só cita o marco no meio do nome não é marco
+        expect(marcosDeCorrer([linha('REFORÇO DO MARCO DE CORRER - 3 TRILHOS', 'sempre'), linha('MARCO DE CORRER - 3 TRILHOS EM ALUMÍNIO', 'sempre')])).toEqual([])
     })
     it('o número vem da descrição, com os espaços que vierem; a condição é guardada sem espaços nas pontas', () => {
         expect(marcosDeCorrer([linha('  marco de correr -  4   trilhos ', ' (TM=3) ', null), linha('MARCO DE CORRER - 1 TRILHO', 'sempre', null)])).toEqual([{ trilhos: 4, condicao: '(TM=3)' }, { trilhos: 1, condicao: 'sempre' }])

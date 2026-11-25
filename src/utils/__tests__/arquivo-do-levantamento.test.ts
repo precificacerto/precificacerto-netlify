@@ -239,6 +239,9 @@ describe('O PADRÃO APARECE NA FOLHA, montado do que está gravado (dono do prod
         // não se determina (a TM sem valor): nenhum trilho escrito, e a pendência nomeia o item, a tipologia e o motivo
         expect(com({ marcos: doisMarcos, padroes: {} })).toEqual({ nome: 'Porta de correr 06 folhas móveis | Fechamento central',
             pendencias: ['item=1 tipologia=DP-90 motivo="a condição "(TM=1)" do marco não se avalia com as escolhas do item"'] })
+        // a pendência lê as ESCOLHAS do item: a TM gravada que nenhum marco atende é pendência; a que um atende, não
+        expect(com({ marcos: doisMarcos, padroes: { TM: 1 } }, { TM: 3 }).pendencias).toEqual(['item=1 tipologia=DP-90 motivo="nenhum marco de correr vale para as escolhas do item"'])
+        expect(com({ marcos: doisMarcos, padroes: {} }, { TM: 2 })).toEqual({ nome: 'Porta de correr 06 folhas móveis em 3 trilhos | Fechamento central', pendencias: [] })
         // sem marco de correr (não lidos, ou a tipologia não tem): nada escrito, e nada a registrar
         const semMarco: Array<Parameters<typeof com>[0]> = [null, undefined, { marcos: [], padroes: {} }]
         for (const m of semMarco) expect(com(m)).toEqual({ nome: 'Porta de correr 06 folhas móveis | Fechamento central', pendencias: [] })

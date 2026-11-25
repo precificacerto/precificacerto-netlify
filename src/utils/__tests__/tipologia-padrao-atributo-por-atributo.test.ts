@@ -171,6 +171,8 @@ describe('A REGRA GERAL DA QUANTIDADE (dono do produto, 11/11/2026): CORRER = 2 
         expect(padrao('janela maxim ar com bandeira 2 módulos', 'janela', com)).toEqual({ motivo: 'MODULOS_DITOS' })
         // e na folha: um módulo não se escreve (24/11/2026), com bandeira
         expect(oQueAEsquadriaE(CANDIDATOS.find((c) => c.tipologia === 'DP-129')!, 1)).toBe('maxim-ar · com bandeira')
+        // o pano é da PERSIANA: a bandeira não ganha "(1 pano)"
+        expect(oQueAEsquadriaE(CANDIDATOS.find((c) => c.tipologia === 'DP-129')!, 1, 1)).toBe('maxim-ar · com bandeira')
     })
     it('MODULAÇÃO COM BANDEIRA (3b): DP-129 (perfil) × DP-134 (travessa) — a divisão é atributo da bandeira e SE PERGUNTA; nunca uma das duas', () => {
         const d = padrao('janela maxim ar com bandeira', 'janela')

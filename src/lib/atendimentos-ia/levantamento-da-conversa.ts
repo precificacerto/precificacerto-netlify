@@ -524,7 +524,7 @@ export async function lerMarcosDasTipologias(motorId: string): Promise<Record<st
         return await marcosDoMotor(motorId)
     } catch (e) {
         // a exceção da leitura também não derruba a conversa: sem marcos, nenhum trilho é escrito — e o log diz
-        console.error(`[TRILHOS] a leitura dos marcos falhou: excecao=${e instanceof Error ? e.name : 'desconhecida'}`)
+        console.error(`[TRILHOS] a leitura dos marcos falhou: ${e instanceof Error ? e.message : 'excecao desconhecida'}`)
         return {}
     }
 }
@@ -533,24 +533,21 @@ async function marcosDoMotor(motorId: string): Promise<Record<string, MarcosDaTi
     for (let de = 0; ; de += PAGINA) {
         const { data, error } = await supabaseAdmin.from('orcamentista_motor_perfil').select('tipologia, descricao, condicao, obs').eq('motor_id', motorId)
             .ilike('descricao', 'MARCO DE CORRER%').order('tipologia', { ascending: true }).order('ordem', { ascending: true }).range(de, de + PAGINA - 1)
-        if (error) {
-            if (!tabelaAusente(error)) console.error(`[TRILHOS] a leitura dos marcos falhou: codigo=${error.code ?? '-'}`)
-            return {}
-        }
+        // a aba ausente (o motor sem ela) não é falha: nenhum marco, em silêncio. A leitura que falha é exceção, e o log a nomeia
+        if (error) { if (tabelaAusente(error)) return {}; throw new Error(`orcamentista_motor_perfil codigo=${error.code ?? '-'}`) }
         linhas.push(...((data ?? []) as typeof linhas))
         if ((data ?? []).length < PAGINA) break
     }
     const marcosDe = new Map<string, MarcoDeCorrer[]>()
     for (const [tipologia, doCodigo] of agrupar(linhas.filter((l): l is typeof l & { tipologia: string } => typeof l.tipologia === 'string'), (l) => l.tipologia)) {
-        const marcos = marcosDeCorrer(doCodigo)
-        if (marcos.length > 0) marcosDe.set(tipologia, marcos)
+        marcosDe.set(tipologia, marcosDeCorrer(doCodigo))
     }
     // o Padrão das variáveis das condições (a TM): o mesmo número que o cálculo usa quando ninguém escolheu
     const nomes = [...new Set([...marcosDe.values()].flatMap(variaveisDasCondicoes))]
     const padroes = new Map<string, Record<string, number>>()
     if (nomes.length > 0) {
         const { data, error } = await supabaseAdmin.from('orcamentista_motor_variavel').select('tipologia, variavel, padrao').eq('motor_id', motorId).in('variavel', nomes)
-        if (error) console.error(`[TRILHOS] a leitura do padrão das variáveis do marco falhou: codigo=${error.code ?? '-'}`)
+        if (error) throw new Error(`orcamentista_motor_variavel codigo=${error.code ?? '-'}`)
         for (const v of (data ?? []) as Array<{ tipologia: unknown; variavel: unknown; padrao: unknown }>) {
             const padrao = typeof v.padrao === 'string' ? v.padrao.trim() : ''
             if (typeof v.tipologia !== 'string' || typeof v.variavel !== 'string' || !/^\d+$/.test(padrao)) continue

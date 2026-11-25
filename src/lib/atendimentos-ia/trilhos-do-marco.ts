@@ -49,7 +49,7 @@ export function variaveisDasCondicoes(marcos: readonly MarcoDeCorrer[]): string[
 export function trilhosDoItem(daTipologia: MarcosDaTipologia | null | undefined, escolhas: unknown): TrilhosDoItem | null {
     if (!daTipologia || daTipologia.marcos.length === 0) return null
     const valores: Record<string, number> = { ...daTipologia.padroes }
-    if (escolhas !== null && typeof escolhas === 'object' && !Array.isArray(escolhas)) {
+    if (escolhas !== null && typeof escolhas === 'object') {
         for (const [nome, v] of Object.entries(escolhas as Record<string, unknown>)) if (typeof v === 'number' && Number.isInteger(v)) valores[nome] = v
     }
     const valem = new Set<number>()
