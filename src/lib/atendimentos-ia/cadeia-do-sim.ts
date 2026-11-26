@@ -128,9 +128,10 @@ export async function etapaDoPreco(tenantId: string, orcamentoId: string, deps: 
 }
 
 /**
- * O "SIM" SEM MUDANÇA (dono do produto, 13/11/2026): "não recalcula, não gera PDF, não grava nada. A conversa diz que o orçamento N já está
- * atualizado e manda o ARQUIVO que já existe." O mesmo envio da etapa (ao DONO do levantamento, com o palpite que vira medição), com o último
- * arquivo gerado — nada é precificado nem gerado. Sem arquivo, `semArquivo`: quem chama roda a atualização inteira.
+ * O "SIM" SEM MUDANÇA (dono do produto, 13/11/2026): "não recalcula [...]. A conversa diz que o orçamento N já está atualizado e manda o ARQUIVO".
+ * Desde 26/11/2026 (pedido 0037) o arquivo é REFEITO antes de ir — com os números já gravados, nada precificado de novo — para nunca mandar o
+ * PDF de antes de uma mudança de texto ou de figura. O mesmo envio da etapa (ao DONO do levantamento, com o palpite que vira medição). Sem
+ * arquivo, `semArquivo`: quem chama roda a atualização inteira.
  */
 export async function reenviarOArquivo(
     tenantId: string, orcamento: { id: string; numero: number; nome: string },
@@ -141,25 +142,23 @@ export async function reenviarOArquivo(
     if (!primeiro) return { rastro: 'reenvio=sem_arquivo', paraOVendedor: null, semArquivo: true }
     if (!dono) return { rastro: 'reenvio=sem_telefone parou=envio', paraOVendedor: fraseDoDonoSemTelefone(n, orcamento.nome) }
 
-    // O ARQUIVO GUARDADO DE OUTRO DESENHO (dono do produto, 16/11/2026): o PDF mudou depois de ele ter sido gerado (as
-    // figuras do catálogo, as observações da empresa), e reenviá-lo mandaria para sempre o de antes. REGERA com os
-    // números já gravados — nada se recalcula — e manda o novo. A regeneração que recusa não impede o reenvio: o
-    // vendedor recebe o que existe, e o rastro diz por que não deu para refazer.
+    // O ARQUIVO NUNCA VAI VELHO (dono do produto, 26/11/2026, pedido 0037): no reenvio o PDF é SEMPRE refeito, com os números já gravados (nada se
+    // recalcula) e os textos, as figuras e as regras de exibição de AGORA. Antes, só o PDF de outra `VERSAO_DO_ARQUIVO` era refeito, e o "sim"
+    // das 20:02 de 26/11 mandou o PDF de 13:59, de antes dos trilhos (#344). A regeneração que recusa NÃO manda o velho: a falta é nomeada
     let lido = primeiro
-    let daVersao = 'reenvio_versao=igual'
-    if ((primeiro.versao ?? null) !== VERSAO_DO_ARQUIVO) {
-        if (!deps.regerarArquivo) {
-            daVersao = 'reenvio_versao=outra sem_regerador'
-        } else {
-            const r = await deps.regerarArquivo(tenantId, orcamento.id)
-            if ('recusas' in r) {
-                daVersao = `reenvio_versao=outra regerou=recusou motivo="${r.recusas.join('; ')}"`
-            } else {
-                const novo = await deps.lerArquivo(tenantId, orcamento.id)
-                lido = novo ?? primeiro
-                daVersao = `reenvio_versao=outra regerou=ok${novo ? '' : ' releu=nada'}`
-            }
+    let daVersao: string
+    if (!deps.regerarArquivo) {
+        // sem o regerador (só nos testes de antes): o guardado, e o rastro diz
+        daVersao = `reenvio_versao=${(primeiro.versao ?? null) === VERSAO_DO_ARQUIVO ? 'igual' : 'outra'} sem_regerador`
+    } else {
+        const r = await deps.regerarArquivo(tenantId, orcamento.id)
+        if ('recusas' in r) {
+            return { rastro: `reenvio=parou regerou=recusou motivo="${motivoDoLog(r.recusas.join('; '))}" parou=arquivo`, paraOVendedor: fraseDoArquivoQueNaoSaiu(n, orcamento.nome, r.recusas) }
         }
+        const novo = await deps.lerArquivo(tenantId, orcamento.id)
+        if (!novo) return { rastro: 'reenvio=parou regerou=ok releu=nada parou=arquivo', paraOVendedor: fraseDoArquivoQueNaoSaiu(n, orcamento.nome, ['o arquivo refeito não foi achado depois de gravado']) }
+        lido = novo
+        daVersao = 'regerou=ok'
     }
 
     const t0 = deps.agora()

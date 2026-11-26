@@ -1334,16 +1334,16 @@ describe('(6b) R1 e R2: nenhum update falha em silêncio, e a pergunta respondid
         // a conta refeita é o apanhado de novo: ele grava SÓ a pergunta que espera o "sim", nunca o levantamento
         expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Casa do João')).toBe(true)
         expect(escritasNoEstado().slice(escritasAntes).map((e) => [e.tabela, e.op])).toEqual([['orcamentista_pergunta_em_aberto', 'upsert']])
-        // O "SIM" SEM MUDANÇA (13/11/2026): não recalcula, não gera PDF, não grava nada — diz que já está atualizado e manda o ARQUIVO que existe
+        // O "SIM" SEM MUDANÇA (13/11/2026): não recalcula nem grava custo — diz que já está atualizado e manda o ARQUIVO, REFEITO agora com os
+        // números gravados (pedido 0037: nunca o PDF de antes): uma linha de arquivo nova, nenhum material, nada no orçamento nem no levantamento
         const doOrcamentoAntes = estado.documentosDoOrcamento.length
         const arquivosAntes = (estado.db.orcamentista_orcamento_arquivo ?? []).length
         const materiaisAntes = (estado.db.orcamentista_orcamento_item_material ?? []).length
         expect(await confirmarApanhado()).toBe(fraseDoOrcamentoJaAtualizado(1))
         expect(estado.documentosDoOrcamento).toHaveLength(doOrcamentoAntes + 1)
-        expect(estado.documentosDoOrcamento[doOrcamentoAntes].corpo.Document).toBe(estado.documentosDoOrcamento[doOrcamentoAntes - 1].corpo.Document)
-        expect(estado.db.orcamentista_orcamento_arquivo ?? []).toHaveLength(arquivosAntes)
+        expect(estado.db.orcamentista_orcamento_arquivo ?? []).toHaveLength(arquivosAntes + 1)
         expect(estado.db.orcamentista_orcamento_item_material ?? []).toHaveLength(materiaisAntes)
-        expect(escritasNoEstado().slice(escritasAntes).filter((e) => e.tabela.startsWith('orcamentista_orcamento'))).toEqual([])
+        expect(escritasNoEstado().slice(escritasAntes).filter((e) => e.tabela.startsWith('orcamentista_orcamento') && e.tabela !== 'orcamentista_orcamento_arquivo')).toEqual([])
         expect(escritasNoEstado().slice(escritasAntes).filter((e) => e.tabela.startsWith('orcamentista_levantamento'))).toEqual([])
     })
 })
@@ -7002,7 +7002,7 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             llmResponde({ confirma: true })
             await chamar('sim')
             const [abertura, ...resto] = ultimoEnviado().split('\n')
-            expect(abertura).toBe('O orçamento 1 continua PARCIAL: nada mudou no levantamento, e 1 valor continua sem preço. O arquivo dele vai de novo, sem recálculo.')
+            expect(abertura).toBe('O orçamento 1 continua PARCIAL: nada mudou no levantamento, e 1 valor continua sem preço. O arquivo dele foi refeito agora e vai de novo, sem recálculo.')
             expect(resto[0]).toBe('Para completar, preciso de:')
             expect(resto.slice(1)).toEqual([expect.stringMatching(/^• \[FORNECEDOR\] 1023\/WOLFF \(CLICK GUIA [^\n]* \(item 1\)\.$/)])
             expect(ultimoEnviado()).not.toBe(fraseDoOrcamentoJaAtualizado(1))
@@ -8207,6 +8207,11 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         ;(estado.db.orcamentista_orcamento as Linha[]).push({ ...pvc, id: 'orc-alu', numero: Number(pvc.numero) + 1, familia: 'ALUMINIO', criado_em: new Date(new Date(String(pvc.criado_em)).getTime() + 1000).toISOString() })
         const arquivoDoPvc = (estado.db.orcamentista_orcamento_arquivo as Linha[]).find((a) => a.orcamento_id === pvc.id) as Linha
         ;(estado.db.orcamentista_orcamento_arquivo as Linha[]).push({ ...arquivoDoPvc, id: 'arq-alu', orcamento_id: 'orc-alu' })
+        // o arquivo é REFEITO no reenvio (pedido 0037): o orçamento da outra família precisa do que o PDF lê — as linhas que pendem do orçamento
+        for (const [tabela, linhas] of Object.entries(estado.db) as Array<[string, Linha[]]>) {
+            if (tabela === 'orcamentista_orcamento' || tabela === 'orcamentista_orcamento_arquivo' || !Array.isArray(linhas)) continue
+            for (const l of linhas.filter((x) => x.orcamento_id === pvc.id)) linhas.push({ ...l, id: `${String(l.id)}-alu`, orcamento_id: 'orc-alu' })
+        }
         estado.db.orcamentista_familia_catalogo = [{ chave: 'PVC', rotulo: 'PVC Wolf', sigla: 'PVC' }, { chave: 'ALUMINIO', rotulo: 'Alumínio', sigla: 'ALU' }]
         const lev = levantamentos().find((l) => l.nome === 'Daiane Pilger') as Linha
         llmResponde({ nome: 'Daiane Pilger', itens: [{ ...DP02, quantidade: 2 }] })

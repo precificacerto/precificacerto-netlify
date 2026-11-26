@@ -232,19 +232,19 @@ describe('O PADRÃO APARECE NA FOLHA, montado do que está gravado (dono do prod
                 pendencias: trilhosIndeterminados(itens, detalhe) }
         }
         // a DP-90 do pedido: só o marco de 3 trilhos
-        expect(com({ marcos: [{ trilhos: 3, condicao: 'sempre' }], padroes: {} })).toEqual({ nome: 'Porta de correr 06 folhas móveis em 3 trilhos | Fechamento central', pendencias: [] })
+        expect(com({ marcos: [{ trilhos: 3, condicao: 'sempre' }], padroes: {} })).toEqual({ nome: 'Porta de correr 06 folhas móveis em 3 trilhos, fechamento central', pendencias: [] })
         // a tipologia com os dois marcos: o Padrão do motor, e a escolha gravada no item
-        expect(com({ marcos: doisMarcos, padroes: { TM: 1 } }).nome).toBe('Porta de correr 06 folhas móveis em 2 trilhos | Fechamento central')
-        expect(com({ marcos: doisMarcos, padroes: { TM: 1 } }, { TM: 2 }).nome).toBe('Porta de correr 06 folhas móveis em 3 trilhos | Fechamento central')
+        expect(com({ marcos: doisMarcos, padroes: { TM: 1 } }).nome).toBe('Porta de correr 06 folhas móveis em 2 trilhos, fechamento central')
+        expect(com({ marcos: doisMarcos, padroes: { TM: 1 } }, { TM: 2 }).nome).toBe('Porta de correr 06 folhas móveis em 3 trilhos, fechamento central')
         // não se determina (a TM sem valor): nenhum trilho escrito, e a pendência nomeia o item, a tipologia e o motivo
-        expect(com({ marcos: doisMarcos, padroes: {} })).toEqual({ nome: 'Porta de correr 06 folhas móveis | Fechamento central',
+        expect(com({ marcos: doisMarcos, padroes: {} })).toEqual({ nome: 'Porta de correr 06 folhas móveis, fechamento central',
             pendencias: ['item=1 tipologia=DP-90 motivo="a condição "(TM=1)" do marco não se avalia com as escolhas do item"'] })
         // a pendência lê as ESCOLHAS do item: a TM gravada que nenhum marco atende é pendência; a que um atende, não
         expect(com({ marcos: doisMarcos, padroes: { TM: 1 } }, { TM: 3 }).pendencias).toEqual(['item=1 tipologia=DP-90 motivo="nenhum marco de correr vale para as escolhas do item"'])
-        expect(com({ marcos: doisMarcos, padroes: {} }, { TM: 2 })).toEqual({ nome: 'Porta de correr 06 folhas móveis em 3 trilhos | Fechamento central', pendencias: [] })
+        expect(com({ marcos: doisMarcos, padroes: {} }, { TM: 2 })).toEqual({ nome: 'Porta de correr 06 folhas móveis em 3 trilhos, fechamento central', pendencias: [] })
         // sem marco de correr (não lidos, ou a tipologia não tem): nada escrito, e nada a registrar
         const semMarco: Array<Parameters<typeof com>[0]> = [null, undefined, { marcos: [], padroes: {} }]
-        for (const m of semMarco) expect(com(m)).toEqual({ nome: 'Porta de correr 06 folhas móveis | Fechamento central', pendencias: [] })
+        for (const m of semMarco) expect(com(m)).toEqual({ nome: 'Porta de correr 06 folhas móveis, fechamento central', pendencias: [] })
         // o item sem tipologia não tem o que registrar
         expect(trilhosIndeterminados([item(1, { tipologia: null })], () => ({ ...PORTA, marcos: { marcos: doisMarcos, padroes: {} } }))).toEqual([])
     })

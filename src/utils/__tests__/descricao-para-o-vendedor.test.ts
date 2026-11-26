@@ -43,13 +43,30 @@ describe('com um módulo, "com um módulo" — sem horizontal nem vertical (dono
 describe('em quantos trilhos as folhas correm (dono do produto, 25/11/2026; pedido 0025)', () => {
     const DP90 = 'PORTA DE CORRER 06 FOLHAS MÓVEIS | FECHAMENTO CENTRAL | EUROPA 60'
     it('os trilhos vêm logo depois das folhas, antes do que a esquadria tem', () => {
-        expect(ler(DP90, null, 'a_definir', 3)).toBe('Porta de correr 06 folhas móveis em 3 trilhos | Fechamento central')
+        expect(ler(DP90, null, 'a_definir', 3)).toBe('Porta de correr 06 folhas móveis em 3 trilhos, fechamento central')
         expect(ler(DP02, null, 'a_definir', 2)).toBe('Janela de correr 02 folhas móveis em 2 trilhos')
         expect(ler(DP02, null, 'a_definir', 1)).toBe('Janela de correr 02 folhas móveis em 1 trilho')
     })
     it('sem o número (não é de correr, ou não se determinou), NADA se escreve — nunca um trilho presumido', () => {
-        expect(ler(DP90)).toBe('Porta de correr 06 folhas móveis | Fechamento central')
-        for (const t of [null, 0, -1, 2.5, Number.NaN]) expect(ler(DP90, null, 'a_definir', t)).toBe('Porta de correr 06 folhas móveis | Fechamento central')
+        expect(ler(DP90)).toBe('Porta de correr 06 folhas móveis, fechamento central')
+        for (const t of [null, 0, -1, 2.5, Number.NaN]) expect(ler(DP90, null, 'a_definir', t)).toBe('Porta de correr 06 folhas móveis, fechamento central')
+    })
+})
+
+describe('o TÍTULO por extenso, sem "|" e sem o tipo de trilho (dono do produto, 26/11/2026, pedido 0037)', () => {
+    it('a DP-73 do orçamento 28: "Porta de correr 04 folhas móveis em 4 trilhos" — o trilho embutido não aparece, nem barra nenhuma', () => {
+        const DP73 = 'PORTA DE CORRER 04 FOLHAS MÓVEIS | TRILHO PVC EMBUTIDO | EUROPA 42'
+        expect(ler(DP73, null, 'a_definir', 4)).toBe('Porta de correr 04 folhas móveis em 4 trilhos')
+        for (const d of [DP73, 'PORTA DE CORRER 02 FOLHAS MÓVEIS | VENEZIANA | TRILHO ALUMÍNIO | EUROPA 42', 'JANELA DE CORRER 02 FOLHAS MÓVEIS | BANDEIRA FIXA | EUROPA 42']) {
+            const t = ler(d, null, 'a_definir', 3) as string
+            expect(t.includes('|')).toBe(false)
+            expect(/trilho (pvc|alum)/i.test(t)).toBe(false)
+        }
+    })
+    it('o que separa duas candidatas só pelo trilho volta entre parênteses na pergunta (nunca duas opções iguais)', () => {
+        const embutido = 'PORTA DE CORRER 02 FOLHAS MÓVEIS | TRILHO PVC EMBUTIDO | EUROPA 42', aluminio = 'PORTA DE CORRER 02 FOLHAS MÓVEIS | TRILHO ALUMÍNIO | EUROPA 42'
+        expect(nomesDasCandidatas([embutido, aluminio])).toEqual(['Porta de correr 02 folhas móveis (trilho pvc embutido)', 'Porta de correr 02 folhas móveis (trilho alumínio)'])
+        expect(nomesDasCandidatas([embutido, DP02])).toEqual(['Porta de correr 02 folhas móveis', 'Janela de correr 02 folhas móveis'])
     })
 })
 
@@ -57,13 +74,13 @@ describe('a descrição que não é de módulos', () => {
     it('sai como está, sem a linha de perfil, com a inicial maiúscula; o que a esquadria TEM (o trecho do meio) fica', () => {
         expect(ler(DP02)).toBe('Janela de correr 02 folhas móveis')
         expect(ler('PORTA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42', { N: 2 })).toBe('Porta de correr 02 folhas móveis')
-        expect(ler('JANELA DE CORRER 03 FOLHAS MÓVEIS COM PERSIANA | 02 VIDROS - 01 TELA | EUROPA 42')).toBe('Janela de correr 03 folhas móveis com persiana | 02 Vidros - 01 tela')
-        expect(ler('JANELA DE CORRER 02 FOLHAS MÓVEIS | BANDEIRA FIXA | EUROPA 42')).toBe('Janela de correr 02 folhas móveis | Bandeira fixa')
-        expect(ler('PORTA DE CORRER 02 FOLHAS MÓVEIS | VENEZIANA | TRILHO PVC EMBUTIDO | EUROPA 42')).toBe('Porta de correr 02 folhas móveis | Veneziana | Trilho pvc embutido')
+        expect(ler('JANELA DE CORRER 03 FOLHAS MÓVEIS COM PERSIANA | 02 VIDROS - 01 TELA | EUROPA 42')).toBe('Janela de correr 03 folhas móveis com persiana, 02 vidros - 01 tela')
+        expect(ler('JANELA DE CORRER 02 FOLHAS MÓVEIS | BANDEIRA FIXA | EUROPA 42')).toBe('Janela de correr 02 folhas móveis, bandeira fixa')
+        expect(ler('PORTA DE CORRER 02 FOLHAS MÓVEIS | VENEZIANA | TRILHO PVC EMBUTIDO | EUROPA 42')).toBe('Porta de correr 02 folhas móveis, veneziana')
         // a maxim-ar com bandeira: um módulo não se escreve, a modulação e a linha saem, e a bandeira — que ela TEM — fica
-        expect(ler('MAXIM-AR COM "N" MÓDULOS HORIZONTAIS | BANDEIRA FIXA | PERFIL MODULAÇÃO | EUROPA 60', { N: 1 })).toBe('Maxim-ar com um módulo | Bandeira fixa')
+        expect(ler('MAXIM-AR COM "N" MÓDULOS HORIZONTAIS | BANDEIRA FIXA | PERFIL MODULAÇÃO | EUROPA 60', { N: 1 })).toBe('Maxim-ar com um módulo, bandeira fixa')
         expect(ler('MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E "V" MÓDULOS VERTICAIS | ALT IGUAIS | PERFIL COLUNA |EUROPA 60', { N: 2, V: 2 }))
-            .toBe('Maxim-ar com 02 módulos horizontais e 02 módulos verticais | Alt iguais')
+            .toBe('Maxim-ar com 02 módulos horizontais e 02 módulos verticais, alt iguais')
         // sem barra nenhuma não há linha a tirar
         expect(ler('PORTA PIVOTANTE')).toBe('Porta pivotante')
     })
@@ -79,13 +96,13 @@ describe('a descrição que não é de módulos', () => {
 
 describe('as peças da leitura', () => {
     it('trechosDaDescricao: o principal, o que a esquadria tem, a modulação e a linha (o último trecho)', () => {
-        expect(trechosDaDescricao(DP128)).toEqual({ principal: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL', tem: [], modulacao: ['PERFIL MODULAÇÃO'], linha: 'EUROPA 60' })
+        expect(trechosDaDescricao(DP128)).toEqual({ principal: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL', tem: [], modulacao: ['PERFIL MODULAÇÃO'], trilho: [], linha: 'EUROPA 60' })
         expect(trechosDaDescricao('A | BANDEIRA FIXA | MODULAÇÃO TRAVESSA | MOD COLUNA | PERFIL COLUNA | X  Y |EUROPA 42'))
-            .toEqual({ principal: 'A', tem: ['BANDEIRA FIXA', 'X Y'], modulacao: ['MODULAÇÃO TRAVESSA', 'MOD COLUNA', 'PERFIL COLUNA'], linha: 'EUROPA 42' })
-        expect(trechosDaDescricao('  FIXO   COM  X ')).toEqual({ principal: 'FIXO COM X', tem: [], modulacao: [], linha: null })
+            .toEqual({ principal: 'A', tem: ['BANDEIRA FIXA', 'X Y'], modulacao: ['MODULAÇÃO TRAVESSA', 'MOD COLUNA', 'PERFIL COLUNA'], trilho: [], linha: 'EUROPA 42' })
+        expect(trechosDaDescricao('  FIXO   COM  X ')).toEqual({ principal: 'FIXO COM X', tem: [], modulacao: [], trilho: [], linha: null })
         // o trecho vazio entre duas barras não é coisa que a esquadria tenha
         expect(trechosDaDescricao('A |  | BANDEIRA FIXA | | EUROPA 42').tem).toEqual(['BANDEIRA FIXA'])
-        expect(trechosDaDescricao(null)).toEqual({ principal: '', tem: [], modulacao: [], linha: null })
+        expect(trechosDaDescricao(null)).toEqual({ principal: '', tem: [], modulacao: [], trilho: [], linha: null })
         expect(tipoDeModulacao(DP128)).toBe('PERFIL MODULAÇÃO')
         expect(tipoDeModulacao(DP02)).toBe('')
     })

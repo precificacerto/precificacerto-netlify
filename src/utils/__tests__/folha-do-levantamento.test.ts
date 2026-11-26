@@ -508,6 +508,8 @@ describe('(III-c) O NOME DA TIPOLOGIA NA FAIXA: primeira maiúscula por trecho, 
         // a barra sem espaço depois: o cinza começa nela, e nada é acrescentado nem normalizado; o trecho que começa com número: a primeira LETRA dele
         ['sem espaço', 'JANELA DE CORRER 03 FOLHAS MÓVEIS |01 VENEZIANA CEGA - 01 VIDRO', 'Janela de correr 03 folhas móveis ', '|01 Veneziana cega - 01 vidro'],
         ['sem barra', 'JANELA FIXA RETANGULAR', 'Janela fixa retangular', ''],
+        // o título de hoje, sem barra (pedido 0037): o cinza começa na PRIMEIRA vírgula
+        ['sem barra, com vírgula', 'Porta de correr 06 folhas móveis em 3 trilhos, fechamento central', 'Porta de correr 06 folhas móveis em 3 trilhos', ', fechamento central'],
     ]
     it.each(casos)('%s', (_n, descricao, principal, cinza) => {
         expect(nomeDaTipologiaNaFaixa(descricao)).toEqual({ principal, cinza })
