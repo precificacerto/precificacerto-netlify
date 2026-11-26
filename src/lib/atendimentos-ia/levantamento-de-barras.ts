@@ -540,6 +540,8 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
         pecas: prontas.map((b) => ({ codigo: codigoDoPerfil[b.perfil], comprimento_mm: b.comprimento_mm, quantidade: b.quantidade })),
         barras,
         serra_mm: entrada.serra_mm,
+        // a cor decide o refilo (pedido 0034): a mesma regra das barras do pedido
+        cor: entrada.cor,
     })
     if ('recusas' in agrupado) {
         // a peça maior que a barra é UMA falta por código, com a MAIOR peça dele: cada peça a mais é a mesma barra que falta (08/11/2026)
@@ -554,7 +556,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
             const doCodigo = perfil ? `do código ${x.codigo}, perfil ${perfil}` : `do código ${x.codigo}`
             const mm = (n: number) => `${String(Math.round(n * 10) / 10).replace('.', ',')} mm`
             const falta = x.motivo === 'BARRA_SEM_COMPRIMENTO' ? `o comprimento da barra ${doCodigo}, na tabela de preço`
-                : x.motivo === 'PECA_MAIOR_QUE_A_BARRA' ? `uma barra em que caiba a maior peça ${doCodigo}: a peça tem ${mm(x.comprimento_peca_mm)} e a barra, ${mm(x.comprimento_barra_mm)}`
+                : x.motivo === 'PECA_MAIOR_QUE_A_BARRA' ? `uma barra em que caiba a maior peça ${doCodigo}: a peça tem ${mm(x.comprimento_peca_mm)} e a barra útil, ${mm(x.comprimento_barra_mm)}`
                     : texto
             if (!esquadrias.length) parciais.push({ origem: 'AGRUPADOR', caminho: null, motivo: x.motivo, codigo: x.codigo, perfil, texto, falta })
             for (const esquadria of esquadrias) parciais.push({ origem: 'AGRUPADOR', caminho: null, motivo: x.motivo, codigo: x.codigo, perfil, esquadria, texto, falta })

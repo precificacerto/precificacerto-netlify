@@ -34,6 +34,7 @@ export async function lerRelatorioDeCorte(tenantId: string, orcamentoId: string)
     const calculados = itens.filter((i) => i.calculo_id)
     const itensSemCalculo = itens.filter((i) => !i.calculo_id).map((i) => i.ordem)
     type Linha = PecaDoCorte & { orcamento_item_id: string; calculo_id: string }
+    const corDo = new Map(itens.map((i) => [i.id, i.cor_perfil ?? null]))
     let linhas: Linha[] = []
     if (calculados.length) {
         const p = await db().from(TABELA_DAS_PECAS)
@@ -48,6 +49,8 @@ export async function lerRelatorioDeCorte(tenantId: string, orcamentoId: string)
                 comprimento_mm: Number(x.comprimento_mm), quantidade_por_esquadria: Number(x.quantidade_por_esquadria), quantidade: Number(x.quantidade),
                 corte: (x.corte as string | null) ?? null, posicao: (x.posicao as string | null) ?? null,
                 comprimento_barra_mm: numero(x.comprimento_barra_mm), serra_mm: Number(x.serra_mm),
+                // a cor do item decide o refilo (pedido 0034): a mesma das barras do pedido
+                cor: corDo.get(x.orcamento_item_id) ?? null,
             }))
     }
     const comPecas = new Set(linhas.map((l) => l.orcamento_item_id))

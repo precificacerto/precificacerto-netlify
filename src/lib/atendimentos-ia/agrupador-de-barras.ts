@@ -57,19 +57,26 @@
  * Portão: `src/utils/__tests__/agrupador-de-barras.test.ts`. Mutações:
  * `scripts/harness/agrupador-de-barras/`.
  */
+import { empacotar, refiloDaCor } from './regra-das-barras'
 
 // ── A entrada ─────────────────────────────────────────────────────────────────────────────
 export type PecaDoLevantamento = { codigo: string; comprimento_mm: number; quantidade: number }
 /** A barra de um código, do item da tabela. `comprimento_mm` por `milimetrosDaBarra(medida_barra_m)`. */
 export type BarraDoCodigo = { comprimento_mm: number | null; valor_barra_interno?: number | null; valor_metro_interno?: number | null }
-export type EntradaDoAgrupador = { pecas: readonly PecaDoLevantamento[]; barras: Readonly<Record<string, BarraDoCodigo>>; serra_mm: number }
+/**
+ * `cor`: a cor do perfil das peças (a do levantamento). Decide o REFILO (pedido 0034, `regra-das-barras.ts`): 0 no BRANCO, 45 mm por ponta nas
+ * outras; ausente, ou composta com BRANCO, é recusa nomeada (`REFILO_INDETERMINADO`).
+ */
+export type EntradaDoAgrupador = { pecas: readonly PecaDoLevantamento[]; barras: Readonly<Record<string, BarraDoCodigo>>; serra_mm: number; cor: string | null }
 
 // ── A saída ───────────────────────────────────────────────────────────────────────────────
-/** `cortes`: os entre as peças, mais o da sobra quando há sobra. `usado_mm`: peças + serra consumida. */
+/** `cortes`: um por peça, inclusive o último (pedido 0034). `usado_mm`: peças + serra. `sobra_mm`: a barra útil menos o usado. */
 export type BarraCortada = { pecas_mm: number[]; cortes: number; usado_mm: number; sobra_mm: number }
 export type ResultadoDoCodigo = {
     codigo: string
     comprimento_barra_mm: number
+    /** O refilo por ponta (pedido 0034): 0 no BRANCO, 45 mm nas outras cores. */
+    refilo_mm: number
     pecas: Array<{ comprimento_mm: number; quantidade: number }>
     n_pecas: number
     barras: BarraCortada[]
@@ -77,9 +84,9 @@ export type ResultadoDoCodigo = {
     n_cortes: number
     metros_uteis: number
     metros_comprados: number
-    /** O material que a serra de fato consome — o último corte come só o resto, quando ele é menor. */
+    /** O material que a serra consome: um corte por peça. */
     serra_consumida_mm: number
-    /** comprado − útil: o retalho e a serra. */
+    /** comprado − útil: o retalho, a serra e o refilo. */
     sobra_mm: number
     aproveitamento_pct: number
     total_por_barra_inteira: number | null
@@ -102,6 +109,7 @@ export type RecusaDoAgrupador =
     | { motivo: 'COMPRIMENTO_INVALIDO'; codigo: string; comprimento_peca_mm: number; mensagem: string }
     | { motivo: 'BARRA_SEM_COMPRIMENTO'; codigo: string; mensagem: string }
     | { motivo: 'PECA_MAIOR_QUE_A_BARRA'; codigo: string; comprimento_peca_mm: number; comprimento_barra_mm: number; mensagem: string }
+    | { motivo: 'REFILO_INDETERMINADO'; mensagem: string; codigo?: undefined }
 /**
  * Para separar as duas formas, use `'recusas' in r`: com `strictNullChecks: false` (o tsconfig deste
  * repositório), o tsc não estreita a união pelo booleano `ok`.
@@ -111,6 +119,7 @@ export type ResultadoDoAgrupador =
     | { ok: false; recusas: RecusaDoAgrupador[] }
 
 // ── As frases ─────────────────────────────────────────────────────────────────────────────
+/** `barra_mm`: a barra ÚTIL (a barra menos os dois refilos), e a peça cabe nela com a serra do corte dela (pedido 0034). */
 export const fraseDaPecaMaiorQueABarra = (codigo: string, peca_mm: number, barra_mm: number) =>
     `A peça de ${peca_mm} mm do código ${codigo} é maior que a barra desse código (${barra_mm} mm). A peça não se emenda.`
 export const fraseDaBarraSemComprimento = (codigo: string) =>
@@ -139,7 +148,7 @@ const paraMetros = (um: number) => um / 1_000_000
 /** Comparação por unidade de código: a mesma em qualquer ambiente. */
 const porTexto = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 const ORDEM_DO_MOTIVO: Record<RecusaDoAgrupador['motivo'], number> = {
-    SERRA_INVALIDA: 0, QUANTIDADE_INVALIDA: 1, COMPRIMENTO_INVALIDO: 2, BARRA_SEM_COMPRIMENTO: 3, PECA_MAIOR_QUE_A_BARRA: 4,
+    SERRA_INVALIDA: 0, REFILO_INDETERMINADO: 1, QUANTIDADE_INVALIDA: 2, COMPRIMENTO_INVALIDO: 3, BARRA_SEM_COMPRIMENTO: 4, PECA_MAIOR_QUE_A_BARRA: 5,
 }
 const valido = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v)
 
@@ -147,6 +156,10 @@ export function agruparEmBarras(entrada: EntradaDoAgrupador): ResultadoDoAgrupad
     const recusas: RecusaDoAgrupador[] = []
     const serra = entrada.serra_mm
     if (!valido(serra) || serra < 0) recusas.push({ motivo: 'SERRA_INVALIDA', serra_mm: serra, mensagem: fraseDaSerraInvalida(serra) })
+    // o refilo pela cor (pedido 0034): o que não se decide é recusa nomeada, nunca um refilo suposto
+    const refilo = refiloDaCor(entrada.cor)
+    if (typeof refilo !== 'number') recusas.push({ motivo: 'REFILO_INDETERMINADO', mensagem: `${refilo.motivo.charAt(0).toUpperCase()}${refilo.motivo.slice(1)}.` })
+    const refiloUm = typeof refilo === 'number' ? paraUm(refilo) : 0
 
     // 1. as peças, agrupadas por (código, comprimento em µm) — numa lista ORDENADA, não num Map
     const agrupadas: Array<{ codigo: string; um: number; quantidade: number }> = []
@@ -181,33 +194,24 @@ export function agruparEmBarras(entrada: EntradaDoAgrupador): ResultadoDoAgrupad
             continue
         }
         const barraUm = paraUm(barraMm)
+        // a barra ÚTIL: a barra menos os dois refilos; a peça cabe nela com a serra do corte dela (pedido 0034)
+        const utilBarraUm = barraUm - 2 * refiloUm
         const pecas = agrupadas.filter((x) => x.codigo === codigo)
         let recusou = false
         for (const p of pecas) {
-            if (p.um > barraUm) {
-                recusas.push({ motivo: 'PECA_MAIOR_QUE_A_BARRA', codigo, comprimento_peca_mm: paraMm(p.um), comprimento_barra_mm: barraMm, mensagem: fraseDaPecaMaiorQueABarra(codigo, paraMm(p.um), barraMm) })
+            if (p.um + serraUm > utilBarraUm) {
+                recusas.push({ motivo: 'PECA_MAIOR_QUE_A_BARRA', codigo, comprimento_peca_mm: paraMm(p.um), comprimento_barra_mm: paraMm(utilBarraUm), mensagem: fraseDaPecaMaiorQueABarra(codigo, paraMm(p.um), paraMm(utilBarraUm)) })
                 recusou = true
             }
         }
         if (recusou) continue
 
-        // first fit decrescente: a primeira barra aberta em que a peça cabe, ou uma nova. `ocupadoUm` é
-        // o material até o fim da última peça: as peças e os cortes ENTRE elas — o da sobra vem no fim
-        const abertas: Array<{ ocupadoUm: number; pecasUm: number[] }> = []
-        for (const p of pecas) {
-            for (let i = 0; i < p.quantidade; i++) {
-                const destino = abertas.find((b) => b.ocupadoUm + serraUm + p.um <= barraUm)
-                if (destino) { destino.ocupadoUm += serraUm + p.um; destino.pecasUm.push(p.um) }
-                else abertas.push({ ocupadoUm: p.um, pecasUm: [p.um] })
-            }
-        }
-        // o corte que separa a última peça da sobra: só existe se sobra, e come só o que sobra
-        const barras = abertas.map((b) => {
-            const restoUm = barraUm - b.ocupadoUm
-            const ultimoCorteUm = Math.min(serraUm, restoUm)
-            const cortes = b.pecasUm.length - 1 + (restoUm > 0 ? 1 : 0)
-            return { pecasUm: b.pecasUm, cortes, serraUm: (b.pecasUm.length - 1) * serraUm + ultimoCorteUm, usadoUm: b.ocupadoUm + ultimoCorteUm }
-        })
+        // FFD best-fit com a serra em todo corte (`empacotar`, o núcleo único das barras): os cortes do maior para o menor
+        const cortes: Array<{ um: number }> = []
+        for (const p of pecas) for (let i = 0; i < p.quantidade; i++) cortes.push({ um: p.um })
+        const barras = empacotar(cortes, utilBarraUm, serraUm).map((b) => ({
+            pecasUm: b.pecas.map((c) => c.um), cortes: b.pecas.length, serraUm: b.pecas.length * serraUm, usadoUm: b.ocupadoUm,
+        }))
         const nPecas = pecas.reduce((s, p) => s + p.quantidade, 0)
         const utilUm = pecas.reduce((s, p) => s + p.um * p.quantidade, 0)
         const compradoUm = barras.length * barraUm
@@ -218,9 +222,10 @@ export function agruparEmBarras(entrada: EntradaDoAgrupador): ResultadoDoAgrupad
         porCodigo.push({
             codigo,
             comprimento_barra_mm: barraMm,
+            refilo_mm: paraMm(refiloUm),
             pecas: pecas.map((p) => ({ comprimento_mm: paraMm(p.um), quantidade: p.quantidade })),
             n_pecas: nPecas,
-            barras: barras.map((b) => ({ pecas_mm: b.pecasUm.map(paraMm), cortes: b.cortes, usado_mm: paraMm(b.usadoUm), sobra_mm: paraMm(barraUm - b.usadoUm) })),
+            barras: barras.map((b) => ({ pecas_mm: b.pecasUm.map(paraMm), cortes: b.cortes, usado_mm: paraMm(b.usadoUm), sobra_mm: paraMm(utilBarraUm - b.usadoUm) })),
             n_barras: barras.length,
             n_cortes: barras.reduce((s, b) => s + b.cortes, 0),
             metros_uteis: paraMetros(utilUm),

@@ -468,7 +468,7 @@ describe('(5) o item da tabela de preço', () => {
             ['AGRUPADOR', 'PECA_MAIOR_QUE_A_BARRA', '10511', 'BZ0010/WOLFF'],
         ])
         expect(r.recusas[0].mensagem).toContain('BZ0010/WOLFF')
-        expect(r.recusas[0].falta).toMatch(/^uma barra em que caiba a maior peça do código 10511, perfil BZ0010\/WOLFF: a peça tem [\d,]+ mm e a barra, 1000 mm$/)
+        expect(r.recusas[0].falta).toMatch(/^uma barra em que caiba a maior peça do código 10511, perfil BZ0010\/WOLFF: a peça tem [\d,]+ mm e a barra útil, 1000 mm$/)
         expect(r.recusas[0].caminho).toBeNull()
     })
 })

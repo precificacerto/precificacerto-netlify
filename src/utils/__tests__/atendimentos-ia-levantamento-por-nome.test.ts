@@ -6881,7 +6881,7 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
         const hf88 = estado.db.orcamentista_tabela_item.find((i) => i.codigo === '9641')!
         hf88.medida_barra_m = 1
         const r = corpo(await arquivoEDepoisOSim())
-        expect(r).toBe(recusaDoSim(['[MOTOR] uma barra em que caiba a maior peça do código 9641, perfil HF88/WOLFF: a peça tem 2506 mm e a barra, 1000 mm (item 1)']))
+        expect(r).toBe(recusaDoSim(['[MOTOR] uma barra em que caiba a maior peça do código 9641, perfil HF88/WOLFF: a peça tem 2506 mm e a barra útil, 1000 mm (item 1)']))
         expect(r).not.toContain('Para trocar')
     })
 

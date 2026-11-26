@@ -290,7 +290,7 @@ export async function custoDoLevantamento(tenantId: string, fonte: FamiliasDaEmp
             pecasPorItem[g.indices[j]] = e.pecas.map((p) => ({
                 perfil: p.perfil, codigo: p.codigo, descricao: p.descricao, comprimento_mm: p.comprimento_mm,
                 quantidade_por_esquadria: p.quantidade_por_esquadria, quantidade: p.quantidade, corte: p.corte, posicao: p.posicao,
-                comprimento_barra_mm: barraDoCodigo.get(p.codigo) ?? null, serra_mm: calculo.r.serra_mm,
+                comprimento_barra_mm: barraDoCodigo.get(p.codigo) ?? null, serra_mm: calculo.r.serra_mm, cor,
             }))
             const v = vidroDoItem[j]
             montagemPorItem[g.indices[j]] = {
