@@ -116,7 +116,7 @@ jest.mock('@/lib/atendimentos-ia/orcamento-calculado', () => {
 })
 
 import {
-    atravessarLevantamento, atravessarNoSim, aproveitamentoDaTravessia, fraseDoPedidoTotal, ErroDaTravessia, ErroJaAtravessado, faltasDoCongelado, faltasDoOrcamento, fraseDosQuestionamentos,
+    atravessarLevantamento, atravessarNoSim, aproveitamentoDaTravessia, fraseDoPedidoTotal, fraseDoErroDoSistema, ErroDaTravessia, ErroJaAtravessado, faltasDoCongelado, faltasDoOrcamento, fraseDosQuestionamentos,
     fraseJaAtravessado, fraseNaoCompleto, fraseSemItens, fraseSemQuantidade, lerClienteDoLevantamento, levantamentosParaAtravessar, planoDaTravessia,
     FALTA_DO_MODO_DA_COMISSAO, fraseDoIndiceDeAntes, fraseDoItemSemFamilia, fraseDoOrcamentoDeAntes, juntarResultados, origemNaTela, percentuaisDoOrcamento, resolverPercentual,
     type ItemDoLevantamentoNaTravessia, type LevantamentoNaTravessia,
@@ -503,7 +503,7 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
     })
     it('a etapa que LANÇA não derruba o "sim": o rastro diz parou=precificacao, e nada do que foi gravado é desfeito', async () => {
         etapa.resposta = () => Promise.reject(new Error('storage fora do ar'))
-        expect(await atravessarNoSim(T, LEV, naEtapa)).toEqual({ rastro: `${TRAVESSIA} calculo=ok liquido=5240.40 precificacao=falhou parou=precificacao motivo="storage fora do ar"`, paraOVendedor: fraseDoArquivoQueNaoChegou(null, 'a precificação do orçamento 1 falhou. Para tentar de novo, abra o orçamento 1 na seção Orçamentos I.A. e use Precificar') })
+        expect(await atravessarNoSim(T, LEV, naEtapa)).toEqual({ rastro: `${TRAVESSIA} calculo=ok liquido=5240.40 precificacao=falhou parou=precificacao motivo="storage fora do ar"`, paraOVendedor: fraseDoArquivoQueNaoChegou(null, fraseDoErroDoSistema('a precificação', '1')) })
         expect(estado.db.orcamentista_orcamento).toHaveLength(1)
     })
     it('o NÚMERO EXIBIDO (23/11/2026): com a sigla da família no catálogo, o texto ao vendedor diz <levantamento>-<SIGLA>; o rastro fica com o número próprio', async () => {
@@ -511,13 +511,13 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
         estado.db.orcamentista_familia_catalogo = [{ chave: 'PVC', sigla: 'PVC' }]
         etapa.resposta = () => Promise.reject(new Error('storage fora do ar'))
         const r = await atravessarNoSim(T, LEV, naEtapa)
-        expect(r.paraOVendedor).toBe(fraseDoArquivoQueNaoChegou(null, `a precificação do orçamento ${GERALDO.numero}-PVC falhou. Para tentar de novo, abra o orçamento ${GERALDO.numero}-PVC na seção Orçamentos I.A. e use Precificar`))
+        expect(r.paraOVendedor).toBe(fraseDoArquivoQueNaoChegou(null, fraseDoErroDoSistema('a precificação', `${GERALDO.numero}-PVC`)))
         expect(r.rastro).toMatch(/^orcamento=1 /)
         // a família sem sigla (e o orçamento de antes, sem família): o número próprio, nunca uma sigla deduzida
         estado.db.orcamentista_familia_catalogo = [{ chave: 'PVC', sigla: null }]
         estado.db.orcamentista_orcamento = []
         estado.db.orcamentista_orcamento_item = []
-        expect((await atravessarNoSim(T, LEV, naEtapa)).paraOVendedor).toContain('a precificação do orçamento 1 falhou')
+        expect((await atravessarNoSim(T, LEV, naEtapa)).paraOVendedor).toContain('a precificação do orçamento 1 não foi gravada')
     })
     it('pedido 0034-B: o "sim" com o PEDIDO TOTAL passa a escolha ao cálculo, diz o modo em uma linha, e o "sim sem mudança" RECALCULA em vez de reenviar', async () => {
         calculo.escolhas = []
@@ -859,8 +859,21 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
         calculo.resposta = () => { throw new Error('orcamentista_orcamento_item_material: caiu') }
         const falhou = await atravessarNoSim(T, LEV, naEtapa)
         expect(falhou.rastro).toBe(`${TRAVESSIA} calculo=falhou parou=calculo motivo="orcamentista_orcamento_item_material: caiu"`)
-        expect(falhou.paraOVendedor).toBe(fraseDoArquivoQueNaoChegou(null, 'o cálculo do orçamento 1 falhou. Para tentar de novo, abra o orçamento 1 na seção Orçamentos I.A. e use Calcular'))
+        expect(falhou.paraOVendedor).toBe(fraseDoArquivoQueNaoChegou(null, fraseDoErroDoSistema('o cálculo', '1')))
         expect(etapa.chamadas).toEqual([])
+    })
+
+    it('0039-A, item 3: a FALHA da gravação diz ao vendedor que o erro é do sistema e já foi avisado, e o log leva a CHECK INTEIRA, sem corte', async () => {
+        // a mensagem real de 26/11/2026, 22:14:38 UTC (log dv68z-1795731251313), com mais de 120 caracteres: o corte de antes perdia o nome da CHECK
+        const doBanco = 'orcamentista_orcamento: new row for relation "orcamentista_orcamento" violates check constraint "orcamentista_orcamento_calculo_versao_forma"'
+        expect(doBanco.length).toBeGreaterThan(120)
+        calculo.resposta = () => { throw new Error(doBanco) }
+        const falhou = await atravessarNoSim(T, LEV, naEtapa)
+        expect(falhou.rastro).toBe(`${TRAVESSIA} calculo=falhou parou=calculo motivo="${doBanco.replace(/"/g, "'")}"`)
+        expect(falhou.paraOVendedor).toBe(fraseDoArquivoQueNaoChegou(null, fraseDoErroDoSistema('o cálculo', '1')))
+        // a frase: o erro é do sistema e foi avisado; não manda o vendedor à tela calcular (ele não tem o que corrigir)
+        expect(fraseDoErroDoSistema('o cálculo', '1')).toBe('o cálculo do orçamento 1 não foi gravado por um erro do sistema, não por algo que você fez. O erro já ficou registrado e a equipe foi avisada; quando for corrigido, diga "sim" de novo e o orçamento segue')
+        expect(fraseDoErroDoSistema('a precificação', '7-PVC')).toBe('a precificação do orçamento 7-PVC não foi gravada por um erro do sistema, não por algo que você fez. O erro já ficou registrado e a equipe foi avisada; quando for corrigido, diga "sim" de novo e o orçamento segue')
     })
 })
 
