@@ -159,9 +159,10 @@ describe('A PEÇA QUE NÃO EXISTE NA COR DO PERFIL e o REFORÇO INTERNO SEM COR 
         expect(r && 'item' in r ? r.item.codigo : null).toBe('91259')
     })
     it('a esquadria BRANCA nunca leva o PRETO: a peça que só existe em PRETO continua falta nomeada', () => {
-        const soPreto = [T9125[1]]
-        expect(achado(resolverPelaReferencia(pede('9125/WOLFF', 'BRANCO'), soPreto))).toEqual(['REFERENCIA_SEM_A_COR'])
-        expect(achado(resolverPelaReferencia(pede('9125/WOLFF', 'Branco'), soPreto))).toEqual(['REFERENCIA_SEM_A_COR'])
+        // a 2575 (INSTALACAO, não é reforço) só em PRETO e mais uma cor que não é a pedida
+        const soPreto = [T2575[1], comCategoria(item('257536', 'ACABAMENTO DA SOLEIRA - PRETO LISO', '2575', 'PRETO LISO'), 'INSTALACAO')]
+        expect(achado(resolverPelaReferencia(pede('2575/WOLFF', 'BRANCO'), soPreto))).toEqual(['REFERENCIA_SEM_A_COR'])
+        expect(achado(resolverPelaReferencia(pede('2575/WOLFF', 'Branco'), soPreto))).toEqual(['REFERENCIA_SEM_A_COR'])
     })
     it('a esquadria BRANCA continua no BRANCO, sem substituição; e a cor que EXISTE vence o PRETO', () => {
         const r = resolverPelaReferencia(pede('9125/WOLFF', 'BRANCO'), T9125)
