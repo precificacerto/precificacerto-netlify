@@ -438,6 +438,11 @@ describe('NA PERSIANA A COR VENCE A POLÍTICA (dono do produto, 26/11/2026, pedi
         const r = F().escolhasDoCalculo(comPersiana(), { PP: 37 }, DE_PAULA_PP, null, 'PRETO LISO')
         expect([r.escolhas.PP, r.origem.PP]).toEqual([37, 'vendedor'])
     })
+    it('a cor só decide a PALHETA: outra variável que também tenha a opção 45 segue a política, mesmo na esquadria colorida', () => {
+        const t: Tipologia = { ...comPersiana(), variaveis: [...comPersiana().variaveis, { variavel: 'AN', descricao: 'ÂNGULO', padrao: '90', condicao: 'sempre', opcoes: '90 = RETO; 45 = CHANFRO', condicao_opcoes: null }] }
+        const r = F().escolhasDoCalculo(t, {}, { porVariavel: { ...DE_PAULA_PP.porVariavel, AN: { natureza: 'POLITICA' as const, opcao: 'reto' } } }, null, 'PRETO LISO')
+        expect([r.escolhas.AN, r.origem.AN, r.escolhas.PP]).toEqual([90, 'politica', 45])
+    })
     it('a política das OUTRAS variáveis continua valendo na esquadria colorida; e sem a cor, a política vale', () => {
         const t: Tipologia = { ...comPersiana(), variaveis: [...comPersiana().variaveis, { variavel: 'X', descricao: 'PEÇA X', padrao: '1', condicao: 'sempre', opcoes: '1 = UM; 2 = DOIS', condicao_opcoes: null }] }
         const r = F().escolhasDoCalculo(t, {}, { porVariavel: { ...DE_PAULA_PP.porVariavel, X: { natureza: 'POLITICA' as const, opcao: 'dois' } } }, null, 'PRETO LISO')
