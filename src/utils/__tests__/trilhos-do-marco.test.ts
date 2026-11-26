@@ -25,9 +25,10 @@ describe('os marcos de correr da aba Perfis', () => {
     it('o número vem da descrição, com os espaços que vierem; a condição é guardada sem espaços nas pontas', () => {
         expect(marcosDeCorrer([linha('  marco de correr -  4   trilhos ', ' (TM=3) ', null), linha('MARCO DE CORRER - 1 TRILHO', 'sempre', null)])).toEqual([{ trilhos: 4, condicao: '(TM=3)' }, { trilhos: 1, condicao: 'sempre' }])
     })
-    it('a linha REFILADA (o marco que vira trilho da monovia, pela PTM) NÃO é o marco da esquadria', () => {
-        expect(marcosDeCorrer(DP72)).toEqual([{ trilhos: 3, condicao: 'sempre' }])
-        expect(marcosDeCorrer([linha(HF88, 'sempre', 'marco - altura (refilada)')])).toEqual([])
+    it('a linha REFILADA (o perfil que vira o trilho monovia, pela PTM) é marcada `monovia`, não é o marco da esquadria (pedido 0031)', () => {
+        expect(marcosDeCorrer(DP72)).toEqual([{ trilhos: 3, condicao: 'sempre' }, { trilhos: 2, condicao: '(PTM=1)', monovia: true }, { trilhos: 3, condicao: '(PTM=2)', monovia: true }])
+        expect(marcosDeCorrer([linha(HF88, 'sempre', 'marco - altura (refilada)')])).toEqual([{ trilhos: 2, condicao: 'sempre', monovia: true }])
+        expect(variaveisDasCondicoes(marcosDeCorrer(DP72))).toEqual(['PTM'])
     })
     it('as variáveis que as condições leem: só as das condições que não são "sempre", sem repetir', () => {
         expect(variaveisDasCondicoes(marcosDeCorrer(DP17))).toEqual(['TM'])
@@ -41,8 +42,22 @@ describe('os trilhos de um item', () => {
         expect(trilhosDoItem(com(DP90), null)).toEqual({ trilhos: 3 })
         expect(trilhosDoItem(com([linha(HF88, 'sempre')]), { UT: 2 })).toEqual({ trilhos: 2 })
     })
-    it('a DP-72 corre em 3 trilhos qualquer que seja o perfil da monovia (PTM): o refilado não conta', () => {
-        for (const escolhas of [null, { PTM: 1 }, { PTM: 2 }]) expect(trilhosDoItem(com(DP72, { PTM: 1 }), escolhas)).toEqual({ trilhos: 3 })
+    it('pedido 0031: a DP-72 e a DP-73 (4 folhas) correm em 4 trilhos — o marco de 3 mais a monovia, qualquer que seja o perfil dela (PTM 1 ou 2)', () => {
+        // a DP-73 como está no motor 259035a9 (26/11/2026): marco de 3 "sempre" na largura e na altura, e os refilados pela PTM
+        const DP73 = [linha(HF112, 'sempre', 'MARCO - ALTURA'), linha(HF88, '(PTM=1)', 'MARCO - ALTURA (REFILADO)'), linha(HF112, '(PTM=2)', 'MARCO - ALTURA (REFILADO)'),
+            linha(HF112, 'sempre', 'MARCO - LARGURA'), linha(HF112, '(PTM=2)', 'MARCO - LARGURA (REFILADO)'), linha(HF88, '(PTM=1)', 'MARCO - LARGURA (REFILADO)')]
+        for (const perfis of [DP72, DP73]) for (const escolhas of [null, { PTM: 1 }, { PTM: 2 }]) expect(trilhosDoItem(com(perfis, { PTM: 1 }), escolhas)).toEqual({ trilhos: 4 })
+        // o número da descrição do refilado (2 ou 3) não entra: a monovia soma UM
+        expect(trilhosDoItem(com([linha(HF112, 'sempre'), linha('MARCO DE CORRER - 9 TRILHOS', 'sempre', 'MARCO (REFILADO)')]), null)).toEqual({ trilhos: 4 })
+    })
+    it('pedido 0031: sem refilado que valha, a monovia não entra; a de 2 folhas sem monovia continua em 2', () => {
+        expect(trilhosDoItem(com([linha(HF88, 'sempre')]), null)).toEqual({ trilhos: 2 })
+        expect(trilhosDoItem(com(DP72, { PTM: 1 }), { PTM: 3 })).toEqual({ trilhos: 3 })
+    })
+    it('pedido 0031: o número que não fecha não se escreve — a condição da monovia que não se avalia, e a monovia sem marco', () => {
+        expect(trilhosDoItem(com(DP72), null)).toEqual({ indeterminado: 'a condição "(PTM=1)" do trilho monovia não se avalia com as escolhas do item' })
+        expect(trilhosDoItem(com([linha(HF88, 'sempre', 'MARCO (REFILADO)')]), null)).toEqual({ indeterminado: 'a tipologia tem o trilho monovia e nenhum marco de correr' })
+        expect(trilhosDoItem(com([linha(HF88, '(PTM=1)', 'MARCO (REFILADO)')], { PTM: 2 }), null)).toEqual({ indeterminado: 'a tipologia tem o trilho monovia e nenhum marco de correr' })
     })
     it('a tipologia com os dois marcos (DP-17): vale o que as condições do item escolhem — a escolha gravada, senão o Padrão do motor', () => {
         expect(trilhosDoItem(com(DP17, { TM: 1 }), null)).toEqual({ trilhos: 2 })
@@ -70,5 +85,18 @@ describe('os trilhos de um item', () => {
         expect(trilhosDoItem(com([linha('MARCO DE GIRO', 'sempre')]), null)).toBeNull()
         expect(trilhosDoItem(null, { TM: 1 })).toBeNull()
         expect(trilhosDoItem(undefined, null)).toBeNull()
+    })
+})
+
+describe('pedido 0031: o caso do orçamento 28-PVC, item 8 (DP-73, 5150 x 2550)', () => {
+    it('a descrição para o vendedor diz 4 trilhos, não 3', async () => {
+        const { descricaoParaOVendedor } = await import('@/lib/atendimentos-ia/descricao-para-o-vendedor')
+        const DP73 = [linha(HF112, 'sempre', 'MARCO - ALTURA'), linha(HF88, '(PTM=1)', 'MARCO - ALTURA (REFILADO)'), linha(HF112, '(PTM=2)', 'MARCO - ALTURA (REFILADO)'),
+            linha(HF112, 'sempre', 'MARCO - LARGURA'), linha(HF112, '(PTM=2)', 'MARCO - LARGURA (REFILADO)'), linha(HF88, '(PTM=1)', 'MARCO - LARGURA (REFILADO)')]
+        const t = trilhosDoItem(com(DP73, { PTM: 1 }), { RL: 2 })
+        expect(t).toEqual({ trilhos: 4 })
+        const trilhos = t !== null && 'trilhos' in t ? t.trilhos : null
+        expect(descricaoParaOVendedor('PORTA DE CORRER 04 FOLHAS MÓVEIS | TRILHO PVC EMBUTIDO | EUROPA 42', null, 'a_definir', trilhos))
+            .toBe('Porta de correr 04 folhas móveis em 4 trilhos | Trilho pvc embutido')
     })
 })
