@@ -492,7 +492,7 @@ describe('(1) a família da conta, o motor dela e as tipologias candidatas (PR D
         const aluminio = r.texto.split(/\n(?=Família )/).find((b) => b.startsWith('Família Alumínio — Perfis Sul'))!
         expect(aluminio).toContain('Sem preço — fica fora dos totais, e o orçamento sai PARCIAL:')
         // o fornecedor da segunda família não tem a tabela de cores: a frase diz que a cor e o nome técnico não rodaram
-        expect(aluminio).toMatch(/• 1023\/WOLFF \(CLICK GUIA DE ALUMÍNIO PARA TRILHO DE PVC\) em BRANCO não está na tabela de preço[^\n]*\(item 2\)\./)
+        expect(aluminio).toMatch(/• \[FORNECEDOR\] 1023\/WOLFF \(CLICK GUIA DE ALUMÍNIO PARA TRILHO DE PVC\) em BRANCO não está na tabela de preço[^\n]*\(item 2\)\./)
         expect(aluminio).not.toContain('• S1023 (')
         expect(r.etapa?.faltou).toContain('e2:SEM_TABELA_DE_CORES:1023/WOLFF')
     })
@@ -717,7 +717,7 @@ describe('(1p) a De Paula como produção está: o motor da família, e os códi
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
         expect(r.desfecho).toBe('levantou')
         const faltas = r.texto.slice(r.texto.indexOf('Sem preço — fica fora dos totais, e o orçamento sai PARCIAL:')).split('\n')
-        expect(faltas.slice(1).map((l) => l.split(' ')[1])).toEqual(['1023/WOLFF', '8432/WOLFF', '8433/WOLFF'])
+        expect(faltas.slice(1).map((l) => l.split(' ')[2])).toEqual(['1023/WOLFF', '8432/WOLFF', '8433/WOLFF'])
         // as barras saem SÓ dos códigos com preço
         expect(r.texto).not.toMatch(/• (1023|8432|8433) \(/)
         // o resumo para o log (06/11/2026): os três códigos sem preço, cada um com a esquadria e o motivo
@@ -840,7 +840,7 @@ describe('(5) a mensagem do levantamento', () => {
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
         expect(r.desfecho).toBe('levantou')
         expect(r.texto).toContain('Sem preço — fica fora dos totais, e o orçamento sai PARCIAL:')
-        expect(r.texto).toContain('• HF88/WOLFF: o item 9641 da tabela de preço')
+        expect(r.texto).toContain('• [FORNECEDOR] HF88/WOLFF: o item 9641 da tabela de preço')
         expect(r.texto).toContain('sem o valor do metro.')
         expect(r.texto).not.toContain('• 9641 (HF88/WOLFF)')
         expect(r.etapa?.faltou).toEqual(['e1:SEM_VALOR:HF88/WOLFF'])
@@ -968,7 +968,7 @@ describe('(5b) as ESCOLHAS gravadas chegam ao avaliador', () => {
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 2, ARE: 1, MAE: 2 } }))
         expect(r.desfecho).toBe('recusou')
         // UMA pergunta, curta — não a mesma frase uma vez por linha do motor que depende da escolha
-        expect(r.texto).toBe('Não consegui fechar o levantamento “Casa do João”. Falta: a escolha “ARREMATE INTERNO” = 2 não vale neste item: as opções que valem são 1, 3, 4. Diga qual vale.')
+        expect(r.texto).toBe('Não consegui fechar o levantamento “Casa do João”. Falta: [MOTOR] a escolha “ARREMATE INTERNO” = 2 não vale neste item: as opções que valem são 1, 3, 4. Diga qual vale.')
         expect(r.etapa?.rastro ?? []).not.toEqual(expect.arrayContaining([expect.stringContaining('OPCAO_TROCADA')]))
     })
     it('0030: juntarEscolhasQueNaoValem — uma linha por item e escolha, no lugar da primeira; as outras faltas ficam, na ordem', () => {
@@ -1164,7 +1164,7 @@ describe('(7b) FALTOU TEMPO, NADA EVOLUI (dono do produto, 08/11/2026): a falta 
         const r = await M().mensagemDoLevantamento(TENANT, t, lev(FECHA))
         const FALTA = 'o tempo de fabricação de DP-02 no motor Motor_Wolf_PVC'
         expect(r.desfecho).toBe('recusou')
-        expect(r.texto).toBe(`Não consegui fechar o levantamento “Casa do João”. Falta: ${FALTA}.`)
+        expect(r.texto).toBe(`Não consegui fechar o levantamento “Casa do João”. Falta: [MOTOR] ${FALTA}.`)
         expect(r.texto).not.toMatch(/R\$/)
         expect(r.etapa?.faltou).toEqual(['e1:SEM_TEMPO:DP-02'])
     })
@@ -1173,7 +1173,7 @@ describe('(7b) FALTOU TEMPO, NADA EVOLUI (dono do produto, 08/11/2026): a falta 
         banco.db.orcamentista_motor_tipologia_tempo = []
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, { nome: 'Casa do João', itens: [{ ...ESQUADRIA, ...FECHA }, { ...ESQUADRIA, ...FECHA, ordem: 2, quantidade: 2 }] })
-        expect(r.texto).toBe('Não consegui fechar o levantamento “Casa do João”. Falta: o tempo de fabricação de DP-02 no motor Motor_Wolf_PVC (itens 1 e 2).')
+        expect(r.texto).toBe('Não consegui fechar o levantamento “Casa do João”. Falta: [MOTOR] o tempo de fabricação de DP-02 no motor Motor_Wolf_PVC (itens 1 e 2).')
         expect(r.etapa?.faltou).toEqual(['e1+e2:SEM_TEMPO:DP-02'])
     })
 
@@ -1181,7 +1181,7 @@ describe('(7b) FALTOU TEMPO, NADA EVOLUI (dono do produto, 08/11/2026): a falta 
         banco.ausentes.add('orcamentista_motor_tipologia_tempo')
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev(FECHA))
-        expect(r.texto).toBe('Não consegui fechar o levantamento “Casa do João”. Falta: a tabela dos tempos de fabricação, com o tempo de DP-02: a tabela dos tempos de fabricação ainda não foi carregada no banco.')
+        expect(r.texto).toBe('Não consegui fechar o levantamento “Casa do João”. Falta: [MOTOR] a tabela dos tempos de fabricação, com o tempo de DP-02: a tabela dos tempos de fabricação ainda não foi carregada no banco.')
     })
 
     it('a falta da CONFIGURAÇÃO da empresa (carga horária) continua como antes: não é recusa — o material sai, e a mão de obra "não sai"', async () => {
@@ -1206,7 +1206,7 @@ describe('(8) a COR é a da pré-definição, comparada SEM CAIXA (e só sem cai
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ cor_perfil: 'PRETO TEXTURADO', escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
         expect(r.desfecho).toBe('levantou')
         expect(r.texto).toContain('Sem preço — fica fora dos totais, e o orçamento sai PARCIAL:')
-        expect(r.texto).toMatch(/• HF88\/WOLFF \([^)]*\) em PRETO TEXTURADO /)
+        expect(r.texto).toMatch(/• \[FORNECEDOR\] HF88\/WOLFF \([^)]*\) em PRETO TEXTURADO /)
         // os brancos não entram nas barras
         for (const c of ['9641', '9681', '9711', '9801', '10511']) expect(r.texto).not.toContain(`• ${c} (`)
         // o sem variante (cor vazia) segue
@@ -1529,7 +1529,7 @@ describe('(R) a frase curta da falta: o nome e o que falta, e a mesma falta uma 
         expect(r.desfecho).toBe('recusou')
         // a falta curta e, em uma linha, o CAMINHO que a resolve (08/11/2026): o vidro que ele disse, com a menor espessura aceita acima dos 4 mm
         expect(r.texto).toBe([
-            'Não consegui fechar o levantamento “Renan Bauer”. Falta: o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm.',
+            'Não consegui fechar o levantamento “Renan Bauer”. Falta: [MOTOR] o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm.',
         ].join('\n'))
         expect(r.texto).not.toContain('GB25')
         expect(r.texto).not.toContain('Arremate e guarnição')
@@ -1553,7 +1553,7 @@ describe('(R) a frase curta da falta: o nome e o que falta, e a mesma falta uma 
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, { nome: 'Antonio Rock', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'incolor 4' }] })
         expect(r.texto).toBe([
-            'Não consegui fechar o levantamento “Antonio Rock”. Falta: a espessura do vidro: os baguetes desta tipologia dependem dela, e aceitam 5, 6, 8, 18, 20, 21 e 24 mm.',
+            'Não consegui fechar o levantamento “Antonio Rock”. Falta: [AGENTE] a espessura do vidro: os baguetes desta tipologia dependem dela, e aceitam 5, 6, 8, 18, 20, 21 e 24 mm.',
         ].join('\n'))
         // seguido ao pé da letra, fecha
         expect((await M().mensagemDoLevantamento(TENANT, t, { nome: 'Antonio Rock', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'incolor 5 mm' }] })).desfecho).toBe('levantou')
@@ -1583,11 +1583,11 @@ describe('(R) a frase curta da falta: o nome e o que falta, e a mesma falta uma 
         const todas = await M().mensagemDoLevantamento(TENANT, t, tres(['4mm', '4 mm', 'vidro 4mm']))
         // uma falta só; os caminhos, um por vidro sugerido — as esquadrias com o mesmo vidro numa frase só
         expect(todas.texto).toBe([
-            'Não consegui fechar o levantamento “Renan Bauer”. Falta: o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm (itens 1, 2 e 3, DP-02).',
+            'Não consegui fechar o levantamento “Renan Bauer”. Falta: [MOTOR] o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm (itens 1, 2 e 3, DP-02).',
         ].join('\n'))
         const duas = await M().mensagemDoLevantamento(TENANT, t, tres(['4mm', '6mm', '4mm']))
         expect(duas.texto).toBe([
-            'Não consegui fechar o levantamento “Renan Bauer”. Falta: o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm (itens 1 e 3, DP-02).',
+            'Não consegui fechar o levantamento “Renan Bauer”. Falta: [MOTOR] o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm (itens 1 e 3, DP-02).',
         ].join('\n'))
     })
 
@@ -1596,7 +1596,7 @@ describe('(R) a frase curta da falta: o nome e o que falta, e a mesma falta uma 
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, tres(['6mm', '6mm', '6mm']))
         expect(r.desfecho).toBe('levantou')
-        const linhas = r.texto.split('\n').filter((l) => l.startsWith('• 1023/WOLFF'))
+        const linhas = r.texto.split('\n').filter((l) => l.startsWith('• [FORNECEDOR] 1023/WOLFF'))
         expect(linhas).toHaveLength(1)
         expect(linhas[0]).toMatch(/\(itens 1, 2 e 3\)\.$/)
         // a falta é do cadastro: nenhum caminho de alteração
@@ -1609,7 +1609,7 @@ describe('(R) a frase curta da falta: o nome e o que falta, e a mesma falta uma 
         const r = await M().mensagemDoLevantamento(TENANT, t, tres(['6mm', '4mm', '6mm']))
         expect(r.desfecho).toBe('recusou')
         expect(r.texto.split('\n')).toEqual([
-            'Não consegui fechar o levantamento “Renan Bauer”. Falta: o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm (item 2, DP-02).',
+            'Não consegui fechar o levantamento “Renan Bauer”. Falta: [MOTOR] o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm (item 2, DP-02).',
         ])
     })
 
@@ -1617,7 +1617,7 @@ describe('(R) a frase curta da falta: o nome e o que falta, e a mesma falta uma 
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, { nome: 'Renan Bauer', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'mini boreal' }] })
         expect(r.texto).toBe([
-            'Não consegui fechar o levantamento “Renan Bauer”. Falta: a espessura do vidro: os baguetes desta tipologia dependem dela, e aceitam 5, 6, 8, 18, 20, 21 e 24 mm.',
+            'Não consegui fechar o levantamento “Renan Bauer”. Falta: [AGENTE] a espessura do vidro: os baguetes desta tipologia dependem dela, e aceitam 5, 6, 8, 18, 20, 21 e 24 mm.',
         ].join('\n'))
         expect(r.texto).not.toMatch(/Linha \d+ da aba Perfis/)
         // seguido ao pé da letra, fecha
@@ -1773,7 +1773,7 @@ describe('(ORC) o custo do orçamento I.A. pelo CAMINHO COMPLETO, e a reconcilia
         const m = await M().mensagemDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), l)
         expect(m.desfecho).toBe('levantou')
         const r = await S().custoDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), l)
-        expect('recusas' in r && r.recusas).toContain('o valor do minuto da mão de obra: a configuração de mão de obra da empresa não fecha')
+        expect('recusas' in r && r.recusas).toContain('[COMERCIAL] o valor do minuto da mão de obra: a configuração de mão de obra da empresa não fecha')
     })
     it('a leitura do item da tabela pede o bloco tributário pelos NOMES da tabela, e NÃO a coluna antiga `ipi`', () => {
         const colunas = M().COLUNAS_DO_ITEM_DA_TABELA.split(',').map((c) => c.trim())

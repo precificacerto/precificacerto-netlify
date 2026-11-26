@@ -33,6 +33,7 @@ import { resolverReferencia, tabelaNoEscopo, GRUPO_DE_COR, type ContextoDaResolu
 import { traduzirVidro } from './vidro-da-tabela'
 import { lerVidrosPadraoDaConta, vidroPadraoDaEsquadria } from './vidro-padrao'
 import { principaisDaConta, type PrincipaisDaConta } from './tabelas-da-conta'
+import { blocoDaFalta, fraseComBloco, type BlocoDaFalta } from './bloco-da-falta'
 
 /** O valor do minuto e a configuração da empresa de onde ele saiu — o mesmo par que a precificação final usa. */
 export type MaoDeObraDaEmpresa = { custoMensal: number; minutosDaEmpresa: number; valorDoMinuto: number }
@@ -49,6 +50,9 @@ export type FaltaDoOrcamento = {
     tipologia: string
     esquadria: number
     motivo: string
+    /** De qual bloco é a falta (pedido 0032, `bloco-da-falta.ts`); nulo quando o motivo não está na lista fechada — e o log diz. */
+    bloco: BlocoDaFalta | null
+    /** A frase COM o bloco na frente (`[FORNECEDOR] …`): a mesma vai ao vendedor, ao arquivo e à tabela. */
     frase: string
     candidatas: Array<{ codigo: string; descricao: string | null }>
 }
@@ -206,7 +210,12 @@ export async function custoDoLevantamento(tenantId: string, fonte: FamiliasDaEmp
         const cor = calculo.d.cor
         // a esquadria j do grupo (1 a n, a do levantamento da família) → o item do orçamento e o número dela no levantamento inteiro
         const doGrupo = (j: number) => ({ item: g.indices[j - 1], esquadria: calculo.d.esquadrias[j - 1]?.numero ?? j, tipologia: calculo.d.esquadrias[j - 1]?.tipologia ?? '' })
-        const faltar = (j: number, f: Omit<FaltaDoOrcamento, 'item' | 'esquadria' | 'tipologia' | 'cor'>) => faltas.push({ ...doGrupo(j), cor, ...f })
+        // o bloco da falta (pedido 0032): do motivo, pela lista fechada; o motivo sem bloco não ganha um adivinhado, e o log o nomeia
+        const faltar = (j: number, f: Omit<FaltaDoOrcamento, 'item' | 'esquadria' | 'tipologia' | 'cor' | 'bloco'>) => {
+            const bloco = blocoDaFalta(f.motivo)
+            if (bloco === null) console.error(`[FALTA] sem_bloco motivo=${f.motivo} caminho=${f.caminho}`)
+            faltas.push({ ...doGrupo(j), cor, ...f, bloco, frase: fraseComBloco(bloco, f.frase) })
+        }
 
         // PERFIL: a resolução do cálculo das barras (nenhuma segunda busca), e as faltas dela
         const materiais: Record<string, MaterialDaTabela> = {}

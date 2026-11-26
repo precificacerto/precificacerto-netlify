@@ -33,6 +33,7 @@
  *     que monta essa entrada, e o teste de reconciliação prende a igualdade.
  */
 import { recalcularBloco, custoLiquidoDaFracao, blocoVazio } from '@/utils/atendimentos-ia-bloco-tributario'
+import { fraseComBloco } from './bloco-da-falta'
 import type { ComoAchou } from '@/lib/atendimentos-ia/resolucao-de-referencia'
 
 /**
@@ -186,7 +187,8 @@ const fraseSemValor = (caminho: CaminhoDoCusto, codigo: string) =>
 const valido = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0
 const fraseSemBarras = (codigo: string) => `as barras do código ${codigo} no cálculo do levantamento`
 const fraseSemTempo = (referencia: string) => `o tempo de fabricação do ${referencia}`
-const FRASE_SEM_VALOR_DO_MINUTO = 'o valor do minuto da mão de obra: a configuração de mão de obra da empresa não fecha'
+// o bloco COMERCIAL (pedido 0032): a fabricação (tempo × valor do minuto) é do comercial, e a configuração de mão de obra é da empresa
+const FRASE_SEM_VALOR_DO_MINUTO = fraseComBloco('COMERCIAL', 'o valor do minuto da mão de obra: a configuração de mão de obra da empresa não fecha')
 
 /**
  * A cascata na unidade de compra, pela DECISÃO (b) do dono do produto (09/11/2026), que aplica o `Contrato_Tabela_Fornecedor`:

@@ -86,6 +86,8 @@ describe('o custo pelos três caminhos, no servidor', () => {
     it('a linha do avaliador que não fechou é FALTA nomeada, com o caminho da aba', async () => {
         const r = await ok()
         expect(r.faltas.map((f) => [f.caminho, f.codigo_do_motor, f.motivo, f.esquadria])).toEqual([['insumo', 'Q9', 'LINHA_NAO_AVALIADA', 1]])
+        // de qual bloco é a falta (pedido 0032): a linha que a condição do motor não fecha é do MOTOR, e a frase o diz na frente
+        expect(r.faltas.map((f) => [f.bloco, f.frase.slice(0, 8)])).toEqual([['MOTOR', '[MOTOR] ']])
     })
     it('o vidro ESCOLHIDO vence o texto', async () => {
         ;(calculo.valor as { lev: { itens: Array<Record<string, unknown>> } }).lev.itens[0].vidro_codigo = 'VFIN04'
@@ -99,7 +101,7 @@ describe('o custo pelos três caminhos, no servidor', () => {
         ;(calculo.valor as { lev: { itens: Array<Record<string, unknown>> } }).lev.itens[0].vidro_codigo = 'VIN04'
         const r = await ok()
         expect(r.faltas.filter((f) => f.caminho === 'vidro').map((f) => [f.codigo_do_motor, f.motivo, f.frase])).toEqual([
-            ['VIN04', 'VIDRO_CODIGO_FORA_DA_TABELA', 'o vidro VIN04 não existe na tabela de vidro do fornecedor principal (a referência é a coluna codigo_wvetro)']])
+            ['VIN04', 'VIDRO_CODIGO_FORA_DA_TABELA', '[FORNECEDOR] o vidro VIN04 não existe na tabela de vidro do fornecedor principal (a referência é a coluna codigo_wvetro)']])
         expect(r.itens[0].materiais.some((m) => m.caminho === 'vidro')).toBe(false)
     })
 

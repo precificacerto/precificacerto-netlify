@@ -2430,7 +2430,7 @@ describe('(20) o CONTEXTO DO ATENDIMENTO: o prompt manda em quando e em que form
         expect(deSempre[0]).toMatch(/o arquivo está acima, para você conferir/)
         // com o PDF entregue, o corpo leva SÓ os questionamentos do parcial (13/11/2026): a falta nomeada, sem o resultado
         expect(deSempre[1].startsWith('O orçamento 1 saiu PARCIAL — faltam 5 valores. Para completar, preciso de:')).toBe(true)
-        expect(deSempre[1]).toMatch(/• HF88\/WOLFF \([^)]*\) em PRETO/)
+        expect(deSempre[1]).toMatch(/• \[FORNECEDOR\] HF88\/WOLFF \([^)]*\) em PRETO/)
         for (const branco of ['9641', '9681', '9711', '9801', '10511']) expect(deSempre[1]).not.toContain(`• ${branco} (`)
         expect(deSempre[1]).toContain('saiu PARCIAL')
         const hostil = await fluxo({ cor: 'PRETO', contexto: HOSTIL, falas: ['Usei a cor mais parecida: fica em quinhentos.', 'Estimei: R$ 1.000.'], pdfChega: true })
@@ -6661,7 +6661,7 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
         return ultimoEnviado()
     }
     // a falta CURTA (08/11/2026): o que falta, e as esquadrias dele entre parênteses, depois — a do preço do 1023 deixou de ser recusa (12/11/2026)
-    const FALTA_DO_TEMPO_DA_DP01 = 'o tempo de fabricação de DP-01 no motor Motor_Wolf_PVC (item 2)'
+    const FALTA_DO_TEMPO_DA_DP01 = '[MOTOR] o tempo de fabricação de DP-01 no motor Motor_Wolf_PVC (item 2)'
     const perguntasEmAberto = () => (estado.db.orcamentista_pergunta_em_aberto ?? []).map((p) => p.pergunta)
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const LC = () => require('@/lib/atendimentos-ia/levantamento-da-conversa') as typeof import('@/lib/atendimentos-ia/levantamento-da-conversa')
@@ -6741,7 +6741,7 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
             estado.db.orcamentista_motor_tipologia_tempo = estado.db.orcamentista_motor_tipologia_tempo.filter((t) => t.tipologia !== 'DP-01')
             const { faltas } = await ondasDoCalculo([esquadria(1, 'DP-39', 2500, 2200), esquadria(2, 'DP-01', 600, 600), esquadria(3, 'DP-01', 600, 600)])
-            expect(faltas).toEqual(['Não consegui fechar o levantamento “Gerson Boss”. Falta: o tempo de fabricação de DP-01 no motor Motor_Wolf_PVC (itens 2 e 3).'])
+            expect(faltas).toEqual(['Não consegui fechar o levantamento “Gerson Boss”. Falta: [MOTOR] o tempo de fabricação de DP-01 no motor Motor_Wolf_PVC (itens 2 e 3).'])
         })
     })
 
@@ -6749,7 +6749,7 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
         const formal = await arquivoEDepoisOSim()
         const linhas = questionamento(formal)
         // a frase começa pelo código: ele vai uma vez, e a esquadria no fim
-        expect(linhas).toEqual([expect.stringMatching(/^• 1023\/WOLFF \(CLICK GUIA DE ALUMÍNIO PARA TRILHO DE PVC\) em Branco não está na tabela de preço.* \(item 1\)\.$/)])
+        expect(linhas).toEqual([expect.stringMatching(/^• \[FORNECEDOR\] 1023\/WOLFF \(CLICK GUIA DE ALUMÍNIO PARA TRILHO DE PVC\) em Branco não está na tabela de preço.* \(item 1\)\.$/)])
         // sem caminho de alteração: a falta é do cadastro, e nenhuma troca na esquadria a resolve
         expect(formal).not.toContain('Para trocar')
         // o levantamento fechou e atravessou: nada fica em aberto, e o orçamento guarda a falta
@@ -6769,21 +6769,21 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
     it('o preço E o tempo faltando: o tempo é RECUSA e segura o "sim" — e UMA FALTA NÃO ESCONDE A OUTRA (08/11/2026): o 1023 sem preço sai junto, nomeado', async () => {
         estado.db.orcamentista_motor_tipologia_tempo = estado.db.orcamentista_motor_tipologia_tempo.filter((t) => t.tipologia !== 'DP-01')
         expect(corpo(await arquivoEDepoisOSim())).toBe(recusaDoSim([FALTA_DO_TEMPO_DA_DP01,
-            'Item 1: 1023/WOLFF (CLICK GUIA DE ALUMÍNIO PARA TRILHO DE PVC) em Branco não está na tabela de preço: nem pelo código, nem pela cor, nem pelo nome técnico na descrição.']))
+            '[FORNECEDOR] Item 1: 1023/WOLFF (CLICK GUIA DE ALUMÍNIO PARA TRILHO DE PVC) em Branco não está na tabela de preço: nem pelo código, nem pela cor, nem pelo nome técnico na descrição.']))
         expect(estado.documentos).toHaveLength(1)
         expect(estado.documentosDoOrcamento).toEqual([])
     })
 
     it('o item com o VALOR vazio (não ausente da tabela) é falta nomeada (12/11/2026): o "sim" evolui, e a pergunta nomeia o valor que falta', async () => {
         estado.db.orcamentista_tabela_item.push(ITEM_1023(null, 6.09))
-        expect(questionamento(await arquivoEDepoisOSim())).toEqual([expect.stringMatching(/^• 1023\/WOLFF \(item 1\): o item 1023 da tabela de preço .* está sem o valor da barra\.$/)])
+        expect(questionamento(await arquivoEDepoisOSim())).toEqual([expect.stringMatching(/^• \[FORNECEDOR\] 1023\/WOLFF \(item 1\): o item 1023 da tabela de preço .* está sem o valor da barra\.$/)])
         expect(estado.documentos).toHaveLength(1)
     })
 
     it('O MOTOR DE HOJE (o BZ0012 em CLICK, antes de o arquivo corrigido entrar): a ponte não tem Branco, e a descrição do 10491 ("BASE DE GUARNIÇAO") não traz o nome técnico — FALTA nomeada do BZ0012 (12/11/2026)', async () => {
         estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
         for (const r of estado.db.orcamentista_motor_regra as Linha[]) if (r.codigo_wvetro === 'BZ0012/WOLFF') r.cor = 'CLICK'
-        expect(questionamento(await arquivoEDepoisOSim())).toEqual([expect.stringMatching(/^• BZ0012\/WOLFF \(BASE DE GUARNIÇAO\) em Branco não está na tabela de preço.* \(itens 1, 2\)\.$/)])
+        expect(questionamento(await arquivoEDepoisOSim())).toEqual([expect.stringMatching(/^• \[FORNECEDOR\] BZ0012\/WOLFF \(BASE DE GUARNIÇAO\) em Branco não está na tabela de preço.* \(itens 1, 2\)\.$/)])
         expect(estado.documentos).toHaveLength(1)
     })
 
@@ -6820,7 +6820,7 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
         const r = await confirmarApanhado()
         expect(r.split('\n')[0]).toMatch(/^O orçamento 1 saiu PARCIAL — faltam \d+ valores\. Para completar, preciso de:$/)
         // os OITO perfis com variante de cor — e também o BZ0006 e o BZ0010, de variante única BRANCO: a variante única só serve para a cor que é
-        const codigos = r.split('\n').filter((l) => l.startsWith('• ')).map((l) => /^• (\S+)/.exec(l)?.[1]).sort()
+        const codigos = r.split('\n').filter((l) => l.startsWith('• ')).map((l) => /^• (?:\[[A-Z]+\] )?(\S+)/.exec(l)?.[1]).sort()
         // (20/11/2026) o 2575 (AMP340, o arremate de piso da DP-39) SAIU: ARRP tem Padrão 1 = SIM no motor, acrescenta a peça, e nem o vendedor nem
         // a política da empresa o pedem — entra a principal (ARRP = 0, NÃO), a regra da travessa para toda variável
         expect(codigos).toEqual(['BZ0006/WOLFF', 'BZ0010/WOLFF', 'GB25/WOLFF', 'HF88/WOLFF', 'IL50/WOLFF', 'SF92/WOLFF', 'SP66/WOLFF'])
@@ -6831,7 +6831,7 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
 
     it('o MESMO CÓDIGO EM DUAS LINHAS da tabela de preço é falta AMBÍGUA (12/11/2026): nenhuma linha é escolhida, e a pergunta nomeia as duas', async () => {
         estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09), ITEM_1023(60.9, 10.15))
-        expect(questionamento(await arquivoEDepoisOSim())).toEqual([expect.stringMatching(/^• 1023\/WOLFF \(.*\) em Branco tem 2 candidatos na tabela de preço, e nenhum é escolhido.* \(item 1\)\.$/)])
+        expect(questionamento(await arquivoEDepoisOSim())).toEqual([expect.stringMatching(/^• \[FORNECEDOR\] 1023\/WOLFF \(.*\) em Branco tem 2 candidatos na tabela de preço, e nenhum é escolhido.* \(item 1\)\.$/)])
         expect(estado.documentos).toHaveLength(1)
     })
 
@@ -6839,7 +6839,7 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
         estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09), { codigo: '10502', descricao: 'GUARNIÇÃO', medida_barra_m: 6, valor_barra_interno: 60, valor_metro_interno: 10, tabela_id: TABELA })
         estado.db.orcamentista_motor_regra.push({ id: 'r-gb-dois', codigo: '10502', codigo_wvetro: 'BZ0006/WOLFF', cor: 'BRANCO', tabela_id: null, motor_id: MOTOR, tipologias: ['DP-39', 'DP-01'] })
         expect(questionamento(await arquivoEDepoisOSim())).toEqual([
-            '• BZ0006/WOLFF (itens 1, 2): o perfil BZ0006/WOLFF em Branco tem 2 códigos na tabela do fornecedor: 10501 (R$ 52,71 a barra) e 10502 (R$ 60,00 a barra). Um valor por código: falta dizer qual deles é a peça.',
+            '• [FORNECEDOR] BZ0006/WOLFF (itens 1, 2): o perfil BZ0006/WOLFF em Branco tem 2 códigos na tabela do fornecedor: 10501 (R$ 52,71 a barra) e 10502 (R$ 60,00 a barra). Um valor por código: falta dizer qual deles é a peça.',
         ])
         expect(estado.documentos).toHaveLength(1)
     })
@@ -6847,7 +6847,7 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
     it.each([
         ['a COR escrita de DOIS JEITOS no motor (BRANCO e Branco no BZ0010)', () => {
             estado.db.orcamentista_motor_regra.push({ id: 'r-gb-grafia', codigo: '10512', codigo_wvetro: 'BZ0010/WOLFF', cor: 'Branco', tabela_id: null, motor_id: MOTOR, tipologias: ['DP-39', 'DP-01'] })
-        }, 'dizer qual grafia da cor Branco vale para o perfil BZ0010/WOLFF: BRANCO ou Branco (itens 1 e 2)'],
+        }, '[MOTOR] dizer qual grafia da cor Branco vale para o perfil BZ0010/WOLFF: BRANCO ou Branco (itens 1 e 2)'],
         ['o item SEM O COMPRIMENTO da barra (o 9641 sem medida)', () => {
             estado.db.orcamentista_tabela_item.find((i) => i.codigo === '9641')!.medida_barra_m = null
         }, null],
@@ -6856,7 +6856,7 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
         preparar()
         const r = corpo(await arquivoEDepoisOSim())
         if (falta) expect(r).toBe(recusaDoSim([falta]))
-        else expect(r).toBe(recusaDoSim(['o comprimento da barra do código 9641, perfil HF88/WOLFF, na tabela de preço (item 1)']))
+        else expect(r).toBe(recusaDoSim(['[FORNECEDOR] o comprimento da barra do código 9641, perfil HF88/WOLFF, na tabela de preço (item 1)']))
         expect(estado.documentos).toHaveLength(1)
     })
 
@@ -6873,7 +6873,7 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
         estado.db.orcamentista_motor_tipologia_tempo = estado.db.orcamentista_motor_tipologia_tempo.filter((t) => t.tipologia !== 'DP-01')
         const r = corpo(await arquivoEDepoisOSim())
         expect(r.startsWith(recusaDoSim([FALTA_DO_TEMPO_DA_DP01, 'X']).split('\n').slice(0, 2).join('\n'))).toBe(true)
-        expect(r).toMatch(/\n• Item 1: 1023\/WOLFF \(.*\) em Branco tem 2 candidatos na tabela de preço, e nenhum é escolhido/)
+        expect(r).toMatch(/\n• \[FORNECEDOR\] Item 1: 1023\/WOLFF \(.*\) em Branco tem 2 candidatos na tabela de preço, e nenhum é escolhido/)
     })
 
     it('A REGRA ÚNICA depois do "sim": a peça maior que a barra, que não é cadastro de preço, também recusa — uma linha por código, com a maior peça', async () => {
@@ -6881,7 +6881,7 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
         const hf88 = estado.db.orcamentista_tabela_item.find((i) => i.codigo === '9641')!
         hf88.medida_barra_m = 1
         const r = corpo(await arquivoEDepoisOSim())
-        expect(r).toBe(recusaDoSim(['uma barra em que caiba a maior peça do código 9641, perfil HF88/WOLFF: a peça tem 2506 mm e a barra, 1000 mm (item 1)']))
+        expect(r).toBe(recusaDoSim(['[MOTOR] uma barra em que caiba a maior peça do código 9641, perfil HF88/WOLFF: a peça tem 2506 mm e a barra, 1000 mm (item 1)']))
         expect(r).not.toContain('Para trocar')
     })
 
@@ -6918,7 +6918,7 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             llmResponde({ confirma: true, fala: FALA_DO_VALOR })
             await chamar('sim')
             expect(ultimoEnviado().split('\n')[0]).toBe(ABERTURA_DO_PARCIAL)
-            expect(ultimoEnviado()).toMatch(/• 1023\/WOLFF \(CLICK GUIA [^\n]* \(item 1\)\./)
+            expect(ultimoEnviado()).toMatch(/• \[FORNECEDOR\] 1023\/WOLFF \(CLICK GUIA [^\n]* \(item 1\)\./)
             estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
             // o "sim" que evoluiu fechou a pergunta em aberto: o vendedor volta ao levantamento PELO NOME, e o arquivo sai de novo para conferir
             llmResponde({ nome: 'Gerson Boss', fala: FALA_DO_VALOR })
@@ -6959,7 +6959,7 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             const [abertura, ...resto] = ultimoEnviado().split('\n')
             expect(abertura).toBe('O orçamento 1 continua PARCIAL: nada mudou no levantamento, e 1 valor continua sem preço. O arquivo dele vai de novo, sem recálculo.')
             expect(resto[0]).toBe('Para completar, preciso de:')
-            expect(resto.slice(1)).toEqual([expect.stringMatching(/^• 1023\/WOLFF \(CLICK GUIA [^\n]* \(item 1\)\.$/)])
+            expect(resto.slice(1)).toEqual([expect.stringMatching(/^• \[FORNECEDOR\] 1023\/WOLFF \(CLICK GUIA [^\n]* \(item 1\)\.$/)])
             expect(ultimoEnviado()).not.toBe(fraseDoOrcamentoJaAtualizado(1))
             // nada recalculado, nada gerado: o arquivo que existe vai de novo
             expect(estado.documentosDoOrcamento).toHaveLength(doOrcamentoAntes + 1)
@@ -7036,7 +7036,7 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             const recusa = corpo(await confirmarApanhado())
             // a falta, sem propor um vidro que o vendedor não escreveu (25/11/2026, pedido 0027)
             expect(recusa).toBe(recusaDoSim(
-                ['o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm (item 1, DP-39)'],
+                ['[MOTOR] o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm (item 1, DP-39)'],
             ))
             // a definição MUDA: o arquivo sai de novo, e o "sim" de antes não vale para ela
             llmResponde({ nome: 'Gerson Boss', alteracao: true, itens: [{ ordem: 1, vidro: 'temperado incolor 8mm' }] })
