@@ -158,6 +158,11 @@ describe('A PEÇA QUE NÃO EXISTE NA COR DO PERFIL e o REFORÇO INTERNO SEM COR 
         const r = resolverPelaReferencia(pede('9125/WOLFF', 'AMADEIRADO GOLDEN OAK'), T9125)
         expect(r && 'item' in r ? r.item.codigo : null).toBe('91259')
     })
+    it('a esquadria BRANCA nunca leva o PRETO: a peça que só existe em PRETO continua falta nomeada', () => {
+        const soPreto = [T9125[1]]
+        expect(achado(resolverPelaReferencia(pede('9125/WOLFF', 'BRANCO'), soPreto))).toEqual(['REFERENCIA_SEM_A_COR'])
+        expect(achado(resolverPelaReferencia(pede('9125/WOLFF', 'Branco'), soPreto))).toEqual(['REFERENCIA_SEM_A_COR'])
+    })
     it('a esquadria BRANCA continua no BRANCO, sem substituição; e a cor que EXISTE vence o PRETO', () => {
         const r = resolverPelaReferencia(pede('9125/WOLFF', 'BRANCO'), T9125)
         expect(r && 'item' in r ? [r.item.codigo, r.substituicao] : r).toEqual(['91251', undefined])
