@@ -1,11 +1,11 @@
 /**
  * O RELATÓRIO DE CORTE (dono do produto, 16/11/2026): por código, as peças a cortar e o plano de barras com a barra e a serra GRAVADAS.
  */
-import { corteDoCodigo, fraseDaBarraDivergente, fraseDaSerraDivergente, fraseDoCodigoSemBarra, montarRelatorioDeCorte, type PecaDoCorte } from '@/lib/atendimentos-ia/relatorio-de-corte'
+import { corteDoCodigo, fraseDaCorDivergente, fraseDaBarraDivergente, fraseDaSerraDivergente, fraseDoCodigoSemBarra, montarRelatorioDeCorte, type PecaDoCorte } from '@/lib/atendimentos-ia/relatorio-de-corte'
 
 const p = (comprimento_mm: number, quantidade: number, extra: Partial<PecaDoCorte> = {}): PecaDoCorte => ({
     perfil: 'SF66/WOLFF', codigo: '9681', descricao: 'SF66 - FOLHA', comprimento_mm, quantidade_por_esquadria: quantidade, quantidade,
-    corte: '45S/45S', posicao: 'Largura', comprimento_barra_mm: 6000, serra_mm: 5, ...extra,
+    corte: '45S/45S', posicao: 'Largura', comprimento_barra_mm: 6000, serra_mm: 5, cor: 'BRANCO', ...extra,
 })
 
 describe('corteDoCodigo', () => {
@@ -49,5 +49,19 @@ describe('montarRelatorioDeCorte', () => {
         expect(r.categorias.map((c) => [c.rotulo, c.codigos.map((x) => x.codigo)])).toEqual([['Perfil', ['9681']], ['Reforço', ['8427']]])
         expect(r.semCategoria.map((c) => c.codigo)).toEqual(['X'])
         expect(r.ambiguos.map((c) => [c.codigo, c.categorias])).toEqual([['Y', ['PERFIL', 'REFORCO']]])
+    })
+})
+
+describe('pedido 0034: o plano do relatório de corte é o das barras do pedido — o refilo pela cor do item', () => {
+    it('a cor decide o refilo: 3 × 1.970 cabem numa barra branca e não numa preta (45 mm por ponta)', () => {
+        const branca = corteDoCodigo([p(1970, 3)]).plano
+        const preta = corteDoCodigo([p(1970, 3, { cor: 'PRETO TEXTURADO' })]).plano
+        expect('n_barras' in branca && branca.n_barras).toBe(1)
+        expect('n_barras' in preta && preta.n_barras).toBe(2)
+    })
+    it('o mesmo código em itens de cores diferentes não tem um plano só: nomeado', () => {
+        expect(corteDoCodigo([p(1000, 1), p(900, 1, { cor: 'PRETO' })]).plano).toEqual({ semPlano: fraseDaCorDivergente('9681', ['BRANCO', 'PRETO']) })
+        // a mesma cor em outra caixa é a mesma cor
+        expect('n_barras' in corteDoCodigo([p(1000, 1), p(900, 1, { cor: 'branco' })]).plano).toBe(true)
     })
 })

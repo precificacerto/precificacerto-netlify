@@ -10,6 +10,7 @@
  * Puro.
  */
 import { agruparEmBarras, type BarraCortada } from './agrupador-de-barras'
+import { normalizarCor } from './regra-das-barras'
 import { agruparPorCategoria } from './categoria-do-relatorio'
 
 export type PecaDoCorte = {
@@ -28,6 +29,8 @@ export type PecaDoCorte = {
     comprimento_barra_mm: number | null
     /** A serra do cálculo (a da base de conhecimento, naquele momento). */
     serra_mm: number
+    /** A cor do perfil do item (pedido 0034): decide o refilo, a mesma regra das barras do pedido. Nula quando o item não a tem. */
+    cor: string | null
 }
 
 /** Uma linha de corte: as peças iguais (mesmo comprimento, corte e posição) do código, somadas no pedido. */
@@ -42,6 +45,8 @@ export const fraseDoCodigoSemBarra = (codigo: string) =>
     `o código ${codigo} não teve barra no cálculo (sem preço ou sem a medida da barra na tabela): as peças estão aqui, o plano de barras não`
 export const fraseDaBarraDivergente = (codigo: string, barras: readonly number[]) =>
     `o código ${codigo} foi calculado com barras diferentes nos itens (${barras.map((b) => `${b} mm`).join(', ')}): recalcule o orçamento para um plano só`
+export const fraseDaCorDivergente = (codigo: string, cores: readonly string[]) =>
+    `o código ${codigo} está em itens de cores diferentes (${cores.join(', ')}): o refilo depende da cor, e o plano de barras não é um só`
 export const fraseDaSerraDivergente = (codigo: string, serras: readonly number[]) =>
     `o código ${codigo} foi calculado com serras diferentes nos itens (${serras.map((s) => `${s} mm`).join(', ')}): recalcule o orçamento para um plano só`
 
@@ -68,10 +73,14 @@ export function corteDoCodigo(pecas: readonly PecaDoCorte[]): CodigoDoCorte {
     if (serras.length > 1) return { ...base, plano: { semPlano: fraseDaSerraDivergente(p0.codigo, serras.sort((a, b) => a - b)) } }
     const barra_mm = barras[0] as number
     const serra_mm = serras[0]
+    // a cor do código (pedido 0034): decide o refilo; duas cores no mesmo código não têm um plano só
+    const cores = [...new Set(pecas.map((p) => normalizarCor(p.cor)))]
+    if (cores.length > 1) return { ...base, plano: { semPlano: fraseDaCorDivergente(p0.codigo, [...new Set(pecas.map((p) => p.cor ?? '(sem cor)'))].sort()) } }
     const r = agruparEmBarras({
         pecas: linhas.map((l) => ({ codigo: p0.codigo, comprimento_mm: l.comprimento_mm, quantidade: l.quantidade })),
         barras: { [p0.codigo]: { comprimento_mm: barra_mm } },
         serra_mm,
+        cor: p0.cor,
     })
     if ('recusas' in r) return { ...base, plano: { semPlano: r.recusas.map((x) => x.mensagem).join(' ') } }
     const c = r.por_codigo[0]

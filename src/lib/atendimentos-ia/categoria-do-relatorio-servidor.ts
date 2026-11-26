@@ -101,14 +101,14 @@ export async function classificacaoDoRelatorio(tenantId: string, linhas: readonl
     return { categoriasDoCodigo, motivos, ordem, rotulos }
 }
 
-export type ItemDoRelatorio = { id: string; ordem: number; calculo_id: string | null; familia: string | null }
+export type ItemDoRelatorio = { id: string; ordem: number; calculo_id: string | null; familia: string | null; /** A cor do perfil do item: decide o refilo das barras (pedido 0034). */ cor_perfil?: string | null }
 
 /** O orçamento do tenant (não apagado) e os itens que valem (sem `removido_em`), na ordem; 404 quando o orçamento não é da conta. */
 export async function itensDoRelatorio(tenantId: string, orcamentoId: string): Promise<ItemDoRelatorio[]> {
     const o = await db().from(TABELA_DO_ORCAMENTO).select('id').eq('tenant_id', tenantId).eq('id', orcamentoId).is('deleted_at', null).maybeSingle()
     if (o.error) falhou(TABELA_DO_ORCAMENTO, o.error)
     if (!o.data) throw new ErroNaoEncontrado()
-    const it = await db().from(TABELA_DO_ITEM).select('id, ordem, calculo_id, familia').eq('tenant_id', tenantId).eq('orcamento_id', orcamentoId).is('removido_em', null).order('ordem')
+    const it = await db().from(TABELA_DO_ITEM).select('id, ordem, calculo_id, familia, cor_perfil').eq('tenant_id', tenantId).eq('orcamento_id', orcamentoId).is('removido_em', null).order('ordem')
     if (it.error) falhou(TABELA_DO_ITEM, it.error)
     return (it.data ?? []) as ItemDoRelatorio[]
 }

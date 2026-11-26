@@ -294,7 +294,7 @@ describe('(4) A DP-02, L = 1200, H = 1000, MAE = 2, vidro 6 mm — peça a peça
     it('as peças são a entrada do agrupador de barras: ele as aceita e agrupa', () => {
         const r = ok(ENTRADA)
         const barras = Object.fromEntries([...new Set(r.pecas.map((x) => x.codigo))].map((c) => [c, { comprimento_mm: 6000 }]))
-        const g = G().agruparEmBarras({ pecas: r.pecas, barras, serra_mm: 5 })
+        const g = G().agruparEmBarras({ pecas: r.pecas, barras, serra_mm: 5, cor: 'BRANCO' })
         if ('recusas' in g) throw new Error('o agrupador recusou: ' + g.recusas.map((x) => x.mensagem).join(' | '))
         expect(g.por_codigo.reduce((s, c) => s + c.n_pecas, 0)).toBe(r.pecas.reduce((s, x) => s + x.quantidade, 0))
     })

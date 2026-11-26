@@ -5,7 +5,7 @@
  * ══ ISTO NÃO É O PREÇO ══
  * O orçamento cobra o CONSUMO de cada item (`aproveitamento_modo = SEM`, com o motivo gravado). O aproveitamento de barras é do PEDIDO, depois
  * do fechamento: este módulo só LÊ as peças que o cálculo já gravou e diz como cortá-las. Não toca em valor nenhum do orçamento, e não usa o
- * agrupador do preço (`agrupador-de-barras.ts`, first fit, sem refilo, último corte só com sobra) — as regras daqui são outras, as do WVetro.
+ * mesmo núcleo do agrupador do levantamento e do relatório de corte (`regra-das-barras.ts`, pedido 0034): uma contagem só, a do WVetro.
  *
  * ══ AS REGRAS (medidas e validadas contra o WVetro, 41 de 41 perfis do orçamento 661 — `claude/REGRA_Otimizacao_Barras_WVetro.md`) ══
  *   - AGRUPAMENTO: por PERFIL (o código da tabela) + COR, todas as esquadrias da obra juntas. Códigos ou cores diferentes nunca se misturam.
@@ -29,6 +29,7 @@
  *
  * Puro: não lê banco nem rede.
  */
+import { empacotar, normalizarCor, paraMm, paraUm, refiloDaCor } from './regra-das-barras'
 
 /** Uma peça gravada pelo cálculo, com o item de onde veio. `quantidade` é a do pedido (a por esquadria vezes a do item). */
 export type PecaDoPedido = {
@@ -88,21 +89,8 @@ export type TotalDoPedido = {
 }
 export type BarrasDoPedido = { perfis: PlanoDoPerfil[]; semPlano: PerfilSemPlano[]; total: TotalDoPedido }
 
-export const REFILO_POR_PONTA_MM = 45
-/** A ÚNICA cor sem refilo, normalizada (sem acento, maiúscula, espaço simples). */
-export const COR_SEM_REFILO = 'BRANCO'
-const normalizarCor = (cor: string | null) => (cor ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim()
-/**
- * O refilo por ponta da cor: 0 no BRANCO, 45 em qualquer outra; ou o motivo de não decidir — a cor ausente, ou um nome composto com BRANCO
- * ("EXTERNO BRANCO"), que o PO decide antes.
- */
-export function refiloDaCor(cor: string | null): number | { motivo: string } {
-    const c = normalizarCor(cor)
-    if (c === '') return { motivo: 'o item não tem a cor do perfil, e o refilo depende dela (o branco aproveita a barra inteira; as outras cores perdem 45 mm por ponta)' }
-    if (c === COR_SEM_REFILO) return 0
-    if (/\bBRANCO\b/.test(c)) return { motivo: `a cor "${cor}" tem BRANCO num nome composto: se leva o refilo de 45 mm por ponta é decisão do dono do produto, e nenhuma é suposta` }
-    return REFILO_POR_PONTA_MM
-}
+// a regra é a de `regra-das-barras.ts` (pedido 0034): o mesmo núcleo do agrupador do levantamento e do relatório de corte
+export { REFILO_POR_PONTA_MM, COR_SEM_REFILO, refiloDaCor } from './regra-das-barras'
 
 export const fraseDoPerfilSemBarra = (codigo: string) =>
     `o código ${codigo} não teve barra no cálculo (sem a medida da barra na tabela): as peças existem, o plano de barras não`
@@ -113,9 +101,6 @@ export const fraseDasSerrasDivergentes = (codigo: string, serras: readonly numbe
 export const fraseDaPecaQueNaoCabe = (codigo: string, peca_mm: number, util_mm: number, serra_mm: number) =>
     `a peça de ${peca_mm} mm do código ${codigo} não cabe na barra útil de ${util_mm} mm com o corte de ${serra_mm} mm: a peça não se emenda`
 
-const UM = 1000
-const paraUm = (mm: number) => Math.round(mm * UM)
-const paraMm = (um: number) => um / UM
 const porTexto = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
 /** O plano de UM grupo (código + cor). */
@@ -144,19 +129,11 @@ export function planoDoPerfil(pecas: readonly PecaDoPedido[], peso_kg_m: number 
     const maior = cortes.find((c) => c.um + serraUm > utilUm)
     if (maior) return { ...base, motivo: fraseDaPecaQueNaoCabe(p0.codigo, maior.comprimento_mm, paraMm(utilUm), serra_mm) }
 
-    // FFD best-fit: a barra aberta com a MENOR sobra que comporte a peça e o corte dela; nenhuma, barra nova
-    const abertas: Array<{ ocupadoUm: number; fracoes: FracaoDaBarra[] }> = []
-    for (const c of cortes) {
-        const consumo = c.um + serraUm
-        let melhor = -1
-        for (let k = 0; k < abertas.length; k++) {
-            const resto = utilUm - abertas[k].ocupadoUm
-            if (consumo <= resto && (melhor === -1 || resto < utilUm - abertas[melhor].ocupadoUm)) melhor = k
-        }
-        const fracao: FracaoDaBarra = { comprimento_mm: c.comprimento_mm, corte: c.corte, posicao: c.posicao, item: c.item, tipologia: c.tipologia }
-        if (melhor === -1) abertas.push({ ocupadoUm: consumo, fracoes: [fracao] })
-        else { abertas[melhor].ocupadoUm += consumo; abertas[melhor].fracoes.push(fracao) }
-    }
+    // FFD best-fit: a barra aberta com a MENOR sobra que comporte a peça e o corte dela; nenhuma, barra nova (`empacotar`, o núcleo único)
+    const abertas = empacotar(cortes, utilUm, serraUm).map((b) => ({
+        ocupadoUm: b.ocupadoUm,
+        fracoes: b.pecas.map((c): FracaoDaBarra => ({ comprimento_mm: c.comprimento_mm, corte: c.corte, posicao: c.posicao, item: c.item, tipologia: c.tipologia })),
+    }))
 
     const pecasUm = cortes.reduce((s, c) => s + c.um, 0)
     const compradoUm = abertas.length * paraUm(barra_mm)
