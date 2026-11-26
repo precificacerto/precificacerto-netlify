@@ -661,7 +661,8 @@ async function lerItensNoEscopo(motorId: string, tabelaIds: readonly string[]): 
         ultima = mais.length
     }
     const todos = itens.map((i) => ({ ...i, fornecedor_id: daTabela.get(i.tabela_id)?.fornecedor_id ?? '', categoria: daTabela.get(i.tabela_id)?.categoria_chave ?? null }))
-    return { noEscopoDoMotor: itens.filter((i) => noEscopo.has(i.tabela_id)), todos, fornecedorDoMotor: fornecedor }
+    // o item do escopo do perfil leva a CATEGORIA da tabela (pedido 0038): o reforço interno sem cor é decidido por ela
+    return { noEscopoDoMotor: todos.filter((i) => noEscopo.has(i.tabela_id)), todos, fornecedorDoMotor: fornecedor }
 }
 
 /** As configurações da categoria PERFIL da base de conhecimento DESTA empresa — uma por matéria-prima. */
@@ -1184,7 +1185,7 @@ async function calcularFamilia(
     const politica = await lerPoliticaDaEmpresa(tenantId, familia.familia)
     const decididas = itensDoGrupo.map((_, k) => {
         const t = lidas[dg.esquadrias[k].tipologia]
-        return t ? escolhasDoCalculo(t, ditas[k], politica) : { escolhas: ditas[k], origem: {}, voltas: [], ajustes: [], equivalencias: [], pelaTipologia: [] }
+        return t ? escolhasDoCalculo(t, ditas[k], politica, null, corDe(itensDoGrupo[k])) : { escolhas: ditas[k], origem: {}, voltas: [], ajustes: [], equivalencias: [], pelaTipologia: [] }
     })
     // O AJUSTE EM OBRA NO RASTRO (dono do produto, 21/11/2026): a opção que entrou no lugar da política muda material e preço — nunca calada
     const ajustesEmObra = dg.esquadrias.flatMap((e, k) => decididas[k].ajustes.map((a) => ({ e, a, valor: decididas[k].escolhas[a.variavel] })))
@@ -1195,6 +1196,8 @@ async function calcularFamilia(
     // A TIPOLOGIA MANDA (22/11/2026): a opção da política que a lista não tem deu lugar ao padrão da tipologia — registrado, nunca calado
     rastro.push(...dg.esquadrias.flatMap((e, k) => decididas[k].pelaTipologia.map((q) => `PELA_TIPOLOGIA:${e.numero}:${e.tipologia}:${q.variavel}=${decididas[k].escolhas[q.variavel]}`)))
     rastro.push(...dg.esquadrias.flatMap((e, k) => decididas[k].equivalencias.map((q) => `POLITICA_POR_EQUIVALENCIA:${e.numero}:${e.tipologia}:${q.variavel}=${decididas[k].escolhas[q.variavel]}`)))
+    // A PERSIANA PELA COR (pedido 0038): `PELA_COR:<item>:<tipologia>:PP=45/pela_cor` — o modelo que a cor pediu, no lugar do padrão do motor
+    rastro.push(...dg.esquadrias.flatMap((e, k) => Object.entries(decididas[k].origem).filter(([, o]) => o === 'pela_cor').map(([v]) => `PELA_COR:${e.numero}:${e.tipologia}:${v}=${decididas[k].escolhas[v]}/pela_cor`)))
     const escolhas = decididas.map((x) => x.escolhas)
     dg.esquadrias.forEach((e, k) => { if (lidas[e.tipologia]) e.escolhas = descreverArremate(lidas[e.tipologia], escolhas[k], decididas[k].origem) })
     const voltas = dg.esquadrias.flatMap((e, k) => decididas[k].voltas.map((v) => faltaComEsquadrias(v.frase, [e.numero], d.esquadrias.length, e.tipologia)))
@@ -1242,6 +1245,9 @@ async function calcularFamilia(
     // a troca de cada opção padrão que não valia vai ao rastro: `OPCAO_TROCADA:<item>:<tipologia>:RL=2/unica_valida_padrao_invalido` (pedido 0030)
     if (!('recusas' in r)) {
         rastro.push(...r.trocas.map((t) => `OPCAO_TROCADA:${dg.esquadrias[t.esquadria - 1]?.numero ?? t.esquadria}:${dg.esquadrias[t.esquadria - 1]?.tipologia ?? '-'}:${t.variavel}=${t.para}/${t.motivo}`))
+        // a peça que entrou em OUTRA cor, ou sem cor (pedido 0038): `COR_DA_PECA:9125/WOLFF:cor=PRETO/peca_sem_a_cor`, `COR_DA_PECA:1352/WOLFF:sem_cor/reforco_sem_cor`
+        rastro.push(...Object.values(r.resolucoes).flatMap((x) => (x.substituicao
+            ? [`COR_DA_PECA:${x.perfil ?? x.item.codigo}:${x.substituicao === 'peca_sem_a_cor' ? `cor=${x.item.cor ?? '-'}` : 'sem_cor'}/${x.substituicao}`] : [])))
     }
     // a mão de obra é lida MESMO com as barras recusadas: a falta de TEMPO sai junto com a de preço, de uma vez (08/11/2026)
     // a REVENDA não lê tempo nem mão de obra: a família de revenda não fabrica (23/11/2026)

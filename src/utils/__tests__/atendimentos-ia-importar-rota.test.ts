@@ -45,6 +45,12 @@ jest.mock('@/supabase/admin', () => ({
     },
 }))
 
+// A LISTA DE CORES DO FORNECEDOR (pedido 0038): a importação confere a cor de cada item contra ela; o caso escolhe a lista (vazia = sem lista)
+const listaDeCores: { nomes: string[] } = { nomes: [] }
+jest.mock('@/lib/atendimentos-ia/cores-do-fornecedor', () => ({
+    lerCoresDosFornecedores: async (ids: string[]) => ({ porFornecedor: new Map(ids.map((id) => [id, listaDeCores.nomes.map((nome, k) => ({ grupo: 'PERFIS DE PVC', codigo: String(k + 1), nome }))])), leitura: 'lida' }),
+}))
+
 import { abasDoSpec } from './fixtures/abas-do-motor-do-spec'
 import { ABAS_DO_MOTOR } from '@/utils/atendimentos-ia-abas-do-motor'
 
@@ -722,6 +728,24 @@ describe('TABELA DE PREÇO PURO — sem arquivo de motor (Reforço, Acessórios�
         expect(repo.importarTabela.mock.calls[0][0].payload.itens.map((i: any) => [i.codigo, i.referencia_perfil, i.cor, i.codigo_wvetro]))
             .toEqual([['9641', 'HF88', 'BRANCO', null], ['96420', 'HF88', 'PRETO TEXTURADO', null], ['8432', '8432', null, null], ['SEM', null, 'BRANCO', null]])
         expect(r.json.avisos.map((a: any) => a.tipo)).not.toContain('colunas_sem_destino_no_layout_unico')
+    })
+    it('A COR FORA DA LISTA DO FORNECEDOR (pedido 0038): na tabela de PERFIL vai VAZIA e o aviso nomeia; na de VIDRO (a variante) nada se confere', async () => {
+        listaDeCores.nomes = ['BRANCO', 'PRETO LISO']
+        try {
+            await comReferencias('PERFIL', [['9641', 'HF88', 'BRANCO'], ['96436', 'HF88', 'PRETO LISO TOTAL'], ['96437', 'HF88', 'preto liso']])
+            const r = await chamar('POST')
+            expect(r.status).toBe(200)
+            expect(repo.importarTabela.mock.calls[0][0].payload.itens.map((i: any) => [i.codigo, i.cor])).toEqual([['9641', 'BRANCO'], ['96436', null], ['96437', 'preto liso']])
+            expect(r.json.avisos.filter((a: any) => a.tipo === 'cor_fora_da_lista_do_fornecedor').map((a: any) => a.cores)).toEqual([[{ cor: 'PRETO LISO TOTAL', itens: 1 }]])
+            repo.importarTabela.mockClear()
+            await comReferencias('VIDRO', [['LJ-VFIN05', 'VFIN05', 'INCOLOR']])
+            const v = await chamar('POST')
+            expect(v.status).toBe(200)
+            expect(repo.importarTabela.mock.calls[0][0].payload.itens.map((i: any) => i.cor)).toEqual(['INCOLOR'])
+            expect(v.json.avisos.map((a: any) => a.tipo)).not.toContain('cor_fora_da_lista_do_fornecedor')
+        } finally {
+            listaDeCores.nomes = []
+        }
     })
     it('a referência do perfil vale para TODA categoria que não é vidro (os perfis do motor estão também em INSTALACAO e PERSIANAS)', async () => {
         for (const categoria of ['INSTALACAO', 'PERSIANAS', 'FERRAGENS']) {

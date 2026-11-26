@@ -178,6 +178,8 @@ export interface FormulaLida {
 }
 
 export type Aviso =
+    | { tipo: 'cor_fora_da_lista_do_fornecedor'; cores: Array<{ cor: string; itens: number }>; mensagem: string }
+    | { tipo: 'fornecedor_sem_lista_de_cores'; mensagem: string }
     | { tipo: 'celula_com_erro'; aba: string; linha: number; coluna: number; mensagem: string }
     | { tipo: 'celula_nao_numerica'; aba: string; linha: number; coluna: number; mensagem: string }
     | { tipo: 'codigo_normalizado'; aba: string; linha: number; antes: string; depois: string; mensagem: string }
@@ -558,6 +560,32 @@ export const fraseDaReferenciaDoPerfilRepetida = (repetidas: ReadonlyArray<{ ref
     + 'A referência + a cor acham UM item: corrija o arquivo. Nada foi alterado.'
 /** A cor para comparar, como a resolução a compara (sem acento, sem caixa, só letras e números); a vazia é "sem cor". */
 export const corParaComparar = (cor: string | null) => (cor ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim()
+
+/** O LADO do perfil de duas cores ("… LADO MAIOR", "… LADO MENOR"): não é outra cor — a cor é o nome da lista, e o lado vem depois dele. */
+const SEM_O_LADO = (cor: string) => cor.replace(/\s+LADO\s+(MAIOR|MENOR)$/, '')
+export const fraseDasCoresForaDaLista = (cores: ReadonlyArray<{ cor: string; itens: number }>) =>
+    `a cor de ${cores.reduce((n, c) => n + c.itens, 0)} item(ns) não está na lista de cores do fornecedor, e foi gravada vazia (nunca outro nome): `
+    + `${cores.slice(0, 10).map((c) => `"${c.cor}" (${c.itens})`).join(', ')}${cores.length > 10 ? `, e mais ${cores.length - 10}` : ''}. Corrija a cor no arquivo, ou a lista de cores do fornecedor.`
+export const FRASE_DO_FORNECEDOR_SEM_LISTA_DE_CORES = 'o fornecedor não tem a lista de cores (aba CORES): a cor dos itens foi gravada como veio, sem conferência.'
+/**
+ * A COR SÓ É GRAVADA SE ESTIVER NA LISTA DO FORNECEDOR (dono do produto, 26/11/2026, pedido 0038; Critérios §4.2): a cor do item que não é um nome da
+ * lista (`orcamentista_fornecedor_cor`, comparada como a resolução compara, e com o "LADO MAIOR/MENOR" depois do nome) vai VAZIA, e o aviso nomeia
+ * cada uma com a quantidade — nunca outro nome no lugar. Sem lista, nada se confere, e o aviso diz. A tabela de VIDRO não passa por aqui: nela a
+ * coluna é a variante do vidro, não a cor do perfil.
+ */
+export function coresDaListaDoFornecedor<I extends { cor: string | null }>(itens: readonly I[], lista: readonly string[]): { itens: I[]; aviso: Aviso | null } {
+    if (lista.length === 0) return { itens: [...itens], aviso: { tipo: 'fornecedor_sem_lista_de_cores', mensagem: FRASE_DO_FORNECEDOR_SEM_LISTA_DE_CORES } }
+    const valem = new Set(lista.map((c) => corParaComparar(c)).filter((c) => c !== ''))
+    const fora = new Map<string, number>()
+    const saida = itens.map((i) => {
+        const c = corParaComparar(i.cor)
+        if (c === '' || valem.has(c) || valem.has(SEM_O_LADO(c))) return i
+        fora.set(String(i.cor), (fora.get(String(i.cor)) ?? 0) + 1)
+        return { ...i, cor: null }
+    })
+    const cores = [...fora.entries()].map(([cor, n]) => ({ cor, itens: n })).sort((a, b) => b.itens - a.itens || (a.cor < b.cor ? -1 : 1))
+    return { itens: saida, aviso: cores.length ? { tipo: 'cor_fora_da_lista_do_fornecedor', cores, mensagem: fraseDasCoresForaDaLista(cores) } : null }
+}
 export const fraseDosItensSemReferencia = (codigos: readonly string[]) =>
     `${codigos.length} ${codigos.length === 1 ? 'item veio' : 'itens vieram'} sem a referência (${COLUNA_DA_REFERENCIA_DO_ITEM}) — ${nomeados(codigos)}: `
     + `${codigos.length === 1 ? 'ele não é achado' : 'eles não são achados'} pelo vidro padrão nem pelo vidro escolhido, só pelo que o vendedor disser.`

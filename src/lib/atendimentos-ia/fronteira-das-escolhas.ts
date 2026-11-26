@@ -32,7 +32,7 @@ import { avaliarTexto, opcoesDaVariavel, type Tipologia } from '@/lib/atendiment
 import { PECAS_QUE_NAO_ENTRAM_POR_PADRAO } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { naturezaNaPolitica, traduzirPolitica, type PoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa'
 
-export type OrigemDaEscolha = 'vendedor' | 'politica' | 'politica_ajuste_em_obra' | 'tipologia' | 'calculo' | 'padrao_do_motor' | 'principal'
+export type OrigemDaEscolha = 'vendedor' | 'politica' | 'politica_ajuste_em_obra' | 'tipologia' | 'calculo' | 'pela_cor' | 'padrao_do_motor' | 'principal'
 export type VoltaAoAgente = { variavel: string; descricao: string; frase: string }
 /** `ajustes`: as variáveis em que a política não existia na variação e entrou a opção de ajuste em obra (ou a 1), com o motivo — o rastro. */
 /** `equivalencias`: as variáveis em que a opção da política entrou com outro rótulo (a lista não separa a chave), com o motivo — o rastro. */
@@ -74,7 +74,16 @@ export const fraseDaVoltaSemPrincipal = (tipologia: string, descricao: string, o
  * As escolhas com que o motor vai avaliar a esquadria, decididas FORA dele. `ditas` são as do vendedor (e as que o agente já gravou); `descricao`
  * é a da tipologia, para a ressalva da travessa.
  */
-export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<string, number>>, politica: PoliticaDaEmpresa, descricao: string | null = null): EscolhasDoCalculo {
+/**
+ * A PERSIANA PELA COR DA ESQUADRIA (dono do produto, 26/11/2026, pedido 0038; como o WVetro faz no orçamento 1207, todo em preto liso): o modelo
+ * da palheta (`PP`: 37 = PVC 37 mm, 57 = PVC 57 mm, 45 = alumínio 45 mm) tem o padrão PELA COR — BRANCO dá 37 (a persiana de PVC, que só existe
+ * em branco); qualquer outra cor dá 45 (o alumínio, que entra em PRETO pela peça sem a cor). O vendedor que disse o modelo vence, e a política da
+ * empresa também; a opção que a tipologia não tem não entra.
+ */
+export const VARIAVEL_DA_PALHETA = 'PP'
+export const palhetaPelaCor = (cor: string): number => (semAcento(cor).toUpperCase().trim() === 'BRANCO' ? 37 : 45)
+export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<string, number>>, politica: PoliticaDaEmpresa, descricao: string | null = null,
+    cor: string | null = null): EscolhasDoCalculo {
     const escolhas: Record<string, number> = { ...ditas }
     const origem: Record<string, OrigemDaEscolha> = Object.fromEntries(Object.keys(ditas).map((k) => [k, 'vendedor' as const]))
     const voltas: VoltaAoAgente[] = []
@@ -115,6 +124,15 @@ export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<s
         if (sem === null) { voltas.push({ variavel: v.variavel, descricao: v.descricao ?? v.variavel, frase: `a política da empresa diz ${t.campo} = não, e nenhuma opção de ${v.variavel} da tipologia ${tipologia.codigo} é a de menos peças` }); continue }
         escolhas[v.variavel] = sem
         origem[v.variavel] = 'politica'
+    }
+    // 2b. a PERSIANA PELA COR (pedido 0038): no lugar do padrão do motor, o modelo que a cor da esquadria pede
+    const palheta = cor === null ? undefined : comOpcoes.find((v) => v.variavel === VARIAVEL_DA_PALHETA)
+    if (palheta && cor !== null && escolhas[palheta.variavel] === undefined && !voltas.some((x) => x.variavel === palheta.variavel) && ativa(palheta.condicao, valores())) {
+        const pelaCor = palhetaPelaCor(cor)
+        if ((opcoesDaVariavel(palheta.opcoes) ?? []).some((o) => o.valor === pelaCor)) {
+            escolhas[palheta.variavel] = pelaCor
+            origem[palheta.variavel] = 'pela_cor'
+        }
     }
     // 3, 4 e 5. o padrão do motor, só quando não acrescenta peça; senão a principal; senão volta ao agente
     for (const v of comOpcoes) {

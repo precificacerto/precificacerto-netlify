@@ -77,8 +77,10 @@ import {
   previaDaTroca,
   type ResultadoDaLeitura,
   CATEGORIA_COM_VARIANTES,
+  coresDaListaDoFornecedor,
   referenciasDaCategoria,
 } from '@/utils/atendimentos-ia-importacao'
+import { lerCoresDosFornecedores } from '@/lib/atendimentos-ia/cores-do-fornecedor'
 
 // 90 s: ~9 s lendo do Storage e parseando, ~19 s até o comando começar no banco (18,1 MB de corpo,
 // medidos em produção em 25/10/2026), até LIMITE_DA_GRAVACAO_S (35 s) de gravação, e folga. Há portão
@@ -165,6 +167,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   if (declarada === null) lida.avisos.push({ tipo: 'tabela_sem_categoria_declarada', mensagem: FRASE_DA_TABELA_SEM_CATEGORIA_DECLARADA })
   if (doArquivo.semCategoria > 0) lida.avisos.push({ tipo: 'itens_sem_categoria_do_fornecedor', itens: doArquivo.semCategoria, mensagem: fraseDosItensSemCategoriaDoFornecedor(doArquivo.semCategoria) })
+
+  // 5b'. A COR SÓ VALE SE ESTIVER NA LISTA DO FORNECEDOR (pedido 0038): fora da lista, a cor do item vai vazia e o aviso nomeia — nunca outro nome.
+  // A tabela de VIDRO não passa: a coluna dela é a variante do vidro
+  if (declarada !== CATEGORIA_COM_VARIANTES) {
+    let lista: string[]
+    try {
+      lista = ((await lerCoresDosFornecedores([tabela.fornecedor_id])).porFornecedor.get(tabela.fornecedor_id) ?? []).map((c) => c.nome)
+    } catch (e) {
+      return falhaInterna(res, 'importação (cores do fornecedor)', e, 'Não foi possível ler a lista de cores do fornecedor.')
+    }
+    const conferidas = coresDaListaDoFornecedor(lida.itens, lista)
+    lida.itens = conferidas.itens
+    if (conferidas.aviso) lida.avisos.push(conferidas.aviso)
+  }
 
   // 5c. A REFERÊNCIA DO VIDRO (dono do produto, 24/11/2026): na tabela de VIDRO o `codigo_wvetro` é gravado, e a referência repetida no arquivo é
   // recusa nomeada antes de qualquer gravação; nas outras categorias a coluna segue sem destino. SEM `?? null` na categoria, como acima.

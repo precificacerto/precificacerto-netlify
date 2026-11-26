@@ -75,7 +75,7 @@ import type { CategoriaDoFornecedor } from '@/utils/atendimentos-ia-importacao-c
  */
 import { avaliarTipologia, faltaDoVidroSemBaguete, type AvisoDoAvaliador, type FaltaDoAvaliador, type InsumoAvaliado, type OrigemNoMotor, type Tipologia, type TrocaDaOpcao, type VidroAvaliado } from './avaliador-de-formulas'
 import { agruparEmBarras, milimetrosDaBarra, type BarraDoCodigo, type ResultadoDoCodigo, type TotalDoLevantamento } from './agrupador-de-barras'
-import { GRUPO_DE_COR, candidatasDoDegrau, resolverPelaReferencia, resolverReferencia, type ComoAchou, type CorDoFornecedor } from './resolucao-de-referencia'
+import { GRUPO_DE_COR, candidatasDoDegrau, resolverPelaReferencia, resolverReferencia, type ComoAchou, type CorDoFornecedor, type SubstituicaoDaCor } from './resolucao-de-referencia'
 
 
 // ── A entrada ─────────────────────────────────────────────────────────────────────────────
@@ -241,7 +241,8 @@ export type ResultadoDoLevantamento =
          * A RESOLUÇÃO DE CADA CÓDIGO (12/11/2026): pelo código do motor, o item da tabela de onde veio o preço e COMO foi achado
          * (`resolucao-de-referencia.ts`). É o que a fotografia do material grava, para auditar como cada preço foi parar ali.
          */
-        resolucoes: Record<string, { item: ItemDaTabela; como: ComoAchou }>
+        /** `substituicao` (pedido 0038): o item NÃO é da cor pedida — a peça entrou em PRETO, ou o reforço sem cor; vai ao rastro, nunca calada. */
+        resolucoes: Record<string, { item: ItemDaTabela; como: ComoAchou; substituicao?: SubstituicaoDaCor; perfil?: string }>
     }
     | { ok: false; recusas: RecusaDoLevantamento[] }
 
@@ -477,7 +478,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
     const perfis = distintos(brutas.map((p) => p.perfil))
     const codigoDoPerfil: Record<string, string> = {}
     const itemDoCodigo: Record<string, ItemDaTabela> = {}
-    const resolucoes: Record<string, { item: ItemDaTabela; como: ComoAchou }> = {}
+    const resolucoes: Record<string, { item: ItemDaTabela; como: ComoAchou; substituicao?: SubstituicaoDaCor; perfil?: string }> = {}
     const faltas: FaltaDePreco[] = []
     const tipologiaDa = new Map(levantadas.map((l) => [l.indice, l.tipologia]))
     const contexto = { cores: entrada.cores ?? [], grupoDeCor: GRUPO_DE_COR.perfil }
@@ -524,7 +525,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
         const codigo = codigoDaPonte !== null && r.como === 'ponte' ? codigoDaPonte : it.codigo
         codigoDoPerfil[perfil] = codigo
         itemDoCodigo[codigo] = it
-        resolucoes[codigo] = { item: it, como: r.como }
+        resolucoes[codigo] = { item: it, como: r.como, ...(r.substituicao ? { substituicao: r.substituicao, perfil } : {}) }
     }
 
     // 4. o agrupador, com as peças que têm código e item — mesmo havendo recusa, para que as dele
