@@ -1,11 +1,11 @@
 /**
  * PORTÃO — A RESOLUÇÃO DE REFERÊNCIA (dono do produto, 12/11/2026, o comando único): o módulo ÚNICO que a conferência e o cálculo usam. A escada
- * é ponte → exato (o sufixo do fornecedor dentro) → código + cor (pela tabela de cores do fornecedor) → nome técnico na descrição, e o GUARDA
- * vale nos quatro degraus: pelo menos uma palavra significativa em comum com a descrição do motor. Os códigos e as descrições abaixo são os de
+ * é ponte → exato (o sufixo do fornecedor dentro) → nome técnico na descrição, e o GUARDA vale nos três degraus (o degrau "código + cor"
+ * saiu em 26/11/2026, pedido 0036: base e cor só se juntam na importação): pelo menos uma palavra significativa em comum com a descrição do motor. Os códigos e as descrições abaixo são os de
  * produção (Wolf, lidos em 12/11/2026); as cores, as da aba CORES que a migração 20261112000006 grava.
  */
 import {
-    COMO_ACHOU, GRUPO_DE_COR, baseDaFamilia, baseDaPonte, candidatasDoDegrau, corAfirmada, corAfirmadaEhAPedida, codigoComCor, coresNaDescricao, nomeTecnicoNaDescricao, nomeiaOutraCor, palavrasSignificativas, resolverReferencia,
+    COMO_ACHOU, GRUPO_DE_COR, baseDaFamilia, candidatasDoDegrau, corAfirmada, corAfirmadaEhAPedida, coresNaDescricao, nomeTecnicoNaDescricao, nomeiaOutraCor, palavrasSignificativas, resolverReferencia,
     semOSufixo, sufixoDoFornecedor, tabelaNoEscopo, type CorDoFornecedor, type ReferenciaProcurada,
 } from '@/lib/atendimentos-ia/resolucao-de-referencia'
 
@@ -30,10 +30,6 @@ describe('as formas', () => {
         expect(semOSufixo('0123/WOLFF', 'WOLFF')).toBe('0123')
         expect(semOSufixo('94718.1', 'WOLFF')).toBe('94718.1')
         expect(semOSufixo('ANC-242/VEZA', 'WOLFF')).toBe('ANC-242/VEZA')
-    })
-    it('o código + o dígito da cor; o ".1" (face menor) fica no fim', () => {
-        expect(codigoComCor('1317', '1')).toBe('13171')
-        expect(codigoComCor('1317.1', '1')).toBe('13171.1')
     })
     it('as palavras significativas: sem ligação, sem número ou medida, sem as cores do fornecedor e sem o nome técnico', () => {
         expect([...palavrasSignificativas('ESCOVA DE VEDAÇÃO COM BARREIRA 10X6MM - PRETO IL50', CORES, 'IL50')].sort()).toEqual(['BARREIRA', 'ESCOVA', 'VEDACAO'])
@@ -67,16 +63,14 @@ describe('a escada, degrau a degrau', () => {
         expect(como(resolverReferencia(ref('2202/WOLFF', 'MARCO JANELA'), [item('2202', 'MARCO JANELA 60')], PERFIL))).toBe('exato:2202')
         expect(como(resolverReferencia(ref('2202', 'MARCO JANELA'), [item('2202/WOLFF', 'MARCO JANELA 60')], PERFIL))).toBe('exato:2202/WOLFF')
     })
-    it('3) a COR pela tabela do fornecedor: 1317 + BRANCO = 13171, e 1317.1 + BRANCO = 13171.1', () => {
+    it('3) o código + o dígito da cor NÃO se monta no cálculo (pedido 0036, §4.3): 1317 em BRANCO não acha o 13171 — é falta nomeada', () => {
         const itens = [item('13171', 'MARCO JANELA LINHA 60 BRANCO'), item('13171.1', 'MARCO JANELA LINHA 60 FACE MENOR BRANCO')]
-        expect(como(resolverReferencia(ref('1317/WOLFF', 'MARCO JANELA'), itens, PERFIL))).toBe('cor:13171')
-        expect(como(resolverReferencia(ref('1317.1/WOLFF', 'MARCO JANELA'), itens, PERFIL))).toBe('cor:13171.1')
-    })
-    it('3) sem cor pedida, NÃO se assume branco; cor fora da tabela é "não resolvido"', () => {
-        const itens = [item('13171', 'MARCO JANELA LINHA 60 BRANCO')]
-        expect(como(resolverReferencia(ref('1317/WOLFF', 'MARCO JANELA', null), itens, PERFIL))).toBe('SEM_COR')
-        expect(como(resolverReferencia(ref('1317/WOLFF', 'MARCO JANELA', 'ROXO'), itens, PERFIL))).toBe('COR_FORA_DA_TABELA')
-        expect(candidatasDoDegrau('cor', ref('1317/WOLFF', 'MARCO JANELA', 'ROXO'), itens, PERFIL).pulado).toBe('COR_FORA_DA_TABELA')
+        for (const [codigo, cor] of [['1317/WOLFF', 'BRANCO'], ['1317.1/WOLFF', 'BRANCO'], ['1317/WOLFF', null], ['1317/WOLFF', 'ROXO']] as const) {
+            const r = resolverReferencia(ref(codigo, 'MARCO JANELA', cor), itens, PERFIL)
+            expect(como(r)).toBe('NAO_ACHADA')
+            expect('candidatas' in r ? r.candidatas : null).toEqual([])
+        }
+        expect(COMO_ACHOU).not.toContain('cor')
     })
     it('4) o NOME TÉCNICO na descrição: SF92/WOLFF → 9691', () => {
         expect(como(resolverReferencia(ref('SF92/WOLFF', 'FOLHA DE PORTA'), [item('9691', 'SF92 - FOLHA DE PORTA - BRANCO')], PERFIL))).toBe('nome_tecnico:9691')
@@ -91,11 +85,12 @@ describe('a escada, degrau a degrau', () => {
         expect(como(r)).toBe('SEM_TABELA_DE_CORES')
         expect('frase' in r ? r.frase : '').toContain('o fornecedor não tem a tabela de cores')
     })
-    it('4) PROVA (caso Gerson Boss): o SF92 em Roxo NÃO cai no reforço que cita o SF92 — havendo o item que É o produto, só ele conta', () => {
+    it('4) PROVA (caso Gerson Boss): o SF92 em Roxo NÃO cai no reforço que cita o SF92 — cada candidato passa pelo guarda, e todos são recusados, nomeados', () => {
         const itens = [item('9691', 'SF92 - FOLHA DE PORTA - BRANCO'), item('8427', 'REFORÇO FOLHA SF92 AÇO GALVANIZADO (Z275) (PE679-5)'), item('83571', 'EMBELEZADOR EUROPA SF92')]
         const r = resolverReferencia(ref('SF92/WOLFF', 'FOLHA DE PORTA', 'PRETO TEXTURADO'), itens, PERFIL)
         expect(como(r)).toBe('DESCRICAO_NAO_CONCORDA')
-        expect('candidatas' in r ? r.candidatas.map((c) => c.item.codigo) : []).toEqual(['9691'])
+        // sem a preferência pelo "item que começa com o nome" (pedido 0036), a falta nomeia os três, cada um com a razão da recusa
+        expect('candidatas' in r ? r.candidatas.map((c) => c.item.codigo).sort() : []).toEqual(['83571', '8427', '9691'])
         // e sem o item ancorado, o que cita o nome segue para o guarda (sem cor pedida: o reforço de aço não tem cor)
         expect(como(resolverReferencia(ref('SF92/WOLFF', 'REFORÇO FOLHA', null), itens.slice(1), PERFIL))).toBe('nome_tecnico:8427')
     })
@@ -137,27 +132,30 @@ describe('a escada, degrau a degrau', () => {
     it('4) o código só de números não é nome técnico', () => {
         expect(candidatasDoDegrau('nome_tecnico', ref('8384', 'PERSIANA'), [item('9000', 'PERSIANA 8384')], PERFIL).candidatas).toEqual([])
     })
-    it('4) o DESEMPATE: o BY60 — 22321 tem VENEZIANA + JAPONESA, as cremalheiras só VENEZIANA', () => {
+    it('4) SEM DESEMPATE (pedido 0036, §3.5): o BY60 com três que passam no guarda é AMBÍGUO — nem pelas palavras em comum, nem o primeiro', () => {
         const itens = [
             item('22321', 'VENEZIANA JAPONESA BY60 - BRANCO'), item('22330', 'CREMALHEIRA VENEZIANA BY60 - BRANCO'), item('22331', 'CREMALHEIRA DA VENEZIANA BY60 - BRANCO'),
         ]
-        expect(como(resolverReferencia(ref('BY60/WOLFF', 'VENEZIANA JAPONESA'), itens, PERFIL))).toBe('nome_tecnico:22321')
-    })
-    it('4) prefere a descrição que COMEÇA com o nome; empate nas palavras é falta, nunca o primeiro', () => {
-        const comeca = [item('9711', 'IL36 - INTERLOCK JANELA - BRANCO'), item('9712', 'INTERLOCK JANELA IL36 MAO DE AMIGO - BRANCO')]
-        expect(como(resolverReferencia(ref('IL36/WOLFF', 'INTERLOCK JANELA'), comeca, PERFIL))).toBe('nome_tecnico:9711')
-        const empate = [item('A1', 'INTERLOCK JANELA IL36 - BRANCO'), item('A2', 'INTERLOCK JANELA LONGO IL36 - BRANCO')]
-        const r = resolverReferencia(ref('IL36/WOLFF', 'INTERLOCK JANELA'), empate, PERFIL)
+        const r = resolverReferencia(ref('BY60/WOLFF', 'VENEZIANA JAPONESA'), itens, PERFIL)
         expect(como(r)).toBe('AMBIGUA')
-        expect('candidatas' in r ? r.candidatas.map((c) => c.item.codigo).sort() : []).toEqual(['A1', 'A2'])
+        expect('candidatas' in r ? r.candidatas.map((c) => c.item.codigo).sort() : []).toEqual(['22321', '22330', '22331'])
+    })
+    it('4) a descrição que COMEÇA com o nome não vence as outras (pedido 0036): duas que passam no guarda são falta; uma só que passa é achada', () => {
+        const comeca = [item('9711', 'IL36 - INTERLOCK JANELA - BRANCO'), item('9712', 'INTERLOCK JANELA IL36 MAO DE AMIGO - BRANCO')]
+        const r = resolverReferencia(ref('IL36/WOLFF', 'INTERLOCK JANELA'), comeca, PERFIL)
+        expect(como(r)).toBe('AMBIGUA')
+        expect('candidatas' in r ? r.candidatas.map((c) => c.item.codigo).sort() : []).toEqual(['9711', '9712'])
+        // a que só CITA o nome e não concorda com a descrição do motor cai no guarda: sobra uma, e é ela
+        const umaSo = [item('9711', 'IL36 - INTERLOCK JANELA - BRANCO'), item('9347', 'ESCOVA DE VEDACAO COM BARREIRA IL36 - BRANCO')]
+        expect(como(resolverReferencia(ref('IL36/WOLFF', 'INTERLOCK JANELA'), umaSo, PERFIL))).toBe('nome_tecnico:9711')
     })
 })
 
 describe('o GUARDA, nos quatro degraus', () => {
-    it('PROVA: 1756 (VENEZIANA TROPICAL) não leva o 17569 (MAÇANETA CELSUS) pela cor', () => {
+    it('PROVA: 1756 (VENEZIANA TROPICAL) não leva o 17569 (MAÇANETA CELSUS): sem o degrau da cor, ele nem é candidato', () => {
         const r = resolverReferencia(ref('1756/WOLFF', 'VENEZIANA TROPICAL'), [item('17569', 'MACANETA CELSUS PRETA')], { cores: [{ grupo: GRUPO_DE_COR.perfil, codigo: '9', nome: 'BRANCO' }], grupoDeCor: GRUPO_DE_COR.perfil })
-        expect(como(r)).toBe('DESCRICAO_NAO_CONCORDA')
-        expect('frase' in r ? r.frase : '').toContain('17569')
+        expect(como(r)).toBe('NAO_ACHADA')
+        expect('candidatas' in r ? r.candidatas : null).toEqual([])
     })
     it('PROVA: IL50 (INTERLOCK PORTA) não leva a escova 9347 — o "IL50" do fim é o nome técnico, e não conta', () => {
         const r = resolverReferencia(ref('IL50/WOLFF', 'INTERLOCK PORTA'), [item('9347', 'ESCOVA DE VEDACAO COM BARREIRA 10X6MM IL50')], PERFIL)
@@ -191,46 +189,29 @@ describe('a falta é nomeada, nunca palpite', () => {
         expect(como(resolverReferencia(ref('0123', 'MARCO'), [item('123', 'MARCO')], PERFIL))).toBe('NAO_ACHADA')
     })
     it('a ordem da escada é a do comando', () => {
-        expect(COMO_ACHOU).toEqual(['ponte', 'exato', 'cor', 'nome_tecnico'])
+        expect(COMO_ACHOU).toEqual(['ponte', 'exato', 'nome_tecnico'])
     })
 })
 
-describe('o código-base que a ponte afirma, no degrau da cor (dono do produto, 17/11/2026: "o perfil é o 1317; o último número, ou os dois últimos, são a cor")', () => {
+describe('a base da ponte + a cor NÃO se montam no cálculo (pedido 0036, §4.3; substitui a decisão de 17/11/2026 "o último número são a cor")', () => {
     // produção, 17/11/2026: a ponte do GB8/WOLFF dá 9831 em BRANCO e as laminadas com "LAMINADO …" na cor, que não é o nome da tabela de cores
     const GB8 = [{ codigo: '9831', cor: 'BRANCO' }, { codigo: '98320', cor: 'LAMINADO PRETO TEXTURADO' }, { codigo: '98330', cor: 'LAMINADO BRONZE' }]
     const BAGUETES = [item('9831', 'BAGUETE  DE 8MM - BRANCO'), item('98320', 'BAGUETE  DE 8MM - LAMINADO PRETO TEXTURADO'), item('98330', 'BAGUETE  DE 8MM - LAMINADO BRONZE')]
     const comPonte = (codigoDoMotor: string, descricao: string, cor: string, ponteDoCodigo: Array<{ codigo: string; cor: string | null }>): ReferenciaProcurada =>
         ({ codigoDoMotor, codigoDaPonte: null, ponteDoCodigo, descricaoDoMotor: descricao, corPedida: cor })
-
-    it('a família dos códigos da ponte dá a base (983)', () => {
-        expect(baseDaPonte(GB8, CORES.filter((c) => c.grupo === GRUPO_DE_COR.perfil))).toBe('983')
+    it('GB8/WOLFF em PRETO TEXTURADO, com a ponte, não acha o 98320 por 983 + 20: é falta nomeada', () => {
+        const r = resolverReferencia(comPonte('GB8/WOLFF', 'BAGUETE DE 8MM', 'PRETO TEXTURADO', GB8), BAGUETES, PERFIL)
+        expect('item' in r).toBe(false)
+        expect(como(r)).toBe('NAO_ACHADA')
     })
-    it('uma linha só: a cor ESCRITA na ponte e o dígito dela na tabela de cores dão a base (10511 em BRANCO → 1051)', () => {
-        expect(baseDaPonte([{ codigo: '10511', cor: 'BRANCO' }], CORES.filter((c) => c.grupo === GRUPO_DE_COR.perfil))).toBe('1051')
-    })
-    it('sem cor na ponte, cor fora da tabela, código que não termina no dígito, ou bases que discordam: vazio', () => {
-        const perfil = CORES.filter((c) => c.grupo === GRUPO_DE_COR.perfil)
-        expect(baseDaPonte([{ codigo: '10511', cor: null }], perfil)).toBe('')
-        expect(baseDaPonte([{ codigo: '10511', cor: 'ROXO' }], perfil)).toBe('')
-        expect(baseDaPonte([{ codigo: '10512', cor: 'BRANCO' }], perfil)).toBe('')
-        expect(baseDaPonte([{ codigo: '10511', cor: 'BRANCO' }, { codigo: '20520', cor: 'PRETO TEXTURADO' }], perfil)).toBe('')
-        expect(baseDaPonte([], perfil)).toBe('')
-    })
-    it('GB8/WOLFF em PRETO TEXTURADO acha o 98320 pelo degrau da cor (983 + 20); sem a ponte, não acha', () => {
-        expect(como(resolverReferencia(comPonte('GB8/WOLFF', 'BAGUETE DE 8MM', 'PRETO TEXTURADO', GB8), BAGUETES, PERFIL))).toBe('cor:98320')
-        expect(como(resolverReferencia(comPonte('GB8/WOLFF', 'BAGUETE DE 8MM', 'PRETO TEXTURADO', []), BAGUETES, PERFIL))).not.toBe('cor:98320')
-    })
-    it('o guarda da descrição continua valendo: o código da base + cor que é outra peça é recusado', () => {
-        const outra = [item('98320', 'REFORÇO FOLHA AÇO GALVANIZADO')]
-        expect(como(resolverReferencia(comPonte('GB8/WOLFF', 'BAGUETE DE 8MM', 'PRETO TEXTURADO', GB8), outra, PERFIL))).toBe('DESCRICAO_NAO_CONCORDA')
-    })
-    it('a base do código do motor continua valendo (1317 + 1 = 13171), e as duas bases não duplicam o candidato', () => {
-        const r = resolverReferencia(comPonte('1317/WOLFF', 'PERSIANA PVC 57MM', 'BRANCO', [{ codigo: '13171', cor: 'BRANCO' }]), [item('13171', 'PERSIANA PVC 57MM - BRANCO')], PERFIL)
-        expect(como(r)).toBe('cor:13171')
+    it('1317/WOLFF em BRANCO com a ponte 13171: o 13171 só é achado se a PONTE o der como código (o degrau da ponte), nunca por 1317 + 1', () => {
+        const itens = [item('13171', 'PERSIANA PVC 57MM - BRANCO')]
+        expect(como(resolverReferencia(comPonte('1317/WOLFF', 'PERSIANA PVC 57MM', 'BRANCO', [{ codigo: '13171', cor: 'BRANCO' }]), itens, PERFIL))).toBe('NAO_ACHADA')
+        expect(como(resolverReferencia({ ...comPonte('1317/WOLFF', 'PERSIANA PVC 57MM', 'BRANCO', []), codigoDaPonte: '13171' }, itens, PERFIL))).toBe('ponte:13171')
     })
 })
 
-describe('o ponto nunca se dissolve no degrau da cor (tarefa 0014; medido na conferência do motor 259035a9 em 21/11/2026)', () => {
+describe('o ponto nunca se dissolve (tarefa 0014; medido na conferência do motor 259035a9 em 21/11/2026)', () => {
     // a ponte do BZ4556/WOLFF como está em produção: 1027.1 (PVC) e 10271 (ALUMÍNIO) em BRANCO, e as laminadas
     const BZ4556 = [{ codigo: '1027.1', cor: 'BRANCO' }, { codigo: '10271', cor: 'BRANCO' }, { codigo: '102720', cor: 'PRETO TEXTURADO' }, { codigo: '102730', cor: 'LAMINADO BRONZE' }]
     const refDe = (codigoDaPonte: string): ReferenciaProcurada =>
@@ -238,13 +219,8 @@ describe('o ponto nunca se dissolve no degrau da cor (tarefa 0014; medido na con
     // a tabela da empresa tem só o de alumínio (o caso de produção): o 1027.1 pedido NÃO pode cair no 10271
     const TABELA = [item('10271', 'BZ4556 - TRILHO CENTRAL DE PERSIANA - ALUMÍNIO - BRANCO'), item('102720', 'BZ4556 - TRILHO CENTRAL DE PERSIANA - PRETO TEXTURADO')]
 
-    it('o 1027.1 (PVC) pedido não cai no 10271 (alumínio): a cor procura 10271.1, que não está, e a falta é nomeada', () => {
-        expect(candidatasDoDegrau('cor', refDe('1027.1'), TABELA, PERFIL).candidatas.map((i) => i.codigo)).toEqual([])
+    it('o 1027.1 (PVC) pedido não cai no 10271 (alumínio): a falta é nomeada', () => {
         expect(como(resolverReferencia(refDe('1027.1'), TABELA, PERFIL))).toBe('NAO_ACHADA')
-    })
-    it('com o 10271.1 cadastrado, é ele que a cor acha', () => {
-        const comPvc = [...TABELA, item('10271.1', 'BZ4556 - TRILHO CENTRAL DE PERSIANA - PVC - BRANCO')]
-        expect(candidatasDoDegrau('cor', refDe('1027.1'), comPvc, PERFIL).candidatas.map((i) => i.codigo)).toEqual(['10271.1'])
     })
     it('o nome técnico também não troca o ponto: o 10271 (sem ponto) não serve ao 1027.1, e o 10271.1 serve', () => {
         expect(candidatasDoDegrau('nome_tecnico', refDe('1027.1'), TABELA, PERFIL).candidatas).toEqual([])

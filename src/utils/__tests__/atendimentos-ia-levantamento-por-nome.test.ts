@@ -6814,7 +6814,7 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
     it('o preço E o tempo faltando: o tempo é RECUSA e segura o "sim" — e UMA FALTA NÃO ESCONDE A OUTRA (08/11/2026): o 1023 sem preço sai junto, nomeado', async () => {
         estado.db.orcamentista_motor_tipologia_tempo = estado.db.orcamentista_motor_tipologia_tempo.filter((t) => t.tipologia !== 'DP-01')
         expect(corpo(await arquivoEDepoisOSim())).toBe(recusaDoSim([FALTA_DO_TEMPO_DA_DP01,
-            '[FORNECEDOR] Item 1: 1023/WOLFF (CLICK GUIA DE ALUMÍNIO PARA TRILHO DE PVC) em Branco não está na tabela de preço: nem pelo código, nem pela cor, nem pelo nome técnico na descrição.']))
+            '[FORNECEDOR] Item 1: 1023/WOLFF (CLICK GUIA DE ALUMÍNIO PARA TRILHO DE PVC) em Branco não está na tabela de preço: nem pelo código, nem pelo nome técnico na descrição.']))
         expect(estado.documentos).toHaveLength(1)
         expect(estado.documentosDoOrcamento).toEqual([])
     })
