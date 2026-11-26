@@ -223,7 +223,7 @@ import { lerTextosDoCaminho } from '@/lib/atendimentos-ia/textos-do-caminho-serv
 import { blocoDasDescricoesDasEtapas, blocoDasInstrucoesDasEtapas, type InstrucaoDaEtapa } from '@/lib/atendimentos-ia/motor-da-familia'
 import { aberturaDita, cabeNosLimites, filtrarPeloAcumulado, filtrarPorAbertura, fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, linhaDaEsquadria, medidasNaOrdemEscrita, numeroOuNulo, palavrasDeAbertura } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { lerPoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa-servidor'
-import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, modulosNaoDitos, variavelDeModulos, semAsPecasNaoPedidas, variaveisSemPadraoNoPrompt, variaveisSemPadraoParaOPrompt } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
+import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, modulosNaoDitos, paraOAgente, variavelDeModulos, semAsPecasNaoPedidas, variaveisSemPadraoNoPrompt, variaveisSemPadraoParaOPrompt } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { permissaoDoRemetente, type Permissao } from '@/lib/atendimentos-ia/permissao-do-remetente'
 import {
     gerarArquivoDoLevantamento, lerLevantamentoDoArquivo, type Funcionario, lerNomeDaEmpresa, lerPerfilDoVendedor, lerVendedorDoRemetente, funcionariosPeloNome,
@@ -1666,7 +1666,10 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // (a etapa com GERAR_LEVANTAMENTO), por motor_id; os itens da montagem; e a pergunta em aberto do roteamento pelo nome — só fora da
         // montagem, que guarda a sua no levantamento — com os levantamentos do remetente que ela cita
         const [variaveisLidas, marcosLidos, itensDaMontagem, pergunta, limitesDaMontagem] = await Promise.all([
-            Promise.all(tabela.familias.map(async (f) => [f.familia, await lerVariaveisDasTipologias(f.levantamento.id)] as const)),
+            // a aba COMPLETA, lida uma vez (pedido 0037): o agente recebe a forma SEM o Padrão (`paraOAgente`, a fronteira de 20/11/2026), e a
+            // ESCOLHA DO DESENHO da folha recebe a completa — a condição do catálogo lê o padrão numérico (LT, LM, HI…), e sem ele 8 dos 11 itens
+            // do levantamento 28 saíram sem figura em 26/11/2026
+            Promise.all(tabela.familias.map(async (f) => [f.familia, await lerVariaveisDasTipologias(f.levantamento.id, 'documento')] as const)),
             // os marcos de correr (25/11/2026), na MESMA onda das Variáveis: a descrição da folha diz em quantos trilhos as folhas correm
             Promise.all(tabela.familias.map(async (f) => [f.familia, await lerMarcosDasTipologias(f.levantamento.id)] as const)),
             emMontagem ? lerItens(c.tenantId, emMontagem.id) : Promise.resolve([] as ItemGravado[]),
@@ -1682,7 +1685,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             // o pedido de autorização da medida fora do limite, gravado no item (18/11/2026)
             emMontagem ? lerLimites(c.tenantId, emMontagem.id) : Promise.resolve(new Map<number, LimiteDoItem>()),
         ] as const)
-        const { definicao, detalhe } = definicaoEDetalhe(tabela, Object.fromEntries(variaveisLidas), doCodigo, Object.fromEntries(marcosLidos))
+        const paraOAgenteDaFamilia = (porTipologia: Record<string, VariaveisDaTipologia>) => Object.fromEntries(Object.entries(porTipologia).map(([t, v]) => [t, paraOAgente(v)]))
+        const { definicao, detalhe } = definicaoEDetalhe(tabela, Object.fromEntries(variaveisLidas.map(([f, v]) => [f, paraOAgenteDaFamilia(v)])), doCodigo, Object.fromEntries(marcosLidos))
+        const definicaoDoDesenho = definicaoEDetalhe(tabela, Object.fromEntries(variaveisLidas), doCodigo, Object.fromEntries(marcosLidos)).definicao
         // TODAS as pendências da montagem (03/11/2026): a pergunta em aberto é uma só, e cobre todas
         const pendenciasAbertas = emMontagem ? pendenciasDoLevantamento(itensDaMontagem, definicao, doCodigo) : []
         const pendenciaAberta = pendenciasAbertas[0] ?? null
@@ -2825,7 +2830,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         let semApanhado = ''
         if (!vaiAoOrcamento) {
             // O ARQUIVO DO LEVANTAMENTO (dono do produto, 06/11/2026): a folha A4 no lugar da mensagem-resumo em texto; a confirmação é sobre ELE
-            const { dados, folha } = await gerarArquivoDoLevantamento({ tenantId: c.tenantId, levantamentoId: rastro.levantamento, itens: aplicada.itens, definicao, detalhe,
+            const { dados, folha } = await gerarArquivoDoLevantamento({ tenantId: c.tenantId, levantamentoId: rastro.levantamento, itens: aplicada.itens, definicao, detalhe, definicaoDoDesenho,
                 vidroPadrao: vidrosDaConta?.ok ? (i) => vidroNoConsiderado(vidrosDaConta!, i, tabela.candidatos) : undefined })
             if ('recusas' in folha) return await responder(fraseDoArquivoRecusado(folha.recusas), 'arquivo-recusado')
             if (!dados) return await responder(fraseDoArquivoRecusado(['O levantamento não foi achado.']), 'arquivo-recusado')

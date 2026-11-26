@@ -895,3 +895,10 @@ describe('(8) o aviso da tabela congelada', () => {
         expect(a.endsWith('; sem preço ou sem crédito apurável na congelada: 9999 (fora da conta, não somados como zero).')).toBe(true)
     })
 })
+
+describe('a versão do cálculo subiu com as regras de custo de 26/11/2026 (pedido 0037)', () => {
+    it('o orçamento calculado com a versão de 16/11 está obsoleto: o próximo "sim" o refaz (#346, #347, #349)', () => {
+        expect(VERSAO_DO_CALCULO).not.toBe('consumo-do-item-2026-11-16')
+        expect(VERSAO_DO_CALCULO).toBe('barras-unicas-pedido-total-peca-exata-2026-11-26')
+    })
+})

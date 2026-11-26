@@ -2023,6 +2023,27 @@ describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/202
     }
     const confirmar = async () => { llmResponde({ confirma: true }); await chamar('sim'); return ultimoEnviado() }
 
+    it('A FIGURA DO CATÁLOGO SAI NA FOLHA quando a condição lê o PADRÃO da aba (pedido 0037: o agente vê a aba sem o Padrão; o desenho, com ele)', async () => {
+        // a variável da DP-02 com padrão numérico, como no motor; a condição do desenho só casa por ele (o vendedor não a disse)
+        const doMotor = (estado.db.orcamentista_motor_variavel as Linha[]).filter((v) => v.motor_id === MOTOR && v.tipologia === 'DP-02' && /^\d+$/.test(String(v.padrao ?? '').trim()))
+        if (doMotor.length === 0) throw new Error('a fixture não tem variável da DP-02 com padrão numérico')
+        const v = doMotor[0]
+        const caminho = 'tipologias/pvc/DP02_padrao.png'
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const sharp = require('sharp') as typeof import('sharp')
+        const png = await sharp({ create: { width: 40, height: 30, channels: 3, background: { r: 200, g: 30, b: 30 } } }).png().toBuffer()
+        estado.storage.set(`atendimentos-ia/${caminho}`, new Uint8Array(png))
+        estado.db.orcamentista_tipologia_desenho = [
+            { id: 'd1', fonte: 'por_variavel', grupo: 'PVC', codigo: 'DP-02', descricao: null, condicao: `(${String(v.variavel)}=${String(v.padrao).trim()})`, caminho_no_storage: caminho },
+            { id: 'd2', fonte: 'por_variavel', grupo: 'PVC', codigo: 'DP-02', descricao: null, condicao: `(${String(v.variavel)}<>${String(v.padrao).trim()})`, caminho_no_storage: 'tipologias/pvc/outra.png' },
+        ]
+        await pedir()
+        const pdf = Buffer.from(String(estado.documentos[0].corpo.Document).replace(/^data:[^,]*,/, ''), 'base64').toString('latin1')
+        expect(pdf).toMatch(/\/Subtype \/Image/)
+        expect(textoDoArquivo()).not.toContain('SEM FIGURA')
+        expect(textoDoArquivo()).not.toContain(`depende da variável ${String(v.variavel)}`)
+    })
+
     it('a PRIMEIRA resposta é o ARQUIVO (um PDF) e a confirmação sobre ele — nenhuma mensagem-resumo, nenhum R$, nenhum código, nenhuma linha de barra', async () => {
         // o controle é o PDF do ORÇAMENTO, que chega depois do "sim": o que o arquivo do levantamento não tem, ele tem (13/11/2026: o
         // levantamento formal não vai mais por texto em caminho nenhum)
