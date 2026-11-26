@@ -220,7 +220,8 @@ export function avaliar(no: No, linha: Record<string, unknown>, definicao = ''):
             }
             case 'lit': case 'col': case 'fn': {
                 const x = v(n)
-                if (x === null || typeof x === 'boolean') return x
+                if (x === null) return null
+                if (typeof x === 'boolean') return x as boolean
                 throw new CheckQueNaoSeiAvaliar(`${JSON.stringify(x)} não é booleano em: ${definicao}`)
             }
         }

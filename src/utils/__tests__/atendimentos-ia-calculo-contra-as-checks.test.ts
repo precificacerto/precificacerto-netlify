@@ -40,16 +40,16 @@ function executar(tabela: string, op: string, carga: unknown, filtros: [string, 
     const linhas = (estado.db[tabela] ??= [])
     const casa = (l: Linha) => filtros.every(([tipo, c, v]) => (tipo === 'in' ? (v as unknown[]).includes(l[c]) : tipo === 'is' ? (l[c] ?? null) === v : l[c] === v))
     const projetar = (l: Linha) => (colunas === null || colunas === '*' ? { ...l } : Object.fromEntries(colunas.split(',').map((c) => c.trim()).map((c) => [c, l[c]])))
-    if (op === 'select') return { data: linhas.filter(casa).map(projetar), error: null }
+    if (op === 'select') return { data: linhas.filter(casa).map(projetar), error: null as null }
     const guardar = (l: Linha, escritas: Set<string> | null) => { if ((TABELAS as readonly string[]).includes(tabela)) estado.escritas.push({ tabela, op: op as Escrita['op'], linha: { ...l }, escritas }) }
     if (op === 'update') {
         const r = linhas.filter(casa)
         r.forEach((l) => { Object.assign(l, carga as Linha); guardar(l, new Set(Object.keys(carga as Linha))) })
-        return { data: r.map(projetar), error: null }
+        return { data: r.map(projetar), error: null as null }
     }
     const novas = (Array.isArray(carga) ? carga : [carga]) as Linha[]
     novas.forEach((l) => { linhas.push({ ...l }); guardar(l, null) })
-    return { data: novas, error: null }
+    return { data: novas, error: null as null }
 }
 function cliente() {
     return {
