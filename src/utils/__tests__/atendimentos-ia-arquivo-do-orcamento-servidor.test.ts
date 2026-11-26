@@ -127,14 +127,14 @@ beforeEach(() => {
 })
 
 describe('os itens do arquivo, montados do que está gravado', () => {
-    it('a DESCRIÇÃO é a resolvida (dono do produto, 24/11/2026, pedido 0023): os módulos do item, sem a linha e sem o tipo de modulação; um módulo não se escreve', async () => {
+    it('a DESCRIÇÃO é a resolvida (dono do produto, 24/11/2026, pedido 0023): os módulos do item, sem a linha e sem o tipo de modulação; um módulo é "com um módulo" (pedido 0035)', async () => {
         const comN = (escolhas: Record<string, number> | null) => { estado.db.orcamentista_orcamento_item[0] = { ...estado.db.orcamentista_orcamento_item[0], tipologia: 'DP-128', escolhas } }
         const descricao = async () => { const r = await S.itensDoArquivo(T, ORC); if ('recusa' in r) throw new Error(r.recusa); return r.itens[0].descricao }
         // o item antigo, sem N gravado: o Padrão do motor (1)
         comN(null)
-        expect(await descricao()).toBe('Maxim-ar')
+        expect(await descricao()).toBe('Maxim-ar com um módulo')
         comN({ N: 1 })
-        expect(await descricao()).toBe('Maxim-ar')
+        expect(await descricao()).toBe('Maxim-ar com um módulo')
         comN({ N: 2 })
         expect(await descricao()).toBe('Maxim-ar com 02 módulos horizontais')
         // em quantos trilhos as folhas correm (25/11/2026, pedido 0025): pelo marco que o motor escolhe para o item
