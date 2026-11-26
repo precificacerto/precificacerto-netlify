@@ -8267,19 +8267,19 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         expect(doMarco.length).toBeGreaterThan(0)
         for (const r of doMarco) expect(r.filtros).toContainEqual(['motor_id', MOTOR])
     })
-    it('OS TRILHOS com os dois marcos pela TM: vale o Padrão do motor (TM = 1, 2 trilhos); o marco REFILADO da monovia não conta', async () => {
+    it('OS TRILHOS com os dois marcos pela TM: vale o Padrão do motor (TM = 1, 2 trilhos); o REFILADO é a monovia, UM trilho a mais (pedido 0031)', async () => {
         const [largura, altura] = marcosDaDP02()
         largura.condicao = '(TM=1)'; altura.condicao = '(TM=1)'
         const perfis = estado.db.orcamentista_motor_perfil as Linha[]
         perfis.push({ ...largura, id: 'marco-3', descricao: 'MARCO DE CORRER - 3 TRILHOS', condicao: '(TM=2)' })
-        // o refilado, "sempre" e com OUTRO número: se contasse, dois marcos valeriam e nenhum trilho seria escrito
+        // o refilado, "sempre" e com OUTRO número: é a monovia, soma UM; o 4 da descrição dele não entra
         perfis.push({ ...largura, id: 'marco-refilado', descricao: 'MARCO DE CORRER - 4 TRILHOS', condicao: 'sempre', obs: 'MARCO - LARGURA (REFILADO)' })
         const modelo = (estado.db.orcamentista_motor_variavel as Linha[]).find((v) => v.tipologia === 'DP-02') as Linha
         ;(estado.db.orcamentista_motor_variavel as Linha[]).push({ ...modelo, id: 'v-tm', variavel: 'TM', descricao: 'TIPO DE MONTAGEM', padrao: '1', opcoes: '1 = MONTAGEM COM MARCO 02 VIAS - HF88; 2 = MONTAGEM COM MARCO 03 VIAS - HF112', condicao: 'sempre', min_max: null, ordem: 9997 })
         // a TM de OUTRO motor, com outro Padrão, não vale para este
         ;(estado.db.orcamentista_motor_variavel as Linha[]).push({ ...modelo, id: 'v-tm-outro', motor_id: 'outro-motor', variavel: 'TM', descricao: 'TIPO DE MONTAGEM', padrao: '2', opcoes: null, condicao: 'sempre', min_max: null, ordem: 9996 })
         estado.leituras = []
-        expect(await arquivoDaDaiane()).toContain('Item 1 Janela de correr 02 folhas móveis em 2 trilhos 1 1.200 1.000')
+        expect(await arquivoDaDaiane()).toContain('Item 1 Janela de correr 02 folhas móveis em 3 trilhos 1 1.200 1.000')
         expect(erros.filter((l) => l.startsWith('[TRILHOS]'))).toEqual([])
         for (const r of estado.leituras.filter((x) => x.tabela === 'orcamentista_motor_variavel')) expect(r.filtros).toContainEqual(['motor_id', MOTOR])
     })
