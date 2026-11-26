@@ -526,7 +526,7 @@ async function simDaFamilia(
         if (escolha) questionamentos = [fraseDoPedidoTotal(n), questionamentos].filter(Boolean).join('\n\n')
     } catch (e) {
         if (e instanceof ErroDoCalculo) return comAviso({ rastro: `${travessia} calculo=recusou recusas=${e.recusas.length} parou=calculo motivo="${e.recusas.join(' | ').slice(0, 120)}"`, paraOVendedor: naoChegou(null, `o cálculo do orçamento ${n} recusou. Falta: ${e.recusas.join('; ')}. Com isso cadastrado, abra o orçamento ${n} na seção Orçamentos I.A. e use Calcular`) })
-        return comAviso({ rastro: `${travessia} calculo=falhou parou=calculo motivo="${motivoDoLog(e)}"`, paraOVendedor: naoChegou(null, `o cálculo do orçamento ${n} falhou. Para tentar de novo, abra o orçamento ${n} na seção Orçamentos I.A. e use Calcular`) })
+        return comAviso({ rastro: `${travessia} calculo=falhou parou=calculo motivo="${erroCompletoDoLog(e)}"`, paraOVendedor: naoChegou(null, fraseDoErroDoSistema('o cálculo', n)) })
     }
     try {
         const etapa = await etapaDoPreco(r.orcamento.id)
@@ -535,10 +535,23 @@ async function simDaFamilia(
             ...(etapa.enviadoPara ? { enviadoPara: etapa.enviadoPara, idDoEnvio: etapa.idDoEnvio ?? null } : {}), ...(questionamentos ? { questionamentos } : {}),
         })
     } catch (e) {
-        return comAviso({ rastro: `${doCalculo} precificacao=falhou parou=precificacao motivo="${motivoDoLog(e)}"`, paraOVendedor: naoChegou(null, `a precificação do orçamento ${n} falhou. Para tentar de novo, abra o orçamento ${n} na seção Orçamentos I.A. e use Precificar`) })
+        return comAviso({ rastro: `${doCalculo} precificacao=falhou parou=precificacao motivo="${erroCompletoDoLog(e)}"`, paraOVendedor: naoChegou(null, fraseDoErroDoSistema('a precificação', n)) })
     }
 }
 /** Pedido 0034-B: a linha que diz ao vendedor o modo usado, quando é o pedido total. */
 export const fraseDoPedidoTotal = (n: string) => `O orçamento ${n} foi calculado pelo PEDIDO TOTAL: as barras inteiras do pedido, rateadas entre os itens na proporção do consumo de cada um.`
 const ROTULO_NO_LOG: Readonly<Record<PercentualComZero, string>> = { comissao_percentual: 'comissao', reserva_tecnica_percentual: 'rt', lucro_projetado_percentual: 'lucro' }
 const motivoDoLog = (e: unknown) => (e instanceof Error ? e.message.slice(0, 120) : 'desconhecido')
+/**
+ * PEDIDO 0039-A, item 3 (dono do produto, 26/11/2026): "Nunca o vendedor sem orçamento por erro nosso". A FALHA (não a recusa por falta de dado,
+ * que continua dizendo o que falta) é do SISTEMA: a frase diz isso e que o erro ficou registrado para a equipe, e não manda o vendedor abrir a tela
+ * e calcular — ele não tem o que corrigir. O executor do ciclo e o chat conferem `calculo=falhou` nos logs a cada deploy (item 2).
+ */
+export const fraseDoErroDoSistema = (etapa: 'o cálculo' | 'a precificação', n: string) =>
+    `${etapa} do orçamento ${n} não foi gravad${etapa === 'o cálculo' ? 'o' : 'a'} por um erro do sistema, não por algo que você fez. O erro já ficou registrado e a equipe foi avisada; quando for corrigido, diga "sim" de novo e o orçamento segue`
+/**
+ * O ERRO COMPLETO no log (0039-A, item 3): a mensagem inteira do banco — a CHECK com o nome, sem corte —, para a correção não depender de adivinhar
+ * o que faltou nos 120 caracteres. É a mensagem do erro (`tabela: message`), nunca o `details` do PostgREST, que traz a linha recusada e poderia
+ * levar texto do vendedor ao log. As aspas viram apóstrofo para a linha do log continuar legível pelo `motivo="…"`.
+ */
+const erroCompletoDoLog = (e: unknown) => (e instanceof Error ? e.message.replace(/"/g, "'").replace(/\s+/g, ' ').trim() : 'desconhecido')
