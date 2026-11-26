@@ -43,7 +43,7 @@ describe('a frase com o bloco', () => {
         expect(FALTA_DO_MODO_DA_COMISSAO.startsWith('[COMERCIAL] o modo da comissão')).toBe(true)
     })
     it('a mensagem ao vendedor: a falta com bloco continua curta ("Falta: [MOTOR] o tempo …"), e a lista põe o bloco no começo da linha', () => {
-        const d = { nome: 'Casa', cor: '', esquadrias: [] }
+        const d = { nome: 'Casa', cor: '', esquadrias: [] as never[] }
         expect(fraseDaRecusa(d, ['[MOTOR] o tempo de fabricação de DP-02'])).toBe('Não consegui fechar o levantamento “Casa”. Falta: [MOTOR] o tempo de fabricação de DP-02.')
         expect(fraseDaRecusa(d, ['[MOTOR] a', '[AGENTE] b'])).toBe('Não consegui fechar o levantamento “Casa”. Falta:\n• [MOTOR] a.\n• [AGENTE] b.')
         expect(linhasDasFaltasDoArquivo([{ codigo: '1352/WOLFF', itens: [1, 2], frase: '[FORNECEDOR] o item 1352 está sem o valor da barra.' } as never]))
