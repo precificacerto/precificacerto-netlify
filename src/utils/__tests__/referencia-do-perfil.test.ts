@@ -117,7 +117,7 @@ describe('o item que TEM referência só é achado por ela', () => {
         const comOutraReferencia = [item('9681', 'SF66 - FOLHA DE JANELA - BRANCO', 'SF66N', 'BRANCO')]
         const r = resolverReferencia(pedido('SF66/WOLFF', 'BRANCO', { descricaoDoMotor: 'FOLHA DE JANELA' }), comOutraReferencia, CTX)
         expect(achado(r)).toEqual(['NAO_ACHADA'])
-        if (!('item' in r)) expect(r.frase).toBe('SF66/WOLFF (FOLHA DE JANELA) em BRANCO não está na tabela de preço: nem pela referência do perfil (SF66), nem pelo código, nem pela cor, nem pelo nome técnico na descrição')
+        if (!('item' in r)) expect(r.frase).toBe('SF66/WOLFF (FOLHA DE JANELA) em BRANCO não está na tabela de preço: nem pela referência do perfil (SF66), nem pelo código, nem pelo nome técnico na descrição')
         // o controle: sem a referência, o nome técnico acha
         expect(achado(resolverReferencia(pedido('SF66/WOLFF', 'BRANCO', { descricaoDoMotor: 'FOLHA DE JANELA' }), [item('9681', 'SF66 - FOLHA DE JANELA - BRANCO')], CTX))).toEqual(['9681', 'nome_tecnico'])
     })
@@ -126,7 +126,7 @@ describe('o item que TEM referência só é achado por ela', () => {
         expect(achado(resolverReferencia(pedido('SF66/WOLFF', 'BRANCO', { descricaoDoMotor: 'FOLHA DE JANELA' }), deHoje, CTX))).toEqual(['9681', 'nome_tecnico'])
         const r = resolverReferencia(pedido('ZZ99/WOLFF', 'BRANCO'), deHoje, CTX)
         if ('item' in r) throw new Error('achou')
-        expect(r.frase).toBe('ZZ99/WOLFF (MARCO CORRER DUPLO COM ABA) em BRANCO não está na tabela de preço: nem pelo código, nem pela cor, nem pelo nome técnico na descrição')
+        expect(r.frase).toBe('ZZ99/WOLFF (MARCO CORRER DUPLO COM ABA) em BRANCO não está na tabela de preço: nem pelo código, nem pelo nome técnico na descrição')
     })
     it('a tabela MISTA (parte com referência, parte sem): o item sem referência continua na escada; o com referência, só pela referência', () => {
         const mista = [HF88_BRANCO, item('1023', 'CLICK GUIA DE ALUMÍNIO PARA TRILHO DE PVC')]

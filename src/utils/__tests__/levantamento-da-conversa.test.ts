@@ -491,10 +491,10 @@ describe('(1) a família da conta, o motor dela e as tipologias candidatas (PR D
         expect(r.desfecho).toBe('levantou')
         const aluminio = r.texto.split(/\n(?=Família )/).find((b) => b.startsWith('Família Alumínio — Perfis Sul'))!
         expect(aluminio).toContain('Sem preço — fica fora dos totais, e o orçamento sai PARCIAL:')
-        // o fornecedor da segunda família não tem a tabela de cores: a frase diz que a cor e o nome técnico não rodaram
+        // o 1023 é só número: sem o degrau "código + cor" (pedido 0036) e sem nome técnico (que exige letra), a falta é NAO_ACHADA, nomeada
         expect(aluminio).toMatch(/• \[FORNECEDOR\] 1023\/WOLFF \(CLICK GUIA DE ALUMÍNIO PARA TRILHO DE PVC\) em BRANCO não está na tabela de preço[^\n]*\(item 2\)\./)
         expect(aluminio).not.toContain('• S1023 (')
-        expect(r.etapa?.faltou).toContain('e2:SEM_TABELA_DE_CORES:1023/WOLFF')
+        expect(r.etapa?.faltou).toContain('e2:NAO_ACHADA:1023/WOLFF')
     })
 
     it('a mesma família com DUAS esquadrias continua UMA relação: o agrupamento junta as barras dentro da família', async () => {

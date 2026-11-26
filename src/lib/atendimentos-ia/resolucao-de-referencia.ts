@@ -87,12 +87,20 @@ export interface ContextoDaResolucao { cores: readonly CorDoFornecedor[]; grupoD
 /** Os grupos da aba CORES da Wolff, como gravados (20261112000006). */
 export const GRUPO_DE_COR = { perfil: 'PERFIS DE PVC', insumo: 'ACESSORIOS' } as const
 
-/** Os degraus da ESCADA (os itens sem referência). */
-export type DegrauDaEscada = 'ponte' | 'exato' | 'cor' | 'nome_tecnico'
-/** Como o item foi achado: pela referência do perfil + cor (antes da escada), ou por um degrau dela. */
-export type ComoAchou = 'referencia' | DegrauDaEscada
+/**
+ * Os degraus da ESCADA (os itens sem referência). SAIU o degrau "código + cor" (dono do produto, 26/11/2026, pedido 0036; REFERENCIA_UNICA
+ * §4.3): base e cor só se juntam na importação, nunca no cálculo. Medido antes de cortar, com o motor 259035a9 e as tabelas da De Paula: nenhum
+ * perfil nem insumo era achado só por ele (os 65 perfis resolvem pela referência; dos 63 insumos, 61 pela referência ou pelo código exato e 2 não
+ * estão na tabela).
+ */
+export type DegrauDaEscada = 'ponte' | 'exato' | 'nome_tecnico'
+/**
+ * Como o item foi achado: pela referência do perfil + cor (antes da escada), ou por um degrau dela. `cor` fica só como FATO HISTÓRICO: é o que o
+ * cálculo de antes de 26/11/2026 gravou (`resolucao` do material, CHECK do banco), e nenhum cálculo novo o devolve (`fato-vs-referencia.md`).
+ */
+export type ComoAchou = 'referencia' | 'cor' | DegrauDaEscada
 /** A ordem da escada. É ela que decide qual degrau vale; os de baixo não são tentados. */
-export const COMO_ACHOU: readonly DegrauDaEscada[] = ['ponte', 'exato', 'cor', 'nome_tecnico']
+export const COMO_ACHOU: readonly DegrauDaEscada[] = ['ponte', 'exato', 'nome_tecnico']
 export type MotivoDaFalta = 'NAO_ACHADA' | 'AMBIGUA' | 'DESCRICAO_NAO_CONCORDA' | 'SEM_COR' | 'COR_FORA_DA_TABELA' | 'SEM_TABELA_DE_CORES' | 'DESCRICAO_DO_MOTOR_AUSENTE' | 'REFERENCIA_SEM_A_COR'
 export const MOTIVOS_DA_FALTA: readonly MotivoDaFalta[] = ['NAO_ACHADA', 'AMBIGUA', 'DESCRICAO_NAO_CONCORDA', 'SEM_COR', 'COR_FORA_DA_TABELA', 'SEM_TABELA_DE_CORES', 'DESCRICAO_DO_MOTOR_AUSENTE', 'REFERENCIA_SEM_A_COR']
 type Pulo = 'SEM_COR' | 'COR_FORA_DA_TABELA' | 'SEM_TABELA_DE_CORES'
@@ -239,31 +247,6 @@ export function corAfirmadaEhAPedida(a: CorAfirmada, pedida: string, cores: read
 }
 const descreverCor = (a: CorAfirmada) => (a.por === 'sufixo' ? `o código diz ${a.cor}` : a.por === 'descricao' ? `a descrição diz ${a.palavras.join(' ')}` : 'nem o código nem a descrição dizem a cor')
 
-/**
- * O CÓDIGO-BASE do fornecedor que a ponte afirma (dono do produto, 17/11/2026): o código da peça sem os dígitos da cor. Duas fontes, nesta ordem:
- *   a. a FAMÍLIA dos códigos da ponte (`baseDaFamilia`: dois ou mais terminam num código da tabela de cores) — 9831, 98320, 98321 → 983;
- *   b. a linha da ponte cuja COR (a coluna, não a descrição) é uma cor da tabela e cujo código termina no dígito dela — 10511 em BRANCO (1) → 1051.
- *      Quando as linhas dão bases diferentes, nenhuma vale.
- * Nada disso é palpite: a cor vem escrita na ponte e o dígito vem da tabela de cores do fornecedor. Sem uma das duas, vazio.
- */
-export function baseDaPonte(ponte: ReadonlyArray<{ codigo: string; cor: string | null }>, cores: readonly CorDoFornecedor[]): string {
-    const daFamilia = baseDaFamilia(ponte.map((l) => l.codigo), cores)
-    if (daFamilia !== '') return daFamilia
-    const bases = new Set<string>()
-    for (const l of ponte) {
-        if (l.cor === null) continue
-        const cor = cores.find((c) => descricaoNormalizada(c.nome) === descricaoNormalizada(l.cor))
-        const c = semFaceMenor(l.codigo)
-        if (cor && c.length > cor.codigo.length && c.endsWith(cor.codigo)) bases.add(c.slice(0, -cor.codigo.length))
-    }
-    return bases.size === 1 ? [...bases][0] : ''
-}
-
-/** O código + o dígito da cor; o ".1" final (face menor) fica no fim: 1317.1 + 1 = 13171.1. */
-export function codigoComCor(base: string, digito: string): string {
-    return base.endsWith('.1') ? `${base.slice(0, -2)}${digito}.1` : `${base}${digito}`
-}
-
 // ── a escada ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const doGrupo = (ctx: ContextoDaResolucao) => ctx.cores.filter((c) => c.grupo === ctx.grupoDeCor)
 /** O item cujo código é o procurado — o mesmo, ou com/sem o sufixo do fornecedor (o do motor; sem ele, o do item). */
@@ -280,22 +263,6 @@ export function candidatasDoDegrau<I extends ItemResolvivel>(como: DegrauDaEscad
     if (como === 'ponte') return { como, candidatas: ref.codigoDaPonte === null ? [] : peloCodigo(ref.codigoDaPonte, sufixo, itens) }
     if (como === 'exato') return { como, candidatas: peloCodigo(ref.codigoDoMotor, sufixo, itens) }
     const base = semOSufixo(ref.codigoDoMotor, sufixo)
-    if (como === 'cor') {
-        if (ref.corPedida === null || ref.corPedida.trim() === '') return { como, candidatas: [], pulado: 'SEM_COR' }
-        if (doGrupo(ctx).length === 0) return { como, candidatas: [], pulado: 'SEM_TABELA_DE_CORES' }
-        const pedida = descricaoNormalizada(ref.corPedida)
-        const cor = doGrupo(ctx).find((c) => descricaoNormalizada(c.nome) === pedida)
-        if (!cor) return { como, candidatas: [], pulado: 'COR_FORA_DA_TABELA' }
-        // o código do motor + a cor (1317 + 1 = 13171) e, quando a ponte afirma outro código-base, ele + a cor (GB8 é o 983: 983 + 20 = 98320)
-        // O PONTO NUNCA SE DISSOLVE (tarefa 0014, 15/11/2026; `codigo-do-motor-nao-se-normaliza.md`): a base da família vem sem o ".1"
-        // (`baseDaFamilia`), e o código pedido com ".1" (1027.1, o trilho de PVC) continua com ".1" depois da cor — 1027 + 1 + ".1" = 10271.1,
-        // nunca 10271 (o de alumínio). Medido em 21/11/2026 na conferência do motor 259035a9: sem isto, o 1027.1 caía no 10271.
-        const comPonto = (ref.codigoDaPonte ?? base).endsWith('.1')
-        const daPonte = baseDaPonte(ref.ponteDoCodigo, doGrupo(ctx))
-        const baseDaPonteComPonto = daPonte !== '' && comPonto && !daPonte.endsWith('.1') ? `${daPonte}.1` : daPonte
-        const procurados = [...new Set([codigoComCor(base, cor.codigo), ...(daPonte !== '' && baseDaPonteComPonto !== base ? [codigoComCor(baseDaPonteComPonto, cor.codigo)] : [])])]
-        return { como, candidatas: [...new Set(procurados.flatMap((c) => peloCodigo(c, sufixo, itens)))] }
-    }
     // o nome técnico: só nome com letra (código só de números é código), delimitado na descrição; e só com a tabela de cores, que o guarda da cor lê
     if (!/[A-Za-z]/.test(base)) return { como, candidatas: [] }
     if (doGrupo(ctx).length === 0) return { como, candidatas: [], pulado: 'SEM_TABELA_DE_CORES' }
@@ -359,9 +326,9 @@ export function resolverReferencia<I extends ItemResolvivel>(ref: ReferenciaProc
         if (d.pulado) pulos = [...pulos, d.pulado]
         if (d.candidatas.length === 0) continue
         if (motor.size === 0) return falta(ref, 'DESCRICAO_DO_MOTOR_AUSENTE', d.candidatas.map((item) => ({ item, porque: 'a peça do motor não tem descrição para conferir' })))
-        // no nome técnico, o item que É o produto (a descrição começa com o nome) exclui os que só o citam
-        const ancorados = como === 'nome_tecnico' ? d.candidatas.filter((i) => nomeTecnicoNaDescricao(nome, i.descricao).noInicio) : []
-        const doDegrau = ancorados.length ? ancorados : d.candidatas
+        // todos os candidatos do degrau passam pelo guarda: SAIU a preferência pela descrição que começa com o nome (pedido 0036, §3.5) — a
+        // posição do nome na descrição não escolhe uma peça entre várias
+        const doDegrau = d.candidatas
         // a família do degrau (para o sufixo de cor do código): os códigos dos candidatos
         const base = como === 'nome_tecnico' ? baseDaFamilia(doDegrau.map((i) => i.codigo), doGrupo(ctx)) : ''
         // o guarda: a descrição do item concorda com a do motor
@@ -385,19 +352,10 @@ export function resolverReferencia<I extends ItemResolvivel>(ref: ReferenciaProc
         }
         if (passam.length === 1) return { achada: true, como, item: passam[0] }
         if (passam.length === 0) continue
-        if (como !== 'nome_tecnico') {
-            return falta(ref, 'AMBIGUA', passam.map((item) => ({ item, porque: `${passam.length} itens no mesmo degrau (${ROTULO_DO_COMO[como]}): nenhum é escolhido` })))
-        }
-        // o nome técnico com mais de um (todos já afirmam a cor pedida — a hierarquia da cor recusou os outros): a descrição que COMEÇA com o
-        // nome; depois, a de mais palavras em comum
-        const noInicio = passam.filter((i) => nomeTecnicoNaDescricao(nome, i.descricao).noInicio)
-        const restam = noInicio.length ? noInicio : passam
-        if (restam.length === 1) return { achada: true, como, item: restam[0] }
-        const pontos = restam.map((i) => palavrasEmComum(motor, palavrasSignificativas(i.descricao, ctx.cores, nome)))
-        const melhor = Math.max(...pontos)
-        const vencedores = restam.filter((_, k) => pontos[k] === melhor)
-        if (vencedores.length === 1) return { achada: true, como, item: vencedores[0] }
-        return falta(ref, 'AMBIGUA', vencedores.map((item) => ({ item, porque: `${vencedores.length} descrições com o nome ${nome} empatam em ${melhor} ${melhor === 1 ? 'palavra' : 'palavras'} em comum com a do motor: nenhuma é escolhida` })))
+        // o nome técnico com mais de um que passa no guarda é AMBÍGUO, como em todo degrau: SAIU o desempate pela descrição que começa com o nome e
+        // pelas palavras em comum (dono do produto, 26/11/2026, pedido 0036; REFERENCIA_UNICA §3.5: "exatamente um; senão, falta de FORNECEDOR").
+        // Medido antes de cortar: nenhuma peça dos motores ativos era achada por ele
+        return falta(ref, 'AMBIGUA', passam.map((item) => ({ item, porque: `${passam.length} itens no mesmo degrau (${ROTULO_DO_COMO[como]}): nenhum é escolhido` })))
     }
     if (recusadas.length) return falta(ref, 'DESCRICAO_NAO_CONCORDA', recusadas)
     if (pulos.includes('SEM_COR')) return falta(ref, 'SEM_COR', [])
@@ -410,7 +368,7 @@ function falta<I extends ItemResolvivel>(ref: ReferenciaProcurada, motivo: Exclu
     const lista = candidatas.map((c) => `${c.item.codigo}${c.item.descricao ? ` (${c.item.descricao})` : ''}`).join('; ')
     const quem = `${ref.codigoDoMotor}${ref.descricaoDoMotor ? ` (${ref.descricaoDoMotor})` : ''}${ref.corPedida ? ` em ${ref.corPedida}` : ''}`
     const frase =
-        motivo === 'NAO_ACHADA' ? `${quem} não está na tabela de preço: ${haReferencias ? `nem pela referência do perfil (${referenciaDoMotor(ref.codigoDoMotor)}), ` : ''}nem pelo código, nem pela cor, nem pelo nome técnico na descrição`
+        motivo === 'NAO_ACHADA' ? `${quem} não está na tabela de preço: ${haReferencias ? `nem pela referência do perfil (${referenciaDoMotor(ref.codigoDoMotor)}), ` : ''}nem pelo código, nem pelo nome técnico na descrição`
         : motivo === 'AMBIGUA' ? `${quem} tem ${candidatas.length} candidatos na tabela de preço, e nenhum é escolhido: ${lista}`
         : motivo === 'DESCRICAO_NAO_CONCORDA' ? `${quem}: os itens achados não são a mesma peça — ${candidatas.map((c) => `${c.item.codigo}${c.item.descricao ? ` (${c.item.descricao})` : ''}: ${c.porque}`).join('; ')}`
         : motivo === 'SEM_COR' ? `${ref.codigoDoMotor}${ref.descricaoDoMotor ? ` (${ref.descricaoDoMotor})` : ''}: a cor não foi dita, e o código do fornecedor depende dela — não se assume branco`
