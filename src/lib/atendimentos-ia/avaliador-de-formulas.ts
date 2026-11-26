@@ -604,9 +604,8 @@ function ambienteDa(ctx: Contexto): Ambiente {
                 // a opção que veio por PADRÃO e não vale: a única que vale, ou a primeira na ordem das opções — nunca falta (pedido 0030)
                 if (validas.length > 0 && (ctx.entrada.escolhasPorPadrao ?? []).includes(nome)) {
                     const para = validas[0]
-                    if (!ctx.trocas.some((t) => t.variavel === nome)) {
-                        ctx.trocas.push({ variavel: nome, de: escolha, para, motivo: validas.length === 1 ? 'unica_valida_padrao_invalido' : 'primeira_valida_padrao_invalido' })
-                    }
+                    // uma vez por variável: o valor dela fica na memória das variáveis, e esta função não volta a ser chamada para ela
+                    ctx.trocas.push({ variavel: nome, de: escolha, para, motivo: validas.length === 1 ? 'unica_valida_padrao_invalido' : 'primeira_valida_padrao_invalido' })
                     return deNumero(para) as Q
                 }
                 throw new ErroDeAvaliacao('ESCOLHA_FORA_DAS_OPCOES',

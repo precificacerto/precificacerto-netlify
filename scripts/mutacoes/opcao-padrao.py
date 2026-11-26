@@ -3,6 +3,8 @@ import subprocess, sys, os
 # na ordem das opcoes), com a troca no rastro; a dita pelo vendedor continua recusa, e a resposta junta as linhas numa pergunta so.
 # Roda SOZINHO na arvore (nada le a arvore enquanto roda). SO=<trecho> roda so as mutacoes cujo texto contem o trecho.
 # O trecho que nao aparece UMA vez aborta (codigo 3) antes de rodar suite.
+# 1a passada 15/16: a guarda contra a troca repetida era redundante (a memoria das variaveis ja garante uma avaliacao por variavel) e saiu,
+# com a mutacao dela; 15/15.
 R = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')) + '/'
 U = 'src/utils/__tests__/'
 T = [U + 'avaliador-regras-do-wvetro.test.ts', U + 'levantamento-da-conversa.test.ts']
@@ -14,7 +16,6 @@ M = [
  (AV, "                if (validas.length > 0 && (ctx.entrada.escolhasPorPadrao ?? []).includes(nome)) {", "                if (validas.length > 0) {"),
  (AV, "                    const para = validas[0]", "                    const para = validas[validas.length - 1]"),
  (AV, "motivo: validas.length === 1 ? 'unica_valida_padrao_invalido' : 'primeira_valida_padrao_invalido' })", "motivo: 'unica_valida_padrao_invalido' })"),
- (AV, "                    if (!ctx.trocas.some((t) => t.variavel === nome)) {", "                    if (true) {"),
  (AV, "                    return deNumero(para) as Q", "                    return deNumero(escolha) as Q"),
  (AV, "    return { ok: true, pecas, linhas, avisos, insumos, vidros, faltas, trocas: ctx.trocas }", "    return { ok: true, pecas, linhas, avisos, insumos, vidros, faltas, trocas: [] }"),
  (LB, "            ...(e.escolhasPorPadrao ? { escolhasPorPadrao: e.escolhasPorPadrao } : {}) })", "            })"),
