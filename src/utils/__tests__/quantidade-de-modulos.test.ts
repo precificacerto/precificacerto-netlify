@@ -61,10 +61,10 @@ describe('sem o vendedor dizer, é um módulo — e isso é gravado', () => {
         expect(modulosNaoDitos(tipologia('DP-144'), null)).toEqual({ V: 1 })
         expect(modulosNaoDitos(tipologia('DP-02'), null)).toEqual({})
     })
-    it('gravado, a descrição que o vendedor lê é a de um módulo: DP-128 é "Maxim-ar", DP-142 é "Fixo" — e sem gravar ela diria "a definir"', () => {
-        expect(descricaoParaOVendedor(descricao('DP-128'), modulosNaoDitos(tipologia('DP-128'), null))).toBe('Maxim-ar')
-        expect(descricaoParaOVendedor(descricao('DP-142'), modulosNaoDitos(tipologia('DP-142'), null))).toBe('Fixo')
-        expect(descricaoParaOVendedor(descricao('DP-144'), modulosNaoDitos(tipologia('DP-144'), null))).toBe('Fixo')
+    it('gravado, a descrição que o vendedor lê é a de um módulo: DP-128 é "Maxim-ar com um módulo", DP-142 é "Fixo com um módulo" (pedido 0035) — e sem gravar ela diria "a definir"', () => {
+        expect(descricaoParaOVendedor(descricao('DP-128'), modulosNaoDitos(tipologia('DP-128'), null))).toBe('Maxim-ar com um módulo')
+        expect(descricaoParaOVendedor(descricao('DP-142'), modulosNaoDitos(tipologia('DP-142'), null))).toBe('Fixo com um módulo')
+        expect(descricaoParaOVendedor(descricao('DP-144'), modulosNaoDitos(tipologia('DP-144'), null))).toBe('Fixo com um módulo')
         expect(descricaoParaOVendedor(descricao('DP-128'), null)).toBe('Maxim-ar com módulos horizontais a definir')
     })
 })

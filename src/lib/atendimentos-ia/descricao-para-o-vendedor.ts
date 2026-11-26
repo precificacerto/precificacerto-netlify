@@ -102,7 +102,12 @@ export function descricaoParaOVendedor(descricao: string | null | undefined, val
     }
     const partes = ([['horizontais', quantidade(m.horizontal)], ['verticais', quantidade(m.vertical)]] as const).flatMap(([sentido, q]) =>
         (q === 'a_definir' ? [`módulos ${sentido} a definir`] : q === 'aberta' ? [`módulos ${sentido}`] : q !== null && q >= 2 ? [`${doisDigitos(q)} módulos ${sentido}`] : []))
-    return comOQueTem(`${comInicialMaiuscula(m.nome)}${partes.length ? ` com ${partes.join(' e ')}` : ''}`)
+    // UM MÓDULO SÓ (dono do produto, 26/11/2026, pedido 0035; REFERENCIA_UNICA §2.3.4): "Maxim-ar com um módulo", sem horizontal nem
+    // vertical. Só quando TODO sentido que a descrição traz é sabido e vale 1 — a quantidade omitida (a candidata) não afirma módulo nenhum
+    const sentidos = [m.horizontal, m.vertical].filter((q): q is QuantidadeDeModulos => q !== null).map(quantidade)
+    const umModuloSo = sentidos.length > 0 && sentidos.every((q) => q === 1)
+    const complemento = partes.length ? ` com ${partes.join(' e ')}` : umModuloSo ? ' com um módulo' : ''
+    return comOQueTem(`${comInicialMaiuscula(m.nome)}${complemento}`)
 }
 
 /** A tipologia que ainda não é um item (a candidata de uma pergunta), como o vendedor a lê: sem a quantidade que ninguém escolheu. */

@@ -2152,6 +2152,8 @@ describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/202
         llmResponde({ nome: 'Casa do Pedro' })
         await chamar('Casa do Pedro')
         expect(ultimoEnviado()).toBe(conversa.FRASE_O_ARQUIVO_NAO_MUDOU)
+        // fecha igual ao envio do arquivo (pedido 0035, §2.6), palavra por palavra
+        expect(ultimoEnviado().endsWith('Confere? Responda sim para eu fazer o levantamento com os preços, ou diga o que muda.')).toBe(true)
         expect(estado.documentos).toHaveLength(1)
     })
 
@@ -2888,6 +2890,18 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
         await chamar('é de correr, 6 folhas')
         expect(item(1)).toEqual(expect.objectContaining({ tipologia: 'DP-100', quantidade: 1 }))
         expect(ehConfirmacaoDoArquivo(ultimoEnviado())).toBe(true)
+    })
+
+    it('A ABERTURA RECUSADA E O QUE FALTA NO OUTRO ITEM saem JUNTOS (pedido 0035, §2.1.4): a janela sem cor é perguntada na mesma mensagem', async () => {
+        llmResponde({ cliente: 'Geronimo Silva', itens: [
+            { tipologia: 'DP-02', largura_mm: 1500, altura_mm: 1200, vidro: 'Temperado 5mm', abertura: 'janela' },
+            { tipologia: 'DP-02', largura_mm: 2500, altura_mm: 2400, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm', abertura: 'porta' },
+        ] })
+        await chamar(GERONIMO.replace(/branco/gi, ''))
+        const linhas = ultimoEnviado().split('\n')
+        expect(linhas[0]).toBe(`Item 2: ${TC.fraseDaAberturaRecusada('porta')}`)
+        expect(linhas.slice(1).join('\n')).toMatch(/cor do perfil/i)
+        expect(enviados()).toHaveLength(1)
     })
 
     it('a mensagem só com "porta" e a IA sem `abertura` no item: a palavra da mensagem basta para descartar a JANELA', async () => {
@@ -6357,6 +6371,27 @@ describe('(42) a coleta dos dados do levantamento: cliente, ambientes, obs, perc
         expect(arquivo).not.toContain('15%')
     })
 
+    it('TODAS AS PERGUNTAS DE UMA VEZ (pedido 0035, §2.1.4): a esquadria sem cor E o modo da comissão saem na MESMA mensagem', async () => {
+        const MODO = 'Para fechar o levantamento, falta o modo da comissão (proporcional ou congelada) do vendedor Fulano de Tal. Qual é?'
+        llmResponde({ nome: 'Casa do Fulano', itens: [{ ...DP02, cor_perfil: null }] })
+        await chamar('Levantamento Casa do Fulano: DP-02 1200 x 1000, 1 unidade, temperado 5mm', doOutro)
+        const enviada = ultimoEnviado()
+        expect(enviada).toContain(MODO)
+        expect(enviada).toMatch(/cor do perfil/i)
+        expect(enviados()).toHaveLength(1)
+        // o cadastro não se congela enquanto falta a esquadria: nada gravado nas colunas das condições
+        expect(lev().estado).toBe('EM_MONTAGEM')
+        for (const k of ['comissao_percentual', 'comissao_modo', 'reserva_tecnica_percentual', 'lucro_projetado_percentual']) expect(lev()[k]).toBeUndefined()
+    })
+
+    it('a pergunta junta NÃO congela o cadastro do vendedor que tem cadastro: só o levantamento completo o grava, como antes (pedido 0035)', async () => {
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02, cor_perfil: null }] })
+        await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, temperado 5mm')
+        expect(lev().estado).toBe('EM_MONTAGEM')
+        for (const k of ['comissao_percentual', 'comissao_modo', 'reserva_tecnica_percentual', 'lucro_projetado_percentual']) expect(lev()[k] ?? null).toBeNull()
+        expect(ultimoEnviado()).not.toContain('Para fechar o levantamento')
+    })
+
     it('CADASTRO NULO e nada dito: a conversa NÃO pergunta os três percentuais (11/11/2026) — só o MODO da comissão; nada é inventado nem gravado', async () => {
         // o OUTRO vendedor não tem funcionário: não há cadastro
         llmResponde({ nome: 'Casa do Fulano', itens: [{ ...DP02 }] })
@@ -6524,6 +6559,16 @@ describe('(42) a coleta dos dados do levantamento: cliente, ambientes, obs, perc
             expect(textoDoSistema(estado.chamadasDaLlm[1].corpo.system)).toContain(`Pergunta em aberto: ${dadosDoLevantamento.FRASE_FALTA_O_VENDEDOR}`)
             expect(lev()).toEqual(expect.objectContaining({ estado: 'COMPLETO', vendedor_employee_id: 'e-beltrana', vendedor_nome: 'Beltrana Souza', comissao_modo: 'CONGELADA' }))
             expect(textoDoArquivo()).toContain('4%')
+        })
+
+        it('o vendedor que falta é perguntado JUNTO com o que falta na esquadria (pedido 0035, §2.1.4): uma mensagem só', async () => {
+            for (const e of estado.db.employees) if (e.id === 'e-cristiano') e.is_active = false
+            llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02, cor_perfil: null }] })
+            await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, temperado 5mm')
+            const enviada = ultimoEnviado()
+            expect(enviada).toMatch(/cor do perfil/i)
+            expect(enviada.split('\n')).toContain(dadosDoLevantamento.FRASE_FALTA_O_VENDEDOR)
+            expect(enviados()).toHaveLength(1)
         })
     })
 

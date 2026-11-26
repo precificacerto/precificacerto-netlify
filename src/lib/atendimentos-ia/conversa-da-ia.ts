@@ -227,7 +227,7 @@ import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, modul
 import { permissaoDoRemetente, type Permissao } from '@/lib/atendimentos-ia/permissao-do-remetente'
 import {
     gerarArquivoDoLevantamento, lerLevantamentoDoArquivo, type Funcionario, lerNomeDaEmpresa, lerPerfilDoVendedor, lerVendedorDoRemetente, funcionariosPeloNome,
-    montarDadosDaFolha, resumoDoArquivo, resumoDoArquivoParaOPrompt, textoDoEnvioDoArquivo, type DetalheDaTipologia,
+    montarDadosDaFolha, resumoDoArquivo, resumoDoArquivoParaOPrompt, textoDoEnvioDoArquivo, type DetalheDaTipologia, CONFERE_O_ARQUIVO,
 } from '@/lib/atendimentos-ia/arquivo-do-levantamento'
 import {
     condicoesComOCadastro, FRASE_FALTA_O_VENDEDOR, fraseDoVendedorInativo, fraseDoVendedorNaoAchado, fraseDosHomonimos, fraseDosHomonimosIndistinguiveis, homonimosDistinguiveis, lerDadosDaMensagem, perguntaDasCondicoes,
@@ -570,8 +570,11 @@ export const fraseDeNaoRegistrei = (pergunta: string) => `Essa resposta não me 
 export const fraseDoArquivoRecusado = (recusas: readonly string[]) =>
     `Não consegui gerar o arquivo do levantamento:\n${recusas.map((r) => `• ${r}`).join('\n')}\nMe diga o que corrigir.`
 export const FALHA_NO_ENVIO_DO_ARQUIVO = 'O levantamento foi gravado, mas não consegui enviar o arquivo dele agora. Mande o nome do levantamento de novo para eu reenviar.'
-/** O mesmo arquivo de novo, sem mudar nada: não se reenvia; a resposta diz que nada mudou e repete a pergunta. */
-export const FRASE_O_ARQUIVO_NAO_MUDOU = 'Essa resposta não mudou nada no levantamento: o arquivo que enviei continua valendo. Confere? Responda sim, ou diga o que muda.'
+/**
+ * O mesmo arquivo de novo, sem mudar nada: não se reenvia; a resposta diz que nada mudou e repete a pergunta. FECHA IGUAL ao envio do arquivo
+ * (dono do produto, 26/11/2026, pedido 0035; REFERENCIA_UNICA §2.6): a mesma `CONFERE_O_ARQUIVO`, e por isso sai FIXA, sem o modelo reescrever.
+ */
+export const FRASE_O_ARQUIVO_NAO_MUDOU = `Essa resposta não mudou nada no levantamento: o arquivo que enviei continua valendo. ${CONFERE_O_ARQUIVO}`
 export const fraseDeNaoApliquei = (nome: string) =>
     `Não consegui aplicar o que você pediu no levantamento “${nome}”: o que entendi não é um valor aceito (por exemplo, uma cor, tipologia ou arremate fora da lista). Nada foi alterado. Diga de novo o que muda.`
 const milhar = (n: unknown) => (typeof n === 'number' ? new Intl.NumberFormat('pt-BR').format(n) : '?')
@@ -2655,8 +2658,10 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         let congelar: Partial<CondicoesDoLevantamento> = {}
         const vendedorDoLevantamento = (colunas.vendedor_nome as string | null | undefined) ?? doLevantamento?.vendedor_nome ?? null
         // SEM VENDEDOR NENHUM (o funcionário do remetente está inativo, e ninguém foi dito): a conversa pede o vendedor antes dos percentuais, que são dele
-        const faltaVendedor = !pendencia && !vendedorPendente && vendedorDoLevantamento === null
-        if (!pendencia && !vendedorPendente && !faltaVendedor) {
+        // TODAS AS PERGUNTAS DE UMA VEZ (dono do produto, 26/11/2026, pedido 0035; REFERENCIA_UNICA §2.1.4): o vendedor e as condições comerciais
+        // são apurados também quando falta alguma coisa nas esquadrias — a pergunta deles vai JUNTO, na mesma mensagem, e não num turno depois
+        const faltaVendedor = !vendedorPendente && vendedorDoLevantamento === null
+        if (!vendedorPendente && !faltaVendedor) {
             const doGravado: CondicoesDoLevantamento = {
                 comissao_percentual: doLevantamento?.comissao_percentual ?? null, comissao_modo: doLevantamento?.comissao_modo ?? null,
                 reserva_tecnica_percentual: doLevantamento?.reserva_tecnica_percentual ?? null, reserva_tecnica_responsavel: doLevantamento?.reserva_tecnica_responsavel ?? null,
@@ -2666,12 +2671,16 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             const funcionario = 'vendedor_employee_id' in colunas ? (colunas.vendedor_employee_id as string | null) : doLevantamento?.vendedor_employee_id ?? null
             const r = condicoesComOCadastro(vigentes, await lerPerfilDoVendedor(c.tenantId, funcionario))
             faltamCondicoes = r.faltam
-            congelar = r.doCadastro
+            // o cadastro só se congela no levantamento cujas esquadrias estão completas, como antes: a pergunta junta não muda o que se grava
+            if (!pendencia) congelar = r.doCadastro
         }
+        // as perguntas do vendedor e das condições, na ordem de sempre (uma só delas por vez: a de cada uma depende da anterior)
+        const perguntasDoVendedor = vendedorPendente ? [fraseDosHomonimos(nomeDosHomonimos, homonimos)] : faltaVendedor ? [FRASE_FALTA_O_VENDEDOR]
+            : faltamCondicoes.length ? [perguntaDasCondicoes(faltamCondicoes, vendedorDoLevantamento)] : []
+        const comAsDoVendedor = (texto: string) => [texto, ...(pendencia ? perguntasDoVendedor : [])].join('\n')
         // o admin não monta levantamento de outro: com pendência, nada é doLevantamento e a resposta diz o que falta
         if ((pendencia || vendedorPendente || faltaVendedor || faltamCondicoes.length) && alvo && alvo.donoId !== c.remetenteId) {
-            const falta = pendencia ? perguntaDasPendencias(pendencias, aplicada.itens.length, null, filtro.jaDito)
-                : vendedorPendente ? fraseDosHomonimos(nomeDosHomonimos, homonimos) : faltaVendedor ? FRASE_FALTA_O_VENDEDOR : perguntaDasCondicoes(faltamCondicoes, vendedorDoLevantamento)
+            const falta = pendencia ? comAsDoVendedor(perguntaDasPendencias(pendencias, aplicada.itens.length, null, filtro.jaDito)) : perguntasDoVendedor[0]
             return await falar(fraseDaAlteracaoIncompleta(nome, alvo.vendedor ?? VENDEDOR_SEM_NOME, falta), 'alteracao-incompleta')
         }
         const estado = pendencia || vendedorPendente || faltaVendedor || faltamCondicoes.length ? EM_MONTAGEM : COMPLETO
@@ -2731,11 +2740,14 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                     ...outrosSemPadrao.map((x) => `${n > 1 ? `Item ${x.ordem}: ` : ''}${x.frase}`),
                     ...(resto.length ? [perguntaDasPendencias(resto, n, null, filtro.jaDito)] : []),
                 ]
-                return await falar(linhas.join('\n'), 'nenhuma-cabe')
+                return await falar(comAsDoVendedor(linhas.join('\n')), 'nenhuma-cabe')
             }
             const recusa = aplicada.recusas[0]
             if (recusa) {
-                const comEsquadria = (frase: string) => (aplicada.itens.length > 1 ? `Item ${recusa.ordem}: ${frase}` : frase)
+                // a recusa do item e, JUNTO, o que mais falta nos outros (e nos campos deste, fora a tipologia) e as perguntas do vendedor (pedido 0035)
+                const restoDaRecusa = pendencias.filter((p) => !(p.tipo === 'CAMPO' && p.campo === 'tipologia' && p.ordem === recusa.ordem))
+                const comEsquadria = (frase: string) => comAsDoVendedor([aplicada.itens.length > 1 ? `Item ${recusa.ordem}: ${frase}` : frase,
+                    ...(restoDaRecusa.length ? [perguntaDasPendencias(restoDaRecusa, aplicada.itens.length, null, filtro.jaDito)] : [])].join('\n'))
                 if (recusa.motivo === 'LIMITES') {
                     // com a migração, a tipologia proposta que não cabe vira PEDIDO DE AUTORIZAÇÃO para ela (18/11/2026); sem, a faixa das que sobraram
                     const doCodigoRecusado = tabela.candidatos.filter((x) => x.tipologia === recusa.tipologia).slice(0, 1)
@@ -2756,7 +2768,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 const n = aplicada.itens.length
                 const resto = pendencias.filter((p) => !(p.tipo === 'CAMPO' && p.campo === 'tipologia' && semPadrao.some((x) => x.ordem === p.ordem)))
                 const linhas = [...semPadrao.map((x) => `${n > 1 ? `Item ${x.ordem}: ` : ''}${x.frase}`), ...(resto.length ? [perguntaDasPendencias(resto, n, null, filtro.jaDito)] : [])]
-                return await responder(linhas.join('\n'), semPadrao.every((x) => x.motivo === 'LINHA') ? 'sem-linha' : 'padrao-nomeado')
+                return await responder(comAsDoVendedor(linhas.join('\n')), semPadrao.every((x) => x.motivo === 'LINHA') ? 'sem-linha' : 'padrao-nomeado')
             }
             // A COR DITA E FORA DA LISTA (dono do produto, 08/11/2026): a pergunta nomeia a cor e as cores da empresa — e o resto do que
             // falta vai junto, na mesma resposta. A esquadria continua sem cor: nada a troca pela predominante
@@ -2764,15 +2776,15 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             if (foraDaLista.length > 0) {
                 const frases = foraDaLista.map((x) => `${aplicada.itens.length > 1 ? `Item ${x.ordem}: ` : ''}${fraseDaCorForaDaLista(x.cor, cores)}`)
                 const resto = pendencias.filter((p) => !(p.tipo === 'CAMPO' && p.campo === 'cor_perfil' && foraDaLista.some((x) => x.ordem === p.ordem)))
-                return await falar([...frases, ...(resto.length ? [perguntaPara(resto, aplicada.itens.length, proposta, filtro.jaDito)] : [])].join('\n'), 'perguntou')
+                return await falar(comAsDoVendedor([...frases, ...(resto.length ? [perguntaPara(resto, aplicada.itens.length, proposta, filtro.jaDito)] : [])].join('\n')), 'perguntou')
             }
             // A LEITURA DO VIDRO PADRÃO QUE FALHOU É NOMEADA (dono do produto, 13/11/2026: "silêncio é o que a gente não aceita"): com o vidro
             // em falta, a pergunta vai com a frase fixa que diz por quê — nunca reescrita pelo modelo. A tabela ausente (sem_migracao) não muda
             if (rastro.vidroPadraoLeitura === 'falhou' && pendencias.some((p) => p.tipo === 'CAMPO' && p.campo === 'vidro')) {
-                return await responder([FRASE_DO_VIDRO_PADRAO_QUE_NAO_FOI_LIDO, perguntaPara(pendencias, aplicada.itens.length, proposta, filtro.jaDito)].join('\n'), 'perguntou')
+                return await responder(comAsDoVendedor([FRASE_DO_VIDRO_PADRAO_QUE_NAO_FOI_LIDO, perguntaPara(pendencias, aplicada.itens.length, proposta, filtro.jaDito)].join('\n')), 'perguntou')
             }
             // UMA pergunta com TUDO o que falta (03/11/2026), redigida pelo modelo
-            return await falar(perguntaPara(pendencias, aplicada.itens.length, proposta, filtro.jaDito), 'perguntou')
+            return await falar(comAsDoVendedor(perguntaPara(pendencias, aplicada.itens.length, proposta, filtro.jaDito)), 'perguntou')
         }
         // o vendedor dito que casa com mais de um funcionário: a pergunta de qual é, com a lista numerada
         if (vendedorPendente) {
@@ -2813,7 +2825,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             const guardada = await gravarPerguntaEmAberto(c.tenantId, c.remetenteId, { pergunta: 'CONFIRMAR_APANHADO', nome: null, levantamentos: [rastro.levantamento], itens: [] })
             if (guardada) {
                 // R2: o mesmo arquivo de novo, sem mudar nada, não se reenvia — a resposta diz que nada mudou
-                if (aberta !== null && aberta.texto === resumo) return await falar(FRASE_O_ARQUIVO_NAO_MUDOU, 'nao-avancou')
+                if (aberta !== null && aberta.texto === resumo) return await responder(FRASE_O_ARQUIVO_NAO_MUDOU, 'nao-avancou')
                 const envio = await enviarDocumento(c.wuzapiToken, c.telefone, folha.nomeDoArquivo, folha.pdf)
                 const doArquivo = `arquivo_paginas=${folha.paginas} arquivo_enviado=${envio.ok ? 'sim' : `nao status_arquivo=${statusDoEnvio(envio)}`}`
                 if (!envio.ok) return await responder(FALHA_NO_ENVIO_DO_ARQUIVO, 'arquivo-nao-enviado', doArquivo, false)

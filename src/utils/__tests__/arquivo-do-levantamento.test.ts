@@ -210,10 +210,10 @@ describe('O PADRÃO APARECE NA FOLHA, montado do que está gravado (dono do prod
         expect(montarCom([item(1, { tipologia: 'DP-01' })]).itens[0].considerado).toBe('maxim-ar')
         expect(montarCom([item(1, { tipologia: 'DP-01', escolhas: { N: 3 } })]).itens[0].considerado).toBe('maxim-ar, 3 módulos')
     })
-    it('o NOME do item (dono do produto, 24/11/2026, pedido 0023): a descrição resolvida — um módulo não se escreve; sem a linha; nunca o código', () => {
+    it('o NOME do item (dono do produto, 24/11/2026, pedido 0023): a descrição resolvida — um módulo é "com um módulo" (pedido 0035); sem a linha; nunca o código', () => {
         // o item antigo, sem N gravado: vale o Padrão do motor (1), o mesmo número do cálculo
-        expect(montarCom([item(1, { tipologia: 'DP-01' })]).itens[0].nome).toBe('Maxim-ar')
-        expect(montarCom([item(1, { tipologia: 'DP-01', escolhas: { N: 1 } })]).itens[0].nome).toBe('Maxim-ar')
+        expect(montarCom([item(1, { tipologia: 'DP-01' })]).itens[0].nome).toBe('Maxim-ar com um módulo')
+        expect(montarCom([item(1, { tipologia: 'DP-01', escolhas: { N: 1 } })]).itens[0].nome).toBe('Maxim-ar com um módulo')
         expect(montarCom([item(1, { tipologia: 'DP-01', escolhas: { N: 3 } })]).itens[0].nome).toBe('Maxim-ar com 03 módulos horizontais')
         expect(montarCom([item(1, {})]).itens[0].nome).toBe('Janela de correr 02 folhas móveis')
         // sem o Padrão no motor e sem o valor gravado: a quantidade está por definir — nunca "um módulo" presumido
@@ -250,7 +250,7 @@ describe('O PADRÃO APARECE NA FOLHA, montado do que está gravado (dono do prod
     })
     it('a quantidade de módulos que muda MUDA o resumo (R2): o arquivo novo sai', () => {
         const um = montarCom([item(1, { tipologia: 'DP-01', escolhas: { N: 1 } })]), tres = montarCom([item(1, { tipologia: 'DP-01', escolhas: { N: 3 } })])
-        expect(resumoDoArquivoParaOPrompt(um)).toContain('Item 1: DP-01 (Maxim-ar), ')
+        expect(resumoDoArquivoParaOPrompt(um)).toContain('Item 1: DP-01 (Maxim-ar com um módulo), ')
         expect(resumoDoArquivoParaOPrompt(tres)).toContain('Item 1: DP-01 (Maxim-ar com 03 módulos horizontais), ')
         expect(resumoDoArquivo(um)).not.toBe(resumoDoArquivo(tres))
         // sem nome, o resumo não abre parênteses vazios
