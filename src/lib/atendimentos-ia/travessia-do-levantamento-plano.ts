@@ -3,6 +3,7 @@
  * navegador a importam sem levar o cliente do servidor. O porquê de cada regra está em `travessia-do-levantamento.ts`.
  */
 import { MODO_DO_FALLBACK, MOTIVO_DO_FALLBACK, ORIGEM_DO_FALLBACK } from './custo-do-orcamento'
+import { fraseComBloco } from './bloco-da-falta'
 import { PRESET_DA_COMERCIALIZACAO } from './precificacao-do-orcamento'
 
 export const ESTADO_COMPLETO = 'COMPLETO'
@@ -119,7 +120,8 @@ export const fraseDoNome = (numero: number) =>
 // lucro_projetado_percentual e reserva_tecnica_percentual" — lucro zero pode ser intencional, para achar o limite. Os três nunca são falta;
 // o zero por ausência é DESTACADO na tela (`ORIGEM_DO_PERCENTUAL`), nunca silencioso. O responsável pela RT é nome livre, não entra em
 // cálculo nenhum, e nulo ali NÃO é falta. Resta o modo da comissão, que não tem zero.
-export const FALTA_DO_MODO_DA_COMISSAO = 'o modo da comissão: nem o levantamento nem a pré-definição do vendedor o têm, e o orçamento nasce sem ele'
+/** Bloco COMERCIAL (pedido 0032): o modo da comissão é do perfil do vendedor. */
+export const FALTA_DO_MODO_DA_COMISSAO = fraseComBloco('COMERCIAL', 'o modo da comissão: nem o levantamento nem a pré-definição do vendedor o têm, e o orçamento nasce sem ele')
 
 // ── O PURO ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 /**

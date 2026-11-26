@@ -25,6 +25,7 @@
  * é alterado: esta travessia só lê `orcamentista_levantamento` e `orcamentista_levantamento_item`.
  */
 import { supabaseAdmin } from '@/supabase/admin'
+import { separarBloco } from './bloco-da-falta'
 import { ErroNaoEncontrado, ErroSemMigracao, TABELA_DO_ITEM, TABELA_DO_ORCAMENTO, tabelaAusente } from './orcamentos-ia'
 import { lerPerfilDoVendedor } from './arquivo-do-levantamento'
 import { calcularOrcamento, ErroDoCalculo, faltaDoParcial, type FaltaDoParcial } from './orcamento-calculado'
@@ -384,7 +385,9 @@ function linhasDasFaltas(faltas: ReadonlyArray<{ codigo_do_motor: string; frase:
         const es = [...x.esquadrias].sort((a, b) => a - b)
         const onde = `${es.length > 1 ? 'itens' : 'item'} ${es.join(', ')}`
         // a frase que já começa pelo código não o repete: o código vai uma vez, e as esquadrias no fim
-        return x.frase.startsWith(codigo) ? `• ${x.frase.replace(/\.$/, '')} (${onde}).` : `• ${codigo} (${onde}): ${x.frase.replace(/\.$/, '')}.`
+        // o bloco da falta (pedido 0032) vai no começo da linha, antes do código
+        const { bloco, resto } = separarBloco(x.frase)
+        return resto.startsWith(codigo) ? `• ${bloco}${resto.replace(/\.$/, '')} (${onde}).` : `• ${bloco}${codigo} (${onde}): ${resto.replace(/\.$/, '')}.`
     })
     return { codigos: porCodigo.size, linhas }
 }

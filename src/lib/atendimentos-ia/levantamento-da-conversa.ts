@@ -102,6 +102,7 @@
  *
  * Portão: `src/utils/__tests__/levantamento-da-conversa.test.ts`.
  */
+import { blocoDaFalta, fraseComBloco, separarBloco, type BlocoDaFalta } from '@/lib/atendimentos-ia/bloco-da-falta'
 import { marcosDeCorrer, variaveisDasCondicoes, type MarcoDeCorrer, type MarcosDaTipologia } from '@/lib/atendimentos-ia/trilhos-do-marco'
 import { descricaoNoPrompt, limitesNoPrompt, numeroOuNulo } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { supabaseAdmin } from '@/supabase/admin'
@@ -770,7 +771,8 @@ const MAXIMO_DE_FALTAS = 8
  * A falta CURTA começa em minúscula ("o valor da barra do código 1023…") e vai depois de "Falta:". A que começa em maiúscula é uma FRASE
  * inteira, de configuração ("Falta de configuração — …", "A largura da serra não está…"): vai como está, sem um segundo "Falta:".
  */
-const ehCurta = (f: string) => /^[a-zà-ÿ]/.test(f)
+// a falta com o bloco na frente (`[MOTOR] …`, pedido 0032) continua curta pelo que vem depois dele
+const ehCurta = (f: string) => /^(?:\[(?:AGENTE|MOTOR|FORNECEDOR|COMERCIAL)\] )?[a-zà-ÿ]/.test(f)
 const inicialMinuscula = (t: string) => t.charAt(0).toLowerCase() + t.slice(1)
 const comPonto = (t: string) => (/[.!?]$/.test(t) ? t : `${t}.`)
 
@@ -809,20 +811,22 @@ export function faltaDaEspessuraAmbigua(texto: string, espessuras: readonly numb
  * pergunta (uma, curta)"): o motor recusa a escolha em cada linha que depende dela (os perfis, os insumos), e o vendedor lia a mesma frase quatro
  * vezes. As linhas com "A escolha X = n não vale neste item" do mesmo item viram UMA, no lugar da primeira, sem a linha do motor, e pedindo a opção.
  */
-export function juntarEscolhasQueNaoValem(faltas: readonly string[]): string[] {
+export function juntarEscolhasQueNaoValem(faltas: readonly string[], blocos: ReadonlyArray<BlocoDaFalta | null> = []): string[] {
     const DA_ESCOLHA = /A escolha (.+?) = (-?\d+) não vale neste item: (.+?)\.?\s*$/
     const vistas = new Set<string>()
     const saida: string[] = []
-    for (const f of faltas) {
+    // o bloco de cada falta (pedido 0032) vai na FRENTE da linha pronta, depois de juntar: `[MOTOR] Item 8: a escolha …`
+    faltas.forEach((f, k) => {
+        const comBloco = (linha: string) => fraseComBloco(blocos[k] ?? null, linha)
         const m = DA_ESCOLHA.exec(f)
-        if (!m) { saida.push(f); continue }
+        if (!m) { saida.push(comBloco(f)); return }
         const item = /\b[Ii]te(?:m|ns) ([\d, e]+)/.exec(f)?.[1]?.trim() ?? null
         const chave = `${item ?? ''}|${m[1]}|${m[2]}`
-        if (vistas.has(chave)) continue
+        if (vistas.has(chave)) return
         vistas.add(chave)
         const quem = item === null ? '' : `${/,| e /.test(item) ? 'Itens' : 'Item'} ${item}: `
-        saida.push(`${quem}a escolha ${m[1]} = ${m[2]} não vale neste item: ${m[3]}. Diga qual vale`)
-    }
+        saida.push(comBloco(`${quem}a escolha ${m[1]} = ${m[2]} não vale neste item: ${m[3]}. Diga qual vale`))
+    })
     return saida
 }
 
@@ -914,14 +918,15 @@ export function linhasDasFaltas(d: DadosDoLevantamento, faltas: readonly FaltaDe
     if (faltas.length === 0) return []
     const porCodigo = new Map<string, { frase: string; esquadrias: number[] }>()
     for (const f of faltas) {
-        const x = porCodigo.get(f.codigo_do_motor) ?? { frase: f.frase, esquadrias: [] }
+        // o bloco da falta (pedido 0032), pelo motivo
+        const x = porCodigo.get(f.codigo_do_motor) ?? { frase: fraseComBloco(blocoDaFalta(f.motivo), f.frase), esquadrias: [] }
         const n = d.esquadrias[f.esquadria - 1]?.numero ?? f.esquadria
         if (!x.esquadrias.includes(n)) x.esquadrias.push(n)
         porCodigo.set(f.codigo_do_motor, x)
     }
     return ['', TITULO_DAS_FALTAS, ...[...porCodigo.entries()].map(([codigo, x]) =>
-        // a frase que já começa pelo código não o repete
-        `• ${x.frase.startsWith(codigo) ? '' : `${codigo}: `}${x.frase.startsWith(codigo) ? x.frase.replace(/\.$/, '') : inicialMinuscula(x.frase.replace(/\.$/, ''))}`
+        // a frase que já começa pelo código não o repete; o bloco vai no começo da linha
+        ((b, f) => `• ${b}${f.startsWith(codigo) ? '' : `${codigo}: `}${f.startsWith(codigo) ? f.replace(/\.$/, '') : inicialMinuscula(f.replace(/\.$/, ''))}`)(separarBloco(x.frase).bloco, separarBloco(x.frase).resto)
         + `${esquadriasDaFalta([...x.esquadrias].sort((a, b) => a - b), numerar ? Math.max(2, d.esquadrias.length) : 1)}.`)]
 }
 
@@ -1255,16 +1260,19 @@ async function calcularFamilia(
         const frase = (x: (typeof recusas)[number]) =>
             faltaComEsquadrias(traduzir(x.falta), x.esquadrias.map((k) => numeros[k - 1] ?? k), d.esquadrias.length, x.tipologia)
         // UMA FALTA NÃO ESCONDE A OUTRA (08/11/2026): recusado pelo tempo, o levantamento nomeia também o que ficou sem preço — uma linha por código
-        const semPreco = new Map<string, { frase: string; esquadrias: number[] }>()
+        const semPreco = new Map<string, { frase: string; esquadrias: number[]; motivo: string }>()
         for (const f of 'recusas' in r ? [] : r.faltas) {
-            const x = semPreco.get(f.codigo_do_motor) ?? { frase: f.frase.endsWith('.') ? f.frase : `${f.frase}.`, esquadrias: [] }
+            const x = semPreco.get(f.codigo_do_motor) ?? { frase: f.frase.endsWith('.') ? f.frase : `${f.frase}.`, esquadrias: [], motivo: f.motivo }
             const n = numeros[f.esquadria - 1] ?? f.esquadria
             if (!x.esquadrias.includes(n)) x.esquadrias.push(n)
             semPreco.set(f.codigo_do_motor, x)
         }
         const precoQueFalta = [...semPreco.values()].map((x) => faltaComEsquadrias(x.frase, x.esquadrias.sort((a, b) => a - b), d.esquadrias.length))
+        // de qual bloco é cada falta (pedido 0032): do motivo da recusa; o tempo de fabricação é do MOTOR (a tabela dos tempos é dele)
+        const blocos = [...recusas.map((x) => blocoDaFalta(x.motivo)), ...semTempo.map((): BlocoDaFalta => 'MOTOR'), ...[...semPreco.values()].map((x) => blocoDaFalta(x.motivo))]
+        for (const [k, b] of blocos.entries()) if (b === null) console.error(`[FALTA] sem_bloco motivo=${k < recusas.length ? recusas[k].motivo : [...semPreco.values()][k - recusas.length - semTempo.length]?.motivo ?? '-'}`)
         return {
-            faltas: juntarEscolhasQueNaoValem([...recusas.map(frase), ...semTempo.map((t) => t.frase), ...precoQueFalta]), rotulos,
+            faltas: juntarEscolhasQueNaoValem([...recusas.map(frase), ...semTempo.map((t) => t.frase), ...precoQueFalta], blocos), rotulos,
             codigos: [...recusas.map((x) => codigoDaRecusa(x, x.esquadrias.map((k) => numeros[k - 1] ?? k))), ...semTempo.map((t) => t.codigo),
                 ...('recusas' in r ? [] : r.faltas.map((f) => `e${numeros[f.esquadria - 1] ?? f.esquadria}:${f.motivo}:${f.codigo_do_motor}`))],
             // NENHUM VIDRO QUE O VENDEDOR NÃO ESCREVEU (dono do produto, 25/11/2026; pedido 0027: "Nunca sugerir ao vendedor um vidro que ele não

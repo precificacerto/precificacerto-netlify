@@ -29,6 +29,7 @@
  *     o contorno na proporção real e as divisões que a descrição do motor e as variáveis dizem). Sem medida, o bloco fecha sem desenho.
  */
 import { jsPDF } from 'jspdf'
+import { separarBloco } from './bloco-da-falta'
 import { desenharFiguraProporcional, tracosDoDesenho, type DesenhoDaTipologia } from '@/lib/atendimentos-ia/folha-do-levantamento'
 import { reais, type ItemRateado } from '@/lib/atendimentos-ia/rateio-do-orcamento'
 
@@ -430,7 +431,8 @@ export const VERSAO_DO_ARQUIVO = 'observacoes-gerais-e-condicoes-comerciais-2026
 
 /** As linhas das faltas (1.5): uma por código, com os itens. */
 export function linhasDasFaltasDoArquivo(faltas: readonly FaltaDoArquivo[]): string[] {
-    return faltas.map((f) => `• ${f.codigo} (${f.itens.length > 1 ? 'itens' : 'item'} ${f.itens.join(', ')}): ${f.frase.replace(/\.$/, '')}.`)
+    // o bloco da falta (pedido 0032) vai no começo da linha, antes do código
+    return faltas.map((f) => { const { bloco, resto } = separarBloco(f.frase); return `• ${bloco}${f.codigo} (${f.itens.length > 1 ? 'itens' : 'item'} ${f.itens.join(', ')}): ${resto.replace(/\.$/, '')}.` })
 }
 /** Um bloco de texto com título, em caixa: mede (sem `desenhar`) ou desenha. Devolve a altura. */
 function blocoDeTexto(doc: Doc, titulo: string, linhas: readonly string[], y: number, desenhar: boolean, cor: [number, number, number] | null = null): number {

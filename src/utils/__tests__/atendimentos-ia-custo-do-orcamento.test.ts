@@ -218,7 +218,7 @@ describe('FALTA DE PREÇO NÃO IMPEDE A EVOLUÇÃO (12/11/2026): o código sem p
     it.each([
         ['o código sem as barras', (e: EntradaDoCusto) => { e.barras_por_codigo = { A: 1 } }, 'as barras do código B no cálculo do levantamento'],
         ['a tipologia sem tempo', (e: EntradaDoCusto) => { e.itens = [e.itens[0], { ...e.itens[1], minutos: null }] }, 'o tempo de fabricação do item 2 (JM-01)'],
-        ['sem o valor do minuto', (e: EntradaDoCusto) => { e.valor_minuto = null }, 'o valor do minuto da mão de obra: a configuração de mão de obra da empresa não fecha'],
+        ['sem o valor do minuto', (e: EntradaDoCusto) => { e.valor_minuto = null }, '[COMERCIAL] o valor do minuto da mão de obra: a configuração de mão de obra da empresa não fecha'],
     ])('%s: RECUSA nomeada', (_, estragar, frase) => {
         const e = base()
         estragar(e)
