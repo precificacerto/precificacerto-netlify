@@ -329,8 +329,13 @@ export function desenhosParaAFolha(a: { itens: readonly ItemDoLevantamento[]; de
     })
 }
 
+/**
+ * `definicaoDoDesenho` (pedido 0037): a aba Variáveis COMPLETA, com o Padrão, para a escolha do desenho — a condição do catálogo lê o padrão
+ * numérico. A conversa passa a `definicao` do agente (sem o Padrão) para o resto da folha e esta para a figura; sem ela, vale a `definicao`.
+ */
 export async function gerarArquivoDoLevantamento(a: {
     tenantId: string; levantamentoId: string; itens: readonly ItemDoLevantamento[]; definicao: DefinicaoDaTipologia; detalhe: DetalheDaTipologia; geradoEm?: Date
+    definicaoDoDesenho?: DefinicaoDaTipologia
     vidroPadrao?: (item: ItemDoLevantamento) => string | null
 }): Promise<{ dados: DadosDaFolha | null; folha: FolhaGerada | FolhaRecusada }> {
     const [levantamento, empresa] = await Promise.all([lerLevantamentoDoArquivo(a.tenantId, a.levantamentoId), lerNomeDaEmpresa(a.tenantId)])
@@ -341,11 +346,14 @@ export async function gerarArquivoDoLevantamento(a: {
     for (const pendencia of trilhosIndeterminados(a.itens, a.detalhe)) console.error(`[TRILHOS] indeterminado levantamento=${a.levantamentoId} ${pendencia}`)
     // A FIGURA IMPORTADA só na FOLHA, nunca em `dados` (16/11/2026): `dados` é o que vira o RESUMO que o vendedor confere,
     // e pôr a imagem nele mudaria o resumo — e, com ele, o "sim" já dado.
-    const paraODesenho = desenhosParaAFolha({ itens: a.itens, definicao: a.definicao, detalhe: a.detalhe })
+    const paraODesenho = desenhosParaAFolha({ itens: a.itens, definicao: a.definicaoDoDesenho ?? a.definicao, detalhe: a.detalhe })
     const itens = await comAsFiguras(
         dados.itens,
         paraODesenho.map((x) => (x.tipologia === '' ? null : x)),
         (i, d): ItemDaFolha => ('imagem' in d ? { ...i, figura: d.imagem, semFigura: null } : { ...i, figura: null, semFigura: d.frase }),
     )
+    // A FALTA DA FIGURA É REGISTRADA (pedido 0037): cada item sem figura vai ao log com o motivo — sem isto, a falta só existia dentro do PDF
+    const semFigura = itens.filter((i) => i.semFigura !== null)
+    if (semFigura.length) console.error(`[DESENHO] levantamento=${a.levantamentoId} itens=${itens.length} sem_figura=${semFigura.length} ${semFigura.map((i) => `e${i.ordem}:"${i.semFigura}"`).join(' ')}`)
     return { dados, folha: gerarFolhaDoLevantamento({ ...dados, itens }) }
 }

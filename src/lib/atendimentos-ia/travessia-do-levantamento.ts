@@ -361,9 +361,9 @@ const naoChegou = fraseDoArquivoQueNaoChegou
 /** O orçamento arquivado: a falta nomeada, e ele continua arquivado (nada é reativado). */
 export const fraseDoOrcamentoArquivado = (numero: number | string) =>
     naoChegou(null, `o orçamento ${numero} está arquivado: a atualização não foi feita, e ele continua arquivado`)
-/** O "sim" sem mudança: o orçamento já está atualizado, e o arquivo que existe vai de novo. */
+/** O "sim" sem mudança: o orçamento já está atualizado (nada recalculado), e o arquivo vai de novo, refeito agora (pedido 0037). */
 export const fraseDoOrcamentoJaAtualizado = (numero: number | string) =>
-    `O orçamento ${numero} já está atualizado: nada mudou no levantamento desde a última vez. O arquivo dele vai de novo.`
+    `O orçamento ${numero} já está atualizado: nada mudou no levantamento desde a última vez. O arquivo dele foi refeito agora e vai de novo.`
 /** A edição manual substituída — dita, nunca em silêncio. */
 export const fraseDaEdicaoManualSubstituida = (numero: number | string) =>
     `O orçamento ${numero} tinha edição manual na seção Orçamentos I.A., e ela foi substituída por esta atualização do levantamento.`
@@ -399,7 +399,7 @@ export function fraseDoParcialQueContinua(numero: number | string, faltas: Reado
     const { codigos, linhas } = linhasDasFaltas(faltas)
     const quantos = codigos > 1 ? `${codigos} valores continuam` : '1 valor continua'
     return [
-        `O orçamento ${numero} continua PARCIAL: nada mudou no levantamento, e ${quantos} sem preço. O arquivo dele vai de novo, sem recálculo.`,
+        `O orçamento ${numero} continua PARCIAL: nada mudou no levantamento, e ${quantos} sem preço. O arquivo dele foi refeito agora e vai de novo, sem recálculo.`,
         ...(recusas.length ? [`O custo de agora também recusou. Falta: ${recusas.join('; ')}.`] : []),
         ['Para completar, preciso de:', ...linhas].join('\n'),
     ].join('\n')

@@ -139,9 +139,9 @@ describe('os itens do arquivo, montados do que está gravado', () => {
         expect(await descricao()).toBe('Maxim-ar com 02 módulos horizontais')
         // em quantos trilhos as folhas correm (25/11/2026, pedido 0025): pelo marco que o motor escolhe para o item
         estado.db.orcamentista_orcamento_item[0] = { ...estado.db.orcamentista_orcamento_item[0], tipologia: 'DP-17', escolhas: null }
-        expect(await descricao()).toBe('Porta de correr 04 folhas móveis em 2 trilhos | Fechamento central')
+        expect(await descricao()).toBe('Porta de correr 04 folhas móveis em 2 trilhos, fechamento central')
         estado.db.orcamentista_orcamento_item[0] = { ...estado.db.orcamentista_orcamento_item[0], tipologia: 'DP-17', escolhas: { TM: 2 } }
-        expect(await descricao()).toBe('Porta de correr 04 folhas móveis em 3 trilhos | Fechamento central')
+        expect(await descricao()).toBe('Porta de correr 04 folhas móveis em 3 trilhos, fechamento central')
         // a tipologia que o motor não descreve fica sem descrição: o código dela não entra no lugar
         estado.db.orcamentista_orcamento_item[0] = { ...estado.db.orcamentista_orcamento_item[0], tipologia: 'SEM-DETALHE' }
         expect(await descricao()).toBeNull()

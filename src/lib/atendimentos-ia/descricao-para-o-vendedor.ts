@@ -31,17 +31,22 @@ const PARTE = /^(?:"([A-Z][A-Z0-9]*)"|(\d+))\s+M[ÓO]DULOS?\s+(HORIZONTAL|HORIZO
 
 /** O trecho que diz o TIPO DE MODULAÇÃO: "PERFIL MODULAÇÃO", "MODULAÇÃO TRAVESSA", "PERFIL COLUNA", "MOD COLUNA" (a palavra MODULAÇÃO ou COLUNA). */
 const DE_MODULACAO = /\bMODULA[ÇC][ÃA]O\b|\bCOLUNA\b/i
+/**
+ * O trecho que diz o TIPO DE TRILHO ("TRILHO PVC EMBUTIDO", "TRILHO ALUMÍNIO"). Ordem do dono do produto, 26/11/2026 (pedido 0037): "Eu não quero que
+ * você apresente embutido. Isso aqui parece que é uma gambiarra" — o título diz EM QUANTOS trilhos as folhas correm, nunca o tipo do trilho.
+ */
+const DE_TRILHO = /^TRILHOS?\b/i
 
 /**
  * Os trechos da descrição, entre barras: o PRINCIPAL (o primeiro), o que a esquadria TEM (os do meio que não são modulação), o TIPO DE
  * MODULAÇÃO (os do meio que são) e a LINHA de perfil (o último, quando há barra). Sem barra nenhuma, tudo é o principal.
  */
-export function trechosDaDescricao(descricao: string | null | undefined): { principal: string; tem: string[]; modulacao: string[]; linha: string | null } {
+export function trechosDaDescricao(descricao: string | null | undefined): { principal: string; tem: string[]; modulacao: string[]; trilho: string[]; linha: string | null } {
     const trechos = (descricao ?? '').split('|').map((x) => x.replace(/\s+/g, ' ').trim())
     const meio = trechos.slice(1, -1).filter((x) => x !== '')
     return {
-        principal: trechos[0], tem: meio.filter((x) => !DE_MODULACAO.test(x)), modulacao: meio.filter((x) => DE_MODULACAO.test(x)),
-        linha: trechos.length > 1 ? trechos[trechos.length - 1] : null,
+        principal: trechos[0], tem: meio.filter((x) => !DE_MODULACAO.test(x) && !DE_TRILHO.test(x)), modulacao: meio.filter((x) => DE_MODULACAO.test(x)),
+        trilho: meio.filter((x) => !DE_MODULACAO.test(x) && DE_TRILHO.test(x)), linha: trechos.length > 1 ? trechos[trechos.length - 1] : null,
     }
 }
 
@@ -91,7 +96,9 @@ export function descricaoParaOVendedor(descricao: string | null | undefined, val
     // EM QUANTOS TRILHOS as folhas correm (dono do produto, 25/11/2026, pedido 0025): logo depois das folhas — "Porta de correr 06 folhas móveis
     // em 3 trilhos | Fechamento central". O número vem do marco que o motor escolhe para o item (`trilhos-do-marco.ts`); sem ele, nada se escreve
     const emTrilhos = typeof trilhos === 'number' && Number.isInteger(trilhos) && trilhos > 0 ? ` em ${trilhos} ${trilhos === 1 ? 'trilho' : 'trilhos'}` : ''
-    const comOQueTem = (nome: string) => [`${nome}${emTrilhos}`, ...tem.map(comInicialMaiuscula)].join(' | ')
+    // O QUE A ESQUADRIA TEM, POR EXTENSO E SEM "|" (pedido 0037): depois do nome, separado por vírgula, em minúsculas — "Porta de correr 06 folhas
+    // móveis em 3 trilhos, fechamento central". O tipo de trilho não entra (`DE_TRILHO`)
+    const comOQueTem = (nome: string) => [`${nome}${emTrilhos}`, ...tem.map((t) => t.toLocaleLowerCase('pt-BR'))].join(', ')
     const m = modulosDaDescricao(descricao)
     if (m === null) return comOQueTem(comInicialMaiuscula(principal))
     const quantidade = (q: QuantidadeDeModulos | null): number | 'a_definir' | 'aberta' | null => {
@@ -114,7 +121,9 @@ export function descricaoParaOVendedor(descricao: string | null | undefined, val
 export const nomeDaCandidata = (descricao: string | null | undefined, semValor: 'omite' | 'aberta' = 'omite'): string | null => descricaoParaOVendedor(descricao, null, semValor)
 
 /** O TIPO DE MODULAÇÃO da descrição, como ela o escreve ("PERFIL MODULAÇÃO" na DP-128). Vazio quando ela não o traz. */
-export const tipoDeModulacao = (descricao: string | null | undefined): string => trechosDaDescricao(descricao).modulacao.join(' | ')
+export const tipoDeModulacao = (descricao: string | null | undefined): string => trechosDaDescricao(descricao).modulacao.join(', ')
+/** O TIPO DE TRILHO da descrição ("TRILHO PVC EMBUTIDO"): fora do título, só para separar duas candidatas que sem ele seriam iguais. */
+export const tipoDeTrilho = (descricao: string | null | undefined): string => trechosDaDescricao(descricao).trilho.join(', ')
 
 /**
  * AS CANDIDATAS DE UMA PERGUNTA ("este item pode ser A ou B"): cada uma como o vendedor a lê. O tipo de modulação não se escreve — SALVO quando
@@ -125,7 +134,8 @@ export function nomesDasCandidatas(descricoes: ReadonlyArray<string | null | und
     const nomes = descricoes.map((d) => nomeDaCandidata(d, semValor) ?? '')
     return nomes.map((nome, k) => {
         const repetido = nomes.some((outro, j) => j !== k && outro === nome)
-        const tipo = tipoDeModulacao(descricoes[k]).toLocaleLowerCase('pt-BR')
+        // o que separa duas candidatas que ficariam iguais: o tipo de modulação e o de trilho, entre parênteses e em minúsculas
+        const tipo = [tipoDeModulacao(descricoes[k]), tipoDeTrilho(descricoes[k])].filter((t) => t !== '').join(', ').toLocaleLowerCase('pt-BR')
         return repetido && tipo !== '' ? `${nome} (${tipo})` : nome
     })
 }

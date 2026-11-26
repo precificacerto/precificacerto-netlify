@@ -517,11 +517,13 @@ export const caixaDaFigura = (x: number, y: number, alturaDoCorpo: number) =>
  * O nome como a faixa o mostra (dono do produto, 07/11/2026; 24/11/2026, pedido 0023): o NOME do item — a descrição resolvida, sem a linha de
  * perfil e sem o código (`descricaoParaOVendedor`) —, com a PRIMEIRA letra de cada trecho entre barras em maiúscula e o resto em minúscula, e mais
  * nada: nenhum espaço acrescentado, nenhuma barra normalizada, nenhum texto cortado ou acrescentado. O nome vai em preto; o que a esquadria TEM (a
- * partir da PRIMEIRA barra "|": "| Bandeira fixa", "| Veneziana | Trilho pvc embutido") sai em CINZA e peso normal. Sem barra: nada cinza.
+ * partir da PRIMEIRA barra "|": "| Bandeira fixa", "| Veneziana | Trilho pvc embutido") sai em CINZA e peso normal. O nome de hoje não tem barra
+ * (pedido 0037): o cinza começa na PRIMEIRA vírgula (", bandeira fixa"). Sem barra nem vírgula: nada cinza.
  */
 export function nomeDaTipologiaNaFaixa(nome: string): { principal: string; cinza: string } {
     const comCaixa = nome.split(/(\|)/).map((t) => (t === '|' ? t : t.toLocaleLowerCase('pt-BR').replace(/\p{L}/u, (l) => l.toLocaleUpperCase('pt-BR')))).join('')
-    const k = comCaixa.indexOf('|')
+    // o nome SEM "|" (pedido 0037: o título vai por extenso, e o que a esquadria tem vem depois da PRIMEIRA vírgula): o cinza começa na vírgula
+    const k = comCaixa.includes('|') ? comCaixa.indexOf('|') : comCaixa.indexOf(', ')
     return k < 0 ? { principal: comCaixa, cinza: '' } : { principal: comCaixa.slice(0, k), cinza: comCaixa.slice(k) }
 }
 

@@ -776,7 +776,7 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
         expect(reenvio.chamadas).toHaveLength(1)
         expect(r).toEqual({
             rastro: 'orcamento=1 atualizacao=sem_mudanca parcial=continua faltas_de_preco=1/2 reenvio=ok', paraOVendedor: 'reenviado',
-            aviso: 'O orçamento 1 continua PARCIAL: nada mudou no levantamento, e 1 valor continua sem preço. O arquivo dele vai de novo, sem recálculo.\n'
+            aviso: 'O orçamento 1 continua PARCIAL: nada mudou no levantamento, e 1 valor continua sem preço. O arquivo dele foi refeito agora e vai de novo, sem recálculo.\n'
                 + 'Para completar, preciso de:\n• SF92/WOLFF não está na tabela de preço (item 1).',
             enviadoPara: '5551999990000', idDoEnvio: 'id-reenvio',
         })
@@ -795,7 +795,7 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
     })
     it('a frase do parcial que continua: dois códigos são "2 valores continuam"', () => {
         expect(fraseDoParcialQueContinua(3, [SF92, { ...SF92, codigo_do_motor: 'X', frase: 'x', esquadria: 2 }]).split('\n')[0])
-            .toBe('O orçamento 3 continua PARCIAL: nada mudou no levantamento, e 2 valores continuam sem preço. O arquivo dele vai de novo, sem recálculo.')
+            .toBe('O orçamento 3 continua PARCIAL: nada mudou no levantamento, e 2 valores continuam sem preço. O arquivo dele foi refeito agora e vai de novo, sem recálculo.')
     })
     it('o COMPLETO é fotografia: a conferência diz "não parcial", e o "sim" sem mudança só reenvia, com o "já está atualizado"', async () => {
         await atravessarNoSim(T, LEV, naEtapa)
@@ -893,5 +893,12 @@ describe('(8) o aviso da tabela congelada', () => {
         expect(c.bruto).toBe(220)
         const [a] = avisosDeDivergencia([{ ordem: 1, tabelaCongelada: 'tab-velha', tabelasVigentes: ['tab-nova'], materiais: [material('1001'), material('9999')] }], new Map([['tab-velha', congelada]]), nomes)
         expect(a.endsWith('; sem preço ou sem crédito apurável na congelada: 9999 (fora da conta, não somados como zero).')).toBe(true)
+    })
+})
+
+describe('a versão do cálculo subiu com as regras de custo de 26/11/2026 (pedido 0037)', () => {
+    it('o orçamento calculado com a versão de 16/11 está obsoleto: o próximo "sim" o refaz (#346, #347, #349)', () => {
+        expect(VERSAO_DO_CALCULO).not.toBe('consumo-do-item-2026-11-16')
+        expect(VERSAO_DO_CALCULO).toBe('barras-unicas-pedido-total-peca-exata-2026-11-26')
     })
 })

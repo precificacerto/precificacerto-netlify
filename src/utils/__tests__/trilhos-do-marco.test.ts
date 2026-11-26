@@ -97,6 +97,6 @@ describe('pedido 0031: o caso do orçamento 28-PVC, item 8 (DP-73, 5150 x 2550)'
         expect(t).toEqual({ trilhos: 4 })
         const trilhos = t !== null && 'trilhos' in t ? t.trilhos : null
         expect(descricaoParaOVendedor('PORTA DE CORRER 04 FOLHAS MÓVEIS | TRILHO PVC EMBUTIDO | EUROPA 42', null, 'a_definir', trilhos))
-            .toBe('Porta de correr 04 folhas móveis em 4 trilhos | Trilho pvc embutido')
+            .toBe('Porta de correr 04 folhas móveis em 4 trilhos')
     })
 })
