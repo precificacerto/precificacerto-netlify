@@ -209,8 +209,16 @@ export type RecusaDoAvaliador = {
     quantidade?: number
 }
 export type ResultadoDaAvaliacao =
-    | { ok: true; pecas: PecaDoPerfil[]; linhas: LinhaAvaliada[]; avisos: AvisoDoAvaliador[]; insumos: InsumoAvaliado[]; vidros: VidroAvaliado[]; faltas: FaltaDoAvaliador[] }
+    | { ok: true; pecas: PecaDoPerfil[]; linhas: LinhaAvaliada[]; avisos: AvisoDoAvaliador[]; insumos: InsumoAvaliado[]; vidros: VidroAvaliado[]; faltas: FaltaDoAvaliador[]; trocas: TrocaDaOpcao[] }
     | { ok: false; recusas: RecusaDoAvaliador[] }
+/**
+ * A OPÇÃO PADRÃO QUE NÃO VALE (dono do produto, 26/11/2026; pedido 0030 — o orçamento 28-PVC, item 8, DP-73 5.150 × 2.550: a política deu RL = 1,
+ * e a condição da opção 1, `(H-Y+52)<=2437.8`, é falsa com 2.550 — o cálculo parou com "a escolha RL = 1 não vale neste item"). A opção que veio
+ * por PADRÃO (a política, o padrão da tipologia ou do motor — não dita pelo vendedor) e não vale dá lugar à única que vale, ou à primeira que vale
+ * na ordem das opções; a troca é devolvida, para o rastro. A dita pelo vendedor continua recusa: quem pergunta é a conversa.
+ */
+export type TrocaDaOpcao = { variavel: string; de: number; para: number; motivo: 'unica_valida_padrao_invalido' | 'primeira_valida_padrao_invalido' }
+
 export type EntradaDoAvaliador = {
     tipologia: Tipologia
     L_mm: number
@@ -223,6 +231,8 @@ export type EntradaDoAvaliador = {
      * (`fronteira-das-escolhas.ts`). Sem a marca, o de antes (os testes do avaliador e o caminho que ainda não passa pela fronteira).
      */
     semDecidirVariacao?: boolean
+    /** As variáveis cuja escolha veio por PADRÃO, não dita pelo vendedor (pedido 0030): a opção delas que não vale dá lugar a uma que vale. */
+    escolhasPorPadrao?: readonly string[]
 }
 
 // ── O racional exato ──────────────────────────────────────────────────────────────────────
@@ -556,6 +566,8 @@ type Contexto = {
     memoria: Map<string, Q>
     /** R1: o valor de cada variável já resolvida (0 quando inativa), pela mesma memória das fórmulas, numa chave à parte. */
     memoriaDasVariaveis: Map<string, Q>
+    /** As opções padrão trocadas por uma que vale (pedido 0030), na ordem em que o cálculo as achou. */
+    trocas: TrocaDaOpcao[]
 }
 
 function ambienteDa(ctx: Contexto): Ambiente {
@@ -589,6 +601,14 @@ function ambienteDa(ctx: Contexto): Ambiente {
         const validas = ctx.condicoesDasOpcoes.has(nome) ? opcoesQueValem(variavel, pilha) : null
         if (escolha !== undefined) {
             if (validas && !validas.includes(escolha)) {
+                // a opção que veio por PADRÃO e não vale: a única que vale, ou a primeira na ordem das opções — nunca falta (pedido 0030)
+                if (validas.length > 0 && (ctx.entrada.escolhasPorPadrao ?? []).includes(nome)) {
+                    const para = validas[0]
+                    if (!ctx.trocas.some((t) => t.variavel === nome)) {
+                        ctx.trocas.push({ variavel: nome, de: escolha, para, motivo: validas.length === 1 ? 'unica_valida_padrao_invalido' : 'primeira_valida_padrao_invalido' })
+                    }
+                    return deNumero(para) as Q
+                }
                 throw new ErroDeAvaliacao('ESCOLHA_FORA_DAS_OPCOES',
                     `A escolha ${nome} = ${escolha} não vale neste item: ${validas.length ? `as opções que valem são ${validas.join(', ')}` : 'nenhuma opção vale'}.`, { variavel: nome })
             }
@@ -726,7 +746,7 @@ function montar(entrada: EntradaDoAvaliador): { ctx: Contexto } | { recusas: Rec
         }
     }
     if (recusas.length) return { recusas }
-    return { ctx: { entrada, L: L as Q, H: H as Q, formulas, variaveis, opcoes, condicoesDasOpcoes, memoria: new Map(), memoriaDasVariaveis: new Map() } }
+    return { ctx: { entrada, L: L as Q, H: H as Q, formulas, variaveis, opcoes, condicoesDasOpcoes, memoria: new Map(), memoriaDasVariaveis: new Map(), trocas: [] } }
 }
 
 // ── A API ─────────────────────────────────────────────────────────────────────────────────
@@ -907,7 +927,7 @@ export function avaliarTipologia(entrada: EntradaDoAvaliador): ResultadoDaAvalia
             vidros.push({ vidro: x.vidro, largura_mm: l, altura_mm: h, quantidade: Number(q.n), fixacao: x.fixacao, linha })
         } catch (e) { onde(recusaDe(e, {}).mensagem) }
     })
-    return { ok: true, pecas, linhas, avisos, insumos, vidros, faltas }
+    return { ok: true, pecas, linhas, avisos, insumos, vidros, faltas, trocas: ctx.trocas }
 }
 
 // ── A leitura das abas, pelo NOME da coluna ───────────────────────────────────────────────

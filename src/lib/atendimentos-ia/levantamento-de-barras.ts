@@ -73,7 +73,7 @@ import type { CategoriaDoFornecedor } from '@/utils/atendimentos-ia-importacao-c
  * Portão: `src/utils/__tests__/levantamento-de-barras.test.ts`. Mutações:
  * `scripts/harness/levantamento-de-barras/`.
  */
-import { avaliarTipologia, faltaDoVidroSemBaguete, type AvisoDoAvaliador, type FaltaDoAvaliador, type InsumoAvaliado, type OrigemNoMotor, type Tipologia, type VidroAvaliado } from './avaliador-de-formulas'
+import { avaliarTipologia, faltaDoVidroSemBaguete, type AvisoDoAvaliador, type FaltaDoAvaliador, type InsumoAvaliado, type OrigemNoMotor, type Tipologia, type TrocaDaOpcao, type VidroAvaliado } from './avaliador-de-formulas'
 import { agruparEmBarras, milimetrosDaBarra, type BarraDoCodigo, type ResultadoDoCodigo, type TotalDoLevantamento } from './agrupador-de-barras'
 import { GRUPO_DE_COR, candidatasDoDegrau, resolverPelaReferencia, resolverReferencia, type ComoAchou, type CorDoFornecedor } from './resolucao-de-referencia'
 
@@ -88,6 +88,8 @@ export type EsquadriaDoLevantamento = {
     espessura_vidro_mm?: number | null
     /** A fronteira (20/11/2026): as escolhas já vêm decididas fora do motor, e ele não usa padrão em variável com opções. */
     semDecidirVariacao?: boolean
+    /** As variáveis decididas por PADRÃO, não pelo vendedor (pedido 0030): a opção que não vale dá lugar a uma que vale (`TrocaDaOpcao`). */
+    escolhasPorPadrao?: readonly string[]
 }
 /** Uma linha de `orcamentista_motor_regra`, só com o que a ponte lê — e a descrição, que a resolução de referência compara. */
 export type RegraDoDePara = { codigo: string; codigo_wvetro: string; cor: string | null; descricao?: string | null }
@@ -233,6 +235,8 @@ export type ResultadoDoLevantamento =
         /** As faltas de preço, uma por (peça, esquadria): não recusam (12/11/2026). Vazia = nenhuma falta. */
         faltas: FaltaDePreco[]
         avisos: Array<AvisoDoAvaliador & { esquadria: number }>
+        /** As opções padrão trocadas por uma que vale (pedido 0030), por esquadria: vão ao rastro, nunca são falta. */
+        trocas: Array<TrocaDaOpcao & { esquadria: number }>
         /**
          * A RESOLUÇÃO DE CADA CÓDIGO (12/11/2026): pelo código do motor, o item da tabela de onde veio o preço e COMO foi achado
          * (`resolucao-de-referencia.ts`). É o que a fotografia do material grava, para auditar como cada preço foi parar ali.
@@ -420,6 +424,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
     type PecaBruta = { esquadria: number; perfil: string; descricao: string; comprimento_mm: number; quantidade_por_esquadria: number; quantidade: number; corte: string; posicao: string } & OrigemNoMotor
     const brutas: PecaBruta[] = []
     const levantadas: Array<Omit<EsquadriaLevantada, 'pecas'>> = []
+    const trocas: Array<TrocaDaOpcao & { esquadria: number }> = []
     entrada.esquadrias.forEach((e, k) => {
         const indice = k + 1
         if (!Number.isInteger(e.quantidade) || e.quantidade <= 0) {
@@ -433,7 +438,8 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
                 texto: `a tipologia ${e.tipologia} não tem definição (abas do motor) neste levantamento. Falta: a tipologia ${e.tipologia}.`, falta: `a definição da tipologia ${e.tipologia} no motor` })
             return
         }
-        const r = avaliarTipologia({ tipologia, L_mm: e.L_mm, H_mm: e.H_mm, escolhas: e.escolhas, espessura_vidro_mm: e.espessura_vidro_mm, semDecidirVariacao: e.semDecidirVariacao })
+        const r = avaliarTipologia({ tipologia, L_mm: e.L_mm, H_mm: e.H_mm, escolhas: e.escolhas, espessura_vidro_mm: e.espessura_vidro_mm, semDecidirVariacao: e.semDecidirVariacao,
+            ...(e.escolhasPorPadrao ? { escolhasPorPadrao: e.escolhasPorPadrao } : {}) })
         if ('recusas' in r) {
             // A ESPESSURA QUE NÃO FOI DITA, uma falta só (08/11/2026): o avaliador recusa linha a linha da aba Perfis (uma por baguete), e para o
             // vendedor é UMA coisa que falta — a espessura do vidro, com as que os baguetes da tipologia aceitam
@@ -455,6 +461,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
             }
             return
         }
+        trocas.push(...r.trocas.map((t) => ({ ...t, esquadria: indice })))
         levantadas.push({ indice, tipologia: e.tipologia, L_mm: e.L_mm, H_mm: e.H_mm, quantidade: e.quantidade, avisos: r.avisos,
             insumos: r.insumos, vidros: r.vidros, faltasDoAvaliador: r.faltas })
         for (const p of r.pecas) {
@@ -574,6 +581,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
         por_codigo: agrupado.por_codigo.map((c) => ({ ...c, perfil: perfilDoCodigo[c.codigo], descricao: itemDoCodigo[c.codigo].descricao ?? null })),
         total: agrupado.total,
         avisos: levantadas.flatMap((e) => e.avisos.map((a) => ({ ...a, esquadria: e.indice }))),
+        trocas,
         faltas,
         resolucoes,
     }
