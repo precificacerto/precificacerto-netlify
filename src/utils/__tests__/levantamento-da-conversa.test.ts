@@ -1676,7 +1676,7 @@ describe('(ORC) o custo do orçamento I.A. pelo CAMINHO COMPLETO, e a reconcilia
     const duas = () => ({ nome: 'Casa do João', itens: [{ ...ESQUADRIA, escolhas: ESCOLHAS }, { ...ESQUADRIA, ordem: 2, largura_mm: 800, altura_mm: 600, quantidade: 2, escolhas: ESCOLHAS }] })
     const reais = (t: string, rotulo: string) => Number((t.split('\n').find((l) => l.startsWith(rotulo)) ?? '').replace(/^.*R\$ /, '').replace(/\.$/, '').replace(/\./g, '').replace(',', '.'))
     const custoOk = async (l: { nome: string; itens: (typeof ESQUADRIA)[] }) => {
-        const r = await S().custoDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), l)
+        const r = await S().custoDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), l, 'consumo')
         if ('recusas' in r) throw new Error('recusou: ' + r.recusas.join(' | '))
         return r
     }
@@ -1764,7 +1764,7 @@ describe('(ORC) o custo do orçamento I.A. pelo CAMINHO COMPLETO, e a reconcilia
 
     it('a família sem etapa de cálculo: recusa nomeada — o orçamento não tem custo sem as barras e a mão de obra', async () => {
         banco.db.orcamentista_familia_etapa = banco.db.orcamentista_familia_etapa.filter((e) => e.etapa_catalogo_id !== ITEM_DO_CALCULO)
-        const r = await S().custoDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), lev({ escolhas: ESCOLHAS }))
+        const r = await S().custoDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), lev({ escolhas: ESCOLHAS }), 'consumo')
         expect('recusas' in r && r.recusas).toEqual([S().fraseDaFamiliaSemCalculo('PVC')])
     })
     it('sem a configuração de mão de obra da empresa: a conversa fecha (a linha da mão de obra "não sai"), mas o orçamento recusa — sem valor do minuto, nunca 0', async () => {
@@ -1772,7 +1772,7 @@ describe('(ORC) o custo do orçamento I.A. pelo CAMINHO COMPLETO, e a reconcilia
         const l = lev({ escolhas: ESCOLHAS })
         const m = await M().mensagemDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), l)
         expect(m.desfecho).toBe('levantou')
-        const r = await S().custoDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), l)
+        const r = await S().custoDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), l, 'consumo')
         expect('recusas' in r && r.recusas).toContain('[COMERCIAL] o valor do minuto da mão de obra: a configuração de mão de obra da empresa não fecha')
     })
     it('a leitura do item da tabela pede o bloco tributário pelos NOMES da tabela, e NÃO a coluna antiga `ipi`', () => {
@@ -1784,7 +1784,7 @@ describe('(ORC) o custo do orçamento I.A. pelo CAMINHO COMPLETO, e a reconcilia
     it('nada evolui com falta: a recusa do levantamento é a frase que o vendedor leria, e nenhum item sai custeado', async () => {
         banco.db.orcamentista_motor_tipologia_tempo = []
         const l = lev({ escolhas: ESCOLHAS })
-        const r = await S().custoDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), l)
+        const r = await S().custoDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), l, 'consumo')
         const m = await M().mensagemDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), l)
         expect(m.desfecho).toBe('recusou')
         expect('recusas' in r && r.recusas).toEqual([m.texto])
@@ -1851,7 +1851,7 @@ describe('(RV) a família de REVENDA (dono do produto, 23/11/2026): espelha a fa
         revenda()
         banco.db.orcamentista_motor_tipologia_tempo = []
         banco.db.tenant_settings[0].monthly_workload = 0
-        const r = await S().custoDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), lev(FECHA))
+        const r = await S().custoDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), lev(FECHA), 'consumo')
         if ('recusas' in r) throw new Error('recusou: ' + r.recusas.join(' | '))
         expect(r.maoDeObra).toBeNull()
         expect(r.itens.map((i) => [i.tempo_fabricacao_min, i.custo_fabricacao, i.valor_minuto])).toEqual([[0, 0, null]])
@@ -1860,7 +1860,7 @@ describe('(RV) a família de REVENDA (dono do produto, 23/11/2026): espelha a fa
 
     it('CONTRASTE do custo: a FABRICACAO com a mão de obra da empresa sem fechar recusa', async () => {
         banco.db.tenant_settings[0].monthly_workload = 0
-        const r = await S().custoDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), lev(FECHA))
+        const r = await S().custoDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), lev(FECHA), 'consumo')
         expect('recusas' in r).toBe(true)
     })
 

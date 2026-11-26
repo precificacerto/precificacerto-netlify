@@ -35,7 +35,7 @@ import { supabaseAdmin } from '@/supabase/admin'
 import { lerOrcamento, ErroSemMigracao, TABELA_DO_ITEM, TABELA_DO_ORCAMENTO, tabelaAusente } from './orcamentos-ia'
 import { custoDoLevantamento } from './custo-do-orcamento-servidor'
 import { lerFamiliasDaEmpresa, type EsquadriaGravada } from './levantamento-da-conversa'
-import { MODO_DO_FALLBACK, ORIGEM_DO_FALLBACK, MOTIVO_DO_FALLBACK, VERSAO_DO_CALCULO, PERCENTUAIS, type CustoDoItem } from './custo-do-orcamento'
+import { MODO_DO_FALLBACK, ORIGEM_DO_FALLBACK, MOTIVO_DO_FALLBACK, MODO_DO_PEDIDO_TOTAL, ORIGEM_DO_PEDIDO_TOTAL, MOTIVO_DO_PEDIDO_TOTAL, VERSAO_DO_CALCULO, PERCENTUAIS, type Aproveitamento, type CustoDoItem } from './custo-do-orcamento'
 import type { FaltaDoOrcamento } from './custo-do-orcamento-servidor'
 import { avisosDeDivergencia, type LinhaDaTabelaCongelada } from './divergencia-da-tabela'
 
@@ -109,17 +109,26 @@ async function lerDoLevantamento(tenantId: string, idsDosItens: string[]) {
  * Calcula o orçamento `id` da empresa `tenantId` e grava o resultado. `agora` e `novoId` existem para o teste; em produção são o relógio e
  * `randomUUID`.
  */
-export async function calcularOrcamento(tenantId: string, id: string, agora: Date = new Date(), novoId: () => string = randomUUID): Promise<ResultadoDoCalculo> {
-    const { orc, doLevantamento, fonte, custo } = await custoDeAgora(tenantId, id)
+/**
+ * QUEM ESCOLHEU O PEDIDO TOTAL (pedido 0034-B): o vendedor, na conversa (o id do remetente), ou o responsável, na tela (o usuário). Sem
+ * escolha, o cálculo é pelo CONSUMO de cada item, o padrão. O agente nunca escolhe sozinho.
+ */
+export type EscolhaDoAproveitamento = { modo: 'pedido_total'; por: string }
+export const FRASE_SEM_MIGRACAO_DO_PEDIDO_TOTAL =
+    'o cálculo pelo pedido total: o banco ainda não aceita o modo (a migração 20261126000001 não está aplicada). O orçamento continua como estava'
+
+export async function calcularOrcamento(tenantId: string, id: string, agora: Date = new Date(), novoId: () => string = randomUUID,
+    escolha: EscolhaDoAproveitamento | null = null): Promise<ResultadoDoCalculo> {
+    const { orc, doLevantamento, fonte, custo } = await custoDeAgora(tenantId, id, escolha ? 'pedido_total' : 'consumo')
     if ('recusas' in custo) throw new ErroDoCalculo(custo.recusas)
-    return gravarOCalculo(tenantId, id, orc, doLevantamento, fonte, custo, agora, novoId)
+    return gravarOCalculo(tenantId, id, orc, doLevantamento, fonte, custo, agora, novoId, escolha)
 }
 
 /**
  * O custo do orçamento `id` COMO ELE SAIRIA AGORA (a tabela vigente): só leitura — nada é gravado. Exportado para o ORIENTATIVO DE MONTAGEM
  * (22/11/2026), que roda o MESMO cálculo de novo para mostrar a linha e a Obs. do motor de cada peça (`montagemPorItem`), sem gravar nada.
  */
-export async function custoDeAgora(tenantId: string, id: string) {
+export async function custoDeAgora(tenantId: string, id: string, aproveitamento: Aproveitamento) {
     const orc = await lerOrcamento(tenantId, id)
     if (orc.itens.length === 0) throw new ErroDoCalculo(['os itens do orçamento: ele não tem nenhum'])
     const doLevantamento = orc.levantamento_id
@@ -134,13 +143,13 @@ export async function custoDeAgora(tenantId: string, id: string) {
         }
     })
     const fonte = await lerFamiliasDaEmpresa(tenantId)
-    const custo = await custoDoLevantamento(tenantId, fonte, { nome: orc.nome, itens: esquadrias })
+    const custo = await custoDoLevantamento(tenantId, fonte, { nome: orc.nome, itens: esquadrias }, aproveitamento)
     return { orc, doLevantamento, fonte, custo }
 }
 
 type Lido = Awaited<ReturnType<typeof custoDeAgora>>
 async function gravarOCalculo(tenantId: string, id: string, orc: Lido['orc'], doLevantamento: Lido['doLevantamento'], fonte: Lido['fonte'],
-    custo: Extract<Lido['custo'], { ok: true }>, agora: Date, novoId: () => string): Promise<ResultadoDoCalculo> {
+    custo: Extract<Lido['custo'], { ok: true }>, agora: Date, novoId: () => string, escolha: EscolhaDoAproveitamento | null): Promise<ResultadoDoCalculo> {
     const avisos = await avisosDaTabelaCongelada(tenantId, fonte, orc.itens, custo.itens, doLevantamento?.porItem ?? new Map())
     // a falta precisa de onde ser gravada ANTES de qualquer escrita: sem a tabela, ela é recusa, como antes (nunca some em silêncio)
     if (custo.faltas.length) {
@@ -164,10 +173,17 @@ async function gravarOCalculo(tenantId: string, id: string, orc: Lido['orc'], do
     // recebia "o cálculo do orçamento N falhou". Era defeito latente — o recálculo de um orçamento precificado nunca passava —, e só
     // apareceu quando o cálculo de outra versão (20261116000002) passou a forçar a atualização em vez de reenviar o arquivo velho.
     // Medido em produção em 16/11/2026, no orçamento 6 da De Paula, duas vezes (13:24:13 e 13:25:25 UTC).
+    //
+    // O MODO DO APROVEITAMENTO vai JÁ AQUI (pedido 0034-B): sem a migração 20261126000001, a CHECK recusa o pedido total (23514) ANTES de
+    // qualquer escrita, e o vendedor ou o responsável lê a falta nomeada — o orçamento fica como estava
+    const aproveitamento = escolha
+        ? { aproveitamento_modo: MODO_DO_PEDIDO_TOTAL, aproveitamento_origem: ORIGEM_DO_PEDIDO_TOTAL, aproveitamento_motivo: MOTIVO_DO_PEDIDO_TOTAL, aproveitamento_por: escolha.por }
+        : { aproveitamento_modo: MODO_DO_FALLBACK, aproveitamento_origem: ORIGEM_DO_FALLBACK, aproveitamento_motivo: MOTIVO_DO_FALLBACK, aproveitamento_por: null as string | null }
     {
         const { data, error } = await db().from(TABELA_DO_ORCAMENTO)
-            .update({ valor_total_bruto: null, valor_total_liquido: null, valor_venda: null, valor_operacao_interna: null, atualizado_em: calculado_em })
+            .update({ valor_total_bruto: null, valor_total_liquido: null, valor_venda: null, valor_operacao_interna: null, ...aproveitamento, atualizado_em: calculado_em })
             .eq('tenant_id', tenantId).eq('id', id).select('id')
+        if (error && escolha && error.code === '23514') throw new ErroDoCalculo([FRASE_SEM_MIGRACAO_DO_PEDIDO_TOTAL])
         if (error) falhou(TABELA_DO_ORCAMENTO, error)
         if (!data || data.length !== 1) throw new Error(`${TABELA_DO_ORCAMENTO}: o orçamento ${id} não foi atingido ao anular os totais; nada foi gravado`)
     }
@@ -239,7 +255,7 @@ async function gravarOCalculo(tenantId: string, id: string, orc: Lido['orc'], do
     const valor_total_bruto = custo.itens.reduce((t, c) => t + c.custo_bruto_materiais + c.custo_fabricacao, 0)
     const valor_total_liquido = custo.itens.reduce((t, c) => t + c.custo_liquido_total, 0)
     const doOrcamento = {
-        aproveitamento_modo: MODO_DO_FALLBACK, aproveitamento_origem: ORIGEM_DO_FALLBACK, aproveitamento_motivo: MOTIVO_DO_FALLBACK, aproveitamento_por: null as string | null,
+        ...aproveitamento,
         valor_total_bruto, valor_total_liquido, atualizado_em: calculado_em,
     }
     // A VERSÃO DAS REGRAS DE CUSTO (16/11/2026): é ela que faz o "sim sem mudança" perceber que um cálculo de antes ficou obsoleto.
@@ -323,7 +339,7 @@ export async function faltaDoParcial(tenantId: string, id: string): Promise<Falt
         .filter((x) => vigente.get(x.orcamento_item_id) === x.calculo_id)
         .map(({ caminho, codigo_do_motor, cor, frase, esquadria }) => ({ caminho, codigo_do_motor, cor, frase, esquadria }))
     if (nomeadas.length === 0) return { parcial: false }
-    const { custo } = await custoDeAgora(tenantId, id)
+    const { custo } = await custoDeAgora(tenantId, id, 'consumo')
     if ('recusas' in custo) return { parcial: true, nomeadas: nomeadas.length, continuam: nomeadas, recusas: custo.recusas }
     const faltamAgora = new Set(custo.faltas.map(chaveDaFalta))
     return { parcial: true, nomeadas: nomeadas.length, continuam: nomeadas.filter((x) => faltamAgora.has(chaveDaFalta(x))), recusas: [] }

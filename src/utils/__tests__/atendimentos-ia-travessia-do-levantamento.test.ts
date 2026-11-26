@@ -95,15 +95,16 @@ function cliente() {
 }
 jest.mock('@/supabase/admin', () => ({ supabaseAdmin: cliente() }))
 // o cálculo tem portão próprio (`atendimentos-ia-orcamento-calculado.test.ts`); aqui só importa que o "sim" o chama, com o orçamento criado
-const calculo = { chamadas: [] as Array<[string, string]>, resposta: null as null | (() => unknown), parcial: { parcial: false } as unknown, conferidos: [] as string[], versaoGravada: VERSAO_DO_CALCULO }
+const calculo = { escolhas: [] as unknown[], chamadas: [] as Array<[string, string]>, resposta: null as null | (() => unknown), parcial: { parcial: false } as unknown, conferidos: [] as string[], versaoGravada: VERSAO_DO_CALCULO }
 import { VERSAO_DO_CALCULO } from '@/lib/atendimentos-ia/custo-do-orcamento'
 
 jest.mock('@/lib/atendimentos-ia/orcamento-calculado', () => {
     class ErroDoCalculo extends Error { constructor(readonly recusas: string[]) { super(recusas.join(' | ')) } }
     return {
         ErroDoCalculo,
-        calcularOrcamento: async (t: string, id: string) => {
+        calcularOrcamento: async (t: string, id: string, _agora?: unknown, _novoId?: unknown, escolha: unknown = null) => {
             calculo.chamadas.push([t, id])
+            calculo.escolhas.push(escolha)
             // o cálculo de verdade grava a VERSÃO DAS REGRAS no orçamento (16/11/2026); o mock faz o mesmo, ou o "sem mudança" nunca valeria
             const o = (estado.db.orcamentista_orcamento ?? []).find((x: Record<string, unknown>) => String(x.id) === id)
             if (o) o.calculo_versao = calculo.versaoGravada
@@ -115,7 +116,7 @@ jest.mock('@/lib/atendimentos-ia/orcamento-calculado', () => {
 })
 
 import {
-    atravessarLevantamento, atravessarNoSim, aproveitamentoDaTravessia, ErroDaTravessia, ErroJaAtravessado, faltasDoCongelado, faltasDoOrcamento, fraseDosQuestionamentos,
+    atravessarLevantamento, atravessarNoSim, aproveitamentoDaTravessia, fraseDoPedidoTotal, ErroDaTravessia, ErroJaAtravessado, faltasDoCongelado, faltasDoOrcamento, fraseDosQuestionamentos,
     fraseJaAtravessado, fraseNaoCompleto, fraseSemItens, fraseSemQuantidade, lerClienteDoLevantamento, levantamentosParaAtravessar, planoDaTravessia,
     FALTA_DO_MODO_DA_COMISSAO, fraseDoIndiceDeAntes, fraseDoItemSemFamilia, fraseDoOrcamentoDeAntes, juntarResultados, origemNaTela, percentuaisDoOrcamento, resolverPercentual,
     type ItemDoLevantamentoNaTravessia, type LevantamentoNaTravessia,
@@ -517,6 +518,26 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
         estado.db.orcamentista_orcamento = []
         estado.db.orcamentista_orcamento_item = []
         expect((await atravessarNoSim(T, LEV, naEtapa)).paraOVendedor).toContain('a precificação do orçamento 1 falhou')
+    })
+    it('pedido 0034-B: o "sim" com o PEDIDO TOTAL passa a escolha ao cálculo, diz o modo em uma linha, e o "sim sem mudança" RECALCULA em vez de reenviar', async () => {
+        calculo.escolhas = []
+        const escolha = { modo: 'pedido_total' as const, por: 'vendedor-1' }
+        const r = await atravessarNoSim(T, LEV, naEtapa, reenvio.fn, escolha)
+        expect(calculo.escolhas).toEqual([escolha])
+        expect(r.questionamentos).toBe(fraseDoPedidoTotal('1'))
+        // de novo, sem mudança: com a escolha, não reenvia o arquivo de antes — recalcula pelo pedido total
+        comFamilia('PVC')
+        calculo.escolhas = []
+        await atravessarNoSim(T, LEV, naEtapa, reenvio.fn, escolha)
+        expect(reenvio.chamadas).toEqual([])
+        expect(calculo.escolhas).toEqual([escolha])
+        // e sem a escolha, o de sempre: nenhuma escolha chega ao cálculo
+        estado.db.orcamentista_orcamento = []
+        estado.db.orcamentista_orcamento_item = []
+        calculo.escolhas = []
+        const s = await atravessarNoSim(T, LEV, naEtapa)
+        expect(calculo.escolhas).toEqual([null])
+        expect(s.questionamentos).toBeUndefined()
     })
     it('o já atravessado para na travessia e NÃO recalcula nem reenvia; a recusa e a falha da travessia também param nela', async () => {
         await atravessarNoSim(T, LEV, naEtapa)

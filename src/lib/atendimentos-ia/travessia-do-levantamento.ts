@@ -28,7 +28,7 @@ import { supabaseAdmin } from '@/supabase/admin'
 import { separarBloco } from './bloco-da-falta'
 import { ErroNaoEncontrado, ErroSemMigracao, TABELA_DO_ITEM, TABELA_DO_ORCAMENTO, tabelaAusente } from './orcamentos-ia'
 import { lerPerfilDoVendedor } from './arquivo-do-levantamento'
-import { calcularOrcamento, ErroDoCalculo, faltaDoParcial, type FaltaDoParcial } from './orcamento-calculado'
+import { calcularOrcamento, type EscolhaDoAproveitamento, ErroDoCalculo, faltaDoParcial, type FaltaDoParcial } from './orcamento-calculado'
 import { VERSAO_DO_CALCULO } from './custo-do-orcamento'
 import type { ResultadoDaEtapa } from './cadeia-do-sim'
 import { fraseDoArquivoQueNaoChegou } from './arquivo-que-nao-chegou'
@@ -409,7 +409,12 @@ export function fraseDoParcialQueContinua(numero: number | string, faltas: Reado
  * ou atualizar, calcular, precificar e mandar o arquivo DELA — e a resposta junta as das famílias, na ordem. Com uma família só, a resposta é
  * exatamente a de antes.
  */
-export async function atravessarNoSim(tenantId: string, levantamentoId: string, etapaDoPreco: EtapaDoPrecoNoSim, reenviar?: ReenvioNoSim): Promise<ResultadoDoSim> {
+/**
+ * `escolha` (pedido 0034-B): o vendedor pediu, na mesma mensagem do "sim", o orçamento PELO PEDIDO TOTAL — o cálculo grava o modo e quem
+ * escolheu, e o "sim sem mudança" não reenvia o arquivo de antes: recalcula. Nulo: o consumo, o padrão.
+ */
+export async function atravessarNoSim(tenantId: string, levantamentoId: string, etapaDoPreco: EtapaDoPrecoNoSim, reenviar?: ReenvioNoSim,
+    escolha: EscolhaDoAproveitamento | null = null): Promise<ResultadoDoSim> {
     let lido: Awaited<ReturnType<typeof familiasDoLevantamento>>
     try {
         lido = await familiasDoLevantamento(tenantId, levantamentoId)
@@ -427,7 +432,7 @@ export async function atravessarNoSim(tenantId: string, levantamentoId: string, 
     for (const g of lido.grupos) {
         const familiaDoOrcamento = g.existente ? g.existente.familia : g.familia
         const exibido = (numero: number) => numeroExibido({ numero, levantamentoNumero: lido.lev.numero, sigla: familiaDoOrcamento ? siglas.get(familiaDoOrcamento) ?? null : null })
-        resultados.push({ familia: g.familia, r: await simDaFamilia(tenantId, levantamentoId, lido.lev, g, lido.grupos.map((x) => x.familia), etapaDoPreco, exibido, reenviar) })
+        resultados.push({ familia: g.familia, r: await simDaFamilia(tenantId, levantamentoId, lido.lev, g, lido.grupos.map((x) => x.familia), etapaDoPreco, exibido, reenviar, escolha) })
     }
     return juntarResultados(resultados)
 }
@@ -462,7 +467,7 @@ function recusaDaTravessia(e: unknown, exibido: (numero: number) => string | num
 type GrupoDoLevantamento = Awaited<ReturnType<typeof familiasDoLevantamento>>['grupos'][number]
 async function simDaFamilia(
     tenantId: string, levantamentoId: string, lev: LevantamentoNaTravessia, g: GrupoDoLevantamento, familias: readonly string[],
-    etapaDoPreco: EtapaDoPrecoNoSim, exibido: (numero: number) => string, reenviar?: ReenvioNoSim,
+    etapaDoPreco: EtapaDoPrecoNoSim, exibido: (numero: number) => string, reenviar: ReenvioNoSim | undefined, escolha: EscolhaDoAproveitamento | null,
 ): Promise<ResultadoDoSim> {
     let r: ResultadoDaTravessia
     let atualizacao: ResultadoDaAtualizacao | null = null
@@ -474,7 +479,8 @@ async function simDaFamilia(
             // O ORÇAMENTO N JÁ EXISTE: a parada de antes é o caminho da ATUALIZAÇÃO, com o mesmo número (13/11/2026)
             atualizacao = await atualizarOrcamento(tenantId, levantamentoId, g.existente.id)
             const a = atualizacao
-            if (a.semMudanca && reenviar) {
+            // o pedido do PEDIDO TOTAL (0034-B) é mudança: recalcula em vez de reenviar
+            if (a.semMudanca && reenviar && !escolha) {
                 // SEM MUDANÇA: o COMPLETO é fotografia — nada recalculado, nada gerado, o arquivo que existe vai de novo. O PARCIAL cujas faltas
                 // nomeadas TODAS têm preço agora é a ÚNICA exceção: recalcula, com o mesmo número (dono do produto, 13/11/2026). Sem arquivo, a
                 // atualização roda inteira
@@ -513,9 +519,11 @@ async function simDaFamilia(
     let doCalculo: string
     let questionamentos: string | null = null
     try {
-        const c = await calcularOrcamento(tenantId, r.orcamento.id)
+        const c = await calcularOrcamento(tenantId, r.orcamento.id, undefined, undefined, escolha)
         doCalculo = `${travessia} calculo=ok liquido=${c.valor_total_liquido.toFixed(2)}${c.parcial ? ` parcial=sim faltas_de_preco=${c.faltas.length}` : ''}`
         questionamentos = fraseDosQuestionamentos(n, c.faltas)
+        // a resposta diz o modo, em uma linha, quando não é o padrão (0034-B)
+        if (escolha) questionamentos = [fraseDoPedidoTotal(n), questionamentos].filter(Boolean).join('\n\n')
     } catch (e) {
         if (e instanceof ErroDoCalculo) return comAviso({ rastro: `${travessia} calculo=recusou recusas=${e.recusas.length} parou=calculo motivo="${e.recusas.join(' | ').slice(0, 120)}"`, paraOVendedor: naoChegou(null, `o cálculo do orçamento ${n} recusou. Falta: ${e.recusas.join('; ')}. Com isso cadastrado, abra o orçamento ${n} na seção Orçamentos I.A. e use Calcular`) })
         return comAviso({ rastro: `${travessia} calculo=falhou parou=calculo motivo="${motivoDoLog(e)}"`, paraOVendedor: naoChegou(null, `o cálculo do orçamento ${n} falhou. Para tentar de novo, abra o orçamento ${n} na seção Orçamentos I.A. e use Calcular`) })
@@ -530,5 +538,7 @@ async function simDaFamilia(
         return comAviso({ rastro: `${doCalculo} precificacao=falhou parou=precificacao motivo="${motivoDoLog(e)}"`, paraOVendedor: naoChegou(null, `a precificação do orçamento ${n} falhou. Para tentar de novo, abra o orçamento ${n} na seção Orçamentos I.A. e use Precificar`) })
     }
 }
+/** Pedido 0034-B: a linha que diz ao vendedor o modo usado, quando é o pedido total. */
+export const fraseDoPedidoTotal = (n: string) => `O orçamento ${n} foi calculado pelo PEDIDO TOTAL: as barras inteiras do pedido, rateadas entre os itens na proporção do consumo de cada um.`
 const ROTULO_NO_LOG: Readonly<Record<PercentualComZero, string>> = { comissao_percentual: 'comissao', reserva_tecnica_percentual: 'rt', lucro_projetado_percentual: 'lucro' }
 const motivoDoLog = (e: unknown) => (e instanceof Error ? e.message.slice(0, 120) : 'desconhecido')

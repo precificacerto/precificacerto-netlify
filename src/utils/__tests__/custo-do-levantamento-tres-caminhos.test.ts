@@ -66,7 +66,7 @@ function montar() {
 beforeEach(() => { montar(); padroes.codigos = []; padroes.daMaximAr = [] })
 const ok = async () => {
     // o levantamento que chega ao servidor é o mesmo que o cálculo leu: o vidro e o vidro escolhido vêm dele
-    const r = await S().custoDoLevantamento('t', FONTE as never, (calculo.valor as { lev: never }).lev)
+    const r = await S().custoDoLevantamento('t', FONTE as never, (calculo.valor as { lev: never }).lev, 'consumo')
     if ('recusas' in r) throw new Error(r.recusas.join(' | '))
     return r
 }

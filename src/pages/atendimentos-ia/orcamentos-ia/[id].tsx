@@ -116,16 +116,19 @@ function OrcamentoIA() {
     }, [id])
     useEffect(() => { void lerEstadoDoCalculo() }, [lerEstadoDoCalculo])
 
-    async function calcular() {
+    // O PEDIDO TOTAL (pedido 0034-B): o responsável escolhe aqui, e o servidor grava quem escolheu; o padrão é o consumo de cada item
+    async function calcular(aproveitamento: 'consumo' | 'pedido_total' = 'consumo') {
         if (!id) return
         setCalculando(true)
         try {
-            const r = await fetch(`/api/atendimentos-ia/orcamentos/${id}/calcular`, { method: 'POST' })
+            const r = await fetch(`/api/atendimentos-ia/orcamentos/${id}/calcular`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ aproveitamento }),
+            })
             const corpo = (await r.json().catch(() => ({}))) as { error?: string; recusas?: string[]; avisos?: string[] }
             setAvisosDaTabela(r.ok ? corpo.avisos ?? [] : [])
             if (!r.ok) { setRecusasDoCalculo([corpo.error ?? 'Não foi possível calcular o orçamento.', ...(corpo.recusas ?? [])]); return }
             setRecusasDoCalculo([])
-            message.success('Orçamento calculado.')
+            message.success(aproveitamento === 'pedido_total' ? 'Orçamento calculado pelo pedido total (as barras inteiras, rateadas).' : 'Orçamento calculado.')
         } finally {
             setCalculando(false)
             void lerEstadoDoCalculo()
@@ -262,7 +265,9 @@ function OrcamentoIA() {
                         {recusasDoCalculo.length > 0 && <Alert type="error" showIcon data-recusas-do-calculo="" message={recusasDoCalculo[0]} description={recusasDoCalculo.length > 1 ? <ul style={{ margin: 0, paddingLeft: 18 }}>{recusasDoCalculo.slice(1).map((e) => <li key={e}>{e}</li>)}</ul> : undefined} />}
                         {erros.length > 0 && <Alert type="error" showIcon message="O orçamento não foi salvo." description={<ul style={{ margin: 0, paddingLeft: 18 }}>{erros.map((e) => <li key={e}>{e}</li>)}</ul>} />}
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
-                            <Button icon={<CalculatorOutlined />} loading={calculando} onClick={calcular}>Calcular</Button>
+                            <Button icon={<CalculatorOutlined />} loading={calculando} onClick={() => { void calcular('consumo') }}>Calcular</Button>
+                            <Button loading={calculando} onClick={() => { void calcular('pedido_total') }}
+                                title="As barras inteiras do pedido, rateadas entre os itens na proporção do consumo de cada um">Calcular pelo pedido total</Button>
                             <Link href={`${ROUTES.ATENDIMENTOS_IA_ORCAMENTOS}/${estado.orcamento.id}/precificacao`}>
                                 <Button icon={<DollarOutlined />} disabled={estadoDoCalculoGravado !== 'completo'}>Precificar</Button>
                             </Link>
