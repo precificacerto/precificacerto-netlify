@@ -7027,9 +7027,9 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             expect(resto[0]).toBe('Para completar, preciso de:')
             expect(resto.slice(1)).toEqual([expect.stringMatching(/^• \[FORNECEDOR\] 1023\/WOLFF \(CLICK GUIA [^\n]* \(item 1\)\.$/)])
             expect(ultimoEnviado()).not.toBe(fraseDoOrcamentoJaAtualizado(1))
-            // nada recalculado, nada gerado: o arquivo que existe vai de novo
+            // nada recalculado: o arquivo vai de novo, REFEITO agora com os números gravados (pedido 0037) — o PDF não é comparado byte a byte com o
+            // de antes, porque a data e a hora dele mudam; o que não pode mudar é o custo (os materiais e as faltas, abaixo)
             expect(estado.documentosDoOrcamento).toHaveLength(doOrcamentoAntes + 1)
-            expect(estado.documentosDoOrcamento[doOrcamentoAntes].corpo.Document).toBe(estado.documentosDoOrcamento[doOrcamentoAntes - 1].corpo.Document)
             expect(estado.db.orcamentista_orcamento_item_material ?? []).toHaveLength(materiaisAntes)
             expect(estado.db.orcamentista_orcamento_falta ?? []).toHaveLength(faltasAntes)
             expect(erros.filter((l) => l.startsWith('[ETAPA 4 calcular]')).pop()).toMatch(/ atualizacao=sem_mudanca parcial=continua faltas_de_preco=1\/1 /)

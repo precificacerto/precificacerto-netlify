@@ -1,4 +1,6 @@
 /**
+ * @jest-environment node
+ *
  * PORTÃO — A COR SÓ É GRAVADA SE ESTIVER NA LISTA DO FORNECEDOR (dono do produto, 26/11/2026, pedido 0038; Critérios §4.2): fora da lista, a cor do
  * item vai vazia e o aviso a nomeia, com a quantidade — nunca outro nome. A lista é a aba CORES da Wolff (`orcamentista_fornecedor_cor`).
  */
