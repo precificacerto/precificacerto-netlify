@@ -218,3 +218,73 @@ describe('R2 na conversa — escolhasPendentes só oferece as opções que valem
         expect(E().escolhasPendentes({ variaveis: tipologia().variaveis }, { ARR: 1 }).find((p) => p.variavel === 'ARI')?.opcoes.map((o) => o.valor)).toEqual([1, 2, 3, 4])
     })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+/**
+ * A OPÇÃO PADRÃO QUE NÃO VALE (dono do produto, 26/11/2026; pedido 0030 — o orçamento 28-PVC, item 8: a DP-73, 5.150 × 2.550, com RL = 1 pela política
+ * "acessórios para região litorânea = SIM"; a condição da opção 1 é `(H-Y+52)<=2437.8`, falsa com 2.550, e o cálculo parou com "A escolha RL = 1 não
+ * vale neste item: as opções que valem são 2"). A DP-73 em miniatura, com os nomes do motor: as duas cremonas, a do litoral (21495, RL=1) e a
+ * Celsus (15396, RL=2).
+ */
+describe('0030 — a opção que veio por PADRÃO e não vale dá lugar à que vale; a dita pelo vendedor continua recusa', () => {
+    const DP73 = (rl: VariavelDaTipologia = v('RL', '2', 'sempre', '1 = SIM; 2 = NÃO', '1: (H-Y+52)<=2437.8')): Tipologia => ({
+        codigo: 'DP-73',
+        detalhe: { larg_min_mm: null, larg_max_mm: null, alt_min_mm: null, alt_max_mm: null },
+        variaveis: [v('Y', '58', 'sempre', null), rl],
+        formulas: [],
+        perfis: [{ perfil: 'SF66/WOLFF', descricao: 'FOLHA', corte: '45/45', qtd: '2', medida: '(H-46.4)', posicao: 'Altura', esp_vidro: null, condicao: 'sempre' }],
+        validacoes: [],
+        insumos: [
+            { insumo: '21495', descricao: 'CREMONA DE CORRER E15 1600 INOX 304', qtd: '1', condicao: '(RL=1)', esp_vidro: null },
+            { insumo: '15396', descricao: 'CREMONA CELSUS MD2 E15 1600', qtd: '1', condicao: '(RL=2)', esp_vidro: null },
+        ],
+        vidros: [],
+    })
+    const caso = (e: Partial<EntradaDoAvaliador> = {}): EntradaDoAvaliador => ({ tipologia: DP73(), L_mm: 5150, H_mm: 2550, espessura_vidro_mm: null, escolhas: { RL: 1 }, semDecidirVariacao: true, ...e })
+    it('O CASO EXATO: RL = 1 pela POLÍTICA, com 2.550 de altura — o cálculo segue com RL = 2: a 15396 entra, a 21495 não, sem falta, e a troca é devolvida', () => {
+        const r = ok(avaliarTipologia(caso({ escolhasPorPadrao: ['RL'] })))
+        expect(r.insumos.map((x) => x.codigo)).toEqual(['15396'])
+        expect(r.faltas).toEqual([])
+        expect(r.trocas).toEqual([{ variavel: 'RL', de: 1, para: 2, motivo: 'unica_valida_padrao_invalido' }])
+    })
+    it('o contrário: RL = 1 DITO pelo vendedor no mesmo item — a falta de antes, nomeando a opção que vale (as duas linhas do motor que dependem da RL)', () => {
+        const r = ok(avaliarTipologia(caso()))
+        expect(r.trocas).toEqual([])
+        expect(r.faltas.map((f) => `${f.codigo}: ${f.mensagem}`)).toEqual([
+            '21495: Linha 1 da aba Insumos (21495): A escolha RL = 1 não vale neste item: as opções que valem são 2.',
+            '15396: Linha 2 da aba Insumos (15396): A escolha RL = 1 não vale neste item: as opções que valem são 2.',
+        ])
+        // a lista vazia também é "dito"
+        expect(ok(avaliarTipologia(caso({ escolhasPorPadrao: [] }))).faltas).toHaveLength(2)
+    })
+    it('a opção padrão que VALE fica como está, e nada é trocado (2.400 de altura: a opção 1 vale)', () => {
+        const r = ok(avaliarTipologia(caso({ H_mm: 2400, escolhasPorPadrao: ['RL'] })))
+        expect(r.insumos.map((x) => x.codigo)).toEqual(['21495'])
+        expect(r.trocas).toEqual([])
+    })
+    it('com DUAS ou mais que valem, a primeira na ordem das opções — e o motivo diz que não era a única', () => {
+        const t = DP73(v('RL', '2', 'sempre', '1 = SIM; 2 = NÃO; 3 = TALVEZ', '1: (H-Y+52)<=2437.8'))
+        const r = ok(avaliarTipologia(caso({ tipologia: t, escolhasPorPadrao: ['RL'] })))
+        expect(r.trocas).toEqual([{ variavel: 'RL', de: 1, para: 2, motivo: 'primeira_valida_padrao_invalido' }])
+        // a ordem é a das OPÇÕES, não a numérica
+        const invertida = DP73(v('RL', '2', 'sempre', '1 = SIM; 3 = TALVEZ; 2 = NÃO', '1: (H-Y+52)<=2437.8'))
+        expect(ok(avaliarTipologia(caso({ tipologia: invertida, escolhasPorPadrao: ['RL'] }))).trocas[0].para).toBe(3)
+    })
+    it('nenhuma opção vale: recusa como antes, mesmo por padrão (não há o que pôr no lugar)', () => {
+        const t = DP73(v('RL', '2', 'sempre', '1 = SIM; 2 = NÃO', '1: (H>9000); 2: (H>9000)'))
+        const r = ok(avaliarTipologia(caso({ tipologia: t, escolhasPorPadrao: ['RL'] })))
+        expect(r.trocas).toEqual([])
+        expect(r.faltas[0].mensagem).toBe('Linha 1 da aba Insumos (21495): A escolha RL = 1 não vale neste item: nenhuma opção vale.')
+    })
+    it('vale para qualquer variável com condição nas opções, não só a RL; e só a variável listada é trocada', () => {
+        const comXX = (dp: Tipologia): Tipologia => ({ ...dp, variaveis: [...dp.variaveis, v('XX', '1', 'sempre', '1 = A; 2 = B', '1: (H<100)')],
+            insumos: [...(dp.insumos ?? []), { insumo: '777', descricao: 'PECA DA XX', qtd: '1', condicao: '(XX=2)', esp_vidro: null }] })
+        const r = ok(avaliarTipologia(caso({ tipologia: comXX(DP73()), escolhas: { RL: 2, XX: 1 }, escolhasPorPadrao: ['XX'] })))
+        expect(r.trocas).toEqual([{ variavel: 'XX', de: 1, para: 2, motivo: 'unica_valida_padrao_invalido' }])
+        expect(r.insumos.map((x) => x.codigo)).toEqual(['15396', '777'])
+        // a RL, dita, não é trocada: as linhas dela são falta
+        const dita = ok(avaliarTipologia(caso({ tipologia: comXX(DP73()), escolhas: { RL: 1, XX: 1 }, escolhasPorPadrao: ['XX'] })))
+        expect(dita.trocas.map((t) => t.variavel)).toEqual(['XX'])
+        expect(dita.faltas.map((f) => f.codigo)).toEqual(['21495', '15396'])
+    })
+})

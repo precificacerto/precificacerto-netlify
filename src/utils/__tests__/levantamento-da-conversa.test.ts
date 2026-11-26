@@ -948,6 +948,44 @@ describe('(5b) as ESCOLHAS gravadas chegam ao avaliador', () => {
         expect(r.texto).toContain('(a opção da política não cabe nesta tipologia: o padrão dela)')
         expect(r.etapa?.rastro).toEqual(['PELA_TIPOLOGIA:1:DP-02:ARI=1'])
     })
+    // A OPÇÃO PADRÃO QUE NÃO VALE (dono do produto, 26/11/2026; pedido 0030 — a DP-73 do orçamento 28-PVC com RL = SIM pela política): a opção que a
+    // POLÍTICA deu e que a condição das opções não deixa valer no item dá lugar à que vale — o cálculo sai, e o rastro diz; a DITA continua recusa
+    const comARIQueNaoVale = () => {
+        for (const v of banco.db.orcamentista_motor_variavel ?? []) if (v.variavel === 'ARI') v.condicao_opcoes = '2: (H>9000)'
+    }
+    it('0030: a opção da POLÍTICA que não vale no item dá lugar à primeira que vale — o cálculo SAI, sem falta, e o rastro nomeia a troca', async () => {
+        comARIQueNaoVale()
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        banco.db.orcamentista_natureza_da_variavel = NATUREZA_DE_PAULA.map((l) => ({ ...l }))
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev())
+        expect(r.desfecho).toBe('levantou')
+        expect(r.texto).not.toContain('não vale neste item')
+        expect(r.etapa?.rastro).toEqual(['OPCAO_TROCADA:1:DP-02:ARI=1/primeira_valida_padrao_invalido'])
+    })
+    it('0030: a MESMA opção DITA pelo vendedor não é trocada — o cálculo recusa, nomeando as que valem', async () => {
+        comARIQueNaoVale()
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 2, ARE: 1, MAE: 2 } }))
+        expect(r.desfecho).toBe('recusou')
+        // UMA pergunta, curta — não a mesma frase uma vez por linha do motor que depende da escolha
+        expect(r.texto).toBe('Não consegui fechar o levantamento “Casa do João”. Falta: a escolha “ARREMATE INTERNO” = 2 não vale neste item: as opções que valem são 1, 3, 4. Diga qual vale.')
+        expect(r.etapa?.rastro ?? []).not.toEqual(expect.arrayContaining([expect.stringContaining('OPCAO_TROCADA')]))
+    })
+    it('0030: juntarEscolhasQueNaoValem — uma linha por item e escolha, no lugar da primeira; as outras faltas ficam, na ordem', () => {
+        expect(M().juntarEscolhasQueNaoValem([
+            'Item 8 (DP-73): Linha 26 da aba Insumos (21495): A escolha RL = 1 não vale neste item: as opções que valem são 2.',
+            'o preço do código 999 (item 3)',
+            'Item 8 (DP-73): Linha 27 da aba Insumos (15396): A escolha RL = 1 não vale neste item: as opções que valem são 2.',
+            'Item 9 (DP-73): Linha 26 da aba Insumos (21495): A escolha RL = 1 não vale neste item: as opções que valem são 2.',
+            'Itens 1 e 2 (DP-02): Linha 1 da aba Perfis (BZ0006/WOLFF), Condição: A escolha “ARREMATE INTERNO” = 2 não vale neste item: as opções que valem são 1, 3, 4.',
+        ])).toEqual([
+            'Item 8: a escolha RL = 1 não vale neste item: as opções que valem são 2. Diga qual vale',
+            'o preço do código 999 (item 3)',
+            'Item 9: a escolha RL = 1 não vale neste item: as opções que valem são 2. Diga qual vale',
+            'Itens 1 e 2: a escolha “ARREMATE INTERNO” = 2 não vale neste item: as opções que valem são 1, 3, 4. Diga qual vale',
+        ])
+        expect(M().juntarEscolhasQueNaoValem([])).toEqual([])
+    })
     it('a política cujo texto DIVERGE de uma opção que a lista tem (a opção é o começo do texto) volta ao agente, nomeada pela VARIÁVEL', async () => {
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         banco.db.orcamentista_natureza_da_variavel = NATUREZA_DE_PAULA.map((l) => (l.variavel === 'ARI' ? { ...l, opcao_padrao: 'BZ1770 - ARREMATE 70MM DUPLO' } : { ...l }))

@@ -804,6 +804,28 @@ export function faltaDaEspessuraAmbigua(texto: string, espessuras: readonly numb
     const lista = ns.length > 1 ? `${ns.slice(0, -1).join(', ')} ou ${ns[ns.length - 1]}` : ns.join('')
     return `a espessura do vidro: “${texto.trim()}” pode ser ${lista} mm; diga qual`
 }
+/**
+ * A ESCOLHA DITA QUE NÃO VALE, UMA PERGUNTA SÓ (dono do produto, 26/11/2026; pedido 0030: "Se a opção foi dita pelo vendedor e não vale, aí sim é
+ * pergunta (uma, curta)"): o motor recusa a escolha em cada linha que depende dela (os perfis, os insumos), e o vendedor lia a mesma frase quatro
+ * vezes. As linhas com "A escolha X = n não vale neste item" do mesmo item viram UMA, no lugar da primeira, sem a linha do motor, e pedindo a opção.
+ */
+export function juntarEscolhasQueNaoValem(faltas: readonly string[]): string[] {
+    const DA_ESCOLHA = /A escolha (.+?) = (-?\d+) não vale neste item: (.+?)\.?\s*$/
+    const vistas = new Set<string>()
+    const saida: string[] = []
+    for (const f of faltas) {
+        const m = DA_ESCOLHA.exec(f)
+        if (!m) { saida.push(f); continue }
+        const item = /\b[Ii]te(?:m|ns) ([\d, e]+)/.exec(f)?.[1]?.trim() ?? null
+        const chave = `${item ?? ''}|${m[1]}|${m[2]}`
+        if (vistas.has(chave)) continue
+        vistas.add(chave)
+        const quem = item === null ? '' : `${/,| e /.test(item) ? 'Itens' : 'Item'} ${item}: `
+        saida.push(`${quem}a escolha ${m[1]} = ${m[2]} não vale neste item: ${m[3]}. Diga qual vale`)
+    }
+    return saida
+}
+
 /** A falta com as esquadrias dela: a curta as leva depois, entre parênteses; a frase inteira (a recusa técnica do motor), antes, como sempre. */
 function faltaComEsquadrias(falta: string, numeros: readonly number[], noLevantamento: number, tipologia?: string): string {
     if (ehCurta(falta)) return falta + esquadriasDaFalta(numeros, noLevantamento, tipologia)
@@ -1202,6 +1224,9 @@ async function calcularFamilia(
         esquadrias: dg.esquadrias.map((e, k) => ({
             tipologia: e.tipologia, L_mm: e.largura_mm, H_mm: e.altura_mm, quantidade: e.quantidade,
             escolhas: escolhas[k], espessura_vidro_mm: vidros[k].espessura_mm, semDecidirVariacao: lidas[e.tipologia] !== undefined,
+            // A OPÇÃO PADRÃO QUE NÃO VALE (pedido 0030): o que não veio do vendedor (a política, a tipologia, o padrão do motor, a principal, o
+            // cálculo) pode dar lugar à opção que vale; o que o vendedor disse, não — esse é recusa, e a conversa pergunta
+            escolhasPorPadrao: Object.entries(decididas[k].origem).filter(([, o]) => o !== 'vendedor').map(([v]) => v),
         })),
         tipologias: lidas,
         regras,
@@ -1209,6 +1234,10 @@ async function calcularFamilia(
         serra_mm: serra.serra_mm,
         cores: coresDoFornecedor,
     })
+    // a troca de cada opção padrão que não valia vai ao rastro: `OPCAO_TROCADA:<item>:<tipologia>:RL=2/unica_valida_padrao_invalido` (pedido 0030)
+    if (!('recusas' in r)) {
+        rastro.push(...r.trocas.map((t) => `OPCAO_TROCADA:${dg.esquadrias[t.esquadria - 1]?.numero ?? t.esquadria}:${dg.esquadrias[t.esquadria - 1]?.tipologia ?? '-'}:${t.variavel}=${t.para}/${t.motivo}`))
+    }
     // a mão de obra é lida MESMO com as barras recusadas: a falta de TEMPO sai junto com a de preço, de uma vez (08/11/2026)
     // a REVENDA não lê tempo nem mão de obra: a família de revenda não fabrica (23/11/2026)
     const maos: MaoDeObra[] = familia.formato === 'REVENDA'
@@ -1235,7 +1264,7 @@ async function calcularFamilia(
         }
         const precoQueFalta = [...semPreco.values()].map((x) => faltaComEsquadrias(x.frase, x.esquadrias.sort((a, b) => a - b), d.esquadrias.length))
         return {
-            faltas: [...recusas.map(frase), ...semTempo.map((t) => t.frase), ...precoQueFalta], rotulos,
+            faltas: juntarEscolhasQueNaoValem([...recusas.map(frase), ...semTempo.map((t) => t.frase), ...precoQueFalta]), rotulos,
             codigos: [...recusas.map((x) => codigoDaRecusa(x, x.esquadrias.map((k) => numeros[k - 1] ?? k))), ...semTempo.map((t) => t.codigo),
                 ...('recusas' in r ? [] : r.faltas.map((f) => `e${numeros[f.esquadria - 1] ?? f.esquadria}:${f.motivo}:${f.codigo_do_motor}`))],
             // NENHUM VIDRO QUE O VENDEDOR NÃO ESCREVEU (dono do produto, 25/11/2026; pedido 0027: "Nunca sugerir ao vendedor um vidro que ele não
