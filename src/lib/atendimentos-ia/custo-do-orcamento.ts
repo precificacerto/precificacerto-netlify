@@ -57,9 +57,12 @@ import type { ComoAchou } from '@/lib/atendimentos-ia/resolucao-de-referencia'
  * QUEM MUDA REGRA DE CUSTO MUDA ESTA CONSTANTE. É o que faz os orçamentos de antes se refazerem sozinhos no próximo pedido — sem recalcular
  * nada para trás por conta própria, que continua proibido.
  */
-// O HISTÓRICO: `consumo-do-item-2026-11-16` até 26/11/2026; `barras-unicas-pedido-total-peca-exata-2026-11-26` desde o pedido 0037 — as barras
-// pelo núcleo único com refilo (#346), o modo PEDIDO TOTAL (#347) e a peça achada exatamente, sem o código + cor (#349)
-export const VERSAO_DO_CALCULO = 'barras-unicas-pedido-total-peca-exata-2026-11-26'
+// O HISTÓRICO: `consumo-do-item-2026-11-16` até 26/11/2026; desde o pedido 0037, as barras pelo núcleo único com refilo (#346), o modo PEDIDO
+// TOTAL (#347) e a peça achada exatamente (#349). A primeira grafia (`barras-unicas-pedido-total-peca-exata-2026-11-26`, 48 caracteres) a CHECK
+// `orcamentista_orcamento_calculo_versao_forma` recusava — no máximo 40 (`TAMANHO_MAXIMO_DA_VERSAO_DO_CALCULO`) —, e todo cálculo parou (pedido 0039)
+export const VERSAO_DO_CALCULO = 'calculo-2026-11-26b'
+/** O limite da CHECK `orcamentista_orcamento_calculo_versao_forma` (20261116000002): `char_length(calculo_versao) <= 40`, sem espaço nas pontas. */
+export const TAMANHO_MAXIMO_DA_VERSAO_DO_CALCULO = 40
 
 export const MODO_DO_FALLBACK = 'SEM' as const
 export const ORIGEM_DO_FALLBACK = 'consumo_do_item' as const

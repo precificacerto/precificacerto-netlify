@@ -77,11 +77,20 @@ export const fraseDaVoltaSemPrincipal = (tipologia: string, descricao: string, o
 /**
  * A PERSIANA PELA COR DA ESQUADRIA (dono do produto, 26/11/2026, pedido 0038; como o WVetro faz no orçamento 1207, todo em preto liso): o modelo
  * da palheta (`PP`: 37 = PVC 37 mm, 57 = PVC 57 mm, 45 = alumínio 45 mm) tem o padrão PELA COR — BRANCO dá 37 (a persiana de PVC, que só existe
- * em branco); qualquer outra cor dá 45 (o alumínio, que entra em PRETO pela peça sem a cor). O vendedor que disse o modelo vence, e a política da
- * empresa também; a opção que a tipologia não tem não entra.
+ * em branco); qualquer outra cor dá 45 (o alumínio, que entra em PRETO pela peça sem a cor). Só o vendedor que disse o modelo vence a cor. Na
+ * esquadria BRANCA a política da empresa vale (pedido 0039); nas outras cores, a cor vence a política. A opção que a tipologia não tem não entra.
  */
 export const VARIAVEL_DA_PALHETA = 'PP'
 export const palhetaPelaCor = (cor: string): number => (semAcento(cor).toUpperCase().trim() === 'BRANCO' ? 37 : 45)
+/**
+ * O modelo da palheta que a COR DA ESQUADRIA impõe por cima da política (pedido 0039): 45 numa esquadria que não é BRANCO, quando a tipologia tem
+ * a opção; null quando a cor não decide (BRANCO, sem cor, outra variável, opção ausente). Um critério só, para o cálculo e para o arquivo.
+ */
+export function palhetaQueACorImpoe(v: { variavel: string; opcoes: string | null }, cor: string | null | undefined): number | null {
+    if (cor === null || cor === undefined || cor.trim() === '' || v.variavel !== VARIAVEL_DA_PALHETA) return null
+    const pelaCor = palhetaPelaCor(cor)
+    return pelaCor !== 37 && (opcoesDaVariavel(v.opcoes) ?? []).some((o) => o.valor === pelaCor) ? pelaCor : null
+}
 export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<string, number>>, politica: PoliticaDaEmpresa, descricao: string | null = null,
     cor: string | null = null): EscolhasDoCalculo {
     const escolhas: Record<string, number> = { ...ditas }
@@ -106,8 +115,12 @@ export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<s
         return menores.length >= 1 && menores.every((m) => m.linhas.size === menores[0].linhas.size) ? Math.min(...menores.map((m) => m.o)) : null
     }
 
+    // A COR VENCE A POLÍTICA NA PERSIANA (dono do produto, 26/11/2026, pedido 0039): na esquadria que não é BRANCO, a política (a De Paula diz PP =
+    // PVC 37) não decide o modelo da palheta — a persiana de PVC só existe em branco; quem decide é a cor (45, o alumínio). Na BRANCA, a política vale
+    const palhetaPelaCorVence = (v: { variavel: string; opcoes: string | null }) => palhetaQueACorImpoe(v, cor) !== null
     // 2. a política da empresa
     for (const v of comOpcoes) {
+        if (palhetaPelaCorVence(v)) continue
         const t = traduzirPolitica(tipologia.codigo, v, politica)
         if (t === null) continue
         if ('recusa' in t) { voltas.push({ variavel: v.variavel, descricao: v.descricao ?? v.variavel, frase: t.recusa }); continue }

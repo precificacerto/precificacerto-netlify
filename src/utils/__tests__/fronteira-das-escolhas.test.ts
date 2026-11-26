@@ -416,3 +416,32 @@ describe('A PERSIANA PELA COR DA ESQUADRIA (dono do produto, 26/11/2026, pedido 
         expect(F().palhetaPelaCor('PRETO TEXTURADO')).toBe(45)
     })
 })
+
+describe('NA PERSIANA A COR VENCE A POLÍTICA (dono do produto, 26/11/2026, pedido 0039; o levantamento 31 em preto liso saiu com o 1318 PVC)', () => {
+    const comPersiana = (): Tipologia => ({
+        ...dp02(),
+        variaveis: [{ variavel: 'PP', descricao: 'MODELO DA PALHETA', padrao: '37', condicao: 'sempre', opcoes: '37 = PERSIANA DE PVC 37MM; 57 = PERSIANA DE PVC 57MM; 45 = PERSIANA DE ALUMÍNIO 45MM', condicao_opcoes: null }],
+        perfis: ['(PP=37)', '(PP=57)', '(PP=45)'].map((condicao, i) => ({ perfil: `P${i}`, descricao: `P${i}`, corte: '90/90', qtd: '1', medida: 'L', posicao: 'Largura', esp_vidro: null as string | null, condicao })),
+        insumos: [], vidros: [],
+    })
+    // a política da De Paula, como em produção: PP = "PERSIANA DE PVC 37MM", natureza POLITICA
+    const DE_PAULA_PP = { porVariavel: { PP: { natureza: 'POLITICA' as const, opcao: 'PERSIANA DE PVC 37MM' } } }
+    it('PRETO LISO: a cor vence a política — 45 (alumínio), origem "pela_cor"', () => {
+        const r = F().escolhasDoCalculo(comPersiana(), {}, DE_PAULA_PP, null, 'Preto Liso')
+        expect([r.escolhas.PP, r.origem.PP]).toEqual([45, 'pela_cor'])
+    })
+    it('BRANCO: a política vale (37, PVC), como antes', () => {
+        const r = F().escolhasDoCalculo(comPersiana(), {}, DE_PAULA_PP, null, 'BRANCO')
+        expect([r.escolhas.PP, r.origem.PP]).toEqual([37, 'politica'])
+    })
+    it('só o vendedor vence a cor: o modelo dito fica, em qualquer cor', () => {
+        const r = F().escolhasDoCalculo(comPersiana(), { PP: 37 }, DE_PAULA_PP, null, 'PRETO LISO')
+        expect([r.escolhas.PP, r.origem.PP]).toEqual([37, 'vendedor'])
+    })
+    it('a política das OUTRAS variáveis continua valendo na esquadria colorida; e sem a cor, a política vale', () => {
+        const t: Tipologia = { ...comPersiana(), variaveis: [...comPersiana().variaveis, { variavel: 'X', descricao: 'PEÇA X', padrao: '1', condicao: 'sempre', opcoes: '1 = UM; 2 = DOIS', condicao_opcoes: null }] }
+        const r = F().escolhasDoCalculo(t, {}, { porVariavel: { ...DE_PAULA_PP.porVariavel, X: { natureza: 'POLITICA' as const, opcao: 'dois' } } }, null, 'PRETO LISO')
+        expect([r.escolhas.X, r.origem.X]).toEqual([2, 'politica'])
+        expect(F().escolhasDoCalculo(comPersiana(), {}, DE_PAULA_PP).origem.PP).toBe('politica')
+    })
+})
