@@ -384,3 +384,35 @@ describe('(11) a tipologia manda: a política escolhe entre o que ela oferece, e
         expect([doVendedor.escolhas.MFE, doVendedor.origem.MFE, doVendedor.pelaTipologia]).toEqual([5, 'vendedor', []])
     })
 })
+
+describe('A PERSIANA PELA COR DA ESQUADRIA (dono do produto, 26/11/2026, pedido 0038; o WVetro do orçamento 1207, todo em preto liso)', () => {
+    /** A tipologia com persiana: a variável PP como no motor 259035a9 (padrão 37) e uma peça por opção. */
+    const comPersiana = (): Tipologia => ({
+        ...dp02(),
+        variaveis: [{ variavel: 'PP', descricao: 'MODELO DA PALHETA', padrao: '37', condicao: 'sempre', opcoes: '37 = PERSIANA DE PVC 37MM; 57 = PERSIANA DE PVC 57MM; 45 = PERSIANA DE ALUMÍNIO 45MM', condicao_opcoes: null }],
+        perfis: ['(PP=37)', '(PP=57)', '(PP=45)'].map((condicao, i) => ({ perfil: `P${i}`, descricao: `P${i}`, corte: '90/90', qtd: '1', medida: 'L', posicao: 'Largura', esp_vidro: null as string | null, condicao })),
+        insumos: [], vidros: [],
+    })
+    it('BRANCO dá 37 (PVC); qualquer outra cor dá 45 (alumínio) — e a origem diz "pela_cor"', () => {
+        for (const [cor, pp] of [['BRANCO', 37], ['Branco', 37], ['PRETO LISO', 45], ['AMADEIRADO GOLDEN OAK', 45], ['Preto', 45]] as const) {
+            const r = F().escolhasDoCalculo(comPersiana(), {}, {}, null, cor)
+            expect([cor, r.escolhas.PP, r.origem.PP]).toEqual([cor, pp, 'pela_cor'])
+        }
+    })
+    it('o vendedor que disse o modelo vence a cor', () => {
+        const r = F().escolhasDoCalculo(comPersiana(), { PP: 57 }, {}, null, 'PRETO LISO')
+        expect([r.escolhas.PP, r.origem.PP]).toEqual([57, 'vendedor'])
+    })
+    it('sem a cor, vale o de antes (o padrão do motor); e a tipologia sem a opção 45 não a ganha', () => {
+        const semCor = F().escolhasDoCalculo(comPersiana(), {}, {})
+        expect(semCor.origem.PP).not.toBe('pela_cor')
+        const sem45: Tipologia = { ...comPersiana(), variaveis: [{ variavel: 'PP', descricao: 'MODELO DA PALHETA', padrao: '37', condicao: 'sempre', opcoes: '37 = PVC 37MM; 57 = PVC 57MM', condicao_opcoes: null }] }
+        const r = F().escolhasDoCalculo(sem45, {}, {}, null, 'PRETO LISO')
+        expect(r.escolhas.PP === 45 || r.origem.PP === 'pela_cor').toBe(false)
+    })
+    it('palhetaPelaCor: a regra pura', () => {
+        expect(F().palhetaPelaCor('branco')).toBe(37)
+        expect(F().palhetaPelaCor('BRANCÓ'.replace('Ó', 'O'))).toBe(37)
+        expect(F().palhetaPelaCor('PRETO TEXTURADO')).toBe(45)
+    })
+})

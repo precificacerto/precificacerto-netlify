@@ -139,3 +139,48 @@ describe('o item que TEM referência só é achado por ela', () => {
         expect(resolverPelaReferencia(pedido('HF88/WOLFF', 'BRONZE'), TABELA)).not.toBeNull()
     })
 })
+
+describe('A PEÇA QUE NÃO EXISTE NA COR DO PERFIL e o REFORÇO INTERNO SEM COR (dono do produto, 26/11/2026, pedido 0038; o orçamento 31-PVC em PRETO LISO)', () => {
+    // as peças só branco/preto da Wolff, como estão em produção em 26/11/2026 (categoria da tabela de cada uma)
+    const comCategoria = (i: Item, categoria: string) => ({ ...i, categoria })
+    const T9125 = [comCategoria(item('91251', 'TRILHO "Z" ALUMINIO 25MM - BRANCO', '9125', 'BRANCO'), 'REFORCO'), comCategoria(item('91259', 'TRILHO "Z" ALUMINIO 25MM - PRETO', '9125', 'PRETO'), 'REFORCO')]
+    const T2575 = [comCategoria(item('25751', 'ACABAMENTO DA SOLEIRA (AMP340) - BRANCO', '2575', 'BRANCO'), 'INSTALACAO'), comCategoria(item('25759', 'ACABAMENTO DA SOLEIRA (AMP340) - PRETO', '2575', 'PRETO'), 'INSTALACAO')]
+    const T1352 = [comCategoria(item('13521', 'REFORÇO DE ALUMINIO PARA FOLHA DE TELA MF52', '1352', 'BRANCO'), 'REFORCO')]
+    const T1318 = [comCategoria(item('13181', 'PERSIANA PVC 37MM', '1318', 'BRANCO'), 'PERSIANAS')]
+    const pede = (codigo: string, cor: string | null) => ({ codigoDoMotor: codigo, descricaoDoMotor: 'PECA', corPedida: cor })
+
+    it('a esquadria em PRETO LISO leva a peça em PRETO quando a referência não existe em PRETO LISO (9125, 2575) — e diz por quê', () => {
+        for (const [codigo, tabela, esperado] of [['9125/WOLFF', T9125, '91259'], ['2575/WOLFF', T2575, '25759']] as const) {
+            const r = resolverPelaReferencia(pede(codigo, 'Preto Liso'), tabela)
+            expect(r && 'item' in r ? [r.item.codigo, r.como, r.substituicao] : r).toEqual([esperado, 'referencia', 'peca_sem_a_cor'])
+        }
+        // AMADEIRADO, GRAFITE, qualquer cor que não é BRANCO: o PRETO também
+        const r = resolverPelaReferencia(pede('9125/WOLFF', 'AMADEIRADO GOLDEN OAK'), T9125)
+        expect(r && 'item' in r ? r.item.codigo : null).toBe('91259')
+    })
+    it('a esquadria BRANCA continua no BRANCO, sem substituição; e a cor que EXISTE vence o PRETO', () => {
+        const r = resolverPelaReferencia(pede('9125/WOLFF', 'BRANCO'), T9125)
+        expect(r && 'item' in r ? [r.item.codigo, r.substituicao] : r).toEqual(['91251', undefined])
+        const comPretoLiso = [...T9125, comCategoria(item('912536', 'TRILHO Z - PRETO LISO', '9125', 'PRETO LISO'), 'REFORCO')]
+        const p = resolverPelaReferencia(pede('9125/WOLFF', 'PRETO LISO'), comPretoLiso)
+        expect(p && 'item' in p ? [p.item.codigo, p.substituicao] : p).toEqual(['912536', undefined])
+    })
+    it('sem PRETO, a peça continua FALTA nomeada (a persiana PVC 1318 só existe em branco); dois itens em PRETO são ambíguos', () => {
+        const r = resolverPelaReferencia(pede('1318/WOLFF', 'PRETO LISO'), T1318)
+        expect(achado(r)).toEqual(['REFERENCIA_SEM_A_COR'])
+        const doisPretos = [...T9125, comCategoria(item('91259B', 'TRILHO Z - PRETO', '9125', 'PRETO'), 'REFORCO')]
+        expect(achado(resolverPelaReferencia(pede('9125/WOLFF', 'PRETO LISO'), doisPretos))).toEqual(['AMBIGUA'])
+    })
+    it('o REFORÇO interno com UM item só entra pela referência, sem cor — em qualquer cor e sem cor dita (1352)', () => {
+        for (const cor of ['PRETO LISO', 'BRANCO', null]) {
+            const r = resolverPelaReferencia(pede('1352/WOLFF', cor), T1352)
+            expect(r && 'item' in r ? [r.item.codigo, r.substituicao] : r).toEqual(['13521', 'reforco_sem_cor'])
+        }
+    })
+    it('o item único que NÃO é de REFORÇO não ganha a regra; o reforço com várias cores continua exigindo a cor', () => {
+        expect(achado(resolverPelaReferencia(pede('1318/WOLFF', 'PRETO LISO'), T1318))).toEqual(['REFERENCIA_SEM_A_COR'])
+        const coluna = ['BRANCO', 'AMADEIRADO GOLDEN OAK', 'GRAFITE'].map((c, k) => comCategoria(item(`3485${k}`, `COLUNA 3485 - ${c}`, '3485', c), 'REFORCO'))
+        expect(achado(resolverPelaReferencia(pede('3485/WOLFF', 'PRETO LISO'), coluna))).toEqual(['REFERENCIA_SEM_A_COR'])
+        expect(achado(resolverPelaReferencia(pede('3485/WOLFF', null), coluna))).toEqual(['SEM_COR'])
+    })
+})

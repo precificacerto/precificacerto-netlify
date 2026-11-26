@@ -79,7 +79,11 @@ export interface ReferenciaProcurada {
  * O mínimo que a resolução lê de um item: o código e a descrição — e, quando a tabela os traz, a referência do perfil e a cor
  * (20261124000002). O resto do item viaja junto.
  */
-export interface ItemResolvivel { codigo: string; descricao?: string | null; referencia_perfil?: string | null; cor?: string | null }
+export interface ItemResolvivel {
+    codigo: string; descricao?: string | null; referencia_perfil?: string | null; cor?: string | null
+    /** A CATEGORIA da tabela de onde o item vem (PERFIL, REFORCO…): o reforço interno sem cor (pedido 0037/0038) depende dela. Ausente: não se sabe. */
+    categoria?: string | null
+}
 /** Uma linha de `orcamentista_fornecedor_cor`. */
 export interface CorDoFornecedor { grupo: string; codigo: string; nome: string }
 /** O que a resolução precisa além dos itens: a tabela de cores do fornecedor e o grupo de cor do que se procura (perfil ou acessório). */
@@ -106,8 +110,13 @@ export const MOTIVOS_DA_FALTA: readonly MotivoDaFalta[] = ['NAO_ACHADA', 'AMBIGU
 type Pulo = 'SEM_COR' | 'COR_FORA_DA_TABELA' | 'SEM_TABELA_DE_CORES'
 
 export interface CandidataRecusada<I> { item: I; porque: string }
+/**
+ * POR QUE o item achado pela referência NÃO é da cor pedida (pedido 0038): `peca_sem_a_cor` — a peça não existe na cor da esquadria, a esquadria não
+ * é BRANCO e a referência existe em PRETO, que é o que entra; `reforco_sem_cor` — o reforço interno com um item só na tabela entra sem cor.
+ */
+export type SubstituicaoDaCor = 'peca_sem_a_cor' | 'reforco_sem_cor'
 export type ResolucaoDeReferencia<I> =
-    | { achada: true; como: ComoAchou; item: I }
+    | { achada: true; como: ComoAchou; item: I; substituicao?: SubstituicaoDaCor }
     | { achada: false; motivo: MotivoDaFalta; procurado: string; candidatas: Array<CandidataRecusada<I>>; frase: string }
 
 export const ROTULO_DO_COMO: Record<ComoAchou, string> = {
@@ -277,6 +286,8 @@ export function candidatasDoDegrau<I extends ItemResolvivel>(como: DegrauDaEscad
 export const temReferencia = (i: ItemResolvivel): boolean => i.referencia_perfil !== undefined && i.referencia_perfil !== null
 /** A referência que o motor pede: o código dele SEM o sufixo do fornecedor (`HF88S/WOLFF` → `HF88S`), cru. */
 export const referenciaDoMotor = (codigoDoMotor: string): string => semOSufixo(codigoDoMotor, sufixoDoFornecedor(codigoDoMotor))
+const COR_BRANCA = 'BRANCO'
+const COR_PRETA = 'PRETO'
 /** A cor para comparar (como toda cor deste módulo); a vazia é "sem cor". */
 const corParaComparar = (cor: string | null | undefined): string | null => { const c = descricaoNormalizada(cor); return c === '' ? null : c }
 /**
@@ -297,6 +308,9 @@ export function resolverPelaReferencia<I extends ItemResolvivel>(ref: Pick<Refer
     if (daReferencia.every((i) => corParaComparar(i.cor) === null)) {
         return daReferencia.length === 1 ? { achada: true, como: 'referencia', item: daReferencia[0] } : ambigua(daReferencia, ' e sem cor')
     }
+    // O REFORÇO INTERNO SEM COR (pedido 0038): na categoria REFORÇO, a referência com UM item só na tabela (1352, 8427, 8433) entra por ela, sem
+    // cor — o reforço fica dentro do perfil. O reforço com várias cores (as colunas 3485, 5456, 8645) continua exigindo a cor
+    if (daReferencia.length === 1 && corParaComparar(daReferencia[0].categoria) === 'REFORCO') return { achada: true, como: 'referencia', item: daReferencia[0], substituicao: 'reforco_sem_cor' }
     const pedida = corParaComparar(ref.corPedida)
     if (pedida === null) {
         return faltou('SEM_COR', `${ref.codigoDoMotor}${ref.descricaoDoMotor ? ` (${ref.descricaoDoMotor})` : ''}: a cor não foi dita, e a referência ${referencia} tem um item por cor — não se assume branco`, 'a cor não foi dita')
@@ -304,6 +318,14 @@ export function resolverPelaReferencia<I extends ItemResolvivel>(ref: Pick<Refer
     const daCor = daReferencia.filter((i) => corParaComparar(i.cor) === pedida)
     if (daCor.length === 1) return { achada: true, como: 'referencia', item: daCor[0] }
     if (daCor.length > 1) return ambigua(daCor, ` na cor ${ref.corPedida}`)
+    // A PEÇA QUE NÃO EXISTE NA COR DO PERFIL (dono do produto, 26/11/2026, pedido 0038; o orçamento 31-PVC em PRETO LISO): a esquadria que não é
+    // BRANCO leva a peça em PRETO quando a referência existe em PRETO (9125, 2575, 1379, 1874, 2681…: as peças só branco/preto). Uma só em PRETO,
+    // ou nada: duas em PRETO continuam ambíguas, e a que não tem PRETO continua falta nomeada
+    if (pedida !== COR_BRANCA) {
+        const emPreto = daReferencia.filter((i) => corParaComparar(i.cor) === COR_PRETA)
+        if (emPreto.length === 1) return { achada: true, como: 'referencia', item: emPreto[0], substituicao: 'peca_sem_a_cor' }
+        if (emPreto.length > 1) return ambigua(emPreto, ' na cor PRETO')
+    }
     const cores = [...new Set(daReferencia.map((i) => (corParaComparar(i.cor) === null ? '(sem cor)' : String(i.cor))))]
     return faltou('REFERENCIA_SEM_A_COR', `${quem}: a referência ${referencia} existe na tabela de preço, mas não na cor ${ref.corPedida} — as cores dela: ${cores.join(', ')}`, `é da referência ${referencia}, em outra cor`)
 }
