@@ -896,9 +896,21 @@ describe('(8) o aviso da tabela congelada', () => {
     })
 })
 
-describe('a versão do cálculo subiu com as regras de custo de 26/11/2026 (pedido 0037)', () => {
+describe('a versão do cálculo subiu com as regras de custo de 26/11/2026 (pedido 0037) e cabe na CHECK do banco (pedido 0039)', () => {
     it('o orçamento calculado com a versão de 16/11 está obsoleto: o próximo "sim" o refaz (#346, #347, #349)', () => {
         expect(VERSAO_DO_CALCULO).not.toBe('consumo-do-item-2026-11-16')
-        expect(VERSAO_DO_CALCULO).toBe('barras-unicas-pedido-total-peca-exata-2026-11-26')
+        expect(VERSAO_DO_CALCULO).toBe('calculo-2026-11-26b')
+    })
+    it('A VERSÃO CABE NA CHECK orcamentista_orcamento_calculo_versao_forma: até 40 caracteres e sem espaço nas pontas (a de 48 parou todo cálculo em 26/11 22:14 UTC)', () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { TAMANHO_MAXIMO_DA_VERSAO_DO_CALCULO } = require('@/lib/atendimentos-ia/custo-do-orcamento') as typeof import('@/lib/atendimentos-ia/custo-do-orcamento')
+        expect(TAMANHO_MAXIMO_DA_VERSAO_DO_CALCULO).toBe(40)
+        // a CHECK como a migração a escreve: o limite do teste é o do banco, não um número copiado
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const sql = (require('fs') as typeof import('fs')).readFileSync(require('path').join(__dirname, '../../../supabase/migrations/20261116000002_versao_do_calculo_no_orcamento.sql'), 'utf8') as string
+        const limite = /char_length\(calculo_versao\)\s*<=\s*(\d+)/.exec(sql)
+        expect(limite?.[1]).toBe(String(TAMANHO_MAXIMO_DA_VERSAO_DO_CALCULO))
+        expect([...VERSAO_DO_CALCULO].length).toBeLessThanOrEqual(TAMANHO_MAXIMO_DA_VERSAO_DO_CALCULO)
+        expect(VERSAO_DO_CALCULO).toMatch(/^\S(.*\S)?$/)
     })
 })
