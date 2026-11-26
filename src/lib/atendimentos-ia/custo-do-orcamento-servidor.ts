@@ -26,7 +26,7 @@
  */
 import type { PecaDoCorte } from './relatorio-de-corte'
 import { calcularOLevantamento, mensagemDoCalculo, type EsquadriaGravada, type FamiliasDaEmpresa, type ItemDaFamilia } from './levantamento-da-conversa'
-import { custoDoOrcamento, insumoPorComprimento, valorDoMinuto, chaveDoMaterial, PERCENTUAIS, type CaminhoDoCusto, type CustoDoItem, type MaterialDaTabela, type Percentuais, type ResolucaoGravada } from './custo-do-orcamento'
+import { custoDoOrcamento, insumoPorComprimento, valorDoMinuto, chaveDoMaterial, PERCENTUAIS, type Aproveitamento, type CaminhoDoCusto, type CustoDoItem, type MaterialDaTabela, type Percentuais, type ResolucaoGravada } from './custo-do-orcamento'
 import type { ItemDaTabela, PecaDaEsquadria } from './levantamento-de-barras'
 import type { InsumoAvaliado, VidroAvaliado } from './avaliador-de-formulas'
 import { resolverReferencia, tabelaNoEscopo, GRUPO_DE_COR, type ContextoDaResolucao, type EscopoDoMotor, type ReferenciaProcurada, type ResolucaoDeReferencia } from './resolucao-de-referencia'
@@ -174,7 +174,8 @@ const textoOuNulo = (v: unknown): string | null => (typeof v === 'string' && v.t
  * O custo de cada esquadria de `lev`, na ordem de `lev.itens`, e as faltas nomeadas; ou as recusas. `itens` do resultado tem o mesmo
  * comprimento e a mesma ordem de `lev.itens`.
  */
-export async function custoDoLevantamento(tenantId: string, fonte: FamiliasDaEmpresa, lev: { nome: string; itens: EsquadriaGravada[] }): Promise<CustoDoLevantamento> {
+/** `aproveitamento`: como o perfil é cobrado (pedido 0034-B) — o consumo de cada item, ou as barras inteiras do pedido rateadas. */
+export async function custoDoLevantamento(tenantId: string, fonte: FamiliasDaEmpresa, lev: { nome: string; itens: EsquadriaGravada[] }, aproveitamento: Aproveitamento): Promise<CustoDoLevantamento> {
     const c = await calcularOLevantamento(tenantId, fonte, lev)
     if ('recusa' in c) return { ok: false, recusas: [c.recusa.texto] }
     const mensagem = mensagemDoCalculo(c)
@@ -281,6 +282,7 @@ export async function custoDoLevantamento(tenantId: string, fonte: FamiliasDaEmp
             barras_por_codigo: calculo.r.total.barras_por_codigo,
             materiais,
             valor_minuto: valor,
+            aproveitamento,
         })
         if ('recusas' in r) { recusas.push(...r.recusas); return }
         r.itens.forEach((it, j) => { porItem[g.indices[j]] = it })

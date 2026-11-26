@@ -2,6 +2,9 @@
  * POST /api/atendimentos-ia/orcamentos/[id]/calcular — CALCULA o orçamento I.A. pelo caminho completo e GRAVA o resultado no orçamento (o 1b,
  * dono do produto, 09/11/2026): a relação de materiais de cada item (oculta na tela), os valores de cada item e os totais. Quem pode EDITAR
  * os orçamentos calcula. Nada evolui com falta: a recusa é 422 com as faltas nomeadas, e nada é gravado.
+ *
+ * O PEDIDO TOTAL (pedido 0034-B): `{ "aproveitamento": "pedido_total" }` no corpo calcula pelas barras inteiras do pedido, rateadas, e grava
+ * quem escolheu (o usuário da tela). Sem o campo, ou `"consumo"`, o padrão: o consumo de cada item. Outro valor é 400.
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { chamadorDoOrcamentista, MODULO_DO_ORCAMENTISTA } from '@/lib/atendimentos-ia/orcamentista-da-empresa'
@@ -10,6 +13,7 @@ import { responderErroDoOrcamento } from '@/lib/atendimentos-ia/orcamentos-ia-ro
 import { calcularOrcamento, ErroDoCalculo, ErroSemMigracaoDoCalculo, FRASE_SEM_MIGRACAO_DO_CALCULO } from '@/lib/atendimentos-ia/orcamento-calculado'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+export const FRASE_DO_APROVEITAMENTO_INVALIDO = 'O aproveitamento tem de ser "consumo" ou "pedido_total".'
 export const FRASE_DO_CALCULO_RECUSADO = 'O orçamento não foi calculado: falta o que está abaixo, e nada foi gravado.'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -19,7 +23,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const id = typeof req.query.id === 'string' ? req.query.id : ''
     try {
         if (!UUID.test(id)) throw new ErroNaoEncontrado()
-        const calculo = await calcularOrcamento(caller.tenant_id, id)
+        const pedido = (req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>).aproveitamento : undefined) ?? 'consumo'
+        if (pedido !== 'consumo' && pedido !== 'pedido_total') return res.status(400).json({ error: FRASE_DO_APROVEITAMENTO_INVALIDO })
+        const calculo = await calcularOrcamento(caller.tenant_id, id, new Date(), undefined, pedido === 'pedido_total' ? { modo: 'pedido_total', por: caller.user_id } : null)
         return res.status(200).json({ calculo, avisos: calculo.avisos })
     } catch (e) {
         if (e instanceof ErroDoCalculo) return res.status(422).json({ error: FRASE_DO_CALCULO_RECUSADO, recusas: e.recusas })

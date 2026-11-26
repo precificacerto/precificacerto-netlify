@@ -286,4 +286,13 @@ describe('o orçamento do agente: o cliente lido, as faltas e os avisos', () => 
         await clicarNo(botaoCom('Calcular'))
         expect(host.querySelector('[data-avisos-da-tabela]')!.textContent).toContain('Esquadria 2: o levantamento congelou a tabela "A"')
     })
+    it('pedido 0034-B: "Calcular" pede o CONSUMO; "Calcular pelo pedido total" pede o pedido total — o responsável escolhe, o servidor grava quem', async () => {
+        rota.query = { id: 'b' }
+        servidor.corpo = { orcamento: ORC_AGENTE, cliente: null, faltas: [] }
+        servidor.porRota['POST /api/atendimentos-ia/orcamentos/b/calcular'] = { status: 200, corpo: { calculo: {}, avisos: [] } }
+        await montar(<Edicao />)
+        await clicarNo(botaoCom('Calcular'))
+        await clicarNo(botaoCom('Calcular pelo pedido total'))
+        expect(servidor.chamadas.filter((c) => c.metodo === 'POST' && c.url.endsWith('/calcular')).map((c) => c.corpo)).toEqual([{ aproveitamento: 'consumo' }, { aproveitamento: 'pedido_total' }])
+    })
 })

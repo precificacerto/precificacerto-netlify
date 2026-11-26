@@ -21,7 +21,7 @@ const material = (codigo: string, valor: number): MaterialDaTabela =>
     ({ caminho: 'perfil', codigo, codigo_na_tabela: codigo, resolucao: 'exato', custo: null, descricao: `PERFIL ${codigo}`, unidade: 'BR', vendido_por: 'barra', medida_barra_m: 6, valor_barra_interno: valor, bloco: COMPLETO })
 const MINUTO = valorDoMinuto(40813.03, 52800) as number
 const entrada = (itens: EntradaDoCusto['itens'], valor_minuto: number | null): EntradaDoCusto => ({
-    itens, barras_por_codigo: { A: 1 }, materiais: { 'perfil:A': material('A', 600) }, valor_minuto,
+    itens, barras_por_codigo: { A: 1 }, materiais: { 'perfil:A': material('A', 600) }, valor_minuto, aproveitamento: 'consumo',
 })
 const peca = [{ codigo: 'A', comprimento_mm: 1500, quantidade: 2 }]
 

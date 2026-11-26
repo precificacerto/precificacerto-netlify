@@ -28,7 +28,7 @@ const estado = {
     /** o erro da N-ésima operação de `tabela:op`; `null` na fila é uma operação que passa */
     erros: {} as Record<string, Array<{ code: string; message: string } | null>>,
     custo: null as unknown,
-    chamadasDoCusto: [] as Array<{ tenant: string; lev: { nome: string; itens: Linha[] } }>,
+    chamadasDoCusto: [] as Array<{ tenant: string; lev: { nome: string; itens: Linha[] }; aproveitamento?: unknown }>,
     /** os ids que o update não atinge (a linha que sumiu entre a leitura e a escrita) */
     naoAtinge: [] as string[],
     /** as famílias da empresa como `lerFamiliasDaEmpresa` as daria: as tabelas de preço VIGENTES de cada uma */
@@ -86,8 +86,8 @@ jest.mock('@/lib/get-caller-tenant', () => ({
 }))
 jest.mock('@/lib/atendimentos-ia/levantamento-da-conversa', () => ({ lerFamiliasDaEmpresa: async (): Promise<unknown> => ({ ok: true, familias: estado.familias, candidatos: [] }) }))
 jest.mock('@/lib/atendimentos-ia/custo-do-orcamento-servidor', () => ({
-    custoDoLevantamento: async (tenant: string, _fonte: unknown, lev: { nome: string; itens: Linha[] }) => {
-        estado.chamadasDoCusto.push({ tenant, lev })
+    custoDoLevantamento: async (tenant: string, _fonte: unknown, lev: { nome: string; itens: Linha[] }, aproveitamento?: unknown) => {
+        estado.chamadasDoCusto.push({ tenant, lev, aproveitamento })
         return estado.custo
     },
 }))
@@ -99,10 +99,10 @@ const C = () => require('@/lib/atendimentos-ia/custo-do-orcamento') as typeof im
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 type Rota = (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>
-async function chamar(r: Rota, method: string, id: string) {
+async function chamar(r: Rota, method: string, id: string, body: Record<string, unknown> = {}) {
     const saida = { status: 0, corpo: {} as Record<string, unknown> }
     const res = { status(n: number) { saida.status = n; return res }, json(b: Record<string, unknown>) { saida.corpo = b; return res }, end() { return res }, setHeader() { return res } } as unknown as NextApiResponse
-    await r({ method, body: {}, query: { id }, headers: {}, cookies: {} } as unknown as NextApiRequest, res)
+    await r({ method, body, query: { id }, headers: {}, cookies: {} } as unknown as NextApiRequest, res)
     return saida
 }
 const escritas = () => estado.ops.filter((o) => o.op !== 'select')
@@ -513,5 +513,38 @@ describe('(5) O PARCIAL NO "SIM" SEM MUDANÇA (dono do produto, 13/11/2026): as 
         expect(await conferir()).toEqual({ parcial: false })
         for (const i of estado.db.orcamentista_orcamento_item) i.calculo_id = null
         expect(await conferir()).toEqual({ parcial: false })
+    })
+})
+
+describe('pedido 0034-B: o modo PEDIDO TOTAL na gravação e na rota', () => {
+    const doOrcamento = () => escritas().filter((o) => o.tabela === 'orcamentista_orcamento').map((o) => o.carga as Linha)
+    it('sem escolha, o CONSUMO: o custo é pedido por consumo, e o orçamento grava o fallback de sempre, sem quem escolheu', async () => {
+        await K().calcularOrcamento(T, O1, new Date('2026-11-09T15:00:00Z'), () => 'c')
+        expect(estado.chamadasDoCusto.map((c) => c.aproveitamento)).toEqual(['consumo'])
+        for (const carga of doOrcamento()) expect(carga).toMatchObject({ aproveitamento_modo: 'SEM', aproveitamento_origem: 'consumo_do_item', aproveitamento_por: null })
+    })
+    it('com a escolha, o PEDIDO TOTAL: o custo é pedido pelo pedido total, e as DUAS escritas do orçamento gravam COM, a origem e quem escolheu', async () => {
+        await K().calcularOrcamento(T, O1, new Date('2026-11-09T15:00:00Z'), () => 'c', { modo: 'pedido_total', por: 'vendedor-1' })
+        expect(estado.chamadasDoCusto.map((c) => c.aproveitamento)).toEqual(['pedido_total'])
+        const cargas = doOrcamento()
+        expect(cargas.length).toBe(2)
+        for (const carga of cargas) expect(carga).toMatchObject({ aproveitamento_modo: 'COM', aproveitamento_origem: 'pedido_total', aproveitamento_motivo: C().MOTIVO_DO_PEDIDO_TOTAL, aproveitamento_por: 'vendedor-1' })
+    })
+    it('sem a migração (a CHECK recusa a origem nova, 23514): recusa NOMEADA na primeira escrita, e nada mais é gravado', async () => {
+        estado.erros['orcamentista_orcamento:update'] = [{ code: '23514', message: 'violates check constraint "orcamentista_orcamento_aproveitamento_origem_valida"' }]
+        await expect(K().calcularOrcamento(T, O1, new Date(), () => 'c', { modo: 'pedido_total', por: 'u' })).rejects.toMatchObject({ recusas: [K().FRASE_SEM_MIGRACAO_DO_PEDIDO_TOTAL] })
+        expect(escritas().filter((o) => o.tabela !== 'orcamentista_orcamento')).toEqual([])
+    })
+    it('o 23514 SEM a escolha não vira a frase do pedido total: é a falha de sempre', async () => {
+        estado.erros['orcamentista_orcamento:update'] = [{ code: '23514', message: 'outra check' }]
+        await expect(K().calcularOrcamento(T, O1, new Date(), () => 'c')).rejects.toThrow('orcamentista_orcamento: outra check')
+    })
+    it('a ROTA: "pedido_total" no corpo grava quem escolheu (o usuário da tela); "consumo" ou nada é o padrão; outro valor é 400', async () => {
+        expect((await chamar(rota, 'POST', O1, { aproveitamento: 'pedido_total' })).status).toBe(200)
+        expect(doOrcamento().pop()).toMatchObject({ aproveitamento_origem: 'pedido_total', aproveitamento_por: 'usuario-logado' })
+        expect((await chamar(rota, 'POST', O1, { aproveitamento: 'consumo' })).status).toBe(200)
+        expect(estado.chamadasDoCusto.map((c) => c.aproveitamento)).toEqual(['pedido_total', 'consumo'])
+        const r = await chamar(rota, 'POST', O1, { aproveitamento: 'barra' })
+        expect([r.status, r.corpo.error]).toEqual([400, 'O aproveitamento tem de ser "consumo" ou "pedido_total".'])
     })
 })

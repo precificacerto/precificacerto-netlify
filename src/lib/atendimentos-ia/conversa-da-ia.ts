@@ -1208,6 +1208,14 @@ const camposParaOPrompt = (i: ItemDoLevantamento): Omit<ItemDoLevantamento, 'fam
  * mais, está na mensagem (sem caixa e sem acento). "é da Wolff" diz "Wolff Perfis", "a de PVC" diz "PVC";
  * "pode ser o primeiro" não diz nenhum — e a pergunta não se responde pela IA.
  */
+/**
+ * O VENDEDOR PEDIU O PEDIDO TOTAL (pedido 0034-B): "orça pelo pedido total", "pelas barras", "pelas barras inteiras". Pela palavra dele,
+ * na mensagem — o modelo não decide isto.
+ */
+export function pediuPedidoTotal(texto: string): boolean {
+    const t = texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    return /\bpedido\s+total\b/.test(t) || /\bpelas?\s+barras?(\s+inteiras?)?\b/.test(t)
+}
 export function ditoNaMensagem(nome: unknown, texto: string): boolean {
     if (typeof nome !== 'string') return false
     const palavrasDoTexto = new Set(normalizarNome(texto).split(/[^a-z0-9]+/))
@@ -2850,8 +2858,12 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             // O ORÇAMENTO QUE JÁ EXISTE é ATUALIZADO com o mesmo número (13/11/2026); o "sim" SEM MUDANÇA manda o arquivo que existe (`reenviarOArquivo`)
             const deps = dependenciasDoServidor((telefone, nome, pdf) =>
                 enviarAoPrimeiroQueAceitar(destinosDoWhatsApp(telefone, c.telefone), (destino) => enviarDocumento(c.wuzapiToken, destino, nome, pdf)))
+            // O PEDIDO TOTAL (pedido 0034-B): só quando o VENDEDOR escreve, nesta mensagem, que quer o orçamento pelo pedido total (ou pelas
+            // barras) — nunca o agente sozinho. Quem escolheu é o remetente
+            const escolha = pediuPedidoTotal(c.texto) ? { modo: 'pedido_total' as const, por: c.remetenteId } : null
+            if (escolha) rastro.etapas.calcular = `${rastro.etapas.calcular ?? ''} aproveitamento=pedido_total`.trim()
             const sim = await atravessarNoSim(c.tenantId, rastro.levantamento, (orcamentoId) => etapaDoPreco(c.tenantId, orcamentoId, deps),
-                (orcamento) => reenviarOArquivo(c.tenantId, orcamento, deps))
+                (orcamento) => reenviarOArquivo(c.tenantId, orcamento, deps), escolha)
             rastro.etapas.calcular = `${rastro.etapas.calcular ?? ''} travessia=${sim.rastro}`.trim()
             // DEPOIS DO "SIM", SÓ O ARQUIVO (dono do produto, 12/11/2026, 4.3): quando o PDF chegou a quem disse "sim", a conversa não repete por
             // texto o que está nele (barras, aproveitamento, mão de obra, o que o preço cobre) — o WhatsApp leva só os QUESTIONAMENTOS (as faltas)

@@ -36,7 +36,7 @@ export type OrientativoDoOrcamento = OrientativoDeMontagem | { semMigracao: stri
 /** O recálculo, sem gravar: o que o avaliador deu por item (pelo id do item), ou a razão de não ter rodado. */
 async function recalcular(tenantId: string, orcamentoId: string): Promise<Map<string, MontagemDoItem> | { naoRodou: string }> {
     try {
-        const { orc, custo } = await custoDeAgora(tenantId, orcamentoId)
+        const { orc, custo } = await custoDeAgora(tenantId, orcamentoId, 'consumo')
         if ('recusas' in custo) return { naoRodou: custo.recusas.join('; ') }
         return new Map(orc.itens.map((i, k) => [i.id, custo.montagemPorItem[k]]))
     } catch (e) {

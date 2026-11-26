@@ -4,7 +4,7 @@
  * RECONCILIAÇÃO com a precificação final (decisão D2): soma(líquido do item + fabricação do item) == custo + mão de obra do motor.
  */
 import {
-    custoDoOrcamento, entradaDaPrecificacao, somaDosItens, valorDoMinuto, MODO_DO_FALLBACK, ORIGEM_DO_FALLBACK, PAR_DO_IPI_DESCONHECIDO,
+    custoDoOrcamento, entradaDaPrecificacao, somaDosItens, valorDoMinuto, MODO_DO_FALLBACK, ORIGEM_DO_FALLBACK, MODO_DO_PEDIDO_TOTAL, ORIGEM_DO_PEDIDO_TOTAL, PAR_DO_IPI_DESCONHECIDO,
     type EntradaDoCusto, type MaterialDaTabela, type Percentuais, type CustoDoItem,
 } from '@/lib/atendimentos-ia/custo-do-orcamento'
 import { calculatePricing } from '@/utils/pricing-engine'
@@ -27,6 +27,7 @@ const base = (): EntradaDoCusto => ({
     barras_por_codigo: { A: 1, B: 1 },
     materiais: { 'perfil:A': material('A', 600), 'perfil:B': material('B', 100) },
     valor_minuto: MINUTO,
+    aproveitamento: 'consumo',
 })
 const ok = (e: EntradaDoCusto) => {
     const r = custoDoOrcamento(e)
@@ -367,5 +368,58 @@ describe('RECONCILIAÇÃO com a precificação final (decisão D2): soma(líquid
         const fabricacao = its.reduce((t, i) => t + i.custo_fabricacao, 0)
         expect(contadaDuasVezes.cmvUnit - somaDosItens(its)).toBeCloseTo(fabricacao, 1)
         expect(fabricacao).toBeGreaterThan(100)
+    })
+})
+
+describe('pedido 0034-B: o modo PEDIDO TOTAL — as barras inteiras do pedido, rateadas na proporção do consumo', () => {
+    const linha = (c: CustoDoItem, codigo: string) => c.materiais.find((m) => m.codigo === codigo)
+    it('(a) CONSUMO, o padrão: cada item paga os metros dele; a soma do A NÃO é a barra inteira (3 m + 1 m de uma barra de 6 m)', () => {
+        const r = ok(base())
+        const a1 = linha(r.itens[0], 'A')!, a2 = linha(r.itens[1], 'A')!
+        expect([r.modo, r.origem]).toEqual([MODO_DO_FALLBACK, ORIGEM_DO_FALLBACK])
+        expect(a1.custo_liquido_material).toBeCloseTo(3 * (a1.custo_liquido_fracao as number), 10)
+        expect(a2.custo_liquido_material).toBeCloseTo(1 * (a2.custo_liquido_fracao as number), 10)
+        expect(a1.custo_liquido_material + a2.custo_liquido_material).toBeCloseTo(4 * (a1.custo_liquido_fracao as number), 10)
+    })
+    it('(b) PEDIDO TOTAL: a soma dos itens é a barra inteira × o preço dela, dividida 3/4 e 1/4; cada parte ao centavo, o resíduo no que mais consome', () => {
+        const consumo = ok(base())
+        const metro = linha(consumo.itens[0], 'A')!.custo_liquido_fracao as number
+        const barraA = 6 * metro // 1 barra de 6 m: o líquido da barra inteira
+        const r = ok({ ...base(), aproveitamento: 'pedido_total' })
+        expect([r.modo, r.origem]).toEqual([MODO_DO_PEDIDO_TOTAL, ORIGEM_DO_PEDIDO_TOTAL])
+        const a1 = linha(r.itens[0], 'A')!, a2 = linha(r.itens[1], 'A')!
+        expect(a2.custo_liquido_material).toBe(Math.round((barraA / 4) * 100) / 100)
+        expect(a1.custo_liquido_material + a2.custo_liquido_material).toBeCloseTo(barraA, 10)
+        expect(a1.custo_liquido_material).toBeCloseTo(barraA - a2.custo_liquido_material, 10)
+        // o bruto também: 1 barra × R$ 600, rateada
+        expect(linha(r.itens[1], 'A')!.custo_bruto_material).toBe(150)
+        expect(a1.custo_bruto_material + linha(r.itens[1], 'A')!.custo_bruto_material).toBeCloseTo(600, 10)
+        // o consumo do item continua dito em metros (3 e 1): o que muda é o custo
+        expect([a1.consumo_item, a2.consumo_item]).toEqual([3, 1])
+        // o B, só no item 2: ele paga a barra inteira do B
+        expect(linha(r.itens[1], 'B')!.custo_bruto_material).toBe(100)
+    })
+    it('(b) com DUAS barras do A no pedido, o total dobra: é a contagem de barras do pedido que manda', () => {
+        const r = ok({ ...base(), barras_por_codigo: { A: 2, B: 1 }, aproveitamento: 'pedido_total' })
+        expect(linha(r.itens[0], 'A')!.custo_bruto_material + linha(r.itens[1], 'A')!.custo_bruto_material).toBeCloseTo(1200, 10)
+        expect(linha(r.itens[1], 'A')!.custo_bruto_material).toBe(300)
+    })
+    it('o resíduo do arredondamento vai ao item que MAIS consome, e a soma fecha ao centavo (três itens de 1 m, barra de R$ 100)', () => {
+        const e: EntradaDoCusto = {
+            itens: [1, 2, 3].map((n) => ({ referencia: `item ${n}`, minutos: 10, pecas: [{ codigo: 'A', comprimento_mm: n === 2 ? 1001 : 1000, quantidade: 1 }] })),
+            barras_por_codigo: { A: 1 }, materiais: { 'perfil:A': material('A', 100) }, valor_minuto: MINUTO, aproveitamento: 'pedido_total',
+        }
+        const r = ok(e)
+        const brutos = r.itens.map((c) => linha(c, 'A')!.custo_bruto_material)
+        // 1000/3001 de R$ 100 = 33,32 (ao centavo) nos itens 1 e 3; o item 2 (1001 mm, o maior) fica com o resto
+        expect([brutos[0], brutos[2]]).toEqual([33.32, 33.32])
+        expect(brutos[1]).toBeCloseTo(100 - 2 * 33.32, 10)
+        expect(brutos.reduce((t, b) => t + b, 0)).toBeCloseTo(100, 10)
+    })
+    it('o INSUMO e o VIDRO não mudam com o modo: seguem pela unidade e pelo m²', () => {
+        const insumo: MaterialDaTabela = { ...material('Q', null), caminho: 'insumo', custo: 2, valor_barra_interno: null, vendido_por: 'unidade', medida_barra_m: null }
+        const e: EntradaDoCusto = { ...base(), itens: base().itens.map((it) => ({ ...it, insumos: [{ codigo: 'Q', quantidade: 3 }] })), materiais: { ...base().materiais, 'insumo:Q': insumo } }
+        const c = ok({ ...e, aproveitamento: 'consumo' }), t = ok({ ...e, aproveitamento: 'pedido_total' })
+        expect(t.itens.map((x) => linha(x, 'Q')!.custo_bruto_material)).toEqual(c.itens.map((x) => linha(x, 'Q')!.custo_bruto_material))
     })
 })

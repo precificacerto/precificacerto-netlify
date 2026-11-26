@@ -63,6 +63,13 @@ export const MODO_DO_FALLBACK = 'SEM' as const
 export const ORIGEM_DO_FALLBACK = 'consumo_do_item' as const
 export const MOTIVO_DO_FALLBACK = 'o orcamento cobra o consumo de cada item: o aproveitamento de barras e do relatorio do pedido, depois do fechamento'
 
+/** Pedido 0034-B: como o perfil é cobrado. */
+export type Aproveitamento = 'consumo' | 'pedido_total'
+/** O PEDIDO TOTAL (dono do produto, 26/11/2026): o modo COM, a origem `pedido_total` (a migração 20261126000001) e quem escolheu, gravado à parte. */
+export const MODO_DO_PEDIDO_TOTAL = 'COM' as const
+export const ORIGEM_DO_PEDIDO_TOTAL = 'pedido_total' as const
+export const MOTIVO_DO_PEDIDO_TOTAL = 'o orcamento cobra as barras inteiras do pedido, rateadas entre os itens na proporcao do consumo de cada um'
+
 /** Os seis percentuais do bloco que o item e o material guardam, com os nomes de `orcamentista_tabela_item`. */
 export const PERCENTUAIS = ['cred_icms_pct', 'cred_pis_cofins_pct', 'cred_ipi_pct', 'nc_ipi_pct', 'cred_ibs_pct', 'cred_cbs_pct'] as const
 export type Percentual = (typeof PERCENTUAIS)[number]
@@ -134,6 +141,12 @@ export type EntradaDoCusto = {
     materiais: Readonly<Record<string, MaterialDaTabela>>
     /** O valor do minuto (`valorDoMinuto`); nulo quando a empresa não tem a configuração da mão de obra. */
     valor_minuto: number | null
+    /**
+     * Como o PERFIL é cobrado (pedido 0034-B). `consumo`, o padrão: os metros que cada item consome. `pedido_total`, escolhido pelo vendedor
+     * ou pelo responsável (nunca pelo agente): as barras inteiras do pedido, rateadas entre os itens na proporção dos milímetros que cada um
+     * consome do perfil. Obrigatório: sem default neutro (`construtor-empobrecido.md`).
+     */
+    aproveitamento: Aproveitamento
 }
 
 export type LinhaDeMaterial = Percentuais & {
@@ -169,7 +182,7 @@ export type CustoDoItem = Percentuais & {
 export type FaltaDoCusto = { item: number; caminho: CaminhoDoCusto; codigo: string; motivo: 'SEM_MATERIAL' | 'SEM_VALOR'; frase: string }
 /** Para separar as duas formas, use `'recusas' in r` (o tsconfig daqui não estreita pelo `ok`). */
 export type CustoDoOrcamento =
-    | { ok: true; modo: typeof MODO_DO_FALLBACK; origem: typeof ORIGEM_DO_FALLBACK; motivo: string; itens: CustoDoItem[]; faltas: FaltaDoCusto[] }
+    | { ok: true; modo: typeof MODO_DO_FALLBACK | typeof MODO_DO_PEDIDO_TOTAL; origem: typeof ORIGEM_DO_FALLBACK | typeof ORIGEM_DO_PEDIDO_TOTAL; motivo: string; itens: CustoDoItem[]; faltas: FaltaDoCusto[] }
     | { ok: false; recusas: string[] }
 
 /** O valor do minuto pelo caminho da tela (`calculatePricing`, `costPerMinute`); sem minutos produtivos não há valor. */
@@ -301,6 +314,28 @@ export function custoDoOrcamento(e: EntradaDoCusto): CustoDoOrcamento {
     if (semLugar.length) return { ok: false, recusas: semLugar }
     const unidade = new Map(calculadas.map((x) => [x.chave, { m: x.m, ...(x.u as { liquido: number; nao_apurado: string | null }) }]))
     const ORDEM_DO_CAMINHO: Record<CaminhoDoCusto, number> = { perfil: 0, insumo: 1, vidro: 2 }
+    // O PEDIDO TOTAL (pedido 0034-B): por perfil, as barras inteiras do pedido × o custo da barra, rateadas na proporção dos milímetros de
+    // cada item; cada parte ao centavo, e o resíduo do arredondamento no item que mais consome — a soma fecha com o total das barras
+    const rateio = new Map<string, { bruto: number; liquido: number }[]>()
+    if (e.aproveitamento === 'pedido_total') {
+        for (const [chave, u] of unidade) {
+            if (u.m.caminho !== 'perfil') continue
+            const porItem = consumos.map((c) => c.get(chave)?.qtd ?? 0)
+            const totalMm = porItem.reduce((t, q) => t + q, 0)
+            const n = e.barras_por_codigo[u.m.codigo]
+            const total = { bruto: n * (brutoDe(u.m) as number), liquido: n * u.liquido }
+            let maior = 0
+            porItem.forEach((q, k) => { if (q > porItem[maior]) maior = k })
+            const centavo = (v: number) => Math.round(v * 100) / 100
+            const partes = porItem.map((q) => ({ bruto: centavo((total.bruto * q) / totalMm), liquido: centavo((total.liquido * q) / totalMm) }))
+            const outros = partes.filter((_, k) => k !== maior)
+            partes[maior] = {
+                bruto: total.bruto - outros.reduce((t, x) => t + x.bruto, 0),
+                liquido: total.liquido - outros.reduce((t, x) => t + x.liquido, 0),
+            }
+            rateio.set(chave, partes)
+        }
+    }
     const itens = e.itens.map((it, k): CustoDoItem => {
         const doItem = [...consumos[k].entries()].filter(([chave]) => unidade.has(chave))
             .sort(([, a], [, b]) => ORDEM_DO_CAMINHO[a.caminho] - ORDEM_DO_CAMINHO[b.caminho] || (a.codigo < b.codigo ? -1 : a.codigo > b.codigo ? 1 : 0))
@@ -310,6 +345,15 @@ export function custoDoOrcamento(e: EntradaDoCusto): CustoDoOrcamento {
             const base = {
                 ordem: j + 1, caminho: x.caminho, codigo: x.codigo, codigo_na_tabela: u.m.codigo_na_tabela, resolucao: u.m.resolucao, descricao: u.m.descricao,
                 custo_bruto_unidade: bruto, ...u.m.bloco, credito_nao_apurado: u.nao_apurado, custo_liquido_unidade: u.liquido,
+            }
+            const doRateio = rateio.get(chave)?.[k]
+            if (doRateio) {
+                // o pedido total: os metros do item ficam como consumo; o custo é a parte dele nas barras inteiras do pedido
+                const medida = u.m.medida_barra_m
+                return {
+                    ...base, unidade_compra: u.m.unidade, medida_unidade: medida, custo_liquido_fracao: custoLiquidoDaFracao(u.liquido, medida),
+                    consumo_item: x.qtd / 1000, custo_bruto_material: doRateio.bruto, custo_liquido_material: doRateio.liquido,
+                }
             }
             if (x.caminho === 'perfil' || insumoPorComprimento(u.m)) {
                 // O CONSUMO DO ITEM (16/11/2026): os metros que ESTE item usa × o preço do metro. Nada de barra inteira e nada de rateio
@@ -346,6 +390,7 @@ export function custoDoOrcamento(e: EntradaDoCusto): CustoDoOrcamento {
             custo_fabricacao: fabricacao, custo_liquido_total: liquido + fabricacao,
         }
     })
+    if (e.aproveitamento === 'pedido_total') return { ok: true, modo: MODO_DO_PEDIDO_TOTAL, origem: ORIGEM_DO_PEDIDO_TOTAL, motivo: MOTIVO_DO_PEDIDO_TOTAL, itens, faltas }
     return { ok: true, modo: MODO_DO_FALLBACK, origem: ORIGEM_DO_FALLBACK, motivo: MOTIVO_DO_FALLBACK, itens, faltas }
 }
 

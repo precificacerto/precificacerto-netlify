@@ -232,7 +232,7 @@ describe('(4) de ponta a ponta: o custo do orçamento leva o insumo do TERCEIRO 
         }
     })
     it('o 21495 (Diversos, ordem 3) entra no custo com 212,78 × 2; o 99999 é falta que diz em quantos fornecedores procurou', async () => {
-        const r = await S().custoDoLevantamento(T, { ok: true } as never, (calculo.valor as { lev: never }).lev)
+        const r = await S().custoDoLevantamento(T, { ok: true } as never, (calculo.valor as { lev: never }).lev, 'consumo')
         if ('recusas' in r) throw new Error(r.recusas.join(' | '))
         const l = r.itens[0].materiais.find((m) => m.caminho === 'insumo' && m.codigo === '21495')!
         expect([l.consumo_item, l.custo_bruto_material]).toEqual([2, 212.78 * 2])
