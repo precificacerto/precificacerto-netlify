@@ -170,7 +170,7 @@
  * Portão: `src/utils/__tests__/atendimentos-ia-levantamento-por-nome.test.ts`.
  */
 import type { MidiaDaMensagem } from '@/lib/atendimentos-ia/payload-wuzapi'
-import { conferirMidiaBaixada, fraseDaMidiaRecusadaPelaIa, fraseDaRecusa, leituraDaMidia, marcaNoLog, type AnexoParaOModelo } from '@/lib/atendimentos-ia/midia-da-mensagem'
+import { conferirMidiaBaixada, fraseDaMidiaRecusadaPelaIa, fraseDaRecusa, instrucaoDaRajada, leituraDaMidia, marcaNoLog, type AnexoParaOModelo } from '@/lib/atendimentos-ia/midia-da-mensagem'
 import { baixarMidia } from '@/lib/atendimentos-ia/midia-do-wuzapi'
 import { transcreverAudio } from '@/lib/atendimentos-ia/transcricao-do-audio'
 import { atravessarNoSim } from './travessia-do-levantamento'
@@ -204,7 +204,7 @@ import { agruparIguais,
     type DefinicaoDaTipologia, type ItemDoLevantamento, type Pendencia,
 } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import { distinguirItens, fraseDaAtualizacao, numeroDoItem, fraseDaCorrespondenciaAmbigua, type DestinoDoItem } from '@/lib/atendimentos-ia/acrescimo-ou-alteracao'
-import { JANELA_EM_VOO_MS, contextoDaConversa, gravarSaida, outraEntradaRespondida, lerHistorico, marcarEnvio, saidaDaEntrada, type Entrada, type MensagemDoHistorico } from '@/lib/atendimentos-ia/conversa-gravada'
+import { JANELA_EM_VOO_MS, RAJADA, contextoDaConversa, gravarSaida, lerRajada, outraEntradaRespondida, lerHistorico, marcarEnvio, saidaDaEntrada, type Entrada, type MensagemDoHistorico } from '@/lib/atendimentos-ia/conversa-gravada'
 import { prazo } from '@/lib/atendimentos-ia/prazo'
 import { CONTINUACOES_DA_LISTA_CORTADA, MAX_TOKENS_DA_PRIMEIRA_CHAMADA, PRAZO_ATE_OS_CABECALHOS_MS, PRAZOS_ATE_OS_CABECALHOS_MS, TENTATIVAS_DA_PRIMEIRA_CHAMADA, blocosDoSistema, instrucaoDaContinuacao, itensCompletosDoJsonCortado } from '@/lib/atendimentos-ia/pedido-ao-modelo'
 import { lerFluxo } from '@/lib/atendimentos-ia/resposta-em-fluxo'
@@ -234,7 +234,7 @@ import {
     type CondicoesDoLevantamento,
 } from '@/lib/atendimentos-ia/dados-do-levantamento'
 import {
-    apagarPerguntaEmAberto, confirmacaoVale, esquadriasDaProposta, esquadriasEquivalentes, gravarPerguntaEmAberto, juntarEsquadrias, lerPerguntaEmAberto, marcaDaConfirmacao, montagemExpirou,
+    apagarPerguntaEmAberto, confirmacaoVale, esquadriasDaProposta, esquadriasEquivalentes, gravarPerguntaEmAberto, juntarComplementos, juntarEsquadrias, lerPerguntaEmAberto, marcaDaConfirmacao, montagemExpirou,
     type CodigoDaPergunta, type EsquadriaProposta, type PerguntaEmAberto,
 } from '@/lib/atendimentos-ia/pergunta-em-aberto'
 import { descricaoParaOVendedor } from '@/lib/atendimentos-ia/descricao-para-o-vendedor'
@@ -269,6 +269,8 @@ export type DesfechoDaIa =
     | 'repetida' | 'reenviada'
     /** A outra imagem da mesma rajada já fez esta pergunta (pedido 0028): as retidas se juntam, e nada sai de novo. */
     | 'retida-na-rajada'
+    /** A RAJADA É UM ENVIO (pedido 0029): há entrada mais nova na mesma rajada, e é ela que conduz — esta não grava nem responde. */
+    | 'rajada-seguidora'
     /** A mídia do vendedor que não foi lida — o áudio, o vídeo, a planilha, o que passou do limite ou falhou ao baixar (18/11/2026): a resposta diz o quê. */
     | 'midia-nao-lida'
     /** O PEDIDO DE ORÇAMENTO pelo nome (18/11/2026): a lista para escolher; o arquivo mandado de novo; o orçamento sem arquivo, nomeado. */
@@ -438,6 +440,11 @@ type Rastro = {
     medidasNaOrdem: number
     /** A mídia da mensagem (18/11/2026), `<tipo>:<desfecho>` — `imagem:lida`, `audio:audio`, `pdf:pdf_grande`…; '-' sem mídia. Nunca a legenda nem o nome. */
     midia: string
+    /** A rajada (pedido 0029): quantas entradas este turno juntou (`entradas=N`), e quantas mídias delas não se leram; '-' sem rajada. */
+    rajada: string
+    /** O complemento (pedido 0029): as linhas de vidro ou cor que foram ao item de mesmo número; e as tipologias do modelo que saíram delas. */
+    complementos: number
+    tipologiasDoModeloNoComplemento: number
 }
 const FALA_NO_LOG: Record<FalaLida['motivo'], string> = { usada: 'usada', ausente: 'ausente', numero: 'descartada_numero', longa: 'descartada_longa', sobre_valor: 'descartada_sobre_valor', esquadria: 'descartada_esquadria' }
 
@@ -461,7 +468,8 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
         + (r.itensSemCampos > 0 ? ` itens_sem_campos=${r.itensSemCampos}` : '')
         // a montagem e os padrões (05/11/2026)
         + (r.montagem === '-' ? '' : ` montagem=${r.montagem}`) + (r.contextoDoTurno === '-' ? '' : ` contexto_do_turno=${r.contextoDoTurno}`) + (r.coresPadrao > 0 ? ` cor_padrao=${r.coresPadrao}` : '') + (r.tipologiasPadrao > 0 ? ` tipologia_padrao=${r.tipologiasPadrao}` : '') + (r.linhaPadrao > 0 ? ` principal=${r.linhaPadrao}` : '') + (r.pecasNaoPedidas > 0 ? ` sem_peca_nao_pedida=${r.pecasNaoPedidas}` : '') + (r.limite === '-' ? '' : ` limite=${r.limite}`) + (r.qualOrcamento === '-' ? '' : ` qual_orcamento=${r.qualOrcamento}`) + (r.daImagem === '-' ? '' : ` da_imagem=${r.daImagem}`) + (r.medidasNaOrdem > 0 ? ` medidas_na_ordem=${r.medidasNaOrdem}` : '')
-        + (r.midia === '-' ? '' : ` midia=${r.midia}`)
+        + (r.midia === '-' ? '' : ` midia=${r.midia}`) + (r.rajada === '-' ? '' : ` rajada=${r.rajada}`)
+        + (r.complementos > 0 ? ` complementos=${r.complementos}` : '') + (r.tipologiasDoModeloNoComplemento > 0 ? ` tipologia_do_modelo_no_complemento=${r.tipologiasDoModeloNoComplemento}` : '')
     console.error(`${PREFIXO_DO_LOG_DA_IA} levantamento=${r.levantamento} rota=${r.rota} propostos=${r.propostos} descartados=${r.descartados} enviou=${r.enviou ? 'sim' : 'nao'} desfecho=${desfecho}${admin} nome=${r.nome} aberta=${r.aberta}${contexto}${ia}${detalhe ? ` ${detalhe}` : ''}`)
     // as linhas por etapa (06/11/2026), na ordem do turno; a última é a resposta, que todo turno tem
     for (const [n, nome] of ETAPAS_DO_LOG) console.error(`${PREFIXO_DO_LOG_DA_ETAPA} ${n} ${nome}] ${r.etapas[nome] ?? 'nao_chegou'}`)
@@ -801,6 +809,7 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
         '- cor_perfil: a cor do perfil que o vendedor DISSE. Se ela é uma das cores da empresa (lista abaixo), escreva-a como está na lista; se é outra, escreva-a como ele disse — o código confere e pergunta. Se ele não disse cor, NÃO preencha.',
         '- vidro: COPIE o vidro como o vendedor o escreveu nesta mensagem ("vidro 4mm" → vidro 4mm; "temperado 8mm" → temperado 8mm). NUNCA acrescente têmpera, cor ou qualquer palavra que ele não disse — nem da instrução da categoria VIDRO: "8mm" não vira "comum 8 mm" nem "temperado 8 mm". Se ele NÃO disse o vidro desta esquadria e a instrução de VIDRO define um padrão para ela, ponha o padrão em vidro_padrao, copiado da instrução; senão, omita os dois.',
         '- NUNCA proponha ao vendedor um vidro que ele não escreveu (nem "troque para incolor 5 mm", nem outra espessura, nem outro tipo): faltando algo do vidro, pergunte só o que falta.',
+        '- Uma tabela de "item → vidro" (ou de cor) COMPLETA a lista: ponha o vidro no item de mesmo número (`ordem`) e não crie item novo para ela, nem escolha tipologia para as linhas dela. "Não especificado" é vidro não dito: omita.',
         '- tipologia: o CÓDIGO (ex.: DP-02) de UMA das tipologias da lista abaixo, escolhida pela descrição. NUNCA invente código nem preencha com as palavras do vendedor. HAVENDO NATURAL, APLIQUE E NÃO PERGUNTE: o vendedor fala só quando foge do padrão, e o silêncio é a forma natural — o que ele não disse depois do tipo vale o natural (correr, janela ou porta = 2 folhas; todo o resto = 1 folha ou 1 módulo, e mais de um só se dito; sem persiana, sem bandeira, sem peitoril, sem motor, salvo se dito). Escolha a tipologia que tem exatamente o que ele disse e, no resto, o natural. Só se ainda couber em mais de uma, NÃO preencha: em `pergunta`, pergunte qual é, citando a descrição INTEIRA de cada uma, sem o código. Se não dá para concluir, NÃO preencha: em `pergunta`, pergunte em linguagem de obra o que falta (janela ou porta, como abre) — nunca "qual a tipologia".',
         '- abertura: a PALAVRA que o vendedor usou para a esquadria — "porta" (também "porta-janela" e "porta janela") ou "janela". Só se ele a escreveu; senão, omita. Porta NUNCA vira tipologia cuja descrição começa com JANELA, e janela NUNCA vira PORTA; maxim-ar e fixo servem às duas.',
         '- Os limites de cada tipologia estão na lista (largura e altura): a medida dita fora da faixa DESCARTA a tipologia; a medida que a lista não limita (sem L ou sem A) não descarta. Se nenhuma cabe, NÃO escolha a mais próxima: deixe a tipologia vazia e diga em `pergunta` que nenhuma cabe.',
@@ -945,7 +954,7 @@ async function umaChamadaALlm(chave: string, mensagem: string, contexto: Context
         tool_choice: { type: 'auto' },
         // o HISTÓRICO da conversa (03/11/2026): as últimas mensagens, já sem dinheiro e cortadas; a desta vez por último
         // A FOTO OU O PDF (18/11/2026): o bloco antes do texto, com a instrução de não adivinhar número; sem anexo, o texto puro, como sempre
-        messages: [...historico, { role: 'user', content: anexo ? [anexo.bloco, { type: 'text', text: anexo.instrucao }, { type: 'text', text: mensagem }, ...continuacao]
+        messages: [...historico, { role: 'user', content: anexo ? [...(anexo.extras ?? []), anexo.bloco, { type: 'text', text: anexo.instrucao }, { type: 'text', text: mensagem }, ...continuacao]
             : continuacao.length ? [{ type: 'text', text: mensagem }, ...continuacao] : mensagem }],
     })
     let r: Response | null = null
@@ -1465,7 +1474,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = {
         etapas: { coletar: null, casar: null, montar: null, calcular: null },
         levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null, raciocinio: null, parada: null, cacheLido: null, cacheEscrito: null, cabecalhosMs: null, primeiroTokenMs: null, tentativas: null, requestId: null },
-        midia: '-', contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', intencao: '-', descricoesDasEtapas: '-', textosDoCaminho: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, contagem: '-', tipologiasDoModeloRecusadas: 0, vidrosForaDaTabela: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', contextoDoTurno: '-', coresPadrao: 0, tipologiasPadrao: 0, linhaPadrao: 0, pecasNaoPedidas: 0, limite: '-', qualOrcamento: '-', daImagem: '-', medidasNaOrdem: 0,
+        midia: '-', rajada: '-', complementos: 0, tipologiasDoModeloNoComplemento: 0, contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', intencao: '-', descricoesDasEtapas: '-', textosDoCaminho: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, contagem: '-', tipologiasDoModeloRecusadas: 0, vidrosForaDaTabela: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', contextoDoTurno: '-', coresPadrao: 0, tipologiasPadrao: 0, linhaPadrao: 0, pecasNaoPedidas: 0, limite: '-', qualOrcamento: '-', daImagem: '-', medidasNaOrdem: 0,
     }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
@@ -1529,6 +1538,25 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             }
             const idade = Date.now() - new Date(c.entrada.criadoEm).getTime()
             if (idade < JANELA_EM_VOO_MS) return fim('repetida', 'em_voo=sim')
+            // a SEGUIDORA de uma rajada (pedido 0029) não tem saída própria: quem respondeu foi a última da rajada — o reenvio não conduz de novo
+            if (c.midia && (await outraEntradaRespondida(c.tenantId, c.conversaId, c.entrada).catch((): false => false)) === true) return fim('repetida', 'rajada=seguidora')
+        }
+        // A RAJADA É UM ENVIO (dono do produto, 25/11/2026; pedido 0029): a entrada com mídia espera a rajada fechar; se chegou outra foto ou PDF
+        // MAIS NOVO na rajada, esta não grava nem responde (a mais nova junta tudo); a última junta o texto (as legendas) e a mídia das anteriores e
+        // conduz UMA vez. O texto sem mídia segue sozinho, como sempre. Sem a coluna `midia` (a migração 20261125000001 pendente), cada entrada segue
+        // sozinha, como antes
+        let midiasDaRajada: MidiaDaMensagem[] = []
+        if (!c.entrada.repetida && c.midia && c.entrada.midiaGravada === true) {
+            if (c.midia && RAJADA.esperaMs > 0) await new Promise<void>((r) => setTimeout(r, RAJADA.esperaMs))
+            const rajada = await lerRajada(c.tenantId, c.conversaId, c.entrada).catch((): 'sem_migracao' => 'sem_migracao')
+            if (rajada !== 'sem_migracao') {
+                if (!('anteriores' in rajada)) return fim('rajada-seguidora')
+                if (rajada.anteriores.length > 0) {
+                    rastro.rajada = `entradas=${rajada.anteriores.length + 1}`
+                    midiasDaRajada = rajada.anteriores.flatMap((e) => (e.midia && typeof e.midia === 'object' ? [e.midia as MidiaDaMensagem] : []))
+                    c = { ...c, texto: [...rajada.anteriores.map((e) => e.texto), c.texto].filter((t) => t.trim() !== '').join('\n') }
+                }
+            }
         }
         const chave = process.env.ANTHROPIC_API_KEY
         if (!chave) return await responder(FALHA_SEM_CHAVE, 'sem-chave')
@@ -1556,6 +1584,23 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             anexo = conferida.anexo
             rastro.midia = marcaNoLog(c.midia, 'lida', leitura.como)
             }
+        }
+        // AS OUTRAS MÍDIAS DA RAJADA (pedido 0029): baixadas e conferidas como a do turno, e entregues ao modelo NA MESMA chamada; a que não se lê
+        // fica de fora, contada no log (`rajada=… nao_lidas=N`) — o turno segue com as que se leram
+        if (midiasDaRajada.length > 0) {
+            let naoLidas = 0
+            const extras: AnexoParaOModelo['bloco'][] = []
+            for (const m of midiasDaRajada) {
+                const leitura = leituraDaMidia(m)
+                if ('motivo' in leitura || leitura.como === 'audio') { naoLidas += 1; continue }
+                const baixada = await baixarMidia(c.wuzapiToken, m)
+                if ('detalhe' in baixada) { naoLidas += 1; continue }
+                const conferida = conferirMidiaBaixada(m, leitura.como, baixada.bytes)
+                if ('motivo' in conferida) { naoLidas += 1; continue }
+                extras.push(conferida.anexo.bloco)
+            }
+            if (naoLidas > 0) rastro.rajada += ` nao_lidas=${naoLidas}`
+            if (anexo && extras.length > 0) anexo = { ...anexo, extras, instrucao: `${anexo.instrucao}\n${instrucaoDaRajada(extras.length + 1)}` }
         }
 
         // O TETO DE CONSUMO entraria aqui, ANTES da chamada (dono do produto, 22/10/2026: não agora).
@@ -1831,7 +1876,11 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const retidas: EsquadriaProposta[] = aberta?.p.itens ?? []
         /** Onde o código da tipologia conta como DITO: a mensagem, a foto dela, e os códigos que as retidas trouxeram escritos (pedido 0028). */
         const textoDosCodigos = [textoComImagem, ...retidas.filter((r) => r.tipologia_dita === true && typeof r.tipologia === 'string').map((r) => String(r.tipologia))].join('\n')
-        const daMensagemBrutas = semFornecedorInventado(dadosDaMensagem.proposta.itens)
+        // o complemento (a tabela "item → vidro") vai ao item de mesmo número da mesma mensagem (pedido 0029)
+        const complementos = juntarComplementos(semFornecedorInventado(dadosDaMensagem.proposta.itens))
+        rastro.complementos = complementos.juntados
+        rastro.tipologiasDoModeloNoComplemento = complementos.tipologiasDescartadas
+        const daMensagemBrutas = complementos.itens
         // o item que o modelo devolve SEM nenhum campo da esquadria (05/11/2026) não entra em lugar nenhum — e a linha [IA] passa a dizer quantos
         rastro.itensSemCampos = Array.isArray(daMensagemBrutas) ? daMensagemBrutas.filter((i) => !!i && typeof i === 'object' && esquadriasDaProposta({ itens: [i] }).length === 0).length : 0
         // a intenção dita viaja com as esquadrias desta mensagem, para o caso de elas ficarem retidas (o achado da 0016)
@@ -1849,7 +1898,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
          * Calculadas só quando o nome veio só da imagem: no resto da conversa o vidro da foto continua podado pelo texto, como antes.
          */
         const comImagem = nomeDaImagem === null ? null : (() => {
-            const brutas = semFornecedorInventado(dadosDaMensagem.proposta.itens, true)
+            const brutas = juntarComplementos(semFornecedorInventado(dadosDaMensagem.proposta.itens, true)).itens
             const itens = esquadriasDaProposta({ itens: juntarEsquadrias(retidas, Array.isArray(brutas) ? brutas : []).itens })
             const doTexto = new Set(emEspera.map((e) => e.vidro).filter((v): v is string => typeof v === 'string'))
             const vidros = [...new Set(itens.map((e) => e.vidro).filter((v): v is string => typeof v === 'string' && !doTexto.has(v)))]

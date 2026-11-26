@@ -191,7 +191,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const conversaId = await conversaDoRemetente(tenantId, remetenteId, telefone)
         // na conversa gravada vai o MARCADOR da mídia, nunca o arquivo: `[imagem]` ou `[documento: <nome>]`, mais a legenda
         const textoDaEntrada = midia ? textoDaEntradaComMidia(midia, texto) : (texto as string)
-        const entrada = await gravarEntrada(tenantId, conversaId, textoDaEntrada, mensagemId)
+        // os dados de download da mídia vão com a entrada (pedido 0029): a rajada de fotos se junta num processamento só
+        const entrada = await gravarEntrada(tenantId, conversaId, textoDaEntrada, mensagemId, midia ? midia : null)
         rastro.repetida = entrada.repetida
 
         // A CONVERSA. Ela nunca lança: o 200 sai de qualquer jeito. O token da conexão é o do envio;

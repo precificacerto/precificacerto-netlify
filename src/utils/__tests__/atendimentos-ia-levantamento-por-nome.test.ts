@@ -290,6 +290,9 @@ function montar() {
         tenant_expense_config: [{ tenant_id: TENANT, production_labor_cost_hub: 40813.03, production_labor_cost: 0, productive_value_per_minute: 0, admin_salary_total: 27649.76, admin_fgts_total: 0, admin_other_costs: 0, fixed_expense_monthly: 17884.79 }],
     }
     estado.escritas = []
+    // A RAJADA (pedido 0029): sem espera nos testes — a rajada é exercitada com a espera ligada só onde o teste a pede
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    Object.assign((require('@/lib/atendimentos-ia/conversa-gravada') as typeof import('@/lib/atendimentos-ia/conversa-gravada')).RAJADA, { gapMs: 2500, esperaMs: 0 })
     estado.respostasDaLlm = []
     estado.chamadasDaLlm = []
     estado.envioStatus = 200
@@ -7677,6 +7680,158 @@ describe('(30) a FOTO e o PDF do vendedor (dono do produto, 18/11/2026): baixado
             await chamarComMidia(foto({ caption: undefined }))
             expect(enviados().length - antes).toBe(1)
             expect(linhaIa().join('\n')).not.toContain('retida-na-rajada')
+        })
+        // O CASO DE 25/11/2026 20:44 (pedido 0029): a foto da TABELA DE VIDROS, com a legenda "CLIENTE: MARCELO E RITA / CIDADE: CANOAS – RS", e a foto
+        // da LISTA de 11 itens, 0,6 s depois — UM envio, dois requests. Em produção os dois processaram em paralelo: o primeiro substituiu certo (sem os
+        // vidros), o segundo leu a tabela de vidros como esquadrias, reconstruiu tipologias do levantamento antigo e mandou um segundo arquivo
+        describe('(0029) a rajada é um envio: a lista e a tabela de vidros, no mesmo segundo, viram UM processamento, uma resposta e um arquivo', () => {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const G = () => require('@/lib/atendimentos-ia/conversa-gravada') as typeof import('@/lib/atendimentos-ia/conversa-gravada')
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const PA = () => require('@/lib/atendimentos-ia/pergunta-em-aberto') as typeof import('@/lib/atendimentos-ia/pergunta-em-aberto')
+            const QTDES = [1, 1, 2, 1, 1, 1, 2, 1, 1, 1, 2]
+            const VIDRO_DO_ITEM = ['incolor laminado 4+4', 'incolor 6 mm temperado', 'incolor 6 mm temperado', 'mini boreal 4 mm', 'mini boreal 4 mm', 'incolor laminado 4+4',
+                'incolor 6 mm temperado', 'incolor laminado 4+4', 'incolor laminado 4+4', 'incolor laminado 4+4', 'Não especificado']
+            const TABELA_DE_VIDROS = VIDRO_DO_ITEM.map((v, k) => `${String(k + 1).padStart(2, '0')} ${v}`).join('\n')
+            const LISTA_COM_QTDE = ONZE.map(([t, l, a], k) => `${t} ${l} x ${a} qtde ${QTDES[k]}${k === 0 ? ' com 05 módulos verticais' : ''}`).join('\n')
+            const LEGENDA = 'CLIENTE: MARCELO E RITA\nCIDADE: CANOAS – RS'
+            /** O que o modelo lê das DUAS fotos juntas: as 11 esquadrias da lista e as 11 linhas da tabela de vidros (o complemento, pelo número). */
+            const asDuasJuntas = () => llmResponde({
+                cliente: 'MARCELO E RITA', texto_da_imagem: `${LISTA_COM_QTDE}\n${TABELA_DE_VIDROS}`, escolhas: ESCOLHAS_QUE_FECHAM,
+                itens: [
+                    ...ONZE.map(([tipologia, largura_mm, altura_mm], k) => ({ ordem: k + 1, tipologia, largura_mm, altura_mm, quantidade: QTDES[k], cor_perfil: 'BRANCO', ...(k === 0 ? { modulos_verticais: 5 } : {}) })),
+                    // a tabela de vidros, linha a linha — com a tipologia que o modelo INVENTOU para a linha 3 (o defeito de 20:44)
+                    ...VIDRO_DO_ITEM.map((vidro, k) => ({ ordem: k + 1, vidro, ...(k === 2 ? { tipologia: 'DP-02' } : {}) })),
+                ],
+            })
+            const PADRAO_DA_JANELA = { tenant_id: TENANT, materia_prima_id: 'mp-pvc', abertura: 'janela', tipo: 'correr', tipologia: null as string | null, item_codigo: 'VTIN05' }
+            const asDuasFotos = async () => {
+                await dozeGravados()
+                estado.db.orcamentista_vidro_padrao = [{ ...PADRAO_DA_JANELA }]
+                Object.assign(G().RAJADA, { gapMs: 60_000, esperaMs: 40 })
+                estado.download = { bytes: FOTO }
+                asDuasJuntas()
+                const antes = { envios: enviados().length, arquivos: estado.documentos.length, chamadas: estado.chamadasDaLlm.filter((x) => x.corpo.tools).length }
+                // AS DUAS AO MESMO TEMPO: a dos vidros (com a legenda do cliente) e, logo depois, a da lista
+                await Promise.all([chamarComMidia(foto({ caption: LEGENDA })), chamarComMidia(foto({ caption: undefined }))])
+                return antes
+            }
+            it('O CASO EXATO: 1 resposta, 1 arquivo, 1 leitura do modelo com as DUAS fotos; o levantamento fica com 11 itens e 14 unidades, as tipologias ditas, V=5 no 1 e o vidro de cada item pelo número', async () => {
+                const antes = await asDuasFotos()
+                expect(enviados().length - antes.envios).toBe(1)
+                expect(estado.documentos.length - antes.arquivos).toBe(1)
+                const leituras = estado.chamadasDaLlm.filter((x) => x.corpo.tools).slice(antes.chamadas)
+                expect(leituras).toHaveLength(1)
+                // as duas imagens foram ao modelo na MESMA mensagem, com a instrução da rajada
+                const ultima = (leituras[0].corpo.messages as Array<{ content: Array<{ type: string; text?: string }> }>).slice(-1)[0]
+                expect(ultima.content.map((b) => b.type)).toEqual(['image', 'image', 'text', 'text'])
+                expect(ultima.content[2].text).toContain('São 2 imagens ou arquivos do MESMO envio')
+                // a legenda da outra foto (o cliente) chegou ao turno
+                expect(ultima.content[3].text).toContain('CLIENTE: MARCELO E RITA')
+                expect(levantamentos()).toHaveLength(1)
+                const itens = itensDe(levantamentos()[0].id)
+                expect(itens).toHaveLength(11)
+                expect(itens.reduce((t, i) => t + Number(i.quantidade), 0)).toBe(14)
+                expect(medidas()).toEqual(ONZE.map(([t, l, a], k) => [k + 1, t, l, a]))
+                expect((itens[0].escolhas as Record<string, number>).V).toBe(5)
+                expect(itens.slice(0, 10).map((i) => i.vidro)).toEqual(VIDRO_DO_ITEM.slice(0, 10))
+                // "Não especificado" é vidro não dito: o item 11 leva o padrão da base
+                expect(itens[10]).toMatchObject({ vidro: 'VIDRO TEMPERADO INCOLOR 05MM', vidro_codigo: 'VTIN05' })
+                const casar = erros.filter((l) => l.startsWith('[ETAPA 2 ')).pop() ?? ''
+                expect(casar).not.toContain('escolha_do_modelo')
+                for (const [t, k] of [['DP-69', 9], ['DP-69', 10]] as const) expect(casar).toContain(`e${k}:tipologia=${t}/dito`)
+                const ia = linhaIa().filter((l) => !l.includes('desfecho=rajada-seguidora')).pop() ?? ''
+                expect(ia).toContain(' intencao=substituir')
+                expect(ia).toMatch(/ rajada=entradas=2(\s|$)/)
+                // os 10 vidros ditos foram aos itens; a linha do 11 ("Não especificado") ficou sem nada, e sai sozinha
+                expect(ia).toMatch(/ complementos=10(\s|$)/)
+                expect(ia).not.toContain('tipologia_do_modelo_no_complemento')
+                expect(enviados().slice(antes.envios)[0].split('\n')[0]).toBe('Atualizei o orçamento de “Marcelo e Rita”: a lista nova, com 11 itens, substitui a anterior.')
+            })
+            it('a SEGUIDORA não grava nem responde, e diz no log por quê; o reenvio dela pelo WUZAPI também não conduz de novo', async () => {
+                await asDuasFotos()
+                const seguidora = linhaIa().filter((l) => l.includes('desfecho=rajada-seguidora'))
+                expect(seguidora).toHaveLength(1)
+                expect(seguidora[0]).toMatch(/ enviou=nao desfecho=rajada-seguidora/)
+                // o reenvio da seguidora: a entrada já estava gravada, sem saída própria — a rajada já foi respondida
+                const entradas = ((estado.db.orcamentista_mensagem ?? []) as Linha[]).filter((m) => m.direcao === 'entrada' && m.midia)
+                expect(entradas).toHaveLength(2)
+                const semSaida = entradas.find((e) => !((estado.db.orcamentista_mensagem ?? []) as Linha[]).some((m) => m.responde_a === e.id)) as Linha
+                // a rajada foi há 10 minutos (o banco falso carimba por sequência): a seguidora já passou da janela de "em voo"
+                const ha10 = Date.now() - 10 * 60_000
+                for (const m of (estado.db.orcamentista_mensagem ?? []) as Linha[]) m.criado_em = new Date(ha10 + (m.direcao === 'saida' ? 5_000 : 0)).toISOString()
+                const antes = enviados().length
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                const conv = require('@/lib/atendimentos-ia/conversa-da-ia') as typeof import('@/lib/atendimentos-ia/conversa-da-ia')
+                await conv.conduzirMensagem({ tenantId: TENANT, remetenteId: VENDEDOR, telefone: TELEFONE_DO_WEBHOOK, texto: String(semSaida.texto), wuzapiToken: TOKEN,
+                    conversaId: String(semSaida.conversa_id), entrada: { conversaId: String(semSaida.conversa_id), id: String(semSaida.id), criadoEm: String(semSaida.criado_em), repetida: true },
+                    midia: semSaida.midia as never })
+                expect(enviados().length).toBe(antes)
+                expect(linhaIa().pop()).toMatch(/ enviou=nao desfecho=repetida .*rajada=seguidora$/)
+            })
+            it('a rajada de antes, JÁ RESPONDIDA, não volta: a foto seguinte, logo depois, segue sozinha — a seguidora de antes não entra de novo', async () => {
+                await asDuasFotos()
+                fotoDosItens()
+                await chamarComMidia(foto({ caption: undefined }))
+                const ultima = linhaIa().pop() ?? ''
+                expect(ultima).not.toContain('rajada=')
+                expect(ultima).not.toContain('desfecho=rajada-seguidora')
+            })
+            it('a foto e uma mensagem de TEXTO no mesmo segundo: o texto não faz a foto virar seguidora — cada uma é respondida', async () => {
+                await dozeGravados()
+                Object.assign(G().RAJADA, { gapMs: 60_000, esperaMs: 40 })
+                estado.download = { bytes: FOTO }
+                fotoDosItens()
+                llmResponde({ nome: 'Marcelo e Rita' })
+                const antes = enviados().length
+                await Promise.all([chamarComMidia(foto({ caption: undefined })), chamar('marcelo e rita')])
+                expect(enviados().length - antes).toBe(2)
+                expect(linhaIa().join('\n')).not.toContain('rajada-seguidora')
+            })
+            it('SEM A MIGRAÇÃO (a coluna `midia` ausente): cada foto segue sozinha, como antes — a entrada é gravada sem a mídia', async () => {
+                await dozeGravados()
+                estado.colunasAusentes.add('orcamentista_mensagem.midia')
+                estado.download = { bytes: FOTO }
+                fotoDosItens()
+                await chamarComMidia(foto({ caption: undefined }))
+                const entrada = ((estado.db.orcamentista_mensagem ?? []) as Linha[]).filter((m) => m.direcao === 'entrada').pop() as Linha
+                // a entrada DESTA foto foi gravada (sem a mídia), e a foto foi conduzida e respondida
+                expect(entrada.texto).toBe('[imagem]')
+                expect('midia' in entrada).toBe(false)
+                expect(((estado.db.orcamentista_mensagem ?? []) as Linha[]).some((m) => m.direcao === 'saida' && m.responde_a === entrada.id)).toBe(true)
+                expect(linhaIa().join('\n')).not.toContain('rajada=')
+            })
+            it('juntarComplementos: o vidro vai ao item de mesmo número; "Não especificado" sai; a tipologia do modelo na linha de vidro sai; a correção fica', () => {
+                const r = PA().juntarComplementos([
+                    { ordem: 1, tipologia: 'DP-144', tipologia_dita: true, largura_mm: 900, altura_mm: 900 },
+                    { ordem: 2, tipologia: 'DP-17', largura_mm: 1000, altura_mm: 1000, cor_perfil: 'BRANCO' },
+                    { ordem: 1, vidro: 'incolor laminado 4+4' },
+                    { ordem: 2, vidro: 'Não especificado' },
+                    { ordem: 2, cor_perfil: 'PRETO' },
+                    { ordem: 9, vidro: 'mini boreal 4 mm', tipologia: 'DP-65' },
+                ])
+                expect(r.itens).toEqual([
+                    { ordem: 1, tipologia: 'DP-144', tipologia_dita: true, largura_mm: 900, altura_mm: 900, vidro: 'incolor laminado 4+4' },
+                    { ordem: 2, tipologia: 'DP-17', largura_mm: 1000, altura_mm: 1000, cor_perfil: 'BRANCO' },
+                    { ordem: 2 },
+                    // a cor do item 2 já dita: a linha é a correção, e segue pelo número
+                    { ordem: 2, cor_perfil: 'PRETO' },
+                    // sem item de mesmo número: fica, sem a tipologia que o modelo pôs
+                    { ordem: 9, vidro: 'mini boreal 4 mm' },
+                ])
+                expect(r.juntados).toBe(1)
+                expect(r.tipologiasDescartadas).toBe(1)
+                // a tipologia ESCRITA na linha não sai, e a linha com quantidade ou medida não é complemento
+                expect(PA().juntarComplementos([{ ordem: 3, vidro: 'x', tipologia: 'DP-02', tipologia_dita: true }]).itens).toEqual([{ ordem: 3, vidro: 'x', tipologia: 'DP-02', tipologia_dita: true }])
+                expect(PA().juntarComplementos([{ ordem: 3, vidro: 'x', quantidade: 2 }, { ordem: 3, tipologia: 'DP-02', tipologia_dita: true }]).juntados).toBe(0)
+                expect(PA().juntarComplementos('nada').itens).toBe('nada')
+            })
+            it('o prompt diz que a tabela de vidros completa a lista pelo número', async () => {
+                llmResponde({})
+                await chamar('oi')
+                const sistema = textoDoSistema((estado.chamadasDaLlm[0].corpo as { system: unknown }).system)
+                expect(sistema).toContain('- Uma tabela de "item → vidro" (ou de cor) COMPLETA a lista: ponha o vidro no item de mesmo número (`ordem`)')
+            })
         })
         it('a foto cujos itens o modelo lê SEM NADA que mude (nenhum campo sobrou): nada é alterado, nada é calculado, e a resposta diz quantos foram lidos', async () => {
             llmResponde({ nome: 'Marcelo e Rita', itens: [DP02, { ...DP02, largura_mm: 1300 }], escolhas: ESCOLHAS_QUE_FECHAM })

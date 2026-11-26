@@ -46,6 +46,11 @@ export type Entrada = {
     criadoEm: string
     /** O mesmo `Info.ID` já estava gravado neste tenant: a mensagem é um reenvio do WUZAPI. */
     repetida: boolean
+    /**
+     * A mídia da entrada foi gravada com ela (`midia`, migração 20261125000001; pedido 0029): `true` gravada, `false` a coluna ainda não existe,
+     * `null` a entrada não tem mídia. Sem a coluna, a rajada não se junta (o comportamento de antes).
+     */
+    midiaGravada?: boolean | null
 }
 
 /** A conversa do remetente no tenant: a mais recente, ou uma nova. */
@@ -64,13 +69,19 @@ export async function conversaDoRemetente(tenantId: string, remetenteId: string,
  * Grava a entrada; o mesmo `Info.ID` já gravado no tenant (23505 na UNIQUE parcial) devolve a linha de antes, `repetida`.
  * Sem `Info.ID` não há como reconhecer o reenvio: a entrada é gravada sem ele, e nunca é repetida.
  */
-export async function gravarEntrada(tenantId: string, conversaId: string, texto: string, wuzapiMensagemId: string | null): Promise<Entrada> {
-    const { data, error } = await supabaseAdmin.from('orcamentista_mensagem')
-        .insert({ tenant_id: tenantId, conversa_id: conversaId, direcao: 'entrada', texto, wuzapi_mensagem_id: wuzapiMensagemId })
-        .select('id, criado_em').single()
+export async function gravarEntrada(tenantId: string, conversaId: string, texto: string, wuzapiMensagemId: string | null, midia: unknown = null): Promise<Entrada> {
+    const linha = { tenant_id: tenantId, conversa_id: conversaId, direcao: 'entrada', texto, wuzapi_mensagem_id: wuzapiMensagemId }
+    // A MÍDIA DA ENTRADA (pedido 0029): os dados de download da foto ou do PDF vão com a entrada, para a rajada se juntar num processamento só;
+    // sem a coluna (a migração pendente), a entrada é gravada como antes
+    let midiaGravada: boolean | null = midia === null ? null : true
+    let { data, error } = await supabaseAdmin.from('orcamentista_mensagem').insert(midia === null ? linha : { ...linha, midia }).select('id, criado_em').single()
+    if (error && midia !== null && colunaAusente(error)) {
+        midiaGravada = false
+        ;({ data, error } = await supabaseAdmin.from('orcamentista_mensagem').insert(linha).select('id, criado_em').single())
+    }
     if (!error && data) {
         const l = data as { id: string; criado_em: string }
-        return { conversaId, id: l.id, criadoEm: l.criado_em, repetida: false }
+        return { conversaId, id: l.id, criadoEm: l.criado_em, repetida: false, ...(midiaGravada === null ? {} : { midiaGravada }) }
     }
     if (error?.code !== VIOLACAO_DE_UNICIDADE || wuzapiMensagemId === null) throw new Error(`orcamentista_mensagem: ${error?.message ?? 'o insert não devolveu a linha'}`)
     const { data: antes, error: erroAntes } = await supabaseAdmin.from('orcamentista_mensagem').select('id, conversa_id, criado_em')
@@ -102,6 +113,57 @@ export async function saidaDaEntrada(tenantId: string, entradaId: string): Promi
  * entrada cujo modelo estourou o prazo não manda o aviso quando OUTRA entrada da mesma conversa, na janela da rajada, já teve a saída ENVIADA.
  */
 export const JANELA_DA_RAJADA_MS = 30_000
+
+/**
+ * A RAJADA É UM ENVIO (dono do produto, 25/11/2026; pedido 0029 — o levantamento 28, 20:44: a foto da lista de 11 itens e a foto da tabela de
+ * vidros, com a legenda do cliente, chegaram com 0,6 s entre elas, cada uma num request; os dois processaram em paralelo, os dois gravaram e os
+ * dois mandaram um arquivo). As entradas do mesmo vendedor que chegam a menos de `gapMs` uma da outra são UMA entrada: a da mídia espera
+ * `esperaMs` a rajada fechar; a que tem outra MAIS NOVA na rajada não grava nem responde; a última junta o texto e a mídia de todas e conduz
+ * uma vez. Os números são mutáveis só para o teste encurtar a espera.
+ */
+export const RAJADA = { gapMs: 2500, esperaMs: 3200 }
+
+export type EntradaDaRajada = { id: string; texto: string; midia: unknown }
+
+/**
+ * A rajada desta entrada: `seguidora` quando há entrada MAIS NOVA na rajada (é ela que conduz), senão as entradas ANTERIORES da rajada que
+ * trazem mídia e ainda não têm resposta (a mais antiga primeiro). `sem_migracao` sem a coluna `midia`.
+ */
+export async function lerRajada(tenantId: string, conversaId: string, entrada: Pick<Entrada, 'id' | 'criadoEm'>): Promise<{ seguidora: true } | { seguidora: false; anteriores: EntradaDaRajada[] } | 'sem_migracao'> {
+    const minha = new Date(entrada.criadoEm).getTime()
+    const desde = new Date(minha - 60_000).toISOString()
+    const { data, error } = await supabaseAdmin.from('orcamentista_mensagem').select('id, texto, midia, criado_em')
+        .eq('tenant_id', tenantId).eq('conversa_id', conversaId).eq('direcao', 'entrada').gte('criado_em', desde)
+        .order('criado_em', { ascending: true }).limit(50)
+    if (error) {
+        if (colunaAusente(error)) return 'sem_migracao'
+        throw new Error(`orcamentista_mensagem: ${error.message}`)
+    }
+    // só as entradas com MÍDIA fazem rajada: o texto segue sozinho, como sempre (e sem uma ida ao banco a mais)
+    const linhas = ((data ?? []) as Array<{ id: string; texto: string | null; midia: unknown; criado_em: string }>).filter((l) => l.id === entrada.id || !!l.midia)
+        .map((l) => ({ ...l, t: new Date(l.criado_em).getTime() }))
+    const k = linhas.findIndex((l) => l.id === entrada.id)
+    if (k < 0) return { seguidora: false, anteriores: [] }
+    if (k + 1 < linhas.length && linhas[k + 1].t - linhas[k].t <= RAJADA.gapMs) return { seguidora: true }
+    // as anteriores, de trás para frente, enquanto a distância cabe no gap; a primeira JÁ RESPONDIDA fecha a rajada de antes (as que vieram antes
+    // dela foram juntadas por ela); das que ficam, entram as que trazem mídia
+    const cadeia: typeof linhas = []
+    for (let i = k - 1; i >= 0 && linhas[i + 1].t - linhas[i].t <= RAJADA.gapMs; i--) cadeia.push(linhas[i])
+    if (cadeia.length === 0) return { seguidora: false, anteriores: [] }
+    const { data: saidas, error: erroSaidas } = await supabaseAdmin.from('orcamentista_mensagem').select('responde_a')
+        .eq('tenant_id', tenantId).eq('direcao', 'saida').in('responde_a', cadeia.map((l) => l.id))
+    if (erroSaidas) {
+        if (colunaAusente(erroSaidas)) return 'sem_migracao'
+        throw new Error(`orcamentista_mensagem: ${erroSaidas.message}`)
+    }
+    const respondidas = new Set(((saidas ?? []) as Array<{ responde_a: string | null }>).map((x) => x.responde_a))
+    const anteriores: EntradaDaRajada[] = []
+    for (const l of cadeia) {
+        if (respondidas.has(l.id)) break
+        anteriores.unshift({ id: l.id, texto: l.texto ?? '', midia: l.midia })
+    }
+    return { seguidora: false, anteriores }
+}
 
 /** Há saída ENVIADA, de outra entrada da conversa, desde `janela` antes desta entrada? `sem_migracao` sem a coluna `responde_a`. */
 export async function outraEntradaRespondida(tenantId: string, conversaId: string, entrada: Pick<Entrada, 'id' | 'criadoEm'>, janela = JANELA_DA_RAJADA_MS): Promise<boolean | 'sem_migracao'> {
