@@ -2,6 +2,7 @@ import subprocess, sys, os
 # MUTACOES do pedido 0034-B (dono do produto, 26/11/2026): o modo PEDIDO TOTAL (as barras inteiras do pedido, rateadas pelo consumo), a
 # gravacao do modo e de quem escolheu, a rota, a travessia e a palavra do vendedor. Roda SOZINHO na arvore. SO=<trecho>. Aborta (3) se o trecho
 # nao aparece UMA vez.
+# 1a passada 19/20: o residuo do bruto no maior item sobrevivia (o caso fechava ao centavo); ganhou o caso das tres partes iguais. 20/20.
 R = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')) + '/'
 U = 'src/utils/__tests__/'
 T = [U + 'atendimentos-ia-custo-do-orcamento.test.ts', U + 'atendimentos-ia-orcamento-calculado.test.ts', U + 'atendimentos-ia-travessia-do-levantamento.test.ts',

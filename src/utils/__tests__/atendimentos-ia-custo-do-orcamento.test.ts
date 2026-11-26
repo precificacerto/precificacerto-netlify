@@ -415,6 +415,12 @@ describe('pedido 0034-B: o modo PEDIDO TOTAL — as barras inteiras do pedido, r
         expect([brutos[0], brutos[2]]).toEqual([33.32, 33.32])
         expect(brutos[1]).toBeCloseTo(100 - 2 * 33.32, 10)
         expect(brutos.reduce((t, b) => t + b, 0)).toBeCloseTo(100, 10)
+        // três partes IGUAIS de R$ 100 não fecham ao centavo (3 × 33,33 = 99,99): o centavo que falta vai ao primeiro maior, e a soma fecha
+        const iguais = ok({ ...e, itens: [1, 2, 3].map((n) => ({ referencia: `item ${n}`, minutos: 10, pecas: [{ codigo: 'A', comprimento_mm: 1000, quantidade: 1 }] })) })
+        const partes = iguais.itens.map((c) => linha(c, 'A')!.custo_bruto_material)
+        expect(partes[0]).toBeCloseTo(33.34, 10)
+        expect([partes[1], partes[2]]).toEqual([33.33, 33.33])
+        expect(partes.reduce((t, b) => t + b, 0)).toBeCloseTo(100, 10)
     })
     it('o INSUMO e o VIDRO não mudam com o modo: seguem pela unidade e pelo m²', () => {
         const insumo: MaterialDaTabela = { ...material('Q', null), caminho: 'insumo', custo: 2, valor_barra_interno: null, vendido_por: 'unidade', medida_barra_m: null }
