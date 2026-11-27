@@ -2309,7 +2309,6 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 const doItem = n === null ? undefined : alvo.itens.find((i) => i.ordem === n)
                 return typeof e.tipologia === 'string' && e.tipologia !== '' && doItem?.tipologia && e.tipologia !== doItem.tipologia && e.largura_mm === doItem.largura_mm && e.altura_mm === doItem.altura_mm && !escrito.includes(e.tipologia.toUpperCase().replace(/\s+/g, ''))
             }
-            for (const e of emEspera) if (naoEscrita(e)) delete (e as Record<string, unknown>).tipologia
             for (const raw of juncao.itens) if (raw && typeof raw === 'object' && naoEscrita(raw as Record<string, unknown>)) delete (raw as Record<string, unknown>).tipologia
         }
         const reformulacao = !porNumero && ((intencao === null && listaCompleta) || (intencao === 'alterar' && alvo !== null && (inteirasDaLista >= 3 || inteirasDaLista >= alvo.itens.length)))

@@ -8519,15 +8519,20 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         expect(linhaIa().pop()).toContain(' intencao=substituir')
     })
     it('A ALTERAÇÃO POR NÚMERO não perde a COR nem o vidro do item: a linha do item não os repete, e eles ficam', async () => {
-        llmResponde({ nome: 'Marcelo e Rita', itens: [J(1200), J(1300), J(1400)], escolhas: ESCOLHAS_QUE_FECHAM })
-        await chamar('Levantamento Marcelo e Rita: DP-02 1200 x 1000; DP-02 1300 x 1000; DP-02 1400 x 1000; branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        // a empresa trabalha com BRANCO e PRETO LISO; o levantamento é PRETO LISO, e a cor da conversa não está escrita na linha do item (o caso do 31)
+        ;(estado.db.orcamentista_mp_categoria[0].config as Linha).cores = ['BRANCO', 'PRETO LISO']
+        ;(estado.db.orcamentista_mp_categoria[0].config as Linha).cor_predominante = 'BRANCO'
+        const preto = (l: number) => J(l, 1000, { cor_perfil: 'PRETO LISO' })
+        llmResponde({ nome: 'Marcelo e Rita', itens: [preto(1200), preto(1300), preto(1400), preto(1500), preto(1600)], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Marcelo e Rita: DP-02 de 1200 a 1600 x 1000; preto liso, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
         const id = (levantamentos().find((l) => l.nome === 'Marcelo e Rita') as Linha).id
         const antes = itensDe(id).map((i) => [i.cor_perfil, i.vidro])
-        // o item 2 refeito sem cor e sem vidro na linha (só a tipologia e a medida)
-        llmResponde({ nome: 'Marcelo e Rita', alteracao: 'alterar', itens: [{ tipologia: 'DP-02', largura_mm: 1350, altura_mm: 1000, ordem: 2 }, { tipologia: 'DP-02', largura_mm: 1450, altura_mm: 1000, ordem: 3 }, { tipologia: 'DP-02', largura_mm: 1250, altura_mm: 1000, ordem: 1 }] })
-        await chamar('Marcelo e Rita:\nItem 1: DP-02 1250 x 1000\nItem 2: DP-02 1350 x 1000\nItem 3: DP-02 1450 x 1000')
+        expect(antes.every(([c]) => c === 'PRETO LISO')).toBe(true)
+        // dois itens refeitos (a tipologia e a medida na linha, sem cor e sem vidro), sem o "ajusta" dito
+        llmResponde({ nome: 'Marcelo e Rita', itens: [{ tipologia: 'DP-02', largura_mm: 1350, altura_mm: 1000, ordem: 2 }, { tipologia: 'DP-02', largura_mm: 1450, altura_mm: 1000, ordem: 3 }] })
+        await chamar('Marcelo e Rita:\nItem 2: DP-02 1350 x 1000\nItem 3: DP-02 1450 x 1000')
         expect(itensDe(id).map((i) => [i.cor_perfil, i.vidro])).toEqual(antes)
-        expect(itensDe(id).map((i) => i.largura_mm)).toEqual([1250, 1350, 1450])
+        expect(itensDe(id).map((i) => i.largura_mm)).toEqual([1200, 1350, 1450, 1500, 1600])
     })
     it('A ALTERAÇÃO POR NÚMERO: o código de tipologia que o MODELO escolheu e o vendedor NÃO escreveu não troca a tipologia do item; o que ele escreveu, troca', async () => {
         llmResponde({ nome: 'Marcelo e Rita', itens: [J(1200), J(1300), J(1400), J(1500), J(1600), J(1700)], escolhas: ESCOLHAS_QUE_FECHAM })
@@ -8540,6 +8545,24 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         llmResponde({ nome: 'Marcelo e Rita', alteracao: 'alterar', itens: [{ ...J(1300), tipologia: 'DP-01', ordem: 2 }] })
         await chamar('Marcelo e Rita, ajusta o item 2: DP-01 1300 x 1000')
         expect(medidasDe('Marcelo e Rita').map((x) => [x[0], x[1]])[1]).toEqual([2, 'DP-01'])
+    })
+    it('NÚMERO QUE NÃO EXISTE no levantamento não é alteração por número: três itens numerados 7, 8 e 9 para um levantamento de seis seguem a regra de antes (a reformulação)', async () => {
+        llmResponde({ nome: 'Marcelo e Rita', itens: [J(1200), J(1300), J(1400), J(1500), J(1600), J(1700)], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Marcelo e Rita: seis DP-02 de 1200 a 1700 x 1000; branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        llmResponde({ nome: 'Marcelo e Rita', alteracao: 'alterar', itens: [{ ...J(1800), ordem: 7 }, { ...J(1900), ordem: 8 }, { ...J(2000), ordem: 9 }] })
+        await chamar('Marcelo e Rita, altera: 7 DP-02 1800 x 1000; 8 DP-02 1900 x 1000; 9 DP-02 2000 x 1000')
+        // o número 7, 8 e 9 não é item de lá: não é alteração por número, e a regra de antes (três esquadrias inteiras com o "altera") decide
+        expect(linhaIa().pop()).toContain(' intencao=substituir')
+    })
+    it('A ALTERAÇÃO POR NÚMERO com a tipologia do modelo que não vale: o item NÃO é refeito (a quantidade que ele já tinha fica)', async () => {
+        llmResponde({ nome: 'Marcelo e Rita', itens: [J(1200), J(1300, 1000, { quantidade: 2 }), J(1400), J(1500), J(1600), J(1700)], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Marcelo e Rita: DP-02 de 1200 a 1700 x 1000, o segundo com 2 unidades; branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        const id = (levantamentos().find((l) => l.nome === 'Marcelo e Rita') as Linha).id
+        expect(itensDe(id).map((i) => i.quantidade)).toEqual([1, 2, 1, 1, 1, 1])
+        const { quantidade: _q, ...semQuantidade } = J(1300)
+        llmResponde({ nome: 'Marcelo e Rita', itens: [{ ...semQuantidade, tipologia: 'DP-01', ordem: 2 }, { ...J(1550), ordem: 5 }] })
+        await chamar('Marcelo e Rita:\nItem 2: janela de correr 1300 x 1000\nItem 5: DP-02 1550 x 1000')
+        expect(itensDe(id).map((i) => [i.tipologia, i.quantidade])[1]).toEqual(['DP-02', 2])
     })
     it('UMA SÓ RESPOSTA, VERDADEIRA: a recusa que diz "nada foi gravado" NÃO vem depois da fala do modelo ("Ajustes lançados")', async () => {
         llmResponde({ nome: 'Marcelo e Rita', itens: [{ ...J(1200), ordem: 1 }, { ...J(1300), ordem: 1 }], escolhas: ESCOLHAS_QUE_FECHAM, fala: 'Ajustes lançados; o que não tem opção no catálogo fica de fora.' })
