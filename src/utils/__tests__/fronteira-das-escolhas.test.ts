@@ -450,3 +450,62 @@ describe('NA PERSIANA A COR VENCE A POLÍTICA (dono do produto, 26/11/2026, pedi
         expect(F().escolhasDoCalculo(comPersiana(), {}, DE_PAULA_PP).origem.PP).toBe('politica')
     })
 })
+
+describe('PEDIDO 0040 — a política casa o rótulo sem o código na frente, e a cor dos acessórios segue a cor do perfil (o WVetro do orçamento 1207)', () => {
+    // as opções do INT como no motor 259035a9: com o código na frente (DP-02/12/17) e sem ele (DP-69)
+    const INT_COM_CODIGO = '1 = IL36 - ÚNICO; 2 = IL42 - INTERLOCK + CAPA'
+    const INT_SEM_CODIGO = '1 = ÚNICO; 2 = INTERLOCK + CAPA'
+    const pol = (variavel: string, opcao: string) => ({ porVariavel: { [variavel]: { natureza: 'POLITICA' as const, opcao } } })
+    const traduz = (opcoes: string, opcao: string) => P().traduzirPolitica('DP-17', { variavel: 'INT', opcoes, padrao: '1' }, pol('INT', opcao))
+    it('"INTERLOCK + CAPA" casa "IL42 - INTERLOCK + CAPA"; "ÚNICO" casa "IL36 - ÚNICO"; e o rótulo sem código casa como antes', () => {
+        expect(traduz(INT_COM_CODIGO, 'INTERLOCK + CAPA')).toEqual({ valor: 2, campo: 'INT' })
+        expect(traduz(INT_COM_CODIGO, 'ÚNICO')).toEqual({ valor: 1, campo: 'INT' })
+        expect(traduz(INT_SEM_CODIGO, 'INTERLOCK + CAPA')).toEqual({ valor: 2, campo: 'INT' })
+        // o rótulo inteiro, com o código, continua casando
+        expect(traduz(INT_COM_CODIGO, 'IL42 - INTERLOCK')).toEqual({ valor: 2, campo: 'INT' })
+    })
+    it('a ambiguidade continua recusa nomeada: o texto que começa duas opções sem o código', () => {
+        const r = P().traduzirPolitica('DP-X', { variavel: 'INT', opcoes: '1 = IL36 - INTERLOCK SIMPLES; 2 = IL42 - INTERLOCK + CAPA', padrao: '1' }, pol('INT', 'INTERLOCK'))
+        expect(r).toMatchObject({ campo: 'INT' })
+        expect((r as { recusa: string }).recusa).toContain('mais de uma opção')
+    })
+    it('rotuloSemCodigo: só o prefixo "<código> - " sai; o nome com hífen no meio fica', () => {
+        expect(P().rotuloSemCodigo('IL42 - INTERLOCK + CAPA')).toBe('INTERLOCK + CAPA')
+        expect(P().rotuloSemCodigo('MONTAGEM COM MARCO 03 VIAS - HF112')).toBe('MONTAGEM COM MARCO 03 VIAS - HF112')
+        expect(P().rotuloSemCodigo('ÚNICO')).toBe('ÚNICO')
+    })
+
+    const CA = '1 = BRANCO; 2 = PRETO; 3 = MARROM'
+    const comAcessorios = (): Tipologia => ({
+        ...dp02(),
+        variaveis: [{ variavel: 'CA', descricao: 'COR DOS ACESSÓRIOS', padrao: '1', condicao: 'sempre', opcoes: CA, condicao_opcoes: null }],
+        perfis: [], vidros: [],
+        insumos: ['(CA=1)', '(CA=2)', '(CA=3)'].map((condicao, i) => ({ insumo: `I${i}`, descricao: `I${i}`, qtd: '1', unidade: 'PC', condicao })) as unknown as Tipologia['insumos'],
+    })
+    it('a cor dos acessórios segue a cor do perfil: BRANCO dá 1; PRETO LISO, MARROM ou qualquer outra dá 2 (PRETO) — origem "pela_cor"', () => {
+        for (const [cor, ca] of [['BRANCO', 1], ['Branco', 1], ['PRETO LISO', 2], ['MARROM', 2], ['AMADEIRADO GOLDEN OAK', 2]] as const) {
+            const r = F().escolhasDoCalculo(comAcessorios(), {}, {}, null, cor)
+            expect([cor, r.escolhas.CA, r.origem.CA]).toEqual([cor, ca, 'pela_cor'])
+        }
+    })
+    it('a cor vence a política; só o vendedor vence a cor; sem cor, vale o de antes', () => {
+        const comPolitica = F().escolhasDoCalculo(comAcessorios(), {}, pol('CA', 'BRANCO'), null, 'PRETO LISO')
+        expect([comPolitica.escolhas.CA, comPolitica.origem.CA]).toEqual([2, 'pela_cor'])
+        const dito = F().escolhasDoCalculo(comAcessorios(), { CA: 3 }, {}, null, 'PRETO LISO')
+        expect([dito.escolhas.CA, dito.origem.CA]).toEqual([3, 'vendedor'])
+        expect(F().escolhasDoCalculo(comAcessorios(), {}, {}).origem.CA).not.toBe('pela_cor')
+    })
+    it('a opção é achada pelo RÓTULO, nunca pelo número; a tipologia sem PRETO não o ganha', () => {
+        expect(F().corDosAcessoriosQueACorImpoe({ variavel: 'CA', opcoes: '1 = PRETO; 2 = BRANCO' }, 'PRETO LISO')).toBe(1)
+        expect(F().corDosAcessoriosQueACorImpoe({ variavel: 'CA', opcoes: '1 = BRANCO; 3 = MARROM' }, 'PRETO LISO')).toBeNull()
+        expect(F().corDosAcessoriosQueACorImpoe({ variavel: 'CX', opcoes: CA }, 'PRETO LISO')).toBeNull()
+    })
+    it('duas opções PRETO na tipologia: a cor não escolhe (nunca "a primeira")', () => {
+        expect(F().corDosAcessoriosQueACorImpoe({ variavel: 'CA', opcoes: '1 = PRETO; 2 = PRETO; 3 = BRANCO' }, 'PRETO LISO')).toBeNull()
+    })
+    it('a equivalência "SEM CHAVE" também vê a opção com o código na frente do rótulo', () => {
+        const r = P().traduzirPolitica('DP-X', { variavel: 'MFI', opcoes: '1 = CR1 - CREMONA COM MACANETA; 2 = CR2 - FECHO PUNHO', padrao: '1' }, pol('MFI', 'CREMONA COM MACANETA SEM CHAVE'))
+        expect(r).toMatchObject({ valor: 1, campo: 'MFI' })
+        expect((r as { equivalencia?: string }).equivalencia).toContain('por equivalência')
+    })
+})

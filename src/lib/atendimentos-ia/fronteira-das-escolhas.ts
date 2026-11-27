@@ -91,6 +91,23 @@ export function palhetaQueACorImpoe(v: { variavel: string; opcoes: string | null
     const pelaCor = palhetaPelaCor(cor)
     return pelaCor !== 37 && (opcoesDaVariavel(v.opcoes) ?? []).some((o) => o.valor === pelaCor) ? pelaCor : null
 }
+/**
+ * A COR DOS ACESSÓRIOS PELA COR DO PERFIL (dono do produto, 27/11/2026, pedido 0040; como o WVetro no orçamento 1207, todo em preto liso): a
+ * variável `CA` ("1 = BRANCO; 2 = PRETO; 3 = MARROM" no motor 259035a9) segue a cor da esquadria — BRANCO se o perfil é branco, PRETO em qualquer
+ * outra cor. É ela que liga os insumos pretos (13229, 3579, 3609, 24079, 9419, 87349, 4569, 12349, 20354). Como a palheta: a cor vence a política e o
+ * padrão do motor, e só o vendedor que disse a cor dos acessórios vence a cor. A opção é achada pelo RÓTULO (nunca pelo número), e a tipologia sem a
+ * opção não a ganha (null: a cor não decide).
+ */
+export const VARIAVEL_DA_COR_DOS_ACESSORIOS = 'CA'
+export function corDosAcessoriosQueACorImpoe(v: { variavel: string; opcoes: string | null }, cor: string | null | undefined): number | null {
+    if (cor === null || cor === undefined || cor.trim() === '' || v.variavel !== VARIAVEL_DA_COR_DOS_ACESSORIOS) return null
+    const alvo = semAcento(cor).toUpperCase().trim() === 'BRANCO' ? 'BRANCO' : 'PRETO'
+    const achadas = (opcoesDaVariavel(v.opcoes) ?? []).filter((o) => semAcento(o.rotulo).toUpperCase().trim() === alvo)
+    return achadas.length === 1 ? achadas[0].valor : null
+}
+/** A opção que a COR DA ESQUADRIA impõe na variável (a palheta ou a cor dos acessórios); null quando a cor não decide aquela variável. */
+export const opcaoQueACorImpoe = (v: { variavel: string; opcoes: string | null }, cor: string | null | undefined): number | null =>
+    palhetaQueACorImpoe(v, cor) ?? corDosAcessoriosQueACorImpoe(v, cor)
 export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<string, number>>, politica: PoliticaDaEmpresa, descricao: string | null = null,
     cor: string | null = null): EscolhasDoCalculo {
     const escolhas: Record<string, number> = { ...ditas }
@@ -117,7 +134,8 @@ export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<s
 
     // A COR VENCE A POLÍTICA NA PERSIANA (dono do produto, 26/11/2026, pedido 0039): na esquadria que não é BRANCO, a política (a De Paula diz PP =
     // PVC 37) não decide o modelo da palheta — a persiana de PVC só existe em branco; quem decide é a cor (45, o alumínio). Na BRANCA, a política vale
-    const palhetaPelaCorVence = (v: { variavel: string; opcoes: string | null }) => palhetaQueACorImpoe(v, cor) !== null
+    // e a COR DOS ACESSÓRIOS segue a cor do perfil em qualquer cor (pedido 0040)
+    const palhetaPelaCorVence = (v: { variavel: string; opcoes: string | null }) => opcaoQueACorImpoe(v, cor) !== null
     // 2. a política da empresa
     for (const v of comOpcoes) {
         if (palhetaPelaCorVence(v)) continue
@@ -145,6 +163,15 @@ export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<s
         if ((opcoesDaVariavel(palheta.opcoes) ?? []).some((o) => o.valor === pelaCor)) {
             escolhas[palheta.variavel] = pelaCor
             origem[palheta.variavel] = 'pela_cor'
+        }
+    }
+    // 2c. a COR DOS ACESSÓRIOS pela cor do perfil (pedido 0040): BRANCO no perfil branco, PRETO em qualquer outro
+    const acessorios = cor === null ? undefined : comOpcoes.find((v) => v.variavel === VARIAVEL_DA_COR_DOS_ACESSORIOS)
+    if (acessorios && escolhas[acessorios.variavel] === undefined && !voltas.some((x) => x.variavel === acessorios.variavel) && ativa(acessorios.condicao, valores())) {
+        const pelaCor = corDosAcessoriosQueACorImpoe(acessorios, cor)
+        if (pelaCor !== null) {
+            escolhas[acessorios.variavel] = pelaCor
+            origem[acessorios.variavel] = 'pela_cor'
         }
     }
     // 3, 4 e 5. o padrão do motor, só quando não acrescenta peça; senão a principal; senão volta ao agente
