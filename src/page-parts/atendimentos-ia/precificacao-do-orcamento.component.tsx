@@ -6,7 +6,6 @@ import { Alert, message, Spin } from 'antd'
 import { Content } from '@/page-parts/products/content.component'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { getTenantId } from '@/utils/get-tenant-id'
-import { supabase } from '@/supabase/client'
 import { fetchTaxPreview } from '@/utils/calc-tax-preview'
 import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { buildCalcBase } from '@/utils/build-calc-base'
@@ -52,12 +51,12 @@ export function PrecificacaoDoOrcamento({ id, sinal = 0, aoMudarOArquivo, comLin
                 orcamento: OrcamentoNaPrecificacao; cliente?: ClienteDoArquivo | null; fiscal_divergente?: CampoDivergente[]; itens_do_arquivo?: ItemDoArquivo[] | null; recusa_dos_itens?: string | null
             }
             await mergeExpenseConfig(tenantId)
-            const [expenseRes, taxPreview] = await Promise.all([
-                supabase.from('tenant_expense_config').select('*').eq('tenant_id', tenantId).single(),
-                fetchTaxPreview(tenantId),
-            ])
+            // a configuração de despesas vem da ROTA, no tenant do chamador: a tela não fala com o banco (0051)
+            const [despesas, taxPreview] = await Promise.all([fetch('/api/atendimentos-ia/config-de-despesas'), fetchTaxPreview(tenantId)])
+            if (!despesas.ok) return setEstado({ tipo: 'erro', mensagem: (await recusasDaResposta(despesas, 'Não foi possível ler a configuração de despesas da empresa.')).join(' ') })
+            const { config } = (await despesas.json()) as { config: Parameters<typeof buildCalcBase>[0] }
             setEstado((e) => ({
-                tipo: 'pronto', orcamento, calcBase: buildCalcBase(expenseRes.data, taxPreview), versao: e.tipo === 'pronto' ? e.versao + 1 : 1,
+                tipo: 'pronto', orcamento, calcBase: buildCalcBase(config, taxPreview), versao: e.tipo === 'pronto' ? e.versao + 1 : 1,
                 itensDoArquivo: itens_do_arquivo ?? null, recusaDosItens: recusa_dos_itens ?? null, cliente: cliente ?? null, fiscalDivergente: fiscal_divergente ?? [],
             }))
         } catch {
