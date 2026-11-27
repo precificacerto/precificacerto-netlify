@@ -443,6 +443,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
         }
         const r = avaliarTipologia({ tipologia, L_mm: e.L_mm, H_mm: e.H_mm, escolhas: e.escolhas, espessura_vidro_mm: e.espessura_vidro_mm, semDecidirVariacao: e.semDecidirVariacao,
             ...(e.semBagueteDoVidro ? { semBagueteDoVidro: true } : {}),
+            arremateNaMedidaDoVao: true,
             ...(e.escolhasPorPadrao ? { escolhasPorPadrao: e.escolhasPorPadrao } : {}) })
         if ('recusas' in r) {
             // A ESPESSURA QUE NÃO FOI DITA, uma falta só (08/11/2026): o avaliador recusa linha a linha da aba Perfis (uma por baguete), e para o

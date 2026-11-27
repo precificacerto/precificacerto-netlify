@@ -4,7 +4,9 @@
  * Orientativos de Montagem dos orçamentos 1159 e 1163 da De Paula: 19 esquadrias, 408 linhas de peça). Peça a peça: código, posição,
  * comprimento truncado ao milímetro (como o relatório imprime) e quantidade. Peça que sobra ou falta é falha, não aviso.
  *
- * A EXCEÇÃO DOCUMENTADA — O ARREMATE (decisão do PO, 17/11/2026): o motor soma o acréscimo da opção escolhida (`HARI = (H − Y) + (&ARI * 2)`,
+ * ATUALIZAÇÃO (dono do produto, 27/11/2026, pedido 0042): o arremate passou a ser a MEDIDA DO VÃO — `&ARI`, `&MAE` e `&MAI` não entram —, como o WVetro do
+ * orçamento 1207 (`gabarito-wvetro-1207.test.ts`); aqui, nos orçamentos 1159/1163, o WVetro imprimia o acréscimo, e o motor passa a ser MENOR que ele.
+ * A EXCEÇÃO DE ANTES — O ARREMATE (decisão do PO, 17/11/2026, SUBSTITUÍDA): o motor soma o acréscimo da opção escolhida (`HARI = (H − Y) + (&ARI * 2)`,
  * com [33,00] por lado no BZ1770 e no BZ0006; `HARE = H + &MAE`, com [50,00] ou [100,00]) e o WVetro imprimiu a medida do VÃO. O certo é o do
  * motor: nos perfis de arremate a referência é a regra, não o número impresso — o portão confere que só o comprimento difere, e para MAIS.
  *
@@ -72,7 +74,7 @@ function conferir(c: Caso) {
     if ('recusas' in t) throw new Error(`${id(c)}: ${t.recusas[0].mensagem}`)
     const { escolhas } = escolhasDoRelatorio(t.tipologia, c.variaveis_do_relatorio)
     const espessura = c.vidro_do_orientativo?.espessura_mm ?? espessuraDoBaguete(c)
-    const r = avaliarTipologia({ tipologia: t.tipologia, L_mm: c.L_mm, H_mm: c.H_mm, escolhas, espessura_vidro_mm: espessura })
+    const r = avaliarTipologia({ tipologia: t.tipologia, L_mm: c.L_mm, H_mm: c.H_mm, escolhas, espessura_vidro_mm: espessura, arremateNaMedidaDoVao: true })
     if ('recusas' in r) return { recusas: r.recusas.map((x) => x.mensagem) }
     // o WVetro imprime as peças do ITEM: as de UMA esquadria vezes a quantidade de esquadrias (19/11/2026: o 1163/7, 2 esquadrias, imprime ×4)
     const motor = contar(r.pecas.map((p) => ({ ...p, quantidade: p.quantidade * c.quantidade }))), wv = contar(c.pecas)
@@ -114,7 +116,7 @@ describe('o conferidor do corte: o motor de produção contra o corte real do WV
         expect([...listas].sort()).toEqual(CORTE.casos.map(id).sort())
     })
 
-    it.each(FECHAM)('%s FECHA: fora do arremate, peça a peça igual ao WVetro; no arremate, o mesmo código e posição, só o comprimento MAIOR (o acréscimo)', (k) => {
+    it.each(FECHAM)('%s FECHA: fora do arremate, peça a peça igual ao WVetro; no arremate, o mesmo código e posição, só o comprimento MENOR (o motor imprime o vão; o WVetro dos orçamentos 1159/1163 imprimia o acréscimo da opção)', (k) => {
         const c = CORTE.casos.find((x) => id(x) === k) as Caso
         const r = conferir(c)
         if ('recusas' in r) throw new Error(r.recusas.join('; '))
@@ -125,7 +127,7 @@ describe('o conferidor do corte: o motor de produção contra o corte real do WV
         expect(semComp(arrMotor)).toEqual(semComp(arrWv))
         for (const [x] of arrMotor) {
             const doWv = arrWv.filter(([y]) => y.split('|').slice(0, 2).join('|') === x.split('|').slice(0, 2).join('|'))
-            expect(doWv.every(([y]) => comp(x) > comp(y))).toBe(true)
+            expect(doWv.every(([y]) => comp(x) < comp(y))).toBe(true)
         }
     })
 
