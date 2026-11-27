@@ -350,10 +350,10 @@ describe('entrada inválida é recusada, nunca corrigida', () => {
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
 describe('pedido 0034: UM só jeito de contar — o refilo pela cor e o FFD best-fit, a regra das barras do pedido', () => {
-    it('o REFILO: toda cor menos o BRANCO perde 45 mm por ponta — 3 × 1.900 com serra 5 cabe numa barra branca, não numa preta', () => {
+    it('o REFILO: só a cor MADEIRA perde 45 mm por ponta (branco e preto liso não) — 3 × 1.900 com serra 5 cabe em ambas', () => {
         const pecas = [{ codigo: 'P1', comprimento_mm: 1900, quantidade: 3 }]
         expect(composicao(ok(pecas, { P1: B6 }, 5, 'BRANCO'), 'P1')).toEqual([[1900, 1900, 1900]])
-        const preta = doCodigo(ok(pecas, { P1: B6 }, 5, 'PRETO TEXTURADO'), 'P1')
+        const preta = doCodigo(ok(pecas, { P1: B6 }, 5, 'AMADEIRADO GOLDEN OAK'), 'P1')
         expect(preta.barras.map((b) => b.pecas_mm)).toEqual([[1900, 1900, 1900]]) // 5.715 ≤ 5.910 ainda cabe
         expect(preta.refilo_mm).toBe(45)
         expect(preta.barras[0].sobra_mm).toBe(195) // a útil (5.910) menos o usado (5.715)
@@ -361,7 +361,8 @@ describe('pedido 0034: UM só jeito de contar — o refilo pela cor e o FFD best
         // 3 × 1.970 + 3 × 5 = 5.925: cabe no branco (6.000), não no preto (5.910)
         const maiores = [{ codigo: 'P1', comprimento_mm: 1970, quantidade: 3 }]
         expect(doCodigo(ok(maiores, { P1: B6 }, 5, 'branco'), 'P1').n_barras).toBe(1)
-        expect(doCodigo(ok(maiores, { P1: B6 }, 5, 'PRETO'), 'P1').n_barras).toBe(2)
+        expect(doCodigo(ok(maiores, { P1: B6 }, 5, 'AMADEIRADO NOGUEIRA'), 'P1').n_barras).toBe(2)
+        expect(doCodigo(ok(maiores, { P1: B6 }, 5, 'PRETO LISO'), 'P1').n_barras).toBe(1) // o WVetro não refila o preto liso (gabarito 1207)
     })
     it('a cor que não decide o refilo é recusa nomeada, nunca um refilo suposto: a ausente e a composta com BRANCO', () => {
         for (const cor of [null, '', 'BRANCO EXTERNO']) {

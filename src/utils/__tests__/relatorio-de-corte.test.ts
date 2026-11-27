@@ -53,11 +53,13 @@ describe('montarRelatorioDeCorte', () => {
 })
 
 describe('pedido 0034: o plano do relatório de corte é o das barras do pedido — o refilo pela cor do item', () => {
-    it('a cor decide o refilo: 3 × 1.970 cabem numa barra branca e não numa preta (45 mm por ponta)', () => {
+    it('a cor decide o refilo: 3 × 1.970 cabem numa barra branca e numa preta lisa, não numa amadeirada (45 mm por ponta)', () => {
         const branca = corteDoCodigo([p(1970, 3)]).plano
-        const preta = corteDoCodigo([p(1970, 3, { cor: 'PRETO TEXTURADO' })]).plano
+        const preta = corteDoCodigo([p(1970, 3, { cor: 'PRETO LISO' })]).plano
+        const madeira = corteDoCodigo([p(1970, 3, { cor: 'AMADEIRADO GOLDEN OAK' })]).plano
         expect('n_barras' in branca && branca.n_barras).toBe(1)
-        expect('n_barras' in preta && preta.n_barras).toBe(2)
+        expect('n_barras' in preta && preta.n_barras).toBe(1)
+        expect('n_barras' in madeira && madeira.n_barras).toBe(2)
     })
     it('o mesmo código em itens de cores diferentes não tem um plano só: nomeado', () => {
         expect(corteDoCodigo([p(1000, 1), p(900, 1, { cor: 'PRETO' })]).plano).toEqual({ semPlano: fraseDaCorDivergente('9681', ['BRANCO', 'PRETO']) })
