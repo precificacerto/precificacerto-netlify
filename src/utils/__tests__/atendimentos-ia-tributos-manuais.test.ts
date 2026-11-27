@@ -86,3 +86,53 @@ describe('snapshotDosTributosManuais', () => {
         ])
     })
 })
+
+import { tributosUsados, type SugeridosDasCredenciais } from '@/lib/atendimentos-ia/tributos-manuais'
+
+// Três regimes, com o que a tela traz hoje das credenciais. Lucro Real: ICMS 17, PIS/Cofins 9,25 → efetivo 7,6775; Presumido: 3,65;
+// Simples Nacional: nada de ICMS/PIS por fora (nulos), só o que a matriz admitir.
+const REGIMES: Record<string, SugeridosDasCredenciais> = {
+    'Lucro Real': { icms: 17, pisCofinsNominal: 9.25, pisCofinsEfetivo: 7.6775, ibs: 0.1, cbs: 0.9, is: 0, ipi: 5, reducaoIbs: 60, reducaoCbs: 60 },
+    'Lucro Presumido': { icms: 18, pisCofinsNominal: 3.65, pisCofinsEfetivo: 2.993, ibs: 0.1, cbs: 0.9, is: 0, ipi: 0, reducaoIbs: null, reducaoCbs: null },
+    'Simples Nacional': { icms: null, pisCofinsNominal: null, pisCofinsEfetivo: null, ibs: null, cbs: null, is: 0, ipi: 0, reducaoIbs: null, reducaoCbs: null },
+}
+
+describe('tributosUsados: SEM edição é a identidade, nos três regimes (centavo a centavo)', () => {
+    it.each(Object.entries(REGIMES))('%s: nulo, {} e undefined devolvem exatamente o sugerido', (_nome, s) => {
+        for (const m of [null, undefined, {}]) {
+            const u = tributosUsados(s, m as never)
+            expect(u).toMatchObject({
+                icms: s.icms, pisCofinsNominal: s.pisCofinsNominal, pisCofinsEfetivo: s.pisCofinsEfetivo, ibs: s.ibs, cbs: s.cbs, is: s.is, ipi: s.ipi,
+                reducaoIbs: s.reducaoIbs, reducaoCbs: s.reducaoCbs,
+            })
+            expect(Object.values(u.origem).every((o) => o === 'credenciais')).toBe(true)
+        }
+    })
+})
+
+describe('tributosUsados: com edição só muda o que ela alcança', () => {
+    const s = REGIMES['Lucro Real']
+    it('ICMS manual refaz o PIS/Cofins efetivo sobre o nominal (a base exclui o ICMS)', () => {
+        const u = tributosUsados(s, { icms: { pct: 12 } })
+        expect(u.icms).toBe(12)
+        expect(u.pisCofinsNominal).toBe(9.25)
+        expect(u.pisCofinsEfetivo).toBe(8.14)
+        expect(u.origem.icms).toBe('manual')
+        expect(u.origem.pis_cofins).toBe('credenciais')
+        expect(u.ibs).toBe(0.1)
+    })
+    it('PIS/Cofins manual é o NOMINAL e o efetivo sai dele (exemplo do pedido: 9,25 com ICMS 17 = 7,6775)', () => {
+        const u = tributosUsados({ ...s, pisCofinsEfetivo: 99 }, { pis_cofins: { pct: 9.25 } })
+        expect(u.pisCofinsEfetivo).toBe(7.6775)
+        expect(u.origem.pis_cofins).toBe('manual')
+    })
+    it('CBS, IBS, IS, IPI e as reduções trocam direto; a redução zero manual vale zero', () => {
+        const u = tributosUsados(s, { cbs: { pct: 1.2 }, ibs: { pct: 0.2 }, is: { pct: 2 }, ipi: { pct: 0 }, reducao_ibs: { pct: 0 }, reducao_cbs: { pct: 30 } })
+        expect([u.cbs, u.ibs, u.is, u.ipi, u.reducaoIbs, u.reducaoCbs]).toEqual([1.2, 0.2, 2, 0, 0, 30])
+        expect(u.pisCofinsEfetivo).toBe(7.6775)
+    })
+    it('ICMS manual onde o regime não apura PIS/Cofins: o efetivo continua nulo (ausente não é zero)', () => {
+        const u = tributosUsados(REGIMES['Simples Nacional'], { icms: { pct: 12 } })
+        expect(u.pisCofinsEfetivo).toBeNull()
+    })
+})

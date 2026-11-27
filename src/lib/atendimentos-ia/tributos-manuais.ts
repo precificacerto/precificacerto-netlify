@@ -119,3 +119,60 @@ export function snapshotDosTributosManuais(manuais: TributosManuais | null | und
     if (!manuais) return []
     return TRIBUTOS_MANUAIS_CHAVES.filter((k) => manuais[k]).map((k) => ({ tributo: k, pct: (manuais[k] as { pct: number }).pct, origem: 'manual' as const }))
 }
+
+// ── O QUE A TELA E O CÁLCULO USAM ──────────────────────────────────────────────────────────────────────────────────────────────────
+
+export type SugeridosDasCredenciais = {
+    icms: number | null
+    /** O PIS/Cofins NOMINAL da empresa (9,25% no Lucro Real, 3,65% no Presumido); nulo onde o regime não o apura. */
+    pisCofinsNominal: number | null
+    /** O PIS/Cofins EFETIVO que a tela usa hoje (nominal × (1 − ICMS), a base sem o ICMS). Sem edição, é ele — inalterado. */
+    pisCofinsEfetivo: number | null
+    ibs: number | null
+    cbs: number | null
+    is: number | null
+    ipi: number | null
+    reducaoIbs: number | null
+    reducaoCbs: number | null
+}
+
+export type TributosUsados = {
+    icms: number | null
+    pisCofinsNominal: number | null
+    pisCofinsEfetivo: number | null
+    ibs: number | null
+    cbs: number | null
+    is: number | null
+    ipi: number | null
+    reducaoIbs: number | null
+    reducaoCbs: number | null
+    origem: Record<ChaveDoTributoManual, OrigemDoTributo>
+}
+
+/** Mesmo arredondamento da tela hoje (`parseFloat(x.toFixed(4))`): a efetiva recomposta tem de bater com a de antes, não com outra casa decimal. */
+const arredondar4 = (n: number) => parseFloat(n.toFixed(4))
+
+/**
+ * Os valores que a tela e o cálculo USAM. SEM edição manual é a identidade: cada campo é exatamente o sugerido (o PIS/Cofins efetivo, o que a
+ * tela já usava — nenhuma conta refeita). Com edição, só muda o que ela alcança: o ICMS manual refaz o PIS/Cofins efetivo sobre o nominal
+ * (a base exclui o ICMS); o PIS/Cofins manual é o NOMINAL e o efetivo sai dele; o resto é a troca direta. Ausente nunca vira zero.
+ */
+export function tributosUsados(s: SugeridosDasCredenciais, manuais: TributosManuais | null | undefined): TributosUsados {
+    const r = (k: ChaveDoTributoManual, sug: number | null) => resolverTributo(k, sug, manuais)
+    const icms = r('icms', s.icms)
+    const pis = r('pis_cofins', s.pisCofinsNominal)
+    const refaz = icms.origem === 'manual' || pis.origem === 'manual'
+    const pisEfetivo = !refaz ? s.pisCofinsEfetivo
+        : pis.pct === null || icms.pct === null ? null
+            : arredondar4(pis.pct * (1 - icms.pct / 100))
+    const ibs = r('ibs', s.ibs), cbs = r('cbs', s.cbs), is = r('is', s.is), ipi = r('ipi', s.ipi)
+    const redIbs = r('reducao_ibs', s.reducaoIbs), redCbs = r('reducao_cbs', s.reducaoCbs)
+    return {
+        icms: icms.pct, pisCofinsNominal: pis.pct, pisCofinsEfetivo: pisEfetivo,
+        ibs: ibs.pct, cbs: cbs.pct, is: is.pct, ipi: ipi.pct, reducaoIbs: redIbs.pct, reducaoCbs: redCbs.pct,
+        origem: {
+            icms: icms.origem, pis_cofins: pis.origem, ibs: ibs.origem, cbs: cbs.origem, is: is.origem, ipi: ipi.origem,
+            reducao_ibs: redIbs.origem, reducao_cbs: redCbs.origem,
+        },
+    }
+}
