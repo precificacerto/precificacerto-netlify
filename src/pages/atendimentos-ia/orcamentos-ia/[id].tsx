@@ -5,9 +5,12 @@
  * acrescentam-se itens. NÃO se exclui item nem orçamento, e não há preço nesta entrega. Salvar grava a MARCA da edição manual: daí em diante o
  * agente não sobrescreve o orçamento calado — quando o levantamento mudar, ele avisa e pergunta (a regra fica com quem escrever esse caminho).
  *
- * O 1b (09/11/2026): "Calcular" passa as esquadrias pelo caminho completo e grava o custo no orçamento; "Precificar" abre a precificação final
- * (a tela de Produtos no modo "orçamento"). O estado do cálculo gravado aparece aqui: "cálculo incompleto — recalcule" quando algum item aponta
- * um cálculo e o orçamento está sem os totais.
+ * O 1b (09/11/2026): "Calcular" passa as esquadrias pelo caminho completo e grava o custo no orçamento. O estado do cálculo gravado aparece aqui:
+ * "cálculo incompleto — recalcule" quando algum item aponta um cálculo e o orçamento está sem os totais.
+ *
+ * UMA PÁGINA SÓ (pedido 0051, 27/11/2026, regra inviolável do dono do produto), de cima para baixo: 1) os ITENS, com o Calcular; 2) a PRECIFICAÇÃO,
+ * logo abaixo — o mesmo bloco da tela de Produtos no modo orçamento, com os tributos das credenciais da empresa editáveis à mão (0044); 3) o ARQUIVO
+ * PDF no fim, para ver e baixar, regerado a cada cálculo e a cada salvamento. A página `/precificacao` segue como atalho do mesmo bloco.
  */
 import { ROTULO_DA_ORIGEM_DO_PERCENTUAL, type ClienteDoLevantamento, type PercentualComZero, type PercentualNaTela } from '@/lib/atendimentos-ia/travessia-do-levantamento-plano'
 import React, { useCallback, useEffect, useState } from 'react'
@@ -15,11 +18,13 @@ import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { Alert, Button, Card, Input, InputNumber, Space, Spin, Table, Tag, Typography, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { ArrowLeftOutlined, CalculatorOutlined, DollarOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, CalculatorOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons'
 
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { ROUTES } from '@/constants/routes'
+import { PrecificacaoDoOrcamento } from '@/page-parts/atendimentos-ia/precificacao-do-orcamento.component'
+import { ArquivoDoOrcamentoNaTela } from '@/page-parts/atendimentos-ia/arquivo-do-orcamento-na-tela.component'
 import { estadoDoCalculo, FRASE_DO_ESTADO, type EstadoDoCalculo, type OrcamentoNaPrecificacao } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
 
 type Item = {
@@ -103,6 +108,11 @@ function OrcamentoIA() {
     const [percentuais, setPercentuais] = useState<PercentualNaTela[]>([])
     // os avisos do último cálculo: a tabela congelada no levantamento que não é a vigente usada (não bloqueia)
     const [avisosDaTabela, setAvisosDaTabela] = useState<string[]>([])
+    // `sinal` muda a cada cálculo e a cada salvamento: a precificação relê o gravado e o arquivo PDF é lido de novo (0051)
+    const [sinal, setSinal] = useState(0)
+    const [sinalDoArquivo, setSinalDoArquivo] = useState(0)
+    const [recusasDoArquivo, setRecusasDoArquivo] = useState<string[]>([])
+    const arquivoMudou = useCallback(() => setSinalDoArquivo((n) => n + 1), [])
 
     /** O estado do cálculo gravado, lido pela rota da precificação (ela traz os valores do cálculo). Sem ela, nada é dito. */
     const lerEstadoDoCalculo = useCallback(async () => {
@@ -129,9 +139,15 @@ function OrcamentoIA() {
             if (!r.ok) { setRecusasDoCalculo([corpo.error ?? 'Não foi possível calcular o orçamento.', ...(corpo.recusas ?? [])]); return }
             setRecusasDoCalculo([])
             message.success(aproveitamento === 'pedido_total' ? 'Orçamento calculado pelo pedido total (as barras inteiras, rateadas).' : 'Orçamento calculado.')
+            // o arquivo PDF é regerado a cada cálculo (0051): o preço se forma como o do "sim" da conversa, e o que faltar vem nomeado
+            const a = await fetch(`/api/atendimentos-ia/orcamentos/${id}/arquivo`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ modo: 'precificar' }) })
+            const ac = (await a.json().catch(() => ({}))) as { error?: string; recusas?: string[] }
+            setRecusasDoArquivo(a.ok ? [] : [ac.error ?? 'O arquivo não foi regerado.', ...(ac.recusas ?? [])])
         } finally {
             setCalculando(false)
             void lerEstadoDoCalculo()
+            setSinal((n) => n + 1)
+            arquivoMudou()
         }
     }
 
@@ -268,11 +284,14 @@ function OrcamentoIA() {
                             <Button icon={<CalculatorOutlined />} loading={calculando} onClick={() => { void calcular('consumo') }}>Calcular</Button>
                             <Button loading={calculando} onClick={() => { void calcular('pedido_total') }}
                                 title="As barras inteiras do pedido, rateadas entre os itens na proporção do consumo de cada um">Calcular pelo pedido total</Button>
-                            <Link href={`${ROUTES.ATENDIMENTOS_IA_ORCAMENTOS}/${estado.orcamento.id}/precificacao`}>
-                                <Button icon={<DollarOutlined />} disabled={estadoDoCalculoGravado !== 'completo'}>Precificar</Button>
-                            </Link>
                             <Button type="primary" icon={<SaveOutlined />} loading={salvando} disabled={nome.trim() === ''} onClick={salvar}>Salvar</Button>
                         </div>
+                        {/* 2) A PRECIFICAÇÃO, logo abaixo dos itens (0051): só existe depois de um cálculo completo */}
+                        {estadoDoCalculoGravado === 'completo'
+                            ? <div data-bloco-da-precificacao=""><PrecificacaoDoOrcamento id={id} sinal={sinal} aoMudarOArquivo={arquivoMudou} comLinkDoArquivo={false} /></div>
+                            : <Alert type="info" showIcon data-sem-precificacao="" message="A precificação aparece aqui depois do cálculo: use Calcular." />}
+                        {/* 3) O ARQUIVO PDF, no fim da página (0051) */}
+                        {id && <ArquivoDoOrcamentoNaTela id={id} numero={estado.orcamento.numero_exibido ?? estado.orcamento.numero} sinal={sinalDoArquivo} recusas={recusasDoArquivo} />}
                     </Space>
                 )}
             </div>
