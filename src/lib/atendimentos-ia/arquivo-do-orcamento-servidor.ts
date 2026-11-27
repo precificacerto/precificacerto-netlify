@@ -87,7 +87,7 @@ export function definicoesDoItem(def: Parameters<typeof escolhasDescritas>[0], e
     const doCalculo = def.variaveis.some((v) => v.variavel === 'AE') ? escolhasDoCalculo(def as unknown as Tipologia, escolhas as Record<string, number>, politica, null, cor, larguraMm).escolhas : {}
     const acionamento: Record<string, number> = {}
     for (const k of ['AE', 'LA', 'LR', 'MD']) if (doCalculo[k] !== undefined) acionamento[k] = doCalculo[k]
-    return escolhasDescritas(semPadrao, { ...daPolitica, ...acionamento, ...escolhas }).map((e) =>
+    return escolhasDescritas(semPadrao, { ...daPolitica, ...acionamento, ...escolhas }, Object.fromEntries(Object.keys(escolhas).map((k) => [k, 'vendedor']))).map((e) =>
         `${e.descricao}: ${e.rotulo ?? (naoUsa.has(e.variavel) ? 'não usa' : ARREMATE_NAO_DEFINIDO)}${e.doVendedor ? (daPolitica[e.variavel] !== undefined ? ' (política da empresa)' : '') : naoUsa.has(e.variavel) ? ' (política da empresa)' : ''}`)
 }
 

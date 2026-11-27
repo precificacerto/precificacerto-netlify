@@ -453,7 +453,7 @@ export function escolhasComPadrao(tipologia: VariaveisDaTipologia, explicitas: E
  */
 const ORIGEM_NA_LINHA: Readonly<Record<string, string>> = { vendedor: 'como você pediu', politica: 'política da empresa', politica_ajuste_em_obra: 'a opção da política não existe nesta tipologia: ajuste em obra', tipologia: 'a opção da política não cabe nesta tipologia: o padrão dela', calculo: 'cálculo do motor', padrao_do_motor: 'padrão do motor', principal: 'sem a peça, não pedida' }
 export function descreverArremate(tipologia: VariaveisDaTipologia, explicitas: Escolhas, origem?: Readonly<Record<string, string>>): string | null {
-    const partes = escolhasDescritas(tipologia, explicitas)
+    const partes = escolhasDescritas(tipologia, explicitas, origem)
         .map((e) => `${minuscula(e.descricao)}: ${e.rotulo ?? 'padrão da tipologia'} (${(origem && ORIGEM_NA_LINHA[origem[e.variavel] ?? '']) ?? (e.doVendedor ? 'como você pediu' : 'padrão')})`)
     return partes.length ? partes.join('; ') : null
 }
@@ -465,7 +465,7 @@ export type EscolhaDescrita = { variavel: string; descricao: string; rotulo: str
  * foi o vendedor quem escolheu. A Condição é avaliada com as escolhas efetivas; a que não dá para avaliar
  * entra. É a fonte da linha do arremate do levantamento (`descreverArremate`) e da do apanhado.
  */
-export function escolhasDescritas(tipologia: VariaveisDaTipologia, explicitas: Escolhas): EscolhaDescrita[] {
+export function escolhasDescritas(tipologia: VariaveisDaTipologia, explicitas: Escolhas, origem?: Readonly<Record<string, string>>): EscolhaDescrita[] {
     const efetivas = escolhasComPadrao(tipologia, explicitas)
     const descritas: EscolhaDescrita[] = []
     for (const v of tipologia.variaveis) {
@@ -474,8 +474,9 @@ export function escolhasDescritas(tipologia: VariaveisDaTipologia, explicitas: E
         const rotulo = valor === undefined ? null : opcoesDaVariavel(v.opcoes)?.find((o) => o.valor === valor)?.rotulo ?? null
         descritas.push({ variavel: v.variavel, descricao: v.descricao ?? v.variavel, rotulo, doVendedor: explicitas[v.variavel] !== undefined })
     }
-    const acionamento = descreverAcionamento(tipologia, explicitas)
-    if (acionamento) descritas.push({ variavel: 'AE', descricao: 'Acionamento da persiana', rotulo: acionamento, doVendedor: explicitas.AE !== undefined })
+    const ditasPeloVendedor = origem ? new Set(Object.keys(origem).filter((k) => origem[k] === 'vendedor')) : undefined
+    const acionamento = descreverAcionamento(tipologia, explicitas, ditasPeloVendedor)
+    if (acionamento) descritas.push({ variavel: 'AE', descricao: 'Acionamento da persiana', rotulo: acionamento, doVendedor: ditasPeloVendedor ? ditasPeloVendedor.has('AE') : explicitas.AE !== undefined })
     return descritas
 }
 
@@ -485,7 +486,7 @@ const semAcentoMaiuscula = (s: string) => s.normalize('NFD').replace(/[\u0300-\u
  * remoto, simultâneo (1 motor para os 2 panos)" / "individual (1 motor por pano)", com o lado do recolhedor quando ele existe — e, sem o lado dito, o padrão
  * da tipologia, marcado para o vendedor confirmar. Null quando a tipologia não tem acionamento. As escolhas são as DECIDIDAS (as do cálculo).
  */
-export function descreverAcionamento(tipologia: VariaveisDaTipologia, escolhas: Escolhas): string | null {
+export function descreverAcionamento(tipologia: VariaveisDaTipologia, escolhas: Escolhas, ditas?: ReadonlySet<string>): string | null {
     const variavel = (nome: string) => tipologia.variaveis.find((x) => x.variavel === nome)
     const rotuloDe = (nome: string, valor: number | undefined) => {
         const v = variavel(nome)
@@ -507,7 +508,7 @@ export function descreverAcionamento(tipologia: VariaveisDaTipologia, escolhas: 
         const lr = variavel('LR')
         if (lr && !doisPanos && condicaoPede(lr.condicao, { ...escolhas, AE: valor('AE') as number, LA: valor('LA') as number })) {
             const lado = rotuloDe('LR', valor('LR'))
-            if (lado !== null) texto += `, ${lado.toLowerCase()}${escolhas.LR === undefined ? ' (padrão da tipologia: confirme o lado)' : ''}`
+            if (lado !== null) texto += `, ${lado.toLowerCase()}${(ditas ? ditas.has('LR') : escolhas.LR !== undefined) ? '' : ' (padrão da tipologia: confirme o lado)'}`
         }
         return texto
     }
