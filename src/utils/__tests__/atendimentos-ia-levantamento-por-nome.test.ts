@@ -9082,3 +9082,103 @@ describe('(47) alterar ou acrescentar: a intenção dita manda; sem ela, a conve
         expect(enviados().some((e) => e.includes('para acrescentar, ou altera'))).toBe(false)
     })
 })
+
+// ══════════════════════════════════════════════════════════════════════════════════
+describe('(48) A REFERÊNCIA POR NÚMERO (pedido 0050, 27/11/2026): "levantamento N" / "orçamento N" é o registro que já existe, e vence a pergunta pendente', () => {
+    const lev = (nome: string) => levantamentos().find((l) => l.nome === nome) as Linha
+    const orc = (nome: string) => (estado.db.orcamentista_orcamento as Linha[]).find((o) => o.levantamento_id === lev(nome).id) as Linha
+    const semModelo = () => expect(estado.chamadasDaLlm).toHaveLength(0)
+    /** a pergunta pendente das mensagens reais do Felipe Klein: esquadria sem nome, a conversa espera o cliente */
+    const comPerguntaPendente = async () => {
+        llmResponde({ itens: [{ ...DP02 }] })
+        await chamar('janela de correr 1200 x 1000, 1 unidade')
+        expect(estado.db.orcamentista_pergunta_em_aberto).toHaveLength(1)
+        estado.chamadasDaLlm = []
+    }
+
+    it('"levantamento N" com uma pergunta pendente: carrega o N, mostra o resumo, calcula e manda o arquivo — sem o modelo, e a pergunta pendente é abandonada', async () => {
+        await fecharDp02('Casa do João')
+        await comPerguntaPendente()
+        const documentos = estado.documentosDoOrcamento.length
+        const n = Number(lev('Casa do João').numero)
+        await chamar(`levantamento ${n}`)
+        semModelo()
+        expect(estado.documentosDoOrcamento.length).toBeGreaterThan(documentos)
+        const resposta = ultimoEnviado()
+        expect(resposta).toContain(`Levantamento ${n} (Casa do João): 1 item, cor`)
+        expect(resposta).toContain(`Orçamento ${Number(orc('Casa do João').numero)}`)
+        expect(estado.db.orcamentista_pergunta_em_aberto).toHaveLength(0)
+        expect(linhaIa().pop()).toMatch(/ rota=REFERENCIA .* desfecho=referencia-por-numero /)
+    })
+
+    it('"atualizar levantamento N" é o mesmo: nunca "Qual é o primeiro item do levantamento N?"', async () => {
+        await fecharDp02('Casa do João')
+        await comPerguntaPendente()
+        const n = Number(lev('Casa do João').numero)
+        await chamar(`atualizar levantamento ${n}`)
+        semModelo()
+        expect(ultimoEnviado()).toContain(`Levantamento ${n} (Casa do João)`)
+        expect(ultimoEnviado()).not.toMatch(/primeiro item/i)
+    })
+
+    it('"orçamento M": recalcula esse orçamento (o "Calcular" da tela), diz "orçamento M" e o levantamento de origem', async () => {
+        await fecharDp02('Casa do João')
+        const m = Number(orc('Casa do João').numero)
+        orc('Casa do João').valor_total_liquido = -1 // marca: só o cálculo de agora a troca
+        await comPerguntaPendente()
+        await chamar(`orçamento ${m}`)
+        semModelo()
+        expect(Number(orc('Casa do João').valor_total_liquido)).not.toBe(-1)
+        expect(ultimoEnviado()).toContain(`Levantamento ${Number(lev('Casa do João').numero)} (Casa do João)`)
+        expect(ultimoEnviado()).toContain(`Orçamento ${m}`)
+    })
+
+    it('número que não existe: diz que não existe e lista os últimos, com número e nome', async () => {
+        await fecharDp02('Casa do João')
+        estado.chamadasDaLlm = []
+        await chamar('levantamento 9999')
+        semModelo()
+        expect(ultimoEnviado()).toContain('Não existe o levantamento 9999')
+        expect(ultimoEnviado()).toContain(`levantamento ${Number(lev('Casa do João').numero)} (Casa do João)`)
+        await chamar('orçamento 9999')
+        expect(ultimoEnviado()).toContain('Não existe o orçamento 9999')
+        expect(ultimoEnviado()).toContain(`orçamento ${Number(orc('Casa do João').numero)} (Casa do João)`)
+    })
+
+    it('o levantamento ainda EM MONTAGEM: o resumo e só o que falta, sem calcular — e a conversa fica nele', async () => {
+        llmResponde({ nome: 'Ana Souza', itens: [{ ordem: 1, tipologia: 'DP-02', largura_mm: 1200, quantidade: 1 }] })
+        await chamar('Levantamento Ana Souza: DP-02 largura 1200, 1 unidade')
+        const l = lev('Ana Souza')
+        expect(l.estado).toBe('EM_MONTAGEM')
+        estado.chamadasDaLlm = []
+        const documentos = estado.documentosDoOrcamento.length
+        await chamar(`levantamento ${Number(l.numero)}`)
+        semModelo()
+        expect(ultimoEnviado()).toContain(`Levantamento ${Number(l.numero)} (Ana Souza)`)
+        expect(ultimoEnviado()).toContain('ainda está em montagem')
+        expect(estado.documentosDoOrcamento).toHaveLength(documentos)
+        expect(linhaIa().pop()).toMatch(/ desfecho=referencia-pendente /)
+    })
+
+    it('o levantamento de OUTRO vendedor responde como inexistente (quem não é admin só alcança o que é dele)', async () => {
+        await fecharDp02('Casa do João')
+        estado.chamadasDaLlm = []
+        const l = lev('Casa do João')
+        const dono = l.remetente_id
+        l.remetente_id = 'rem-de-outro-vendedor'
+        await chamar(`levantamento ${Number(l.numero)}`)
+        const resposta = ultimoEnviado()
+        l.remetente_id = dono
+        // o remetente do teste não é admin: o do outro não aparece, nem o resumo dele
+        expect(resposta).toContain(`Não existe o levantamento ${Number(l.numero)}`)
+        expect(resposta).not.toContain('Casa do João')
+    })
+
+    it('com conteúdo de esquadria a mensagem NÃO é referência pura: segue o caminho de sempre (o modelo é chamado)', async () => {
+        await fecharDp02('Casa do João')
+        estado.chamadasDaLlm = []
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar(`levantamento ${Number(lev('Casa do João').numero)}: janela 1500 x 1200`)
+        expect(estado.chamadasDaLlm.length).toBeGreaterThan(0)
+    })
+})
