@@ -1,7 +1,8 @@
 {
-  "medido_em": "2026-11-26T22:55:00Z",
+  "medido_em": "2026-11-27T13:40:00Z",
+  "nota_27_11_2026": "Medido de novo por causa da 20261127000001 (pedido 0044): ela acrescenta a CHECK orcamentista_orcamento_tributos_manuais_forma, que NAO esta em producao (migracao pendente) e nao entra no retrato; o calculo nao le tributos_manuais. As 80 CHECKs sao as mesmas.",
   "como": "pg_get_constraintdef de toda CHECK (contype = 'c') das cinco tabelas que o cálculo grava, em produção (jvthwpkwzpangnwhuyvj), só leitura",
-  "ultima_migracao_do_repositorio": "20261126000001_aproveitamento_pelo_pedido_total.sql",
+  "ultima_migracao_do_repositorio": "20261127000001_tributos_manuais_do_orcamento.sql",
   "checks": [
     ["orcamentista_orcamento", "orcamentista_orcamento_aproveitamento_fallback", "CHECK (((aproveitamento_origem <> ALL (ARRAY['fallback_barra_inteira'::text, 'consumo_do_item'::text])) OR (aproveitamento_modo = 'SEM'::text)))"],
     ["orcamentista_orcamento", "orcamentista_orcamento_aproveitamento_inteiro", "CHECK (((aproveitamento_modo IS NULL) = (aproveitamento_origem IS NULL)))"],
