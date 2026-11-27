@@ -1185,7 +1185,7 @@ async function calcularFamilia(
     const politica = await lerPoliticaDaEmpresa(tenantId, familia.familia)
     const decididas = itensDoGrupo.map((_, k) => {
         const t = lidas[dg.esquadrias[k].tipologia]
-        return t ? escolhasDoCalculo(t, ditas[k], politica, null, corDe(itensDoGrupo[k]), itensDoGrupo[k].largura_mm) : { escolhas: ditas[k], origem: {}, voltas: [], ajustes: [], equivalencias: [], pelaTipologia: [] }
+        return t ? escolhasDoCalculo(t, ditas[k], politica, null, corDe(itensDoGrupo[k]), dg.esquadrias[k].largura_mm) : { escolhas: ditas[k], origem: {}, voltas: [], ajustes: [], equivalencias: [], pelaTipologia: [] }
     })
     // O AJUSTE EM OBRA NO RASTRO (dono do produto, 21/11/2026): a opção que entrou no lugar da política muda material e preço — nunca calada
     const ajustesEmObra = dg.esquadrias.flatMap((e, k) => decididas[k].ajustes.map((a) => ({ e, a, valor: decididas[k].escolhas[a.variavel] })))

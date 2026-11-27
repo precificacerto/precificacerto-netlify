@@ -60,7 +60,7 @@ function avaliarItem(item: (typeof GAB.itens)[number]) {
     const politica = { porVariavel: naturezasPara(GAB.politica, { familia: 'PVC', linha: null, formato: null }) } as PoliticaDaEmpresa
     const e = escolhasDoCalculo(t.tipologia, item.esc, politica, null, COR, item.L)
     expect(e.voltas).toEqual([])
-    const escolhas = { ...e.escolhas, ...(DO_GABARITO[item.t] ?? {}), FV: FV_DO_CALCO_8597 }
+    const escolhas: Record<string, number> = { ...e.escolhas, ...(DO_GABARITO[item.t] ?? {}), FV: FV_DO_CALCO_8597 }
     const espessura = lerVidro(item.vidro_texto).espessura_mm
     const r = avaliarTipologia({ tipologia: t.tipologia, L_mm: item.L, H_mm: item.H, escolhas, espessura_vidro_mm: espessura, semBagueteDoVidro: vidroSemBaguete(item.vidro_texto, espessura) })
     if ('recusas' in r) throw new Error(`${item.n}: ${r.recusas[0].mensagem}`)

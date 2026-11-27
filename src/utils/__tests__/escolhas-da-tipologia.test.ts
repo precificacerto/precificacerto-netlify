@@ -38,7 +38,7 @@ describe('(1) quais perguntar', () => {
         expect([...E().ESCOLHAS_CAPTURADAS]).toEqual(['ARI', 'ARE', 'MAE', 'ID', 'TA'])
     })
     it('a altura da travessa (AT) é perguntada mesmo com o padrão 1050 do motor (pedido 0041); outra medida com padrão não é', () => {
-        const v = (variavel: string, padrao: string) => ({ variavel, descricao: `ALTURA ${variavel}`, padrao, condicao: 'sempre', opcoes: null, condicao_opcoes: null })
+        const v = (variavel: string, padrao: string) => ({ variavel, descricao: `ALTURA ${variavel}`, padrao, condicao: 'sempre', opcoes: null as string | null, condicao_opcoes: null as string | null })
         const t = { variaveis: [v('AT', '1050'), v('AX', '900')] } as unknown as Parameters<Modulo['variaveisAPerguntar']>[0]
         expect(E().variaveisAPerguntar(t, {}).map((x) => x.variavel)).toEqual(['AT'])
         expect(E().variaveisAPerguntar(t, { AT: 1180 })).toEqual([])
