@@ -258,7 +258,7 @@ export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<s
         } else if (aeRotulo.startsWith('MOTOR') && unico !== undefined && ambos !== undefined) {
             if (!dividida) { escolhas[la.variavel] = unico; origem[la.variavel] = 'pelo_acionamento' }
             else voltas.push({ variavel: la.variavel, descricao: la.descricao ?? la.variavel,
-                frase: `o acionamento da persiana da tipologia ${tipologia.codigo} é a motor e a esquadria tem divisória (1800 mm ou mais): o motor é simultâneo (1 motor para os 2 panos) ou individual (1 motor por pano)? Diga qual.` })
+                frase: `o acionamento da persiana da tipologia ${tipologia.codigo} é a motor e o item tem divisória (1800 mm ou mais): o motor é simultâneo (1 motor para os 2 panos) ou individual (1 motor por pano)? Diga qual.` })
         }
     }
     // 6b. o TUBO da persiana pelo acionamento (pedido 0043): Ø60MM com motor; sem motor, o que a política diz (Ø40MM) ou o padrão do motor
