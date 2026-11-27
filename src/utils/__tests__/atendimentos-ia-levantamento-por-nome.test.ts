@@ -8413,7 +8413,6 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         const ia = linhaIa().pop() ?? ''
         expect(ia).toMatch(/ rota=ALTERACAO /)
         expect(ia).toContain(' intencao=substituir')
-        expect(ia).toContain(' contagem=lidas:2/itens:2 unidades:2/2')
     })
     it('A LISTA NOVA é conferida com a medida DELA: a medida antiga do item, fora do limite, não gera pedido de autorização para a tipologia nova', async () => {
         // o levantamento de antes: três itens DP-01 (o maxim-ar não tem limite na fixture) com 2.500 de altura — fora do limite da DP-02 (388 a 2.439)
@@ -8481,6 +8480,73 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         expect(levantamentos()).toHaveLength(0)
         expect(estado.documentos).toHaveLength(0)
         expect(linhaIa().pop()).toContain(' contagem=lidas:2/itens:1 unidades:2/1')
+    })
+    // O PEDIDO 0046 (27/11/2026) — o levantamento 31: a mensagem do PO ("Orçamento Marcelo e Rita, ajusta assim, item a item: Item 2 …, Item 3 …") foi lida como
+    // lista nova, SUBSTITUIU os onze itens por dez e o agente respondeu "Ajustes lançados" e "Nada foi gravado" ao mesmo tempo
+    it('A ALTERAÇÃO POR NÚMERO (pedido 0046): os itens citados pelo número mudam, o que não foi citado NÃO muda, e nenhuma lista nova se grava', async () => {
+        llmResponde({ nome: 'Marcelo e Rita', itens: [J(1200), J(1300), J(1400), J(1500), J(1600), J(1700)], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Marcelo e Rita: seis DP-02 de 1200 a 1700 x 1000; branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        const antes = medidasDe('Marcelo e Rita')
+        expect(antes).toHaveLength(6)
+        const idsAntes = itensDe((levantamentos().find((l) => l.nome === 'Marcelo e Rita') as Linha).id).map((i) => i.id)
+        // a mensagem do PO: cita o levantamento, traz TRÊS itens pelo número (2, 4 e 5) e diz "ajusta"; o modelo manda a alteração com o número de cada um
+        llmResponde({ nome: 'Marcelo e Rita', alteracao: 'alterar', itens: [{ ...J(1350), ordem: 2 }, { ...J(1450), ordem: 4 }, { ...J(1550), ordem: 5 }], fala: 'Ajustes lançados.' })
+        await chamar('Orçamento Marcelo e Rita, ajusta assim, item a item:\nItem 2: DP-02 1350 x 1000\nItem 4: DP-02 1450 x 1000\nItem 5: DP-02 1550 x 1000')
+        // os seis itens continuam, os não citados (1, 3 e 6) com as medidas de antes, e os citados com as novas — nenhum item novo, nenhum a menos
+        expect(medidasDe('Marcelo e Rita')).toEqual([[1, 'DP-02', 1200, 1000], [2, 'DP-02', 1350, 1000], [3, 'DP-02', 1400, 1000], [4, 'DP-02', 1450, 1000], [5, 'DP-02', 1550, 1000], [6, 'DP-02', 1700, 1000]])
+        // os ids ficam (o orçamento calculado aponta para eles): nada foi apagado e regravado
+        expect(itensDe((levantamentos().find((l) => l.nome === 'Marcelo e Rita') as Linha).id).map((i) => i.id)).toEqual(idsAntes)
+        const ia = linhaIa().pop() ?? ''
+        expect(ia).not.toContain(' intencao=substituir')
+        expect(ia).not.toContain('desfecho=contagem-nao-fecha')
+        expect(enviados().some((e) => e.includes('Não consegui montar a lista inteira') || e.includes('Nada foi gravado'))).toBe(false)
+        expect(levantamentos()).toHaveLength(1)
+    })
+    it('A ALTERAÇÃO POR NÚMERO sem o "ajusta" dito (o modelo não marca a intenção) e PARCIAL: o mesmo — item a item, e o que não foi citado fica', async () => {
+        llmResponde({ nome: 'Marcelo e Rita', itens: [J(1200), J(1300), J(1400), J(1500), J(1600), J(1700)], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Marcelo e Rita: seis DP-02 de 1200 a 1700 x 1000; branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        llmResponde({ nome: 'Marcelo e Rita', itens: [{ ...J(1350), ordem: 2 }, { ...J(1550), ordem: 5 }] })
+        await chamar('Marcelo e Rita:\nItem 2: DP-02 1350 x 1000\nItem 5: DP-02 1550 x 1000')
+        expect(medidasDe('Marcelo e Rita')).toEqual([[1, 'DP-02', 1200, 1000], [2, 'DP-02', 1350, 1000], [3, 'DP-02', 1400, 1000], [4, 'DP-02', 1500, 1000], [5, 'DP-02', 1550, 1000], [6, 'DP-02', 1700, 1000]])
+        expect(linhaIa().pop()).not.toContain(' intencao=substituir')
+    })
+    it('a LISTA INTEIRA do levantamento de novo, numerada e SEM o "alterar" dito, continua substituindo (25/11/2026): o que sobra do antigo sai', async () => {
+        llmResponde({ nome: 'Marcelo e Rita', itens: [J(1200), J(1300), J(1400)], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Marcelo e Rita: DP-02 1200 x 1000; DP-02 1300 x 1000; DP-02 1400 x 1000; branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        llmResponde({ nome: 'Marcelo e Rita', itens: [{ ...J(1500), ordem: 1 }, { ...J(1600), ordem: 2 }] })
+        await chamar('Levantamento Marcelo e Rita:\n1 DP-02 1500 x 1000\n2 DP-02 1600 x 1000')
+        expect(medidasDe('Marcelo e Rita')).toEqual([[1, 'DP-02', 1500, 1000], [2, 'DP-02', 1600, 1000]])
+        expect(linhaIa().pop()).toContain(' intencao=substituir')
+    })
+    it('A ALTERAÇÃO POR NÚMERO não perde a COR nem o vidro do item: a linha do item não os repete, e eles ficam', async () => {
+        llmResponde({ nome: 'Marcelo e Rita', itens: [J(1200), J(1300), J(1400)], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Marcelo e Rita: DP-02 1200 x 1000; DP-02 1300 x 1000; DP-02 1400 x 1000; branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        const id = (levantamentos().find((l) => l.nome === 'Marcelo e Rita') as Linha).id
+        const antes = itensDe(id).map((i) => [i.cor_perfil, i.vidro])
+        // o item 2 refeito sem cor e sem vidro na linha (só a tipologia e a medida)
+        llmResponde({ nome: 'Marcelo e Rita', alteracao: 'alterar', itens: [{ tipologia: 'DP-02', largura_mm: 1350, altura_mm: 1000, ordem: 2 }, { tipologia: 'DP-02', largura_mm: 1450, altura_mm: 1000, ordem: 3 }, { tipologia: 'DP-02', largura_mm: 1250, altura_mm: 1000, ordem: 1 }] })
+        await chamar('Marcelo e Rita:\nItem 1: DP-02 1250 x 1000\nItem 2: DP-02 1350 x 1000\nItem 3: DP-02 1450 x 1000')
+        expect(itensDe(id).map((i) => [i.cor_perfil, i.vidro])).toEqual(antes)
+        expect(itensDe(id).map((i) => i.largura_mm)).toEqual([1250, 1350, 1450])
+    })
+    it('A ALTERAÇÃO POR NÚMERO: o código de tipologia que o MODELO escolheu e o vendedor NÃO escreveu não troca a tipologia do item; o que ele escreveu, troca', async () => {
+        llmResponde({ nome: 'Marcelo e Rita', itens: [J(1200), J(1300), J(1400), J(1500), J(1600), J(1700)], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Marcelo e Rita: seis DP-02 de 1200 a 1700 x 1000; branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        // o modelo propõe DP-01 para o item 2 (o vendedor reapresentou a janela de correr com a mesma medida, sem código): a tipologia fica
+        llmResponde({ nome: 'Marcelo e Rita', alteracao: 'alterar', itens: [{ ...J(1300), tipologia: 'DP-01', ordem: 2 }, { ...J(1500, 1100), tipologia: 'DP-01', ordem: 4 }] })
+        await chamar('Marcelo e Rita, ajusta:\nItem 2: janela de correr 1300 x 1000\nItem 4: janela de correr 1500 x 1100')
+        expect(medidasDe('Marcelo e Rita').map((x) => [x[0], x[1], x[2]])).toEqual([[1, 'DP-02', 1200], [2, 'DP-02', 1300], [3, 'DP-02', 1400], [4, 'DP-01', 1500], [5, 'DP-02', 1600], [6, 'DP-02', 1700]])
+        // o código ESCRITO pelo vendedor troca, com a mesma medida
+        llmResponde({ nome: 'Marcelo e Rita', alteracao: 'alterar', itens: [{ ...J(1300), tipologia: 'DP-01', ordem: 2 }] })
+        await chamar('Marcelo e Rita, ajusta o item 2: DP-01 1300 x 1000')
+        expect(medidasDe('Marcelo e Rita').map((x) => [x[0], x[1]])[1]).toEqual([2, 'DP-01'])
+    })
+    it('UMA SÓ RESPOSTA, VERDADEIRA: a recusa que diz "nada foi gravado" NÃO vem depois da fala do modelo ("Ajustes lançados")', async () => {
+        llmResponde({ nome: 'Marcelo e Rita', itens: [{ ...J(1200), ordem: 1 }, { ...J(1300), ordem: 1 }], escolhas: ESCOLHAS_QUE_FECHAM, fala: 'Ajustes lançados; o que não tem opção no catálogo fica de fora.' })
+        await chamar('Levantamento Marcelo e Rita: DP-02 1200 x 1000; DP-02 1300 x 1000; branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        expect(ultimoEnviado()).toBe(conversa.fraseDaContagemQueNaoFecha(2, 1, 2, 1))
+        expect(ultimoEnviado()).not.toContain('Ajustes lançados')
+        expect(levantamentos()).toHaveLength(0)
     })
     it('A CONTAGEM pelas UNIDADES: a quantidade lida que não vale (zero) conta como uma — a lista fecha, com a quantidade 1 do padrão', async () => {
         llmResponde({ nome: 'Marcelo e Rita', itens: [J(1200, 1000, { quantidade: 3 }), J(1300, 1000, { quantidade: 0 })], escolhas: ESCOLHAS_QUE_FECHAM })

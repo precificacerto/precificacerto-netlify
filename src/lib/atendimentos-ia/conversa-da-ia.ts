@@ -250,6 +250,8 @@ const EM_MONTAGEM = 'EM_MONTAGEM'
 const COMPLETO = 'COMPLETO'
 const wuzapi = () => (process.env.WUZAPI_BASE_URL || 'https://usapi.adabtech.shop').replace(/\/$/, '')
 
+/** Os desfechos cuja resposta diz que NADA foi gravado: a `fala` do modelo ("Ajustes lançados") não os abre (0046). */
+const DESFECHOS_SEM_FALA: ReadonlySet<string> = new Set(['contagem-nao-fecha'])
 export type DesfechoDaIa =
     | 'sem-chave' | 'sem-saldo' | 'erro-da-llm' | 'recusa' | 'sem-proposta' | 'sem-tipologias'
     /** A resposta do modelo foi cortada pelo limite de saída e as continuações não fecharam a lista (24/11/2026): nunca "não respondeu". */
@@ -1507,7 +1509,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         }
     }
     const responder = async (textoDaResposta: string, desfecho: DesfechoDaIa, detalhe = '', comAbertura = true): Promise<DesfechoDaIa> => {
-        const texto = comAbertura && abertura ? `${abertura}\n\n${textoDaResposta}` : textoDaResposta
+        // UMA SÓ RESPOSTA, VERDADEIRA (pedido 0046): a `fala` do modelo abre a resposta do código ("Ajustes lançados…"), e o modelo não sabe o que o código
+        // gravou. Onde a resposta diz que NADA foi gravado ou que falta dado, a fala não a antecede — ela contradiria o resto
+        const texto = comAbertura && abertura && !DESFECHOS_SEM_FALA.has(desfecho) ? `${abertura}\n\n${textoDaResposta}` : textoDaResposta
         const envio = await enviarTexto(c.wuzapiToken, c.telefone, texto)
         await gravar(texto, envio.ok ? envio.id : null)
         if (!envio.ok) return fim('envio-falhou', `status_envio=${statusDoEnvio(envio)}${detalhe ? ` ${detalhe}` : ''}`)
@@ -2286,7 +2290,29 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             const correspondentes = destinos === null ? 0 : destinos.filter((d) => d.tipo === 'alterar' || (d.tipo === 'ambiguo' && d.ordem !== null)).length
             return correspondentes >= Math.max(2, alvo.itens.length - 1) || (inteirasDaLista >= 3 && inteirasDaLista >= alvo.itens.length - 1)
         })()
-        const reformulacao = (intencao === null && listaCompleta) || (intencao === 'alterar' && alvo !== null && (inteirasDaLista >= 3 || inteirasDaLista >= alvo.itens.length))
+        // ALTERAÇÃO POR NÚMERO NUNCA É LISTA NOVA (dono do produto, 27/11/2026; pedido 0046 — o levantamento 31: "Item 2 …; Item 3 …; Item 4 …" foi lido
+        // como a lista inteira, SUBSTITUIU os onze itens por dez e o agente respondeu que nada foi gravado): a mensagem que cita um levantamento que
+        // existe e traz TODOS os itens pelo número que eles têm lá é alteração, aplicada item a item sobre o que já existe; o que ela não cita, não muda. A TABELA DA FOTO (a lista inteira reenviada, com a numeração dela) segue a regra de 25/11: substitui
+        // PARCIAL (cita menos que o levantamento tem, menos um) ou a ALTERAÇÃO DITA ("ajusta", "alteração, não é lista nova") por quem escreveu a mensagem agora.
+        // A lista que traz o levantamento de novo (todos, ou todos menos um) SEM o "alterar" dito, ou as esquadrias RETIDAS de uma tabela da foto, continuam
+        // a lista inteira (25/11/2026): substitui
+        const porNumero = alvo !== null && alvo.itens.length > 0 && emEspera.length > 0 && emEspera.every((e) => {
+            const n = numeroDoItem(e)
+            return n !== null && alvo.itens.some((i) => i.ordem === n)
+        }) && (new Set(emEspera.map((e) => numeroDoItem(e))).size < alvo.itens.length - 1 || (intencao === 'alterar' && retidas.length === 0))
+        // A TIPOLOGIA QUE O VENDEDOR NÃO ESCREVEU não troca a do item (0046 — o 31: a porta de correr com persiana DP-69 virou DP-71, e a de giro DP-155 virou
+        // DP-151, porque o modelo escolheu pela descrição): na alteração por número, o código que o modelo propõe para o item que o vendedor REAPRESENTA com as mesmas medidas, e que NÃO está escrito na mensagem, não vale. ("troca para maxim-ar", sem as medidas, continua trocando)
+        if (porNumero && alvo !== null) {
+            const escrito = c.texto.toUpperCase().replace(/\s+/g, '')
+            const naoEscrita = (e: Record<string, unknown>) => {
+                const n = numeroDoItem(e)
+                const doItem = n === null ? undefined : alvo.itens.find((i) => i.ordem === n)
+                return typeof e.tipologia === 'string' && e.tipologia !== '' && doItem?.tipologia && e.tipologia !== doItem.tipologia && e.largura_mm === doItem.largura_mm && e.altura_mm === doItem.altura_mm && !escrito.includes(e.tipologia.toUpperCase().replace(/\s+/g, ''))
+            }
+            for (const e of emEspera) if (naoEscrita(e)) delete (e as Record<string, unknown>).tipologia
+            for (const raw of juncao.itens) if (raw && typeof raw === 'object' && naoEscrita(raw as Record<string, unknown>)) delete (raw as Record<string, unknown>).tipologia
+        }
+        const reformulacao = !porNumero && ((intencao === null && listaCompleta) || (intencao === 'alterar' && alvo !== null && (inteirasDaLista >= 3 || inteirasDaLista >= alvo.itens.length)))
         if (alvo !== null && rastro.rota !== 'MONTAGEM' && alvo.itens.length > 0 && reformulacao && ehListaInteira(emEspera)) intencao = 'substituir'
         // em MONTAGEM, a mensagem completa a esquadria que está sendo montada (a regra de sempre); a esquadria RETIDA, que esperava o levantamento,
         // pergunta também ali
@@ -2345,7 +2371,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // e as linhas que não voltam saem na gravação (`gravarLevantamento`: o DELETE conferido das que sumiram)
         const substituir = alvo !== null && intencao === 'substituir'
         // o item que a esquadria INTEIRA altera é refeito (pedido 0028): nada do antigo daquele item sobra — nem o vidro, nem as escolhas
-        const atuais = alvo && !substituir ? alvo.itens.map((i) => (refazer.has(i.ordem) ? itemVazio(i.ordem) : i)) : [itemVazio(1)]
+        // o item REFEITO, na alteração POR NÚMERO, leva a cor do perfil e o vidro que já tinha: a mensagem de alteração não os repete (pedido 0046 — o levantamento 31 voltou
+        // BRANCO em todos os itens porque a cor da conversa, o PRETO LISO, não estava escrita na linha do item). O que ela disser, vale
+        const atuais = alvo && !substituir ? alvo.itens.map((i) => (refazer.has(i.ordem) ? (porNumero ? { ...itemVazio(i.ordem), cor_perfil: i.cor_perfil, vidro: i.vidro } : itemVazio(i.ordem)) : i)) : [itemVazio(1)]
         if (itensDistinguidos !== null) efetiva.itens = itensDistinguidos
         // A AUTORIZAÇÃO DA MEDIDA FORA DO LIMITE (dono do produto, 18/11/2026, decisão 1): o pedido e a liberação gravados nos itens do levantamento
         const limites: Map<number, LimiteDoItem> | 'sem_migracao' = !alvo ? await limitesDisponiveis(c.tenantId)
