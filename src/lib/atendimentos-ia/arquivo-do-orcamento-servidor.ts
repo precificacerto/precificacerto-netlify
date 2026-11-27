@@ -27,6 +27,8 @@ import { contextoDaFolhaDaEmpresa } from './conversa-da-ia'
 import { corDoAcessorio, trilhosParaADescricao, variaveisDitas } from './arquivo-do-levantamento'
 import { desenhoDaTipologia, linhaDosAmbientes, variavelNaFolha } from './folha-do-levantamento'
 import { escolhasDescritas, lerEscolhasDoItem, paraOAgente } from './escolhas-da-tipologia'
+import { escolhasDoCalculo } from './fronteira-das-escolhas'
+import type { Tipologia } from './avaliador-de-formulas'
 import { ARREMATE_NAO_DEFINIDO } from './apanhado'
 import { traduzirPolitica, type PoliticaDaEmpresa } from './politica-da-empresa'
 import { lerPoliticaDaEmpresa } from './politica-da-empresa-servidor'
@@ -69,7 +71,8 @@ export function tipoDoTelefone(telefone: string): 'celular' | 'fixo' {
  * As definições de instalação e arremate de um item (4.2): a efetiva de cada variável capturada — a do vendedor ou, sem ela, a da POLÍTICA DA
  * EMPRESA, com "(política da empresa)" (20/11/2026: o padrão do motor nunca é o que se diz que vale; a que ninguém definiu sai como não definida).
  */
-export function definicoesDoItem(def: Parameters<typeof escolhasDescritas>[0], escolhas: Parameters<typeof escolhasDescritas>[1], politica: PoliticaDaEmpresa = {}, codigo = ''): string[] {
+export function definicoesDoItem(def: Parameters<typeof escolhasDescritas>[0], escolhas: Parameters<typeof escolhasDescritas>[1], politica: PoliticaDaEmpresa = {}, codigo = '',
+    larguraMm: number | null = null, cor: string | null = null): string[] {
     const semPadrao = paraOAgente(def)
     const daPolitica: Record<string, number> = {}
     const naoUsa = new Set<string>()
@@ -79,7 +82,12 @@ export function definicoesDoItem(def: Parameters<typeof escolhasDescritas>[0], e
         if (t && 'valor' in t) daPolitica[v.variavel] = t.valor
         else if (t && 'semAPeca' in t) naoUsa.add(v.variavel)
     }
-    return escolhasDescritas(semPadrao, { ...daPolitica, ...escolhas }).map((e) =>
+    // O ACIONAMENTO DA PERSIANA (pedido 0043): a regra da fronteira (manual por fita sem perguntar; a divisória pela largura nominal) decide AE, LA, LR e MD — o
+    // que o cálculo usa é o que o orçamento mostra
+    const doCalculo = def.variaveis.some((v) => v.variavel === 'AE') ? escolhasDoCalculo(def as unknown as Tipologia, escolhas as Record<string, number>, politica, null, cor, larguraMm).escolhas : {}
+    const acionamento: Record<string, number> = {}
+    for (const k of ['AE', 'LA', 'LR', 'MD']) if (doCalculo[k] !== undefined) acionamento[k] = doCalculo[k]
+    return escolhasDescritas(semPadrao, { ...daPolitica, ...acionamento, ...escolhas }, Object.fromEntries(Object.keys(escolhas).map((k) => [k, 'vendedor'])), larguraMm).map((e) =>
         `${e.descricao}: ${e.rotulo ?? (naoUsa.has(e.variavel) ? 'não usa' : ARREMATE_NAO_DEFINIDO)}${e.doVendedor ? (daPolitica[e.variavel] !== undefined ? ' (política da empresa)' : '') : naoUsa.has(e.variavel) ? ' (política da empresa)' : ''}`)
 }
 
@@ -113,7 +121,7 @@ export async function itensDoArquivo(tenantId: string, orcamentoId: string):
         const d = tipologia ? contexto.detalhe(tipologia, familia) : null
         // as definições de instalação e arremate (4.2): a efetiva de cada variável capturada, e "(padrão)" na que o vendedor não disse
         const def = tipologia ? contexto.definicao(base) : null
-        const definicoes = def ? definicoesDoItem(def, escolhas ?? {}, politica, tipologia ?? '') : []
+        const definicoes = def ? definicoesDoItem(def, escolhas ?? {}, politica, tipologia ?? '', numero(l.largura_mm), texto(l.cor_perfil)) : []
         const largura = numero(l.largura_mm)
         const altura = numero(l.altura_mm)
         const ambientes = Array.isArray(l.ambientes) && l.ambientes.length ? linhaDosAmbientes({ ambientes: l.ambientes as AmbienteDaFolha[] }) : null

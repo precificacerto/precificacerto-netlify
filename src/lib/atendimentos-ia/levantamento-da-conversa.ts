@@ -1200,7 +1200,7 @@ async function calcularFamilia(
     // A PERSIANA PELA COR (pedido 0038): `PELA_COR:<item>:<tipologia>:PP=45/pela_cor` — o modelo que a cor pediu, no lugar do padrão do motor
     rastro.push(...dg.esquadrias.flatMap((e, k) => Object.entries(decididas[k].origem).filter(([, o]) => o === 'pela_cor').map(([v]) => `PELA_COR:${e.numero}:${e.tipologia}:${v}=${decididas[k].escolhas[v]}/pela_cor`)))
     const escolhas = decididas.map((x) => x.escolhas)
-    dg.esquadrias.forEach((e, k) => { if (lidas[e.tipologia]) e.escolhas = descreverArremate(lidas[e.tipologia], escolhas[k], decididas[k].origem) })
+    dg.esquadrias.forEach((e, k) => { if (lidas[e.tipologia]) e.escolhas = descreverArremate(lidas[e.tipologia], escolhas[k], decididas[k].origem, e.largura_mm) })
     const voltas = dg.esquadrias.flatMap((e, k) => decididas[k].voltas.map((v) => faltaComEsquadrias(v.frase, [e.numero], d.esquadrias.length, e.tipologia)))
     if (voltas.length) { faltas.push(...voltas); codigos.push(`VOLTA_AO_AGENTE:${voltas.length}`) }
     if (faltas.length) return { faltas, rotulos, codigos, caminhos: [], rastro }
