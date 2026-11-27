@@ -29,18 +29,20 @@ function cliente() {
             const filtros: Array<[string, unknown]> = []
             let op = 'select'
             let carga: unknown
+            let colunas = ''
             const q: Record<string, unknown> = {}
             const rodar = () => {
                 estado.ops.push({ tabela, op, carga, filtros })
                 // a gravação dos tributos manuais (0044) é um update À PARTE, com a sua própria falha injetável
                 const soTributos = op === 'update' && carga !== null && typeof carga === 'object' && Object.keys(carga as object).join() === 'tributos_manuais'
-                const erro = soTributos && estado.erros['tributos_manuais:update'] ? estado.erros['tributos_manuais:update'] : estado.erros[`${tabela}:${op}`]
+                const soLeituraDosTributos = op === 'select' && colunas === 'tributos_manuais'
+                const erro = soLeituraDosTributos && estado.erros['tributos_manuais:select'] ? estado.erros['tributos_manuais:select'] : soTributos && estado.erros['tributos_manuais:update'] ? estado.erros['tributos_manuais:update'] : estado.erros[`${tabela}:${op}`]
                 if (erro) return Promise.resolve({ data: null, error: erro })
                 const r = (estado.db[tabela] ?? []).filter((l) => filtros.every(([c, v]) => (v === NULO ? (l[c] ?? null) === null : l[c] === v)))
                 if (op === 'update') r.forEach((l) => Object.assign(l, carga as Linha))
                 return Promise.resolve({ data: r.map((l) => ({ ...l })), error: null })
             }
-            q.select = () => q
+            q.select = (c?: string) => { colunas = c ?? ''; return q }
             q.order = () => q
             q.limit = () => q
             q.in = () => q
@@ -299,6 +301,17 @@ describe('(4) a rota da precificação', () => {
         expect(e[0].carga).toMatchObject({ editado_manualmente_por: 'usuario' })
         expect((e[0].carga as Linha).editado_manualmente_em).toBe((e[0].carga as Linha).atualizado_em)
         expect(r.corpo.fiscal_sobrescrito).toEqual([])
+    })
+    it('0044: GET traz os tributos manuais gravados; com a coluna ainda não aplicada, a leitura segue (nulo) e NÃO falha', async () => {
+        montar({ tributos_manuais: { icms: { pct: 12 }, cbs: { pct: 500 } } })
+        const r = await chamar('GET', ID)
+        expect(r.status).toBe(200)
+        expect((r.corpo.orcamento as Record<string, unknown>).tributos_manuais).toEqual({ icms: { pct: 12 } })
+        montar()
+        estado.erros['tributos_manuais:select'] = { code: '42703', message: 'column tributos_manuais does not exist' }
+        const s = await chamar('GET', ID)
+        expect(s.status).toBe(200)
+        expect((s.corpo.orcamento as Record<string, unknown>).tributos_manuais).toBeNull()
     })
     it('0044: PATCH sem falar nos tributos manuais NÃO os toca (uma escrita só, sem a chave)', async () => {
         montar()
