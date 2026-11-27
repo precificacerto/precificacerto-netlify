@@ -614,6 +614,19 @@ describe('(E) AS DECISÕES DE 11/11/2026 — a interna gravada, a faixa dos iten
         expect(g.valor_operacao_interna).toBeGreaterThan(0)
         expect(Math.round(g.valor_operacao_interna * 100)).toBeLessThanOrEqual(Math.round(g.valor_venda * 100))
     })
+    it('0052 — na página do orçamento a tabela dos itens NÃO se repete dentro da precificação (os itens com custo são a seção de cima); a margem, os itens precificados e o link ficam', async () => {
+        const link = <a href="/api/atendimentos-ia/orcamentos/o-1/arquivo" data-abrir-arquivo="">Abrir PDF do orçamento</a>
+        const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn(), itensDoArquivo: ITENS_DO_ARQUIVO, rodapeDoOrcamento: link, semTabelaDeItens: true })
+        const cabecalhos = Array.from(host.querySelectorAll('thead th')).map((t) => (t.textContent ?? '').trim())
+        expect(cabecalhos).not.toContain('Bruto')
+        expect(cabecalhos).not.toContain('Líquido')
+        expect(botao(host, 'Salvar precificação do orçamento')).toBeDefined()
+        expect(host.querySelector('[data-itens-precificados]')).not.toBeNull()
+        expect(host.querySelector('[data-abrir-arquivo]')?.textContent).toBe('Abrir PDF do orçamento')
+        // o contraste: sem a prop (a página /precificacao), a tabela dos itens continua
+        const atalho = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn(), itensDoArquivo: ITENS_DO_ARQUIVO })
+        expect(Array.from(atalho.querySelectorAll('thead th')).map((t) => (t.textContent ?? '').trim())).toEqual(expect.arrayContaining(['Bruto', 'Líquido']))
+    })
     it('A ORDEM DO FIM DA TELA (dono do produto, 11/11/2026, revisada depois de ver a tela): o botão, ABAIXO dele os itens precificados, ABAIXO deles o link do PDF', async () => {
         const link = <a href="/api/atendimentos-ia/orcamentos/o-1/arquivo" data-abrir-arquivo="">Abrir o último arquivo do orçamento (PDF)</a>
         const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn(), itensDoArquivo: ITENS_DO_ARQUIVO, rodapeDoOrcamento: link })

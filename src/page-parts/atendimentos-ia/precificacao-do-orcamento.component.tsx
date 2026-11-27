@@ -34,7 +34,7 @@ async function recusasDaResposta(r: Response, geral: string): Promise<string[]> 
  * quando o orçamento é recalculado: o bloco relê o gravado e remonta, e o que estava só na tela (sem salvar) cai, como sempre depois de um cálculo.
  * `aoMudarOArquivo` avisa a página depois do salvar (já com o produto gravado) e do recálculo: o arquivo PDF foi regerado, e o visualizador relê.
  */
-export function PrecificacaoDoOrcamento({ id, sinal = 0, aoMudarOArquivo, comLinkDoArquivo = true }: { id: string | null; sinal?: number; aoMudarOArquivo?: () => void; comLinkDoArquivo?: boolean }) {
+export function PrecificacaoDoOrcamento({ id, sinal = 0, aoMudarOArquivo, comLinkDoArquivo = true, naPaginaDoOrcamento = false }: { id: string | null; sinal?: number; aoMudarOArquivo?: () => void; comLinkDoArquivo?: boolean; naPaginaDoOrcamento?: boolean }) {
     const { currentUser } = useAuth()
     const [messageApi, contextHolder] = message.useMessage()
     const [estado, setEstado] = useState<Estado>({ tipo: 'carregando' })
@@ -103,7 +103,7 @@ export function PrecificacaoDoOrcamento({ id, sinal = 0, aoMudarOArquivo, comLin
                         message="A precificação foi salva, mas o arquivo do orçamento não saiu:"
                         description={<ul style={{ margin: 0, paddingLeft: 18 }}>{recusasDoArquivo.map((f) => <li key={f}>{f}</li>)}</ul>} />
                 )}
-                {estado.tipo === 'pronto' && estado.cliente && <TopoDoOrcamento cliente={estado.cliente} />}
+                {estado.tipo === 'pronto' && estado.cliente && !naPaginaDoOrcamento && <TopoDoOrcamento cliente={estado.cliente} />}
                 {estado.tipo === 'pronto' && <AvisoDoFiscalDivergente divergencia={estado.fiscalDivergente} />}
                 {estado.tipo === 'pronto' && currentUser && (
                     <Content
@@ -121,7 +121,8 @@ export function PrecificacaoDoOrcamento({ id, sinal = 0, aoMudarOArquivo, comLin
                         onOrcamentoSalvo={() => { void carregar(); aoMudarOArquivo?.() }}
                         onRecalcularOrcamento={recalcular}
                         // o link do último PDF vai ao FIM da tela, abaixo dos itens precificados (dono do produto, 11/11/2026)
-                        rodapeDoOrcamento={id && comLinkDoArquivo ? <a href={`/api/atendimentos-ia/orcamentos/${id}/arquivo`} target="_blank" rel="noopener noreferrer" data-abrir-arquivo="">Abrir o último arquivo do orçamento (PDF)</a> : null}
+                        semTabelaDeItens={naPaginaDoOrcamento}
+                        rodapeDoOrcamento={id && comLinkDoArquivo ? <a href={`/api/atendimentos-ia/orcamentos/${id}/arquivo`} target="_blank" rel="noopener noreferrer" data-abrir-arquivo="">Abrir PDF do orçamento</a> : null}
                     />
                 )}
             </div>

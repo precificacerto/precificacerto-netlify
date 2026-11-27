@@ -8,9 +8,11 @@
  * O 1b (09/11/2026): "Calcular" passa as esquadrias pelo caminho completo e grava o custo no orçamento. O estado do cálculo gravado aparece aqui:
  * "cálculo incompleto — recalcule" quando algum item aponta um cálculo e o orçamento está sem os totais.
  *
- * UMA PÁGINA SÓ (pedido 0051, 27/11/2026, regra inviolável do dono do produto), de cima para baixo: 1) os ITENS, com o Calcular; 2) a PRECIFICAÇÃO,
- * logo abaixo — o mesmo bloco da tela de Produtos no modo orçamento, com os tributos das credenciais da empresa editáveis à mão (0044); 3) o ARQUIVO
- * PDF no fim, para ver e baixar, regerado a cada cálculo e a cada salvamento. A página `/precificacao` segue como atalho do mesmo bloco.
+ * UMA PÁGINA SÓ (pedidos 0051 e 0052, 27/11/2026, regra inviolável do dono do produto), de cima para baixo: 1) os ITENS COM CUSTO — por item o custo bruto,
+ * o líquido, o tempo e o valor da mão de obra e o total —, com o Calcular; 2) a PRECIFICAÇÃO pela margem de contribuição, o mesmo bloco da tela de Produtos
+ * no modo orçamento, com os tributos das credenciais editáveis à mão (0044); 3) os ITENS PRECIFICADOS, uma linha por item com o valor de venda; 4) no
+ * rodapé, só o LINK "Abrir PDF do orçamento" (o PDF é regerado a cada cálculo e a cada salvamento; a visualização embutida da 0051 saiu).
+ * A página `/precificacao` segue como atalho do mesmo bloco.
  */
 import { ROTULO_DA_ORIGEM_DO_PERCENTUAL, type ClienteDoLevantamento, type PercentualComZero, type PercentualNaTela } from '@/lib/atendimentos-ia/travessia-do-levantamento-plano'
 import React, { useCallback, useEffect, useState } from 'react'
@@ -24,7 +26,6 @@ import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { ROUTES } from '@/constants/routes'
 import { PrecificacaoDoOrcamento } from '@/page-parts/atendimentos-ia/precificacao-do-orcamento.component'
-import { ArquivoDoOrcamentoNaTela } from '@/page-parts/atendimentos-ia/arquivo-do-orcamento-na-tela.component'
 import { estadoDoCalculo, FRASE_DO_ESTADO, type EstadoDoCalculo, type OrcamentoNaPrecificacao } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
 
 type Item = {
@@ -60,6 +61,9 @@ type Estado =
     | { tipo: 'erro'; mensagem: string }
     | { tipo: 'pronto'; orcamento: Orcamento }
 
+type CustoDoItem = Pick<OrcamentoNaPrecificacao['itens'][number], 'custo_bruto_materiais' | 'custo_liquido_materiais' | 'tempo_fabricacao_min' | 'valor_minuto' | 'custo_fabricacao' | 'custo_liquido_total'>
+/** O valor ausente é "—", nunca R$ 0,00 (`ausente-vs-falso.md`). */
+export const dinheiroOuTraco = (v: number | null | undefined) => (v == null ? '—' : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }))
 const quando = (iso: string | null) => (iso ? new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—')
 let sequencia = 0
 const comChave = (i: Omit<Item, 'chave'>): Item => ({ ...i, chave: i.id ?? `novo-${++sequencia}` })
@@ -99,6 +103,8 @@ function OrcamentoIA() {
     const [salvando, setSalvando] = useState(false)
     const [erros, setErros] = useState<string[]>([])
     const [estadoDoCalculoGravado, setEstadoDoCalculoGravado] = useState<EstadoDoCalculo | null>(null)
+    // o custo gravado de cada item (0052): lido pela rota da precificação, que traz os valores do cálculo; ausente = ainda não calculado
+    const [custos, setCustos] = useState<Record<string, CustoDoItem>>({})
     const [calculando, setCalculando] = useState(false)
     const [recusasDoCalculo, setRecusasDoCalculo] = useState<string[]>([])
     // o cliente e o vendedor do orçamento do agente: LIDOS do levantamento de origem (nunca copiados); e as faltas do que ele congelou
@@ -110,19 +116,18 @@ function OrcamentoIA() {
     const [avisosDaTabela, setAvisosDaTabela] = useState<string[]>([])
     // `sinal` muda a cada cálculo e a cada salvamento: a precificação relê o gravado e o arquivo PDF é lido de novo (0051)
     const [sinal, setSinal] = useState(0)
-    const [sinalDoArquivo, setSinalDoArquivo] = useState(0)
     const [recusasDoArquivo, setRecusasDoArquivo] = useState<string[]>([])
-    const arquivoMudou = useCallback(() => setSinalDoArquivo((n) => n + 1), [])
 
     /** O estado do cálculo gravado, lido pela rota da precificação (ela traz os valores do cálculo). Sem ela, nada é dito. */
     const lerEstadoDoCalculo = useCallback(async () => {
         if (!id) return
         try {
             const r = await fetch(`/api/atendimentos-ia/orcamentos/${id}/precificacao`)
-            if (!r.ok) { setEstadoDoCalculoGravado(null); return }
+            if (!r.ok) { setEstadoDoCalculoGravado(null); setCustos({}); return }
             const { orcamento } = (await r.json()) as { orcamento: OrcamentoNaPrecificacao }
             setEstadoDoCalculoGravado(estadoDoCalculo(orcamento))
-        } catch { setEstadoDoCalculoGravado(null) }
+            setCustos(Object.fromEntries(orcamento.itens.map((i) => [i.id, i])))
+        } catch { setEstadoDoCalculoGravado(null); setCustos({}) }
     }, [id])
     useEffect(() => { void lerEstadoDoCalculo() }, [lerEstadoDoCalculo])
 
@@ -147,7 +152,6 @@ function OrcamentoIA() {
             setCalculando(false)
             void lerEstadoDoCalculo()
             setSinal((n) => n + 1)
-            arquivoMudou()
         }
     }
 
@@ -213,7 +217,14 @@ function OrcamentoIA() {
         { title: 'Quantidade', key: 'quantidade', width: 110, render: numero('quantidade', 'Quantidade') },
         { title: 'Cor do perfil', key: 'cor', width: 140, render: texto('cor_perfil', 'Cor do perfil') },
         { title: 'Vidro', key: 'vidro', width: 160, render: texto('vidro', 'Vidro') },
-        { title: 'Observação', key: 'obs', render: texto('obs', 'Observação') },
+        { title: 'Observação', key: 'obs', width: 200, render: texto('obs', 'Observação') },
+        // O CUSTO DE CADA ITEM (0052): o bruto e o líquido dos materiais, o tempo e o valor da mão de obra, e o total — só leitura, do cálculo gravado
+        { title: 'Custo bruto', key: 'custo-bruto', width: 120, align: 'right', render: (_: unknown, i: Item) => dinheiroOuTraco(i.id ? custos[i.id]?.custo_bruto_materiais : null) },
+        { title: 'Custo líquido', key: 'custo-liquido', width: 120, align: 'right', render: (_: unknown, i: Item) => dinheiroOuTraco(i.id ? custos[i.id]?.custo_liquido_materiais : null) },
+        { title: 'Tempo (min)', key: 'tempo', width: 100, align: 'right', render: (_: unknown, i: Item) => { const t = i.id ? custos[i.id]?.tempo_fabricacao_min : null; return t == null ? '—' : t.toLocaleString('pt-BR') } },
+        { title: 'Valor do minuto', key: 'valor-minuto', width: 120, align: 'right', render: (_: unknown, i: Item) => dinheiroOuTraco(i.id ? custos[i.id]?.valor_minuto : null) },
+        { title: 'Mão de obra', key: 'mao-de-obra', width: 120, align: 'right', render: (_: unknown, i: Item) => dinheiroOuTraco(i.id ? custos[i.id]?.custo_fabricacao : null) },
+        { title: 'Total', key: 'custo-total', width: 120, align: 'right', render: (_: unknown, i: Item) => dinheiroOuTraco(i.id ? custos[i.id]?.custo_liquido_total : null) },
     ]
 
     const voltar = <Link href={ROUTES.ATENDIMENTOS_IA_ORCAMENTOS}><ArrowLeftOutlined /> Orçamentos I.A.</Link>
@@ -267,8 +278,8 @@ function OrcamentoIA() {
                             <Alert type="warning" showIcon data-faltas-do-congelado="" message="O levantamento não tinha tudo o que muda o preço:"
                                 description={<ul style={{ margin: 0, paddingLeft: 18 }}>{faltas.map((f) => <li key={f}>{f}</li>)}</ul>} />
                         )}
-                        <Card size="small" title="Itens" extra={<Button size="small" icon={<PlusOutlined />} onClick={() => setItens((xs) => [...xs, itemNovo()])}>Adicionar item</Button>}>
-                            <Table rowKey="chave" columns={colunas} dataSource={itens} pagination={false} scroll={{ x: 960 }}
+                        <Card size="small" title="Itens com custo" extra={<Button size="small" icon={<PlusOutlined />} onClick={() => setItens((xs) => [...xs, itemNovo()])}>Adicionar item</Button>}>
+                            <Table rowKey="chave" columns={colunas} dataSource={itens} pagination={false} scroll={{ x: 1700 }}
                                 locale={{ emptyText: <Typography.Text type="secondary">Nenhum item ainda.</Typography.Text> }} />
                         </Card>
                         {estadoDoCalculoGravado !== null && estadoDoCalculoGravado !== 'completo' && (
@@ -286,12 +297,14 @@ function OrcamentoIA() {
                                 title="As barras inteiras do pedido, rateadas entre os itens na proporção do consumo de cada um">Calcular pelo pedido total</Button>
                             <Button type="primary" icon={<SaveOutlined />} loading={salvando} disabled={nome.trim() === ''} onClick={salvar}>Salvar</Button>
                         </div>
-                        {/* 2) A PRECIFICAÇÃO, logo abaixo dos itens (0051): só existe depois de um cálculo completo */}
+                        {/* 2) A PRECIFICAÇÃO pela margem de contribuição, 3) os itens precificados e 4) o link do PDF — tudo do bloco, nessa ordem (0051/0052); só existe depois de um cálculo completo */}
                         {estadoDoCalculoGravado === 'completo'
-                            ? <div data-bloco-da-precificacao=""><PrecificacaoDoOrcamento id={id} sinal={sinal} aoMudarOArquivo={arquivoMudou} comLinkDoArquivo={false} /></div>
+                            ? <div data-bloco-da-precificacao=""><PrecificacaoDoOrcamento id={id} sinal={sinal} naPaginaDoOrcamento /></div>
                             : <Alert type="info" showIcon data-sem-precificacao="" message="A precificação aparece aqui depois do cálculo: use Calcular." />}
-                        {/* 3) O ARQUIVO PDF, no fim da página (0051) */}
-                        {id && <ArquivoDoOrcamentoNaTela id={id} numero={estado.orcamento.numero_exibido ?? estado.orcamento.numero} sinal={sinalDoArquivo} recusas={recusasDoArquivo} />}
+                        {recusasDoArquivo.length > 0 && (
+                            <Alert type="warning" showIcon data-recusas-do-arquivo-novo="" message="O arquivo PDF não foi regerado:"
+                                description={<ul style={{ margin: 0, paddingLeft: 18 }}>{recusasDoArquivo.map((f) => <li key={f}>{f}</li>)}</ul>} />
+                        )}
                     </Space>
                 )}
             </div>
