@@ -13,6 +13,7 @@
  * Toda leitura e escrita leva o `tenant_id` do chamador.
  */
 import { supabaseAdmin } from '@/supabase/admin'
+import { FRASE_SEM_COLUNA_DOS_TRIBUTOS_MANUAIS, lerTributosManuais, validarTributosManuais, type TributosManuais } from './tributos-manuais'
 import { ratearOperacaoInterna } from './rateio-do-orcamento'
 import { gerarEGravarArquivo, lerDadosDoArquivo, type ArquivoGravado } from './arquivo-do-orcamento-servidor'
 import { ErroDeValidacao, ErroNaoEncontrado, ErroSemMigracao, TABELA_DO_ITEM, TABELA_DO_ORCAMENTO, tabelaAusente } from './orcamentos-ia'
@@ -62,10 +63,12 @@ export async function lerOrcamentoParaPrecificar(tenantId: string, id: string): 
         .eq('tenant_id', tenantId).eq('orcamento_id', id).is('removido_em', null).order('ordem')
     if (e2) falhou(TABELA_DO_ITEM, e2)
     const o = data as Record<string, unknown>
+    const tributosManuais = await lerColunaDosTributosManuais(tenantId, id)
     const linhas = (itens ?? []) as Array<Record<string, unknown>>
     const familiaDe = (i: Record<string, unknown>) => (typeof i.familia === 'string' && i.familia !== '' ? i.familia : null)
     return {
         ...(o as unknown as OrcamentoNaPrecificacao),
+        tributos_manuais: tributosManuais,
         ...Object.fromEntries(NUMERICOS_DO_ORCAMENTO.map((c) => [c, numeroOuNulo(o[c])])),
         itens: linhas.map((i) => ({
             ...(i as unknown as ItemNaPrecificacao),
@@ -73,6 +76,19 @@ export async function lerOrcamentoParaPrecificar(tenantId: string, id: string): 
         })),
         formato: await formatoLidoDoOrcamento(tenantId, linhas.map((i) => ({ ordem: Number(i.ordem), familia: familiaDe(i) }))),
     }
+}
+
+/**
+ * Os tributos editados a mão (0044), lidos À PARTE do select principal: com a coluna ainda não aplicada (42703/PGRST204) a leitura do orçamento
+ * segue como sempre e os tributos são os das credenciais (nulo) — nunca um erro. Qualquer outra falha é falha.
+ */
+export async function lerColunaDosTributosManuais(tenantId: string, id: string): Promise<TributosManuais | null> {
+    const { data, error } = await db().from(TABELA_DO_ORCAMENTO).select('tributos_manuais').eq('tenant_id', tenantId).eq('id', id).maybeSingle()
+    if (error) {
+        if (colunaAusente(error)) return null
+        throw new Error(`${TABELA_DO_ORCAMENTO}: ${error.message}`)
+    }
+    return lerTributosManuais((data as Record<string, unknown> | null)?.tributos_manuais)
 }
 
 /** O formato das famílias dos itens, lido da base de conhecimento DESTA empresa (23/11/2026). Instâncias da mesma família com formatos diferentes: recusa. */
@@ -120,6 +136,12 @@ export function validarGravacao(corpo: Record<string, unknown>): GravacaoDaPreci
         reserva_tecnica_percentual: percentual(corpo.reserva_tecnica_percentual, 'Reserva técnica', erros),
         lucro_projetado_percentual: percentual(corpo.lucro_projetado_percentual, 'Lucro', erros),
     }
+    // os tributos editados a mão (0044): só se a tela falou neles; `null` limpa. Recusa nomeia o tributo.
+    const manuais = validarTributosManuais(corpo.tributos_manuais)
+    if (manuais.tocado) {
+        if ('erros' in manuais) erros.push(...manuais.erros)
+        else g.tributos_manuais = manuais.tributos
+    }
     if (erros.length) throw new ErroDeValidacao(erros)
     return g
 }
@@ -157,19 +179,39 @@ export async function gravarPrecificacao(tenantId: string, id: string, corpo: Re
     // o formato que não vale (23/11/2026): o preço não se grava com o tipo de produto errado
     if ('recusa' in orc.formato) throw new ErroDoEstado(`Falta: ${orc.formato.recusa}.`)
     const sobrescrito = fiscalDivergente(orc)
+    // `tributos_manuais` é gravado À PARTE do preço (a coluna pode não existir ainda): o preço nunca depende dela
+    const { tributos_manuais: manuaisDaTela, ...gDoPreco } = g
     const { data, error } = await db().from(TABELA_DO_ORCAMENTO)
         // o AGENTE (autor nulo, a cadeia do "sim") não é edição manual: a marca fica como está
-        .update({ ...g, atualizado_em: agora.toISOString(), ...(autor ? { editado_manualmente_em: agora.toISOString(), editado_manualmente_por: autor } : {}) })
+        .update({ ...gDoPreco, atualizado_em: agora.toISOString(), ...(autor ? { editado_manualmente_em: agora.toISOString(), editado_manualmente_por: autor } : {}) })
         .eq('tenant_id', tenantId).eq('id', id).select('id')
     if (error) {
         if (error.code === '23514') throw new ErroDeValidacao([`O orçamento não aceitou a precificação: ${error.message}`])
         falhou(TABELA_DO_ORCAMENTO, error)
     }
     if (!data || data.length !== 1) throw new Error(`${TABELA_DO_ORCAMENTO}: o orçamento ${id} não foi atingido ao gravar a precificação`)
+    if (manuaisDaTela !== undefined) await gravarTributosManuais(tenantId, id, manuaisDaTela)
     // o rastro do que foi sobrescrito: stderr, que é o que o log da Vercel deste projeto mostra (`orcamentista-da-empresa.ts`)
     if (sobrescrito.length) console.error(`${PREFIXO_DO_RASTRO_DA_PRECIFICACAO} orcamento=${id} fiscal_sobrescrito=${rastroDoFiscalSobrescrito(sobrescrito)}`)
     const gravado = await lerOrcamentoParaPrecificar(tenantId, id)
     return { orcamento: gravado, fiscalSobrescrito: sobrescrito, ...(await arquivoAoSalvar(tenantId, id, autor, g, gravado, agora)) }
+}
+
+/**
+ * Grava os tributos manuais. Sem a coluna: se a tela mandou NULO (nada editado) não há o que gravar e segue; se mandou edição, recusa
+ * NOMEADA — o preço já está salvo e a frase diz que a edição manual não foi guardada (nunca finge que guardou).
+ */
+async function gravarTributosManuais(tenantId: string, id: string, valor: TributosManuais | null): Promise<void> {
+    const { data, error } = await db().from(TABELA_DO_ORCAMENTO).update({ tributos_manuais: valor }).eq('tenant_id', tenantId).eq('id', id).select('id')
+    if (error) {
+        if (colunaAusente(error)) {
+            if (valor === null) return
+            throw new ErroDeValidacao([FRASE_SEM_COLUNA_DOS_TRIBUTOS_MANUAIS])
+        }
+        if (error.code === '23514') throw new ErroDeValidacao([`O orçamento não aceitou os tributos manuais: ${error.message}`])
+        throw new Error(`${TABELA_DO_ORCAMENTO}: ${error.message}`)
+    }
+    if (!data || data.length !== 1) throw new Error(`${TABELA_DO_ORCAMENTO}: o orçamento ${id} não foi atingido ao gravar os tributos manuais`)
 }
 
 /**

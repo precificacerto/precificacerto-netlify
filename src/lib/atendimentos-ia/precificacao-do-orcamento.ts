@@ -23,6 +23,7 @@
  *     contribuinte voltam num PR próprio — hoje não há caminho manual, de propósito. `faltasDoFiscal` continua conferindo a forma (a CHECK
  *     `orcamentista_orcamento_uf_destino_do_escopo` e a do NCM), e o preset passa nela.
  */
+import type { TributosManuais } from './tributos-manuais'
 
 /** O item do orçamento como a precificação o lê: os valores que `calcularOrcamento` gravou (nulos antes do cálculo). */
 export type ItemNaPrecificacao = {
@@ -63,6 +64,8 @@ export type OrcamentoNaPrecificacao = {
     buyer_type: TipoDeComprador | null
     uf_destino: string | null
     itens: ItemNaPrecificacao[]
+    /** Tributos editados a mão (0044, 20261127000001); nulo = nada editado ou coluna ainda não aplicada. */
+    tributos_manuais?: TributosManuais | null
     /**
      * O FORMATO do orçamento (dono do produto, 23/11/2026): o das famílias dos itens — REVENDA espelha o produto de revenda da tela de produto
      * (sem mão de obra de produção, com a margem de contribuição); FABRICACAO é o de sempre. Sem formato que valha, a recusa nomeada.
@@ -302,6 +305,8 @@ export type GravacaoDaPrecificacao = FiscalDaTela & {
     comissao_percentual: number
     reserva_tecnica_percentual: number
     lucro_projetado_percentual: number
+    /** Só quando a tela falou nos tributos manuais: o objeto validado, ou null para limpar. Ausente = a gravação não os toca. */
+    tributos_manuais?: TributosManuais | null
 }
 
 /** Para onde o orçamento salvo vai como produto: a tabela do vendedor da conversa, ou o aviso nomeado de por que não vai (16/11/2026). */
