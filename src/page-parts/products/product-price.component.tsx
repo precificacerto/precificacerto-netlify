@@ -1,5 +1,5 @@
 import { ChangeEvent, FC, ReactNode, useEffect } from 'react'
-import { Card, Divider, Tooltip } from 'antd'
+import { Button, Card, Divider, Tag, Tooltip } from 'antd'
 import { CalculatorOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { PercentInput } from '@/components/percent-input.component'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
@@ -22,6 +22,23 @@ import { LoggedUser } from '@/types/logged-user.type'
 import { FormInstance } from 'antd/lib/form/Form'
 import { useDevice } from '@/contexts/device.context'
 import { faltasDosTributosPorDentro } from '@/utils/tributo-por-dentro-informado'
+import { ROTULO_DO_TRIBUTO_MANUAL, type ChaveDoTributoManual, type OrigemDoTributo, type SugeridosDasCredenciais } from '@/lib/atendimentos-ia/tributos-manuais'
+
+/**
+ * Tributos editáveis à mão no orçamento I.A. (pedido 0044, 27/11/2026). A decisão de 11/11/2026 fica: o valor SUGERIDO vem das credenciais
+ * da empresa; o usuário pode trocá-lo, o editado fica marcado "manual" e há um botão para voltar ao valor das credenciais. Sem esta prop
+ * (Produtos, e o orçamento sem edição liberada), nada muda na tela.
+ */
+export type TributosManuaisDaTela = {
+  origem: Record<ChaveDoTributoManual, OrigemDoTributo>
+  sugeridos: SugeridosDasCredenciais
+  /** O PIS/Cofins NOMINAL em uso (o manual, ou o da empresa): o campo editável; o efetivo sai dele × (1 − ICMS). */
+  pisCofinsNominal: number | null
+  onEditar: (chave: ChaveDoTributoManual, pct: number) => void
+  onVoltar: (chave: ChaveDoTributoManual) => void
+}
+/** Percentual com vírgula e ao menos duas casas (pedido 0044). */
+const pctBR = (n: number) => `${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%`
 
 /**
  * O que a tela de preço emite a cada preço formado, POR UNIDADE — UM tipo só, para os quatro pontos que o declaravam à mão (`copia-divergente.md`).
@@ -66,6 +83,8 @@ interface Props {
    * NCM ou de digitação na tela do orçamento. Com `true`, as quatro linhas são só leitura.
    */
   impostosDaEmpresa?: boolean
+  /** 0044: libera a edição manual dos tributos no orçamento, com a marca e o botão de voltar às credenciais. */
+  manuais?: TributosManuaisDaTela
   /* PC-BUG-FATOR-REDUCAO-002 Ponto 1: a redução do IVA Dual é aplicada SOBRE a alíquota
      bruta no cadastro (efetiva = bruta × (1 − redução)). Só IBS/CBS a sofrem.
 
@@ -137,6 +156,7 @@ export const ProductPrice: FC<Props> = ({
   cbsPct = 0,
   onCbsPctChange,
   impostosDaEmpresa = false,
+  manuais,
   isPct = 0,
   onIsPctChange,
   ipiPct = 0,
@@ -278,6 +298,29 @@ export const ProductPrice: FC<Props> = ({
     } as any)
   }
 
+  const sugeridoDaChave = (k: ChaveDoTributoManual): number | null => {
+    const g = manuais?.sugeridos
+    if (!g) return null
+    return { icms: g.icms, pis_cofins: g.pisCofinsNominal, ibs: g.ibs, cbs: g.cbs, is: g.is, ipi: g.ipi, reducao_ibs: g.reducaoIbs, reducao_cbs: g.reducaoCbs }[k]
+  }
+  /** A marca "manual" e o botão de voltar ao valor das credenciais (só quando o valor foi editado à mão). */
+  const marcaManual = (k: ChaveDoTributoManual): ReactNode => {
+    if (!manuais || manuais.origem[k] !== 'manual') return null
+    const sug = sugeridoDaChave(k)
+    return (
+      <span style={{ marginLeft: 6, whiteSpace: 'nowrap' }}>
+        <Tag color="orange" style={{ margin: 0 }}>manual</Tag>
+        <Button
+          size="small" type="link" style={{ padding: '0 4px', fontSize: 11 }}
+          aria-label={`Voltar ${ROTULO_DO_TRIBUTO_MANUAL[k]} ao valor das credenciais`}
+          onClick={() => manuais.onVoltar(k)}
+        >
+          {sug !== null ? `voltar ao valor das credenciais (${pctBR(sug)})` : 'voltar ao valor das credenciais'}
+        </Button>
+      </span>
+    )
+  }
+
   /**
    * Uma linha da precificação. Recebe a CHAVE, não os números: a % original, a % efetiva e o
    * R$ saem todos de `linhas`, que é a única fonte — passar os três à mão foi o que permitiu
@@ -352,6 +395,7 @@ export const ProductPrice: FC<Props> = ({
           ) : (
             label
           )}
+          {key === 'icms' && marcaManual('icms')}
         </td>
         {/* % EFETIVO — R5. Calculada, nunca editável: é a original convertida pelo `c`, e
             no PIS/COFINS é a exceção 2 lida do que o motor resolveu. Sem ela, a soma das
@@ -491,7 +535,7 @@ export const ProductPrice: FC<Props> = ({
             {showIrpjCsll && pricingRow('IRPJ (15% sobre lucro)', 'irpj', undefined, 'Imposto de Renda Pessoa Jurídica — calculado automaticamente como 15% sobre o valor do lucro. A porcentagem exibida representa quanto esse imposto ocupa no preço de venda.')}
             {showIrpjCsll && pricingRow('CSLL (9% sobre lucro)', 'csll', undefined, 'Contribuição Social sobre o Lucro Líquido — calculada automaticamente como 9% sobre o valor do lucro. A porcentagem exibida representa quanto esse imposto ocupa no preço de venda.')}
             {(isLucroReal || isLucroPresumed) && pricingRow('Alíq. adicional IRPJ', 'adicionalIrpj', 'additionalIrpj', 'Alíquota da parcela adicional do IRPJ. Calculada automaticamente com base no faturamento anual estimado.')}
-            {(isLucroReal || isLucroPresumed) && !isCalcTypeService && pricingRow('ICMS (%)', 'icms', impostosDaEmpresa ? undefined : 'icms', impostosDaEmpresa
+            {(isLucroReal || isLucroPresumed) && !isCalcTypeService && pricingRow('ICMS (%)', 'icms', impostosDaEmpresa && !manuais ? undefined : 'icms', impostosDaEmpresa && !manuais
               ? TOOLTIP_DO_IMPOSTO_DA_EMPRESA
               : 'ICMS sobre venda — informe manualmente conforme alíquota do seu produto.')}
             {(isLucroReal || isLucroPresumed) && pricingRow(
@@ -505,6 +549,25 @@ export const ProductPrice: FC<Props> = ({
                 : isLucroPresumed
                   ? 'PIS + COFINS cumulativo (3,65%) — calculado com base no ICMS (exclusão por dentro, STF RE 574.706). Editável.'
                   : 'PIS + COFINS não cumulativo — preenchido automaticamente a partir do NCM cadastrado (editável).',
+            )}
+            {/* 0044: o PIS/Cofins NOMINAL é o campo editável; o efetivo (linha acima) = nominal × (1 − ICMS), a base sem o ICMS. */}
+            {manuais && (isLucroReal || isLucroPresumed) && !isCalcTypeService && manuais.pisCofinsNominal !== null && (
+              <tr key="pis-cofins-nominal">
+                <td style={{ width: isMobile ? 92 : 140, padding: '6px 0' }}>
+                  <PercentInput
+                    size="small" min={0} max={100} showPercent={false}
+                    value={manuais.pisCofinsNominal}
+                    onChange={(v) => { if (v === null) manuais.onVoltar('pis_cofins'); else manuais.onEditar('pis_cofins', v) }}
+                    style={{ width: isMobile ? 88 : 110, fontSize: isMobile ? 12 : 13 }}
+                  />
+                </td>
+                <td colSpan={3} style={{ padding: isMobile ? '6px 6px' : '6px 12px', fontSize: isMobile ? 12 : 13 }}>
+                  PIS/Cofins nominal (%){marcaManual('pis_cofins')}
+                  <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                    {`efetivo ${pctBR(pisCofinsInformado ?? 0)} = nominal ${pctBR(manuais.pisCofinsNominal)} × (1 − ICMS ${pctBR(icmsPctInformado ?? 0)}); o ICMS fica fora da base`}
+                  </div>
+                </td>
+              </tr>
             )}
           </tbody>
         </table>
@@ -668,22 +731,24 @@ export const ProductPrice: FC<Props> = ({
                   L1 = campo de % (esq.) + fator (centro) + alíquota efetiva (borda direita);
                   L2 = valor em R$ resultante. Campo de % com largura IGUAL a IBS/CBS/IS/IPI
                   (88px mobile / 110px desktop) e fração monetária com o MESMO tamanho de fonte. */}
-              {ibsCbsRows.map(({ label, value, onChange, taxValue, reductionPct }) => {
+              {ibsCbsRows.map(({ tributo, label, value, onChange, taxValue, reductionPct }) => {
+                const chaveDoTributo: ChaveDoTributoManual = tributo === 'IBS' ? 'ibs' : 'cbs'
+                const chaveDaReducao: ChaveDoTributoManual = tributo === 'IBS' ? 'reducao_ibs' : 'reducao_cbs'
                 const hasReduction = reductionPct != null && Number(reductionPct) > 0
                 const effective = hasReduction && value > 0
                   ? (resolveIvaDualEffectiveRate(value, reductionPct) || 0)
                   : null
                 return (
                   <div key={label} style={{ padding: '6px 0', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                    <div style={{ fontSize: 13, color: '#cbd5e1', marginBottom: 4 }}>{label}</div>
+                    <div style={{ fontSize: 13, color: '#cbd5e1', marginBottom: 4 }}>{label}{marcaManual(chaveDoTributo)}</div>
                     {/* L1: % (esq.) · fator (centro) · efetiva (dir.) */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                       <PercentInput
                         size="small" min={0} max={100}
                         showPercent={false}
                         value={value}
-                        disabled={impostosDaEmpresa}
-                        onChange={(v) => onChange?.(v ?? 0)}
+                        disabled={impostosDaEmpresa && !manuais}
+                        onChange={(v) => { if (manuais && v === null) manuais.onVoltar(chaveDoTributo); else onChange?.(v ?? 0) }}
                         style={{ width: isMobile ? 88 : 110, fontSize: isMobile ? 12 : 13, flex: '0 0 auto' }}
                       />
                       {effective != null && (
@@ -697,6 +762,22 @@ export const ProductPrice: FC<Props> = ({
                         </>
                       )}
                     </div>
+                    {/* 0044: o fator de redução SEMPRE visível ao lado, editável, com a efetiva = alíquota × (1 − redução) */}
+                    {manuais && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' as const }}>
+                        <span style={{ fontSize: 11, color: '#94a3b8' }}>Fator de redução</span>
+                        <PercentInput
+                          size="small" min={0} max={100} showPercent={false}
+                          value={reductionPct != null ? Number(reductionPct) : 0}
+                          onChange={(v) => { if (v === null) manuais.onVoltar(chaveDaReducao); else manuais.onEditar(chaveDaReducao, v) }}
+                          style={{ width: isMobile ? 88 : 110, fontSize: isMobile ? 12 : 13 }}
+                        />
+                        {marcaManual(chaveDaReducao)}
+                        <span style={{ fontSize: 11, color: '#4ade80', fontWeight: 600 }}>
+                          {`efetiva ${pctBR(value * (1 - (reductionPct != null ? Number(reductionPct) : 0) / 100))} = ${pctBR(value)} × (1 − ${pctBR(reductionPct != null ? Number(reductionPct) : 0)})`}
+                        </span>
+                      </div>
+                    )}
                     {/* L2: valor R$ resultante (borda direita) */}
                     <div style={{ textAlign: 'right' as const, fontSize: 12, fontWeight: 600, color: taxValue > 0 ? '#4ade80' : '#64748b', marginTop: 4 }}>
                       {fmt(taxValue)}
@@ -729,15 +810,15 @@ export const ProductPrice: FC<Props> = ({
               </div>
               {/* Doc 28/07 (item 43): mesmo layout de 3 linhas (L1 título, L2 alíquota menor sem "%",
                   L3 valor R$). IS/IPI não sofrem fator de redução, então sem linha cheia→efetiva. */}
-              {isIpiRows.map(({ label, value, onChange, taxValue }) => (
+              {isIpiRows.map(({ tributo, label, value, onChange, taxValue }) => (
                 <div key={label} style={{ padding: '6px 0', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                  <div style={{ fontSize: 13, color: '#cbd5e1', marginBottom: 4 }}>{label}</div>
+                  <div style={{ fontSize: 13, color: '#cbd5e1', marginBottom: 4 }}>{label}{marcaManual(tributo === 'IS' ? 'is' : 'ipi')}</div>
                   <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: 8 }}>
                     <PercentInput
                       size="small" min={0} max={100}
                       showPercent={false}
                       value={value}
-                      onChange={(v) => onChange?.(v ?? 0)}
+                      onChange={(v) => { if (manuais && v === null) manuais.onVoltar(tributo === 'IS' ? 'is' : 'ipi'); else onChange?.(v ?? 0) }}
                       style={{ width: isMobile ? 88 : 110, fontSize: isMobile ? 12 : 13 }}
                     />
                   </div>

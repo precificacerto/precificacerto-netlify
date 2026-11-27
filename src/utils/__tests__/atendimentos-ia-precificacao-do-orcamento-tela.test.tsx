@@ -478,13 +478,16 @@ describe('(F) A EMPRESA É A FONTE ÚNICA DOS IMPOSTOS, e o fiscal é invisível
     })
     const linha = (host: HTMLElement, rotulo: string) =>
         Array.from(host.querySelectorAll('tr')).find((tr) => Array.from(tr.querySelectorAll('td')).some((td) => (td.textContent ?? '').trim() === rotulo)) as HTMLElement | undefined
-    it('ICMS e PIS/COFINS são os da empresa, SÓ LEITURA no orçamento; no produto continuam editáveis', async () => {
+    it('ICMS e PIS/COFINS vêm da empresa como SUGERIDO e são editáveis à mão (0044, 27/11/2026): o ICMS e o PIS/Cofins NOMINAL têm campo; o efetivo é só leitura; no produto continuam editáveis', async () => {
         const doOrcamento = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn() })
-        for (const r of ['ICMS (%)', 'PIS/Cofins (%)']) {
-            const tr = linha(doOrcamento, r)
-            expect(tr).toBeDefined()
-            expect(tr!.querySelector('input')).toBeNull()
-        }
+        expect(linha(doOrcamento, 'ICMS (%)')).toBeDefined()
+        expect(linha(doOrcamento, 'ICMS (%)')!.querySelector('input')).not.toBeNull()
+        // o PIS/Cofins EFETIVO (nominal × (1 − ICMS)) é calculado: sem campo; o editável é o NOMINAL
+        expect(linha(doOrcamento, 'PIS/Cofins (%)')).toBeDefined()
+        expect(linha(doOrcamento, 'PIS/Cofins (%)')!.querySelector('input')).toBeNull()
+        expect(doOrcamento.textContent).toContain('PIS/Cofins nominal (%)')
+        // sem edição nenhuma, nada está marcado como manual
+        expect(doOrcamento.textContent).not.toContain('manual')
         const doProduto = await montar({ isEditingMode: true, product: PRODUTO_1008, itemsFromApi: ITENS_DA_API })
         expect(linha(doProduto, 'ICMS (%)')?.querySelector('input')).not.toBeNull()
     })
@@ -494,12 +497,38 @@ describe('(F) A EMPRESA É A FONTE ÚNICA DOS IMPOSTOS, e o fiscal é invisível
         const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: salvar })
         expect(host.textContent).toContain('IBS — Imposto sobre Bens e Serv. (%)')
         expect(host.textContent).not.toContain('CBS — Contrib. sobre Bens e Serv. (%)')
-        // o campo do IBS existe, com o valor da empresa, e não se edita
+        // o campo do IBS existe, com o valor da empresa como sugerido, e se edita à mão (0044)
         const ibs = Array.from(host.querySelectorAll('div')).find((d) => d.children.length === 0 && (d.textContent ?? '').trim() === 'IBS — Imposto sobre Bens e Serv. (%)')
         const campo = ibs?.parentElement?.querySelector('input') as HTMLInputElement
-        expect(campo.disabled).toBe(true)
+        expect(campo.disabled).toBe(false)
+        // e o fator de redução fica sempre visível ao lado, com a efetiva
+        expect(host.textContent).toContain('Fator de redução')
         await clicar(botao(host, 'Salvar precificação do orçamento'))
         expect(salvar).toHaveBeenCalledTimes(1)
+    })
+    it('0044: editar o IBS à mão marca "manual", recalcula, o botão volta ao valor das credenciais, e o salvar leva SÓ o editado', async () => {
+        banco.respostas.tenant_settings = { ibs_reference_pct: 0.1, cbs_reference_pct: 0.9, state_code: 'RS' }
+        const salvar = jest.fn(async (_c: Record<string, unknown>): Promise<string[] | null> => null)
+        const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: salvar })
+        const campoDoIbs = () => {
+            const rot = Array.from(host.querySelectorAll('div')).find((d) => d.children.length === 0 && (d.textContent ?? '').trim() === 'IBS — Imposto sobre Bens e Serv. (%)')
+            return rot?.parentElement?.querySelector('input') as HTMLInputElement
+        }
+        expect(host.textContent).not.toContain('manual')
+        await act(async () => {
+            const c = campoDoIbs()
+            const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+            c.focus(); set.call(c, '1,5'); c.dispatchEvent(new Event('input', { bubbles: true })); c.blur()
+        })
+        await esperar()
+        expect(host.textContent).toContain('manual')
+        const voltar = Array.from(host.querySelectorAll('button')).find((b) => (b.getAttribute('aria-label') ?? '').includes('Voltar IBS')) as HTMLButtonElement
+        expect(voltar).toBeDefined()
+        await clicar(botao(host, 'Salvar precificação do orçamento'))
+        expect(salvar).toHaveBeenCalledTimes(1)
+        expect((salvar.mock.calls[0][0] as Record<string, unknown>).tributos_manuais).toEqual({ ibs: { pct: 1.5 } })
+        await clicar(voltar)
+        expect(host.textContent).not.toContain('manual')
     })
     it('com a referência da empresa preenchida, a CBS também aparece (o nulo é o que some, não o zero)', async () => {
         banco.respostas.tenant_settings = { ibs_reference_pct: 0, cbs_reference_pct: 0, state_code: 'RS' }
