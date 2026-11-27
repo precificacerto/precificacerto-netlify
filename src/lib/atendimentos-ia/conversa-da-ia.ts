@@ -173,7 +173,10 @@ import type { MidiaDaMensagem } from '@/lib/atendimentos-ia/payload-wuzapi'
 import { conferirMidiaBaixada, fraseDaMidiaRecusadaPelaIa, fraseDaRecusa, instrucaoDaRajada, leituraDaMidia, marcaNoLog, type AnexoParaOModelo } from '@/lib/atendimentos-ia/midia-da-mensagem'
 import { baixarMidia } from '@/lib/atendimentos-ia/midia-do-wuzapi'
 import { transcreverAudio } from '@/lib/atendimentos-ia/transcricao-do-audio'
-import { atravessarNoSim } from './travessia-do-levantamento'
+import { atravessarNoSim, fraseDoErroDoSistema, fraseDosQuestionamentos, type ResultadoDoSim } from './travessia-do-levantamento'
+import { calcularOrcamento, ErroDoCalculo } from './orcamento-calculado'
+import { fraseDoNumeroInexistente, fraseDoResumoDoLevantamento, nomeDoOrcamento, referenciaPorNumero } from './referencia-por-numero'
+import { acharReferencia } from './referencia-por-numero-servidor'
 import { dependenciasDoServidor, destinosDoWhatsApp, enviarAoPrimeiroQueAceitar, etapaDoPreco, reenviarOArquivo } from './cadeia-do-sim'
 import { telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
 import { comOTextoDaImagem, fraseDaImagemRecusada, fraseDeConfirmarDaImagem, fraseDeConfirmarDaImagemEmOutrasPalavras, textoDaImagemDaProposta } from '@/lib/atendimentos-ia/lido-da-imagem'
@@ -277,6 +280,8 @@ export type DesfechoDaIa =
     | 'midia-nao-lida'
     /** O PEDIDO DE ORÇAMENTO pelo nome (18/11/2026): a lista para escolher; o arquivo mandado de novo; o orçamento sem arquivo, nomeado. */
     | 'qual-orcamento' | 'orcamento-reenviado' | 'orcamento-sem-arquivo'
+    /** A referência por número a um levantamento ou orçamento que existe (0050): o resumo e o arquivo; a inexistente, os cinco últimos; a incompleta, a escolha que falta. */
+    | 'referencia-por-numero' | 'referencia-inexistente' | 'referencia-pendente'
     /** O NOME (e a cidade, e o vidro) lido SÓ da foto ou do PDF espera um "sim" curto antes de gravar (18/11/2026). */
     | 'confirmar-da-imagem'
 
@@ -317,7 +322,7 @@ export const fraseDaContagemQueNaoFecha = (lidas: number, montados: number, soma
 /** As retidas dizem todas "acrescentar": a confirmação de antes (o levantamento), não a pergunta de qual das duas. */
 const soAcrescentar = (itens: ReadonlyArray<Record<string, unknown>>) => itens.length > 0 && itens.every((i) => i.intencao === 'acrescentar')
 
-export type Rota = 'MONTAGEM' | 'NOVO' | 'ALTERACAO' | 'ALTERACAO_ADMIN' | 'SEM_NOME' | 'PARECIDO' | 'RESGATE' | 'NOME_EXISTE' | 'NAO_ENCONTRADO' | 'QUAL_VENDEDOR' | 'ORCAMENTO' | 'QUAL_ORCAMENTO' | 'DA_IMAGEM' | '-'
+export type Rota = 'REFERENCIA' | 'MONTAGEM' | 'NOVO' | 'ALTERACAO' | 'ALTERACAO_ADMIN' | 'SEM_NOME' | 'PARECIDO' | 'RESGATE' | 'NOME_EXISTE' | 'NAO_ENCONTRADO' | 'QUAL_VENDEDOR' | 'ORCAMENTO' | 'QUAL_ORCAMENTO' | 'DA_IMAGEM' | '-'
 /**
  * Como o nome foi lido — NUNCA o nome em si (dono do produto, 26/10/2026): `veio` (está no texto),
  * `faltou` (a IA não leu nenhum), `fora_do_texto` (a IA leu um que não está no texto, e ele não vale),
@@ -1775,6 +1780,53 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             const frase = fraseDoPedidoGravado(limitesDaMontagem.get(i.ordem), i)
             return frase === null ? [] : [itensDaMontagem.length > 1 ? `Item ${i.ordem}: ${frase}` : frase]
         })
+        // A REFERÊNCIA POR NÚMERO (pedido 0050, 27/11/2026): "levantamento N" / "orçamento N", com ou sem verbo, é o registro N que JÁ EXISTE na empresa, e
+        // vence qualquer pergunta pendente (que é abandonada). Decidido ANTES do modelo: a mensagem sem conteúdo de esquadria não é lista nova nem resposta
+        const referencia = referenciaPorNumero(c.texto)
+        if (referencia) {
+            rastro.rota = 'REFERENCIA'
+            const admin = (await permissaoDoRemetente(c.tenantId, c.remetenteId)).admin === true
+            const achado = await acharReferencia(c.tenantId, c.remetenteId, admin, referencia)
+            if (temLinhaLida) await apagarPerguntaEmAberto(c.tenantId, c.remetenteId)
+            if (achado.achou === 'nenhum') return await responder(fraseDoNumeroInexistente(referencia, achado.ultimos), 'referencia-inexistente', `referencia=${referencia.tipo}:${referencia.numero}`, false)
+            const lev = achado.lev
+            rastro.levantamento = lev.id
+            const resumo = fraseDoResumoDoLevantamento(lev, lev.itens)
+            const deps = dependenciasDoServidor((telefone, nomeDoArquivo, pdf) =>
+                enviarAoPrimeiroQueAceitar(destinosDoWhatsApp(telefone, c.telefone), (destino) => enviarDocumento(c.wuzapiToken, destino, nomeDoArquivo, pdf)))
+            let sim: ResultadoDoSim
+            if (achado.achou === 'orcamento') {
+                // "orçamento N": o mesmo que o botão "Calcular" da tela — recalcula ESSE orçamento com as regras e preços de agora e gera o arquivo
+                const n = String(achado.orc.numero)
+                try {
+                    const calc = await calcularOrcamento(c.tenantId, achado.orc.id)
+                    const etapa = await etapaDoPreco(c.tenantId, achado.orc.id, deps)
+                    sim = { rastro: `orcamento=${n} calculo=ok ${etapa.rastro}`, paraOVendedor: etapa.paraOVendedor, ...(etapa.enviadoPara ? { enviadoPara: etapa.enviadoPara, idDoEnvio: etapa.idDoEnvio ?? null } : {}),
+                        ...(fraseDosQuestionamentos(n, calc.faltas) ? { questionamentos: fraseDosQuestionamentos(n, calc.faltas) as string } : {}) }
+                } catch (e) {
+                    sim = e instanceof ErroDoCalculo
+                        ? { rastro: `orcamento=${n} calculo=recusou recusas=${e.recusas.length}`, paraOVendedor: fraseDoArquivoQueNaoChegou(null, `o cálculo do orçamento ${n} recusou. Falta: ${e.recusas.join('; ')}`) }
+                        : { rastro: `orcamento=${n} calculo=falhou`, paraOVendedor: fraseDoArquivoQueNaoChegou(null, fraseDoErroDoSistema('o cálculo', n)) }
+                }
+            } else if (lev.estado !== COMPLETO) {
+                // o levantamento ainda em montagem: carregado como o contexto da conversa; a pergunta é só a escolha que falta, item a item
+                const itens = await lerItens(c.tenantId, lev.id)
+                const faltam = pendenciasDoLevantamento(itens, definicao, doCodigo)
+                if (faltam.length > 0) return await falar(`${resumo} Ele ainda está em montagem. ${perguntaDasPendencias(faltam, itens.length)}`, 'referencia-pendente', `referencia=levantamento:${lev.numero} faltam=${faltam.length}`)
+                sim = await atravessarNoSim(c.tenantId, lev.id, (orcId) => etapaDoPreco(c.tenantId, orcId, deps))
+            } else {
+                // "levantamento N": carrega, mostra o resumo e calcula com as regras e preços de agora — o mesmo caminho do "sim", sem reenviar o arquivo velho
+                sim = await atravessarNoSim(c.tenantId, lev.id, (orcId) => etapaDoPreco(c.tenantId, orcId, deps))
+            }
+            rastro.etapas.calcular = `referencia=${referencia.tipo}:${referencia.numero} ${sim.rastro}`
+            const orcamentos = ordemDoOrcamento(await lerOrcamentosDosLevantamentos(c.tenantId, [{ id: lev.id, nome: lev.nome }]))
+            const feitos = achado.achou === 'orcamento' ? orcamentos.filter((o) => o.numero === achado.orc.numero) : orcamentos
+            const quais = feitos.length ? feitos.map((o) => nomeDoOrcamento(o)).join(' e ') : achado.achou === 'orcamento' ? `orçamento ${achado.orc.numero}` : null
+            const entregue = sim.enviadoPara !== undefined && telefonesCasam(sim.enviadoPara, c.telefone)
+            const cabeca = `${resumo}${quais ? ` ${quais.charAt(0).toUpperCase()}${quais.slice(1)} ${entregue ? 'calculado com as regras e os preços de hoje; o arquivo está acima.' : 'não saiu.'}` : ''}`
+            const resto = entregue ? [sim.aviso, sim.questionamentos] : [sim.paraOVendedor ?? fraseDoArquivoQueNaoChegou(null, 'o orçamento não foi gerado'), sim.aviso]
+            return await responder([cabeca, ...resto].filter(Boolean).join('\n\n'), 'referencia-por-numero', `referencia=${referencia.tipo}:${referencia.numero} so_arquivo=${entregue ? 'sim' : 'nao'}`, false)
+        }
         const resposta = await chamarLlm(chave, c.texto, {
             contexto: contexto.texto, instrucoes: instrucoes.instrucoes, instrucoesDasEtapas, descricoesDasEtapas, textosDoCaminho,
             candidatos: candidatosDoPrompt, variasFamilias, cores, escolhasPorTipologia, variaveisSemPadraoPorTipologia,
