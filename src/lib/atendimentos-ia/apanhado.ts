@@ -13,7 +13,8 @@
  * Portão: `src/utils/__tests__/apanhado.test.ts`.
  */
 import { escolhasDescritas, lerEscolhasGravadas, nomeDaVariavel, paraOAgente, type VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
-import { traduzirPolitica, type PoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa'
+import { arremateNaMedidaDoVaoDaPolitica, traduzirPolitica, type PoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa'
+import { medidaDoArremateNaMedidaDoVao } from '@/lib/atendimentos-ia/escolhas-comuns'
 
 
 const minuscula = (t: string) => t.toLocaleLowerCase('pt-BR')
@@ -41,7 +42,7 @@ export function rotuloSemCodigo(rotulo: string, descricao: string): string {
  * (`fronteira-das-escolhas.ts`). Nula quando não há o que dizer: sem a aba Variáveis da tipologia, ou tipologia sem variável de arremate.
  */
 export const ARREMATE_NAO_DEFINIDO = 'não definido (o cálculo não põe peça que ninguém pediu)'
-export function arremateDaColeta(tipologia: VariaveisDaTipologia | null, escolhas: unknown, politica: PoliticaDaEmpresa = {}, codigo = ''): string | null {
+export function arremateDaColetaEmPartes(tipologia: VariaveisDaTipologia | null, escolhas: unknown, politica: PoliticaDaEmpresa = {}, codigo = ''): string[] | null {
     if (!tipologia) return null
     // a aba sem o Padrão, também quando quem chama tem a completa (o documento): o que vai valer nunca é o padrão do motor
     tipologia = paraOAgente(tipologia)
@@ -59,11 +60,17 @@ export function arremateDaColeta(tipologia: VariaveisDaTipologia | null, escolha
     const dependeDoQueNaoUsa = (variavel: string) => [...naoUsa].some((n) => new RegExp(`\\b${n}\\b`).test(condicaoDe(variavel)))
     const descritas = escolhasDescritas(tipologia, { ...daPolitica, ...ditas }).filter((e) => !dependeDoQueNaoUsa(e.variavel))
     if (!descritas.length) return null
+    const naMedidaDoVao = arremateNaMedidaDoVaoDaPolitica(politica)
     return descritas
         .map((e) => {
+            const doEfeito = naMedidaDoVao ? medidaDoArremateNaMedidaDoVao(e.variavel, e.descricao, e.rotulo) : null
+            if (doEfeito !== null) return doEfeito
             const temValor = ditas[e.variavel] !== undefined || daPolitica[e.variavel] !== undefined
             const valor = e.rotulo ? rotuloSemCodigo(e.rotulo, e.descricao) : temValor ? 'opção fora da lista do motor' : naoUsa.has(e.variavel) ? 'não usa' : ARREMATE_NAO_DEFINIDO
             return `${nomeDaVariavel(e.variavel, e.descricao)}: ${valor}`
         })
-        .join('; ')
+}
+/** O arremate como uma frase só (o resumo e o apanhado); em partes, `arremateDaColetaEmPartes` (0049: o comum sai uma vez). */
+export function arremateDaColeta(tipologia: VariaveisDaTipologia | null, escolhas: unknown, politica: PoliticaDaEmpresa = {}, codigo = ''): string | null {
+    return arremateDaColetaEmPartes(tipologia, escolhas, politica, codigo)?.join('; ') ?? null
 }

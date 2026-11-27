@@ -88,18 +88,37 @@ describe('O ARREMATE na folha: O QUE O CÁLCULO USA, com as opções reais do mo
         expect(texto).not.toContain('Acabamento:')
     })
 
-    it('UM item com arremate DIFERENTE: cada célula diz o seu, ROTULADO "Acabamento:" depois das cores e separado por " · "; o rodapé não o traz', () => {
+    it('UM item com arremate DIFERENTE (0049): o que é IGUAL nos dois (arremate externo 20 mm) vai UMA vez no rodapé; cada célula diz só o que é dela, ROTULADO "Acabamento:"', () => {
         const d = real([item(1, {}), item(2, { escolhas: { ARI: 2, MAE: 2 } })])
         expect(d.itens.map((i) => i.perfilEAcessorio)).toEqual([
-            `BRANCO / padrão · Acabamento: ${PADRAO_DO_MOTOR}`,
-            'BRANCO / padrão · Acabamento: arremate interno: 70 mm; arremate externo: 20 mm; medida do arremate externo: vão + 50 mm',
+            'BRANCO / padrão · Acabamento: arremate interno: 65 mm; medida do arremate externo: medida do vão',
+            'BRANCO / padrão · Acabamento: arremate interno: 70 mm; medida do arremate externo: vão + 50 mm',
         ])
-        expect(d.preDefinicoes.map((p) => p.rotulo)).toEqual(['Cor do perfil', 'Vedação'])
+        expect(d.preDefinicoes).toContainEqual({ rotulo: 'Arremate e guarnição', valor: 'arremate externo: 20 mm' })
         const folha = gerarFolhaDoLevantamento(d)
         if ('recusas' in folha) throw new Error(folha.recusas.join(' '))
         const texto = textoDoPdf(folha.pdf)
         expect(texto.match(/Acabamento:/g)).toHaveLength(2)
-        expect(texto).not.toContain('Arremate e guarnição')
+        expect(texto.match(/arremate externo: 20 mm/g)).toHaveLength(1) // a linha comum aparece UMA vez, não em cada item
+        expect(texto).toContain('Arremate e guarnição: arremate externo: 20 mm')
+    })
+
+    it('0049 — três itens, um só difere: a linha comum não se repete em nenhum item', () => {
+        const d = real([item(1, {}), item(2, {}), item(3, { escolhas: { ARI: 2 } })])
+        expect(d.preDefinicoes).toContainEqual({ rotulo: 'Arremate e guarnição', valor: 'arremate externo: 20 mm; medida do arremate externo: medida do vão' })
+        expect(d.itens.map((i) => i.perfilEAcessorio)).toEqual([
+            'BRANCO / padrão · Acabamento: arremate interno: 65 mm', 'BRANCO / padrão · Acabamento: arremate interno: 65 mm', 'BRANCO / padrão · Acabamento: arremate interno: 70 mm'])
+    })
+
+    it('0049 — com ARREMATE_NA_MEDIDA_DO_VAO = SIM o texto diz o que se calcula, não o rótulo: "arremate externo na medida do vão, corte 90/90" (não "vão + 50 mm")', () => {
+        const comFlag = comDefinicao(DP02_REAL, { ...POLITICA_IGUAL_AO_PADRAO_DE_ANTES, porVariavel: { ARREMATE_NA_MEDIDA_DO_VAO: { natureza: 'POLITICA', opcao: 'SIM' } } } as never)
+        const d = comFlag([item(1, { escolhas: { ARI: 2, MAE: 2 } }), item(2, { escolhas: { ARI: 2, MAE: 2 } })])
+        const comum = d.preDefinicoes.find((p) => p.rotulo === 'Arremate e guarnição')?.valor ?? ''
+        expect(comum).toContain('arremate externo na medida do vão, corte 90/90')
+        expect(comum).not.toContain('vão + 50')
+        // a mesma escolha sem a política: o rótulo da opção, como era
+        const sem = real([item(1, { escolhas: { ARI: 2, MAE: 2 } })]).preDefinicoes.find((p) => p.rotulo === 'Arremate e guarnição')?.valor ?? ''
+        expect(sem).toContain('vão + 50 mm')
     })
 
     it('NENHUM código de fornecedor em lugar nenhum da folha — nem na célula, nem no rodapé: com os códigos reais (BZ0006, BZ1770, BZ0010) e com um genérico', () => {
