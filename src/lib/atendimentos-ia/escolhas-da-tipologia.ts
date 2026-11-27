@@ -73,7 +73,12 @@ const capturada = (v: string) => (ESCOLHAS_CAPTURADAS as readonly string[]).incl
  * chave, será informado através do vendedor." MFI e MFE são POLÍTICA (a natureza gravada), e o "com chave" do item a sobrepõe — item → política →
  * motor (`escolhasDoCalculo`). Diferente das capturadas, NUNCA se perguntam nem entram na linha do arremate: só valem quando o vendedor diz.
  */
-export const ESCOLHAS_DO_ITEM = ['MFI', 'MFE', 'AE', 'LA', 'LR'] as const
+export const ESCOLHAS_DO_ITEM = ['MFI', 'MFE', 'MFV', 'MF', 'TD', 'AE', 'LA', 'LR'] as const
+/**
+ * MFV, MF e TD entram (dono do produto, 27/11/2026, pedido 0045-1 (a)): o fechamento da tela (MFV: só com concha), o da DP-128 e da DP-155 (MF) e o kit de
+ * componentes da DP-155 (TD). Sem lê-las, a concha da tela e os itens 5 e 11 do gabarito WVetro 1207 não batem. Como MFI e MFE, NUNCA se perguntam:
+ * só valem quando o vendedor diz, e a opção que ele disse tem de existir na tipologia.
+ */
 /**
  * O ACIONAMENTO DA PERSIANA (dono do produto, 27/11/2026, pedido 0043): AE (o acionamento da esteira: recolhedor ou motor), LA (um acionamento ou um por
  * pano) e LR (o lado do recolhedor). O vendedor não pediu motor: MANUAL por fita, sem perguntar (a política: AE = recolhedor embutido; LA pela largura,
