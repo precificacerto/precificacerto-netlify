@@ -23,7 +23,7 @@ import { abaDoBanco, ABAS_DO_MOTOR } from '@/utils/atendimentos-ia-abas-do-motor
 import { avaliarTipologia, lerTipologia, type AbasDoMotor } from '@/lib/atendimentos-ia/avaliador-de-formulas'
 import { escolhasDoCalculo } from '@/lib/atendimentos-ia/fronteira-das-escolhas'
 import { naturezasPara, type LinhaDaNatureza } from '@/lib/atendimentos-ia/natureza-da-variavel'
-import type { PoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa'
+import { arremateNaMedidaDoVaoDaPolitica, type PoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa'
 import { lerVidro, vidroSemBaguete } from '@/lib/atendimentos-ia/vidro'
 
 const DIR = path.join(__dirname, 'fixtures', 'gabarito-wvetro-1207')
@@ -46,6 +46,8 @@ const FV_DO_CALCO_8597 = 3
  */
 const POLITICA_DO_GABARITO: LinhaDaNatureza[] = GAB.politica.map((l) => (l.variavel === 'MAE' ? { ...l, opcao_padrao: 'VÃO+50MM (CORTE 90/90)' } : l))
 
+const politicaDe = (linhas: LinhaDaNatureza[]) => ({ porVariavel: naturezasPara(linhas, { familia: 'PVC', linha: null, formato: null }) }) as PoliticaDaEmpresa
+
 type Corte = { codigo: string; comprimento: number; corte: string; quantidade: number }
 const chave = (c: { codigo: string; comprimento: number; corte: string }) => `${c.codigo}|${c.comprimento}|${c.corte}`
 function contar(cs: readonly Corte[]): Map<string, number> {
@@ -62,12 +64,12 @@ GAB.itens = GAB.itens.map((i) => ({ ...i, vidro_texto: VIDRO_DO_GABARITO[i.n] ??
 function avaliarItem(item: (typeof GAB.itens)[number]) {
     const t = lerTipologia(abas, item.t)
     if ('recusas' in t) throw new Error(`${item.n}: ${t.recusas[0].mensagem}`)
-    const politica = { porVariavel: naturezasPara(POLITICA_DO_GABARITO, { familia: 'PVC', linha: null, formato: null }) } as PoliticaDaEmpresa
+    const politica = politicaDe(POLITICA_DO_GABARITO)
     const e = escolhasDoCalculo(t.tipologia, item.esc, politica, null, COR, item.L)
     expect(e.voltas).toEqual([])
     const escolhas: Record<string, number> = { ...e.escolhas, ...(DO_GABARITO[item.t] ?? {}), FV: FV_DO_CALCO_8597 }
     const espessura = lerVidro(item.vidro_texto).espessura_mm
-    const r = avaliarTipologia({ tipologia: t.tipologia, L_mm: item.L, H_mm: item.H, escolhas, espessura_vidro_mm: espessura, semBagueteDoVidro: vidroSemBaguete(item.vidro_texto, espessura), arremateNaMedidaDoVao: true })
+    const r = avaliarTipologia({ tipologia: t.tipologia, L_mm: item.L, H_mm: item.H, escolhas, espessura_vidro_mm: espessura, semBagueteDoVidro: vidroSemBaguete(item.vidro_texto, espessura), arremateNaMedidaDoVao: arremateNaMedidaDoVaoDaPolitica(politica) })
     if ('recusas' in r) throw new Error(`${item.n}: ${r.recusas[0].mensagem}`)
     return { r, escolhas }
 }
@@ -82,11 +84,6 @@ function gabaritoDoItem(n: number): Corte[] {
     })
 }
 const semArremate = (cs: readonly Corte[]) => cs.filter((c) => !ARREMATES.has(c.codigo))
-const porPerfil = (cs: readonly Corte[]) => {
-    const m = new Map<string, number>()
-    for (const c of cs) m.set(c.codigo, (m.get(c.codigo) ?? 0) + c.quantidade)
-    return m
-}
 
 /** O que ainda difere no vidro, nomeado: o item 1 (DP-144, 5 panos): o motor dá 1032 mm de altura (5320 − 67,2 − 4 × 23,2, ÷ 5) e o WVetro 1031 — 1 mm, [MOTOR/WVETRO], sem decisão ainda. */
 const VIDRO_RESTO_CONHECIDO: Record<number, Array<[number, number, number]>> = { 1: [[1532, 1032, 5]] }
@@ -105,11 +102,31 @@ describe('gabarito do WVetro 1207 — os cortes e os vidros do motor contra os d
         expect(comprimentos(motorDoItem(item))).toEqual(comprimentos(gabaritoDoItem(item.n)))
     })
 
+    test('SEM a política "arremate na medida do vão", o acréscimo da opção entra (as outras contas não mudam); COM ela, o vão', () => {
+        const item = GAB.itens.find((i) => i.n === 1)!
+        const tip = lerTipologia(abas, item.t)
+        if ('recusas' in tip) throw new Error('recusa')
+        const sem = POLITICA_DO_GABARITO.filter((l) => l.variavel !== 'ARREMATE_NA_MEDIDA_DO_VAO')
+        const larguraDoBZ1770 = (linhas: LinhaDaNatureza[]) => {
+            const p = politicaDe(linhas)
+            const escolhas = { ...avaliarItem(item).escolhas }
+            const r = avaliarTipologia({ tipologia: tip.tipologia, L_mm: item.L, H_mm: item.H, escolhas, espessura_vidro_mm: 6, arremateNaMedidaDoVao: arremateNaMedidaDoVaoDaPolitica(p) })
+            if ('recusas' in r) throw new Error(r.recusas[0].mensagem)
+            return r.pecas.filter((x) => x.codigo.startsWith('BZ1770') && x.posicao === 'Largura').map((x) => Math.trunc(x.comprimento_mm))
+        }
+        expect(arremateNaMedidaDoVaoDaPolitica(politicaDe(sem))).toBe(false)
+        expect(larguraDoBZ1770(POLITICA_DO_GABARITO)).toEqual([item.L])
+        expect(larguraDoBZ1770(sem)).toEqual([item.L + 100])
+        // só o "SIM" liga: outra opção, ou natureza ITEM, não
+        expect(arremateNaMedidaDoVaoDaPolitica(politicaDe(sem.concat([{ familia: 'PVC', linha: null, formato: null, variavel: 'ARREMATE_NA_MEDIDA_DO_VAO', natureza: 'POLITICA', opcao_padrao: 'NAO' }])))).toBe(false)
+        expect(arremateNaMedidaDoVaoDaPolitica(politicaDe(sem.concat([{ familia: 'PVC', linha: null, formato: null, variavel: 'ARREMATE_NA_MEDIDA_DO_VAO', natureza: 'ITEM', opcao_padrao: null }])))).toBe(false)
+    })
+
     test('o arremate de 20 mm com ajuste em obra (MAI = vão + 100) também é a medida do vão: o acréscimo da opção não entra', () => {
         const item = GAB.itens.find((i) => i.n === 2)!
         const tip = lerTipologia(abas, item.t)
         if ('recusas' in tip) throw new Error('recusa')
-        const r = avaliarTipologia({ tipologia: tip.tipologia, L_mm: item.L, H_mm: item.H, escolhas: { ...avaliarItem(item).escolhas, TI: 2, ARI: 3, MAI: 2 }, espessura_vidro_mm: 5, arremateNaMedidaDoVao: true })
+        const r = avaliarTipologia({ tipologia: tip.tipologia, L_mm: item.L, H_mm: item.H, escolhas: { ...avaliarItem(item).escolhas, TI: 2, ARI: 3, MAI: 2 }, espessura_vidro_mm: 5, arremateNaMedidaDoVao: arremateNaMedidaDoVaoDaPolitica(politicaDe(POLITICA_DO_GABARITO)) })
         if ('recusas' in r) throw new Error(r.recusas[0].mensagem)
         const comp = r.pecas.filter((p) => p.codigo.startsWith('BZ0010') && p.corte === '90/90').map((p) => Math.trunc(p.comprimento_mm))
         expect(comp).toContain(item.L)

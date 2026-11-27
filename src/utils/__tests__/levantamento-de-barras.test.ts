@@ -132,12 +132,12 @@ describe('(1) a DP-02 em BRANCO, de ponta a ponta', () => {
         expect(r.cor).toBe('BRANCO')
         expect(r.total.barras_por_codigo).toEqual({ '1023': 1, '10511': 1, '8432': 1, '8433': 1, '9641': 1, '9681': 2, '9711': 1, '9801': 1 })
         expect(r.total.n_barras).toBe(9)
-        // R5 (17/11/2026): as peças saem com o decimal cortado, como o WVetro imprime — 32,7676 m viraram 32,748 m; o arremate na MEDIDA DO VÃO (27/11/2026, pedido 0042) tira os 200 mm do acréscimo: 32,548 m
-        expect(r.total.metros_uteis).toBeCloseTo(32.548, 9)
+        // R5 (17/11/2026): as peças saem com o decimal cortado, como o WVetro imprime — 32,7676 m viraram 32,748 m (19,6 mm a menos)
+        expect(r.total.metros_uteis).toBeCloseTo(32.748, 9)
         expect(r.total.metros_comprados).toBe(54)
-        expect(r.total.aproveitamento_pct).toBeCloseTo((32.548 / 54) * 100, 9)
+        expect(r.total.aproveitamento_pct).toBeCloseTo((32.748 / 54) * 100, 9)
         expect(r.total.total_por_barra_inteira).toBeCloseTo(1342.0875, 6)
-        expect(r.total.total_por_consumo_real).toBeCloseTo(828.5719376, 6)   // R5: o consumo das peças cortadas
+        expect(r.total.total_por_consumo_real).toBeCloseTo(829.3602476, 6)   // R5: o consumo das peças cortadas
         // o código do perfil fica ao lado do código do item, para quem confere
         expect(doCodigo(r, '10511').perfil).toBe('BZ0010/WOLFF')
         expect(doCodigo(r, '9681').perfil).toBe('SF66/WOLFF')

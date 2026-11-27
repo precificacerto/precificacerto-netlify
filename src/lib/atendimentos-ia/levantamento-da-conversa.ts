@@ -110,6 +110,7 @@ import { COLUNA_DA_CATEGORIA_DO_FORNECEDOR } from '@/utils/atendimentos-ia-impor
 import { COLUNAS_LIDAS, COLUNAS_OPCIONAIS, lerTipologia, variaveisDaAba, type AbasDoMotor, type AvisoDoAvaliador, type Tipologia } from '@/lib/atendimentos-ia/avaliador-de-formulas'
 import { escolhasDoCalculo } from '@/lib/atendimentos-ia/fronteira-das-escolhas'
 import { lerPoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa-servidor'
+import { arremateNaMedidaDoVaoDaPolitica } from '@/lib/atendimentos-ia/politica-da-empresa'
 import { descreverArremate, lerEscolhasGravadas, paraOAgente, semAsPecasNaoPedidas, traduzirVocabulario, type VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import {
     formatarReais, levantarBarras,
@@ -1228,6 +1229,7 @@ async function calcularFamilia(
 
     const r = levantarBarras({
         cor: cores[0],
+        arremateNaMedidaDoVao: arremateNaMedidaDoVaoDaPolitica(politica),
         // as escolhas vêm decididas pela fronteira (`escolhasDoCalculo`): o padrão do motor nunca decide variação lá dentro
         esquadrias: dg.esquadrias.map((e, k) => ({
             tipologia: e.tipologia, L_mm: e.largura_mm, H_mm: e.altura_mm, quantidade: e.quantidade,

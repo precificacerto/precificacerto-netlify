@@ -209,15 +209,15 @@ const TEXTO_QUE_FECHA = [
     '• 9711 (IL36/WOLFF): 1 barra(s) de 6 m',
     '• 9801 (GB25/WOLFF): 1 barra(s) de 6 m',
     '',
-    'Aproveitamento do levantamento: 60,3% (32,55 m úteis de 54,00 m comprados).',
+    'Aproveitamento do levantamento: 60,6% (32,75 m úteis de 54,00 m comprados).',
     '',
     'Perfis por barra inteira: R$ 1.342,09.',
-    'Perfis por consumo real: R$ 828,57.',
-    'Diferença entre os dois: R$ 513,52.',
+    'Perfis por consumo real: R$ 829,36.',
+    'Diferença entre os dois: R$ 512,73.',
     'Mão de obra: 150 min por unidade (IMPORTADO) × 1 unidade(s), a R$ 0,257658 o minuto (R$ 40.813,03 ÷ 158.400 min): R$ 38,65.',
     '',
     'Total por barra inteira (perfis + mão de obra): R$ 1.380,74.',
-    'Total por consumo real (perfis + mão de obra): R$ 867,22.',
+    'Total por consumo real (perfis + mão de obra): R$ 868,01.',
     '',
     'O que este preço cobre: os perfis (o baguete incluído), pela tabela do fornecedor, e a mão de obra. NÃO cobre o vidro nem os insumos e acessórios (ferragens, escovas, calços e outros): eles ainda não estão na base.',
 ].join('\n')
@@ -953,6 +953,17 @@ describe('(5b) as ESCOLHAS gravadas chegam ao avaliador', () => {
     const comARIQueNaoVale = () => {
         for (const v of banco.db.orcamentista_motor_variavel ?? []) if (v.variavel === 'ARI') v.condicao_opcoes = '2: (H>9000)'
     }
+    it('PEDIDO 0042: a política ARREMATE_NA_MEDIDA_DO_VAO = SIM liga o arremate na medida do vão (menos metros úteis na DP-02 em MAE = 2); sem a linha, o acréscimo da opção entra, como sempre', async () => {
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        banco.db.orcamentista_natureza_da_variavel = NATUREZA_DE_PAULA.map((l) => ({ ...l }))
+        const sem = await M().mensagemDoLevantamento(TENANT, t, lev())
+        const metros = (x: string) => Number(/\(([\d,]+) m úteis/.exec(x)![1].replace(',', '.'))
+        banco.db.orcamentista_natureza_da_variavel = [...NATUREZA_DE_PAULA, { tenant_id: TENANT, familia: 'PVC', linha: null, formato: null, variavel: 'ARREMATE_NA_MEDIDA_DO_VAO', natureza: 'POLITICA', opcao_padrao: 'SIM' }].map((l) => ({ ...l }))
+        const com = await M().mensagemDoLevantamento(TENANT, t, lev())
+        expect(com.desfecho).toBe('levantou')
+        // o arremate perde o acréscimo da opção: menos metros úteis do que sem a linha (o MAE = VÃO+50 soma 50 mm no BZ0010)
+        expect(metros(com.texto)).toBeLessThan(metros(sem.texto))
+    })
     it('0030: a opção da POLÍTICA que não vale no item dá lugar à primeira que vale — o cálculo SAI, sem falta, e o rastro nomeia a troca', async () => {
         comARIQueNaoVale()
         const t = await M().lerFamiliasDaEmpresa(TENANT)
@@ -1297,8 +1308,8 @@ describe('(9) o levantamento com N esquadrias', () => {
         expect(duas.texto).toContain('Mão de obra total: R$ 77,30.')
         const material = (x: string) => x.split('\n').find((l) => l.startsWith('Perfis por consumo real:'))
         // o consumo real de duas é o dobro do de uma, ao centavo: 829,36 × 2 (R5, 17/11/2026: as peças com o decimal cortado)
-        expect(material(uma.texto)).toBe('Perfis por consumo real: R$ 828,57.')
-        expect(material(duas.texto)).toBe('Perfis por consumo real: R$ 1.657,14.')
+        expect(material(uma.texto)).toBe('Perfis por consumo real: R$ 829,36.')
+        expect(material(duas.texto)).toBe('Perfis por consumo real: R$ 1.658,72.')
     })
 })
 
@@ -1706,7 +1717,7 @@ describe('(ORC) o custo do orçamento I.A. pelo CAMINHO COMPLETO, e a reconcilia
         const l = lev({ escolhas: ESCOLHAS })
         const r = await custoOk(l)
         expect(r.itens).toHaveLength(1)
-        expect(r.itens[0].custo_bruto_materiais).toBeCloseTo(828.57, 2)   // R5: o consumo das peças cortadas (era 829,79)
+        expect(r.itens[0].custo_bruto_materiais).toBeCloseTo(829.36, 2)   // R5: o consumo das peças cortadas (era 829,79)
         // o contraste com a regra revogada: a barra inteira dava R$ 1.342,09 — a sobra, que o orçamento não sabe se será aproveitada
         const m1 = await M().mensagemDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), l)
         expect(reais(m1.texto, 'Perfis por barra inteira')).toBeCloseTo(1342.09, 2)
