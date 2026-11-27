@@ -953,6 +953,17 @@ describe('(5b) as ESCOLHAS gravadas chegam ao avaliador', () => {
     const comARIQueNaoVale = () => {
         for (const v of banco.db.orcamentista_motor_variavel ?? []) if (v.variavel === 'ARI') v.condicao_opcoes = '2: (H>9000)'
     }
+    it('PEDIDO 0042: a política ARREMATE_NA_MEDIDA_DO_VAO = SIM liga o arremate na medida do vão (menos metros úteis na DP-02 em MAE = 2); sem a linha, o acréscimo da opção entra, como sempre', async () => {
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        banco.db.orcamentista_natureza_da_variavel = NATUREZA_DE_PAULA.map((l) => ({ ...l }))
+        const sem = await M().mensagemDoLevantamento(TENANT, t, lev())
+        const metros = (x: string) => Number(/\(([\d,]+) m úteis/.exec(x)![1].replace(',', '.'))
+        banco.db.orcamentista_natureza_da_variavel = [...NATUREZA_DE_PAULA, { tenant_id: TENANT, familia: 'PVC', linha: null, formato: null, variavel: 'ARREMATE_NA_MEDIDA_DO_VAO', natureza: 'POLITICA', opcao_padrao: 'SIM' }].map((l) => ({ ...l }))
+        const com = await M().mensagemDoLevantamento(TENANT, t, lev())
+        expect(com.desfecho).toBe('levantou')
+        // o arremate perde o acréscimo da opção: menos metros úteis do que sem a linha (o MAE = VÃO+50 soma 50 mm no BZ0010)
+        expect(metros(com.texto)).toBeLessThan(metros(sem.texto))
+    })
     it('0030: a opção da POLÍTICA que não vale no item dá lugar à primeira que vale — o cálculo SAI, sem falta, e o rastro nomeia a troca', async () => {
         comARIQueNaoVale()
         const t = await M().lerFamiliasDaEmpresa(TENANT)

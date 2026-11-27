@@ -237,6 +237,8 @@ export type EntradaDoAvaliador = {
      * (sem espessura) e o do lambri continuam. A espessura do vidro deixa de ser exigida por essas linhas.
      */
     semBagueteDoVidro?: boolean
+    /** O arremate sai na MEDIDA DO VÃO (pedido 0042): `&ARI`, `&MAE` e `&MAI` valem 0. O cálculo da conversa liga; o avaliador puro, sem a marca, soma o colchete como sempre. */
+    arremateNaMedidaDoVao?: boolean
     /** As variáveis cuja escolha veio por PADRÃO, não dita pelo vendedor (pedido 0030): a opção delas que não vale dá lugar a uma que vale. */
     escolhasPorPadrao?: readonly string[]
 }
@@ -276,6 +278,9 @@ const arredonda = (a: Q): Q => a.n >= Z ? racional((DOIS * a.n + a.d) / (DOIS * 
 const ehInteiro = (a: Q) => a.d === UM
 /** As variáveis cujo `&X` vale 0 nas fórmulas (o colchete delas nunca encolhe peça nem vidro): ver o comentário em `amp`. */
 export const COLCHETES_QUE_NAO_DESCONTAM: ReadonlySet<string> = new Set(['FV', 'MD'])
+
+/** Os `&X` do arremate: valem 0 quando a entrada traz `arremateNaMedidaDoVao`. */
+export const ARREMATE_NA_MEDIDA_DO_VAO: ReadonlySet<string> = new Set(['ARI', 'MAE', 'MAI'])
 
 /** Número decimal escrito com ponto ("88.4") ou, nos colchetes das opções, com vírgula ("33,00"). */
 function deDecimal(texto: string, separador: '.' | ','): Q | null {
@@ -678,6 +683,9 @@ function ambienteDa(ctx: Contexto): Ambiente {
             // vai para a vidraçaria — a folga do FV (calço e folga) vale para o CALÇO, não para encolher o vidro; e a esteira da persiana dividida
             // não desconta o mancal (&MD, 18 mm). A opção continua escolhida (decide o calço e o divisor); só o número do colchete não entra.
             if (COLCHETES_QUE_NAO_DESCONTAM.has(nome)) return racional(Z)
+            // O ARREMATE É A MEDIDA DO VÃO (dono do produto, 27/11/2026, pedido 0042 — substitui a decisão de 17/11/2026, "o certo é o do motor"): com a marca
+            // `arremateNaMedidaDoVao`, `&ARI`, `&MAE` e `&MAI` (o acréscimo da opção do arremate: [48], [50], [100]) não entram; o BZ1770 e o BZ0010 saem com a medida do vão.
+            if (ctx.entrada.arremateNaMedidaDoVao === true && ARREMATE_NA_MEDIDA_DO_VAO.has(nome)) return racional(Z)
             const escolhido = paraNumero(amb.nome(nome, []))
             const opcao = opcoes.find((o) => o.valor === escolhido)
             if (!opcao) {

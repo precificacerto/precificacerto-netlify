@@ -128,6 +128,8 @@ export type EntradaDoLevantamento = {
     /** A cor do perfil, comparada EXATA com a coluna `cor` do motor. Obrigatória: sem default. */
     cor: string
     esquadrias: readonly EsquadriaDoLevantamento[]
+    /** A política da empresa liga o arremate na MEDIDA DO VÃO (pedido 0042): `arremateNaMedidaDoVaoDaPolitica`. Sem ela, o acréscimo da opção entra. */
+    arremateNaMedidaDoVao?: boolean
     tipologias: Readonly<Record<string, Tipologia>>
     regras: readonly RegraDoDePara[]
     itens: readonly ItemDaTabela[]
@@ -443,6 +445,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
         }
         const r = avaliarTipologia({ tipologia, L_mm: e.L_mm, H_mm: e.H_mm, escolhas: e.escolhas, espessura_vidro_mm: e.espessura_vidro_mm, semDecidirVariacao: e.semDecidirVariacao,
             ...(e.semBagueteDoVidro ? { semBagueteDoVidro: true } : {}),
+            ...(entrada.arremateNaMedidaDoVao ? { arremateNaMedidaDoVao: true } : {}),
             ...(e.escolhasPorPadrao ? { escolhasPorPadrao: e.escolhasPorPadrao } : {}) })
         if ('recusas' in r) {
             // A ESPESSURA QUE NÃO FOI DITA, uma falta só (08/11/2026): o avaliador recusa linha a linha da aba Perfis (uma por baguete), e para o

@@ -12,11 +12,10 @@
  *
  * O QUE O PORTÃO AINDA NÃO FECHA, nomeado (relatado em respostas/0040-*.md), e que ele CONFERE que continua assim — quando a causa for resolvida,
  * ele fica vermelho e a linha sai da lista:
- *   - [MOTOR] ARREMATE: o WVetro imprime o BZ1770/BZ0010 com a medida do VÃO; o motor soma o acréscimo da opção (decisão do dono do produto,
- *     17/11/2026: "o certo é o do motor"). O portão confere que a quantidade por perfil é a mesma e só o comprimento e o corte diferem;
- *   - [MOTOR] BAGUETE DO VIDRO MINI BOREAL (itens 4 e 5): o WVetro não corta baguete; o motor corta (a linha entra pela espessura do vidro, sem
- *     condição que a tire);
- *   - [MOTOR] A ESTEIRA DA PERSIANA DIVIDIDA (itens 9 e 10): o motor desconta o `&MD` (18 mm) da largura da esteira; o WVetro não: 1117 × 1108 e 1067 × 1058.
+ *   - ARREMATE (dono do produto, 27/11/2026, pedido 0042): o BZ1770 e o BZ0010 saem com a MEDIDA DO VÃO, como o WVetro (`&ARI`, `&MAE` e `&MAI` valem 0);
+ *     o corte 90/90 do BZ0010 pede a opção MAE = "VÃO+50MM (CORTE 90/90)" na política (a De Paula diz MEDIDA DO VÃO, corte 45): SQL na resposta 0042;
+ *   - VIDRO do item 1 (DP-144, 5 panos): o motor dá 1032 mm de altura (a fórmula dá 1032,0 exato) e o WVetro 1031: 1 mm, sem regra de fórmula que o explique
+ *     (o único pano das 12 medidas com valor exato inteiro; ver `VIDRO_RESTO_CONHECIDO`). Não remendado.
  */
 import fs from 'fs'
 import path from 'path'
@@ -24,7 +23,7 @@ import { abaDoBanco, ABAS_DO_MOTOR } from '@/utils/atendimentos-ia-abas-do-motor
 import { avaliarTipologia, lerTipologia, type AbasDoMotor } from '@/lib/atendimentos-ia/avaliador-de-formulas'
 import { escolhasDoCalculo } from '@/lib/atendimentos-ia/fronteira-das-escolhas'
 import { naturezasPara, type LinhaDaNatureza } from '@/lib/atendimentos-ia/natureza-da-variavel'
-import type { PoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa'
+import { arremateNaMedidaDoVaoDaPolitica, type PoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa'
 import { lerVidro, vidroSemBaguete } from '@/lib/atendimentos-ia/vidro'
 
 const DIR = path.join(__dirname, 'fixtures', 'gabarito-wvetro-1207')
@@ -40,6 +39,14 @@ const COR = 'Preto Liso'
 /** O que o gabarito pede e não é política (comentário do arquivo). */
 const DO_GABARITO: Record<string, Record<string, number>> = { 'DP-69': { ID: 1 }, 'DP-73': { PTM: 2 }, 'DP-155': { TA: 2, AT: 1180 } }
 const FV_DO_CALCO_8597 = 3
+
+/**
+ * A política da De Paula e o que o gabarito pede dela: o BZ0010 do WVetro é 90/90 com a medida do VÃO — a opção "VÃO+50MM (CORTE 90/90)" com o
+ * acréscimo zerado. A política hoje diz MAE = MEDIDA DO VÃO (corte 45): é pergunta ao PO (0042-1).
+ */
+const POLITICA_DO_GABARITO: LinhaDaNatureza[] = GAB.politica.map((l) => (l.variavel === 'MAE' ? { ...l, opcao_padrao: 'VÃO+50MM (CORTE 90/90)' } : l))
+
+const politicaDe = (linhas: LinhaDaNatureza[]) => ({ porVariavel: naturezasPara(linhas, { familia: 'PVC', linha: null, formato: null }) }) as PoliticaDaEmpresa
 
 type Corte = { codigo: string; comprimento: number; corte: string; quantidade: number }
 const chave = (c: { codigo: string; comprimento: number; corte: string }) => `${c.codigo}|${c.comprimento}|${c.corte}`
@@ -57,12 +64,12 @@ GAB.itens = GAB.itens.map((i) => ({ ...i, vidro_texto: VIDRO_DO_GABARITO[i.n] ??
 function avaliarItem(item: (typeof GAB.itens)[number]) {
     const t = lerTipologia(abas, item.t)
     if ('recusas' in t) throw new Error(`${item.n}: ${t.recusas[0].mensagem}`)
-    const politica = { porVariavel: naturezasPara(GAB.politica, { familia: 'PVC', linha: null, formato: null }) } as PoliticaDaEmpresa
+    const politica = politicaDe(POLITICA_DO_GABARITO)
     const e = escolhasDoCalculo(t.tipologia, item.esc, politica, null, COR, item.L)
     expect(e.voltas).toEqual([])
     const escolhas: Record<string, number> = { ...e.escolhas, ...(DO_GABARITO[item.t] ?? {}), FV: FV_DO_CALCO_8597 }
     const espessura = lerVidro(item.vidro_texto).espessura_mm
-    const r = avaliarTipologia({ tipologia: t.tipologia, L_mm: item.L, H_mm: item.H, escolhas, espessura_vidro_mm: espessura, semBagueteDoVidro: vidroSemBaguete(item.vidro_texto, espessura) })
+    const r = avaliarTipologia({ tipologia: t.tipologia, L_mm: item.L, H_mm: item.H, escolhas, espessura_vidro_mm: espessura, semBagueteDoVidro: vidroSemBaguete(item.vidro_texto, espessura), arremateNaMedidaDoVao: arremateNaMedidaDoVaoDaPolitica(politica) })
     if ('recusas' in r) throw new Error(`${item.n}: ${r.recusas[0].mensagem}`)
     return { r, escolhas }
 }
@@ -77,11 +84,6 @@ function gabaritoDoItem(n: number): Corte[] {
     })
 }
 const semArremate = (cs: readonly Corte[]) => cs.filter((c) => !ARREMATES.has(c.codigo))
-const porPerfil = (cs: readonly Corte[]) => {
-    const m = new Map<string, number>()
-    for (const c of cs) m.set(c.codigo, (m.get(c.codigo) ?? 0) + c.quantidade)
-    return m
-}
 
 /** O que ainda difere no vidro, nomeado: o item 1 (DP-144, 5 panos): o motor dá 1032 mm de altura (5320 − 67,2 − 4 × 23,2, ÷ 5) e o WVetro 1031 — 1 mm, [MOTOR/WVETRO], sem decisão ainda. */
 const VIDRO_RESTO_CONHECIDO: Record<number, Array<[number, number, number]>> = { 1: [[1532, 1032, 5]] }
@@ -94,10 +96,41 @@ describe('gabarito do WVetro 1207 — os cortes e os vidros do motor contra os d
         expect({ soMotor: ordem(sobra(contar(motor), contar(wv))), soWvetro: ordem(sobra(contar(wv), contar(motor))) }).toEqual({ soMotor: [], soWvetro: [] })
     })
 
-    test.each(GAB.itens.map((i) => [i.n, i.t, i] as const))('item %i (%s): o arremate tem a mesma quantidade por perfil, e só a medida e o corte diferem', (_n, _t, item) => {
-        const motor = motorDoItem(item).filter((c) => ARREMATES.has(c.codigo))
-        const wv = gabaritoDoItem(item.n).filter((c) => ARREMATES.has(c.codigo))
-        expect([...porPerfil(motor)].sort()).toEqual([...porPerfil(wv)].sort())
+    // O ARREMATE É A MEDIDA DO VÃO (dono do produto, 27/11/2026, pedido 0042): o comprimento é o do WVetro; o corte do BZ0010 é o que a opção da política dá
+    test.each(GAB.itens.map((i) => [i.n, i.t, i] as const))('item %i (%s): o arremate tem a medida do vão, a mesma quantidade e o mesmo comprimento do WVetro', (_n, _t, item) => {
+        const comprimentos = (cs: readonly Corte[]) => [...contar(cs.filter((c) => ARREMATES.has(c.codigo)))].sort()
+        expect(comprimentos(motorDoItem(item))).toEqual(comprimentos(gabaritoDoItem(item.n)))
+    })
+
+    test('SEM a política "arremate na medida do vão", o acréscimo da opção entra (as outras contas não mudam); COM ela, o vão', () => {
+        const item = GAB.itens.find((i) => i.n === 1)!
+        const tip = lerTipologia(abas, item.t)
+        if ('recusas' in tip) throw new Error('recusa')
+        const sem = POLITICA_DO_GABARITO.filter((l) => l.variavel !== 'ARREMATE_NA_MEDIDA_DO_VAO')
+        const larguraDoBZ1770 = (linhas: LinhaDaNatureza[]) => {
+            const p = politicaDe(linhas)
+            const escolhas = { ...avaliarItem(item).escolhas }
+            const r = avaliarTipologia({ tipologia: tip.tipologia, L_mm: item.L, H_mm: item.H, escolhas, espessura_vidro_mm: 6, arremateNaMedidaDoVao: arremateNaMedidaDoVaoDaPolitica(p) })
+            if ('recusas' in r) throw new Error(r.recusas[0].mensagem)
+            return r.pecas.filter((x) => x.codigo.startsWith('BZ1770') && x.posicao === 'Largura').map((x) => Math.trunc(x.comprimento_mm))
+        }
+        expect(arremateNaMedidaDoVaoDaPolitica(politicaDe(sem))).toBe(false)
+        expect(larguraDoBZ1770(POLITICA_DO_GABARITO)).toEqual([item.L])
+        expect(larguraDoBZ1770(sem)).toEqual([item.L + 100])
+        // só o "SIM" liga: outra opção, ou natureza ITEM, não
+        expect(arremateNaMedidaDoVaoDaPolitica(politicaDe(sem.concat([{ familia: 'PVC', linha: null, formato: null, variavel: 'ARREMATE_NA_MEDIDA_DO_VAO', natureza: 'POLITICA', opcao_padrao: 'NAO' }])))).toBe(false)
+        expect(arremateNaMedidaDoVaoDaPolitica(politicaDe(sem.concat([{ familia: 'PVC', linha: null, formato: null, variavel: 'ARREMATE_NA_MEDIDA_DO_VAO', natureza: 'ITEM', opcao_padrao: null }])))).toBe(false)
+    })
+
+    test('o arremate de 20 mm com ajuste em obra (MAI = vão + 100) também é a medida do vão: o acréscimo da opção não entra', () => {
+        const item = GAB.itens.find((i) => i.n === 2)!
+        const tip = lerTipologia(abas, item.t)
+        if ('recusas' in tip) throw new Error('recusa')
+        const r = avaliarTipologia({ tipologia: tip.tipologia, L_mm: item.L, H_mm: item.H, escolhas: { ...avaliarItem(item).escolhas, TI: 2, ARI: 3, MAI: 2 }, espessura_vidro_mm: 5, arremateNaMedidaDoVao: arremateNaMedidaDoVaoDaPolitica(politicaDe(POLITICA_DO_GABARITO)) })
+        if ('recusas' in r) throw new Error(r.recusas[0].mensagem)
+        const comp = r.pecas.filter((p) => p.codigo.startsWith('BZ0010') && p.corte === '90/90').map((p) => Math.trunc(p.comprimento_mm))
+        expect(comp).toContain(item.L)
+        expect(comp).not.toContain(item.L + 100)
     })
 
     // O VIDRO SAI NA MEDIDA DO WVETRO (dono do produto, 27/11/2026): o relatório de vidros vai para a vidraçaria; a folga do FV vale para o calço

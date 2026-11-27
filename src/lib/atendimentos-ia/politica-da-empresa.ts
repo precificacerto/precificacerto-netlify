@@ -135,6 +135,17 @@ export function traduzirPolitica(tipologia: string, v: Pick<VariavelDaTipologia,
     return achadas.length === 1 ? { valor: achadas[0].valor, campo } : recusa(campo, texto, achadas.length)
 }
 
+/**
+ * O ARREMATE NA MEDIDA DO VÃO é POLÍTICA POR EMPRESA (dono do produto, 27/11/2026, pedido 0042): a linha `ARREMATE_NA_MEDIDA_DO_VAO` = SIM da natureza
+ * (`orcamentista_natureza_da_variavel`, sem migração) liga: o BZ1770 e o BZ0010 saem com a medida do vão, como o WVetro 1207. Sem a linha, ou com outra
+ * opção, o motor mantém o acréscimo da opção do arremate — as outras contas não mudam.
+ */
+export const VARIAVEL_DO_ARREMATE_NA_MEDIDA_DO_VAO = 'ARREMATE_NA_MEDIDA_DO_VAO'
+export function arremateNaMedidaDoVaoDaPolitica(politica: PoliticaDaEmpresa): boolean {
+    const n = politica.porVariavel?.[VARIAVEL_DO_ARREMATE_NA_MEDIDA_DO_VAO]
+    return n !== undefined && n.natureza === 'POLITICA' && n.opcao !== null && forma(n.opcao) === 'SIM'
+}
+
 /** A natureza da variável na política, quando a política vem da estrutura da natureza; senão null (o caminho de antes não tem natureza). */
 export function naturezaNaPolitica(politica: PoliticaDaEmpresa, variavel: string): NaturezaResolvida | null {
     return politica.porVariavel?.[variavel] ?? null
