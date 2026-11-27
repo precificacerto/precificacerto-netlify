@@ -32,7 +32,7 @@ import { avaliarTexto, opcoesDaVariavel, type Tipologia } from '@/lib/atendiment
 import { PECAS_QUE_NAO_ENTRAM_POR_PADRAO } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { naturezaNaPolitica, traduzirPolitica, type PoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa'
 
-export type OrigemDaEscolha = 'vendedor' | 'politica' | 'politica_ajuste_em_obra' | 'tipologia' | 'calculo' | 'pela_cor' | 'pela_largura' | 'padrao_do_motor' | 'principal'
+export type OrigemDaEscolha = 'vendedor' | 'politica' | 'politica_ajuste_em_obra' | 'tipologia' | 'calculo' | 'pela_cor' | 'pela_largura' | 'pelo_acionamento' | 'padrao_do_motor' | 'principal'
 export type VoltaAoAgente = { variavel: string; descricao: string; frase: string }
 /** `ajustes`: as variáveis em que a política não existia na variação e entrou a opção de ajuste em obra (ou a 1), com o motivo — o rastro. */
 /** `equivalencias`: as variáveis em que a opção da política entrou com outro rótulo (a lista não separa a chave), com o motivo — o rastro. */
@@ -117,6 +117,14 @@ export function opcaoQueALarguraImpoe(v: { variavel: string; opcoes: string | nu
     const achadas = (opcoesDaVariavel(v.opcoes) ?? []).filter((o) => semAcento(o.rotulo).toUpperCase().trim().startsWith('NAO'))
     return achadas.length === 1 ? achadas[0].valor : null
 }
+/**
+ * O TIPO DE ACIONAMENTO DA PERSIANA PELO ACIONAMENTO E PELA DIVISÓRIA (dono do produto, 27/11/2026, pedido 0043): "um pano (sem divisória) = 1 recolhedor; com
+ * divisória (largura nominal >= 1800 mm) = 2 recolhedores, um por pano". LA = ACIONAMENTO ÚNICO (1) ou AMBOS OS LADOS (2, um por pano). Manual (recolhedor): a divisória
+ * decide. Motor: sem divisória, 1 motor; com divisória o VENDEDOR diz — simultâneo (1 motor para os 2 panos, LA único) ou individual (1 por pano) — e, sem
+ * ele dizer, a pergunta volta ao agente. As opções são achadas pelo RÓTULO.
+ */
+export const VARIAVEL_DO_TIPO_DE_ACIONAMENTO = 'LA'
+export const VARIAVEL_DO_ACIONAMENTO = 'AE'
 /** A opção que a COR DA ESQUADRIA impõe na variável (a palheta ou a cor dos acessórios); null quando a cor não decide aquela variável. */
 export const opcaoQueACorImpoe = (v: { variavel: string; opcoes: string | null }, cor: string | null | undefined): number | null =>
     palhetaQueACorImpoe(v, cor) ?? corDosAcessoriosQueACorImpoe(v, cor)
@@ -147,7 +155,9 @@ export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<s
     // A COR VENCE A POLÍTICA NA PERSIANA (dono do produto, 26/11/2026, pedido 0039): na esquadria que não é BRANCO, a política (a De Paula diz PP =
     // PVC 37) não decide o modelo da palheta — a persiana de PVC só existe em branco; quem decide é a cor (45, o alumínio). Na BRANCA, a política vale
     // e a COR DOS ACESSÓRIOS segue a cor do perfil em qualquer cor (pedido 0040)
+    const temAcionamento = tipologia.variaveis.some((x) => x.variavel === VARIAVEL_DO_ACIONAMENTO && (opcoesDaVariavel(x.opcoes)?.length ?? 0) > 0)
     const palhetaPelaCorVence = (v: { variavel: string; opcoes: string | null }) => opcaoQueACorImpoe(v, cor) !== null || opcaoQueALarguraImpoe(v, larguraMm) !== null
+        || (v.variavel === VARIAVEL_DO_TIPO_DE_ACIONAMENTO && temAcionamento)
     // 2. a política da empresa
     for (const v of comOpcoes) {
         if (palhetaPelaCorVence(v)) continue
@@ -198,6 +208,7 @@ export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<s
     // 3, 4 e 5. o padrão do motor, só quando não acrescenta peça; senão a principal; senão volta ao agente
     for (const v of comOpcoes) {
         if (escolhas[v.variavel] !== undefined || voltas.some((x) => x.variavel === v.variavel)) continue
+        if (v.variavel === VARIAVEL_DO_TIPO_DE_ACIONAMENTO && temAcionamento) continue // pela regra do acionamento, abaixo
         if (!ativa(v.condicao, valores())) continue
         const padrao = numeroDoPadrao(v.padrao)
         if (padrao === null) continue // sem padrão: o avaliador recusa pelo nome, como sempre
@@ -224,6 +235,26 @@ export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<s
         }
         escolhas[v.variavel] = principal
         origem[v.variavel] = 'principal'
+    }
+    // 6. o TIPO DE ACIONAMENTO da persiana (pedido 0043), depois de o acionamento (AE) e a divisória (MD) estarem decididos
+    const la = comOpcoes.find((v) => v.variavel === VARIAVEL_DO_TIPO_DE_ACIONAMENTO)
+    if (la && temAcionamento && escolhas[la.variavel] === undefined && escolhas[VARIAVEL_DO_ACIONAMENTO] !== undefined && ativa(la.condicao, valores())) {
+        const rotulo = (v: { variavel: string; opcoes: string | null } | undefined, valor: number | undefined) =>
+            v === undefined || valor === undefined ? '' : semAcento((opcoesDaVariavel(v.opcoes) ?? []).find((o) => o.valor === valor)?.rotulo ?? '').toUpperCase().trim()
+        const opcaoLA = (inicio: string) => (opcoesDaVariavel(la.opcoes) ?? []).find((o) => semAcento(o.rotulo).toUpperCase().trim().startsWith(inicio))?.valor
+        const md = tipologia.variaveis.find((x) => x.variavel === VARIAVEL_DO_DIVISOR_DA_PERSIANA)
+        const mdSim = (opcoesDaVariavel(md?.opcoes ?? null) ?? []).find((o) => semAcento(o.rotulo).toUpperCase().trim().startsWith('SIM'))?.valor
+        const dividida = mdSim !== undefined && escolhas[VARIAVEL_DO_DIVISOR_DA_PERSIANA] === mdSim
+        const aeRotulo = rotulo(tipologia.variaveis.find((x) => x.variavel === VARIAVEL_DO_ACIONAMENTO), escolhas[VARIAVEL_DO_ACIONAMENTO])
+        const unico = opcaoLA('ACIONAMENTO UNICO'), ambos = opcaoLA('ACIONAMENTO AMBOS')
+        if (aeRotulo.startsWith('RECOLHEDOR') && unico !== undefined && ambos !== undefined) {
+            escolhas[la.variavel] = dividida ? ambos : unico
+            origem[la.variavel] = 'pelo_acionamento'
+        } else if (aeRotulo.startsWith('MOTOR') && unico !== undefined && ambos !== undefined) {
+            if (!dividida) { escolhas[la.variavel] = unico; origem[la.variavel] = 'pelo_acionamento' }
+            else voltas.push({ variavel: la.variavel, descricao: la.descricao ?? la.variavel,
+                frase: `o acionamento da persiana da tipologia ${tipologia.codigo} é a motor e a esquadria tem divisória (1800 mm ou mais): o motor é simultâneo (1 motor para os 2 panos) ou individual (1 motor por pano)? Diga qual.` })
+        }
     }
     return { escolhas, origem, voltas, ajustes, equivalencias, pelaTipologia }
 }

@@ -73,7 +73,13 @@ const capturada = (v: string) => (ESCOLHAS_CAPTURADAS as readonly string[]).incl
  * chave, será informado através do vendedor." MFI e MFE são POLÍTICA (a natureza gravada), e o "com chave" do item a sobrepõe — item → política →
  * motor (`escolhasDoCalculo`). Diferente das capturadas, NUNCA se perguntam nem entram na linha do arremate: só valem quando o vendedor diz.
  */
-export const ESCOLHAS_DO_ITEM = ['MFI', 'MFE'] as const
+export const ESCOLHAS_DO_ITEM = ['MFI', 'MFE', 'AE', 'LA', 'LR'] as const
+/**
+ * O ACIONAMENTO DA PERSIANA (dono do produto, 27/11/2026, pedido 0043): AE (o acionamento da esteira: recolhedor ou motor), LA (um acionamento ou um por
+ * pano) e LR (o lado do recolhedor). O vendedor não pediu motor: MANUAL por fita, sem perguntar (a política: AE = recolhedor embutido; LA pela largura,
+ * `fronteira-das-escolhas.ts`). Pediu motor: AE, e simultâneo (LA único) ou individual (LA nos dois lados), como ele disser.
+ */
+export const ACIONAMENTO_DA_PERSIANA = ['AE', 'LA', 'LR'] as const
 const doItem = (v: string) => (ESCOLHAS_DO_ITEM as readonly string[]).includes(v)
 
 // ── A PEÇA QUE NINGUÉM PEDIU NÃO ENTRA POR PADRÃO (dono do produto, 19/11/2026) ─────────────────────────────────────────
@@ -468,7 +474,48 @@ export function escolhasDescritas(tipologia: VariaveisDaTipologia, explicitas: E
         const rotulo = valor === undefined ? null : opcoesDaVariavel(v.opcoes)?.find((o) => o.valor === valor)?.rotulo ?? null
         descritas.push({ variavel: v.variavel, descricao: v.descricao ?? v.variavel, rotulo, doVendedor: explicitas[v.variavel] !== undefined })
     }
+    const acionamento = descreverAcionamento(tipologia, explicitas)
+    if (acionamento) descritas.push({ variavel: 'AE', descricao: 'Acionamento da persiana', rotulo: acionamento, doVendedor: explicitas.AE !== undefined })
     return descritas
+}
+
+const semAcentoMaiuscula = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim()
+/**
+ * O ACIONAMENTO DA PERSIANA, em português (pedido 0043): "manual por fita (recolhedor embutido, 2 recolhedores, um por pano)" ou "motor 220V controle
+ * remoto, simultâneo (1 motor para os 2 panos)" / "individual (1 motor por pano)", com o lado do recolhedor quando ele existe — e, sem o lado dito, o padrão
+ * da tipologia, marcado para o vendedor confirmar. Null quando a tipologia não tem acionamento. As escolhas são as DECIDIDAS (as do cálculo).
+ */
+export function descreverAcionamento(tipologia: VariaveisDaTipologia, escolhas: Escolhas): string | null {
+    const variavel = (nome: string) => tipologia.variaveis.find((x) => x.variavel === nome)
+    const rotuloDe = (nome: string, valor: number | undefined) => {
+        const v = variavel(nome)
+        return v === undefined || valor === undefined ? null : opcoesDaVariavel(v.opcoes)?.find((o) => o.valor === valor)?.rotulo ?? null
+    }
+    const valor = (nome: string) => escolhas[nome] ?? padraoDoArremate(tipologia, nome) ?? undefined
+    const ae = variavel('AE')
+    if (!ae || !condicaoPede(ae.condicao, { ...escolhas })) return null
+    const aeRotulo = rotuloDe('AE', valor('AE'))
+    if (aeRotulo === null) return null
+    const aeNorm = semAcentoMaiuscula(aeRotulo)
+    const laNorm = semAcentoMaiuscula(rotuloDe('LA', valor('LA')) ?? '')
+    const doisPanos = laNorm.startsWith('ACIONAMENTO AMBOS')
+    const mdSim = opcoesDaVariavel(variavel('MD')?.opcoes ?? null)?.find((o) => semAcentoMaiuscula(o.rotulo).startsWith('SIM'))?.valor
+    const dividida = mdSim !== undefined && valor('MD') === mdSim
+    if (aeNorm.startsWith('RECOLHEDOR')) {
+        const tipo = aeNorm.includes('SOBREPOR') ? 'recolhedor de sobrepor' : 'recolhedor embutido'
+        let texto = `manual por fita (${tipo}${doisPanos ? ', 2 recolhedores, um por pano' : ', 1 recolhedor'})`
+        const lr = variavel('LR')
+        if (lr && !doisPanos && condicaoPede(lr.condicao, { ...escolhas, AE: valor('AE') as number, LA: valor('LA') as number })) {
+            const lado = rotuloDe('LR', valor('LR'))
+            if (lado !== null) texto += `, ${lado.toLowerCase()}${escolhas.LR === undefined ? ' (padrão da tipologia: confirme o lado)' : ''}`
+        }
+        return texto
+    }
+    if (aeNorm.startsWith('MOTOR')) {
+        const motor = aeRotulo.replace(/\s+-\s+/g, ' ').toLowerCase().replace(/(\d+)v\b/g, '$1V')
+        return `${motor}${dividida ? (doisPanos ? ', individual (1 motor por pano)' : ', simultâneo (1 motor para os 2 panos)') : ''}`
+    }
+    return aeRotulo.toLowerCase()
 }
 
 /** Alguma capturada foi escolhida pelo vendedor? (A frase de confirmação muda.) */
