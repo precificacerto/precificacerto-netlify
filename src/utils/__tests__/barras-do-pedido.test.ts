@@ -58,15 +58,17 @@ describe('a serra: por corte, INCLUSIVE o último da barra', () => {
     })
 })
 
-describe('o refilo (PO, 22/11/2026): 45 mm por ponta em TODA cor, menos o BRANCO — pela exceção, não por lista', () => {
-    it('o branco aproveita a barra inteira; amadeirada, EXTERNO (uma face colorida) e qualquer outra levam 45 mm por ponta', () => {
+describe('o refilo (WVetro, 0045-2 (b), 27/11/2026): 45 mm por ponta SÓ no acabamento madeira; branco e preto liso não', () => {
+    it('o branco e o preto liso aproveitam a barra inteira; só o acabamento madeira leva 45 mm por ponta', () => {
         expect(refiloDaCor('Branco')).toBe(0)
         expect(refiloDaCor(' branco ')).toBe(0)
         expect(refiloDaCor('AMADEIRADO GOLDEN OAK')).toBe(45)
         expect(refiloDaCor('EXTERNO GOLDEN OAK')).toBe(45)
-        expect(refiloDaCor('EXTERNO PRETO TEXTURADO')).toBe(45)
-        expect(refiloDaCor('Grafite')).toBe(45)
-        expect(refiloDaCor('Cor Nova Que O Fornecedor Lançou')).toBe(45)
+        expect(refiloDaCor('AMADEIRADO NOGUEIRA')).toBe(45)
+        expect(refiloDaCor('Pintura Madeira')).toBe(45)
+        expect(refiloDaCor('Preto Liso')).toBe(0) // o gabarito 1207: 256 barras só sem refilo
+        expect(refiloDaCor('EXTERNO PRETO TEXTURADO')).toBe(0)
+        expect(refiloDaCor('Grafite')).toBe(0)
         expect(COR_SEM_REFILO).toBe('BRANCO')
     })
     it('um nome COMPOSTO com BRANCO ("EXTERNO BRANCO") não é decidido: o PO decide antes; e a cor ausente também não', () => {

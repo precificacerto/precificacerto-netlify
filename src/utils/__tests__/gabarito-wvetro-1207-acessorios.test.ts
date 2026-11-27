@@ -126,7 +126,7 @@ describe('acessórios do WVetro 1207 — por função e quantidade', () => {
 
     // AS BARRAS (meta 256): os cortes do motor são os do WVetro, código a código; a barra a mais é do REFILO da cor (regra do pedido 0034: 45 mm por ponta
     // fora do branco). Sem refilo, as mesmas peças dão as 256 do WVetro. É [COMERCIAL] — decisão do dono do produto —, não do motor nem do agente.
-    it('barras: as peças do motor empacotam como as do WVetro; 257 com o refilo do PRETO LISO (45 mm por ponta) e 256 sem refilo', () => {
+    it('barras: as peças do motor empacotam como as do WVetro; o PRETO LISO não leva refilo (regra do WVetro: só madeira) e dá as 256; com 45 mm por ponta daria 257', () => {
         const pecas: Array<{ codigo: string; comprimento_mm: number; quantidade: number }> = []
         totais(true, pecas)
         const gab = JSON.parse(fs.readFileSync(path.join(DIR, 'gabarito.json'), 'utf8')) as { cortes: Record<string, string[]> }
@@ -134,7 +134,8 @@ describe('acessórios do WVetro 1207 — por função e quantidade', () => {
         const barras = Object.fromEntries([...new Set([...pecas, ...dosCortes].map((p) => p.codigo))].map((c) => [c, { comprimento_mm: 6000 }]))
         const n = (ps: typeof pecas, cor: string) => { const r = agruparEmBarras({ pecas: ps, barras, serra_mm: 5, cor }); if ('recusas' in r) throw new Error(r.recusas[0].mensagem); return r.total }
         expect(n(pecas, 'Preto Liso').barras_por_codigo).toEqual(n(dosCortes, 'Preto Liso').barras_por_codigo)
-        expect(n(pecas, 'Preto Liso').n_barras).toBe(257)
+        expect(n(pecas, 'Preto Liso').n_barras).toBe(256)
         expect(n(pecas, 'Branco').n_barras).toBe(256)
+        expect(n(pecas, 'Amadeirado Golden Oak').n_barras).toBe(257) // o refilo só existe na madeira
     })
 })

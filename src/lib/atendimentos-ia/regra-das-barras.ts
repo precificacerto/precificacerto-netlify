@@ -7,8 +7,10 @@
  *   - FFD best-fit: os cortes do maior para o menor; cada um vai na barra ABERTA com a MENOR sobra que o comporte; nenhuma, barra nova.
  *     Desempate: a barra aberta primeiro. Determinístico.
  *   - SERRA por corte, INCLUSIVE o último: cada peça consome o comprimento dela mais a serra.
- *   - REFILO: 45 mm por ponta em toda cor, MENOS o BRANCO (`refiloDaCor`). A cor ausente, ou um nome composto com BRANCO, não se decide
- *     aqui: volta o motivo, nomeado.
+ *   - REFILO: 45 mm por ponta SÓ na cor de acabamento MADEIRA (pintura madeira, amadeirado, golden oak, nogueira, oak); branco, preto liso e as
+ *     demais cores lisas não refilam (`refiloDaCor`). É a regra do WVetro: ela nasceu "só em PINTURA MADEIRA" (22/11/2026), o PO a ampliou a toda
+ *     cor menos o branco no mesmo dia, e o gabarito do orçamento 1207 (PRETO LISO, 256 barras só SEM refilo) a trouxe de volta (0045-2 (b), 27/11/2026).
+ *     A cor ausente, ou um nome composto com BRANCO, não se decide aqui: volta o motivo, nomeado.
  *   - A peça que não cabe na barra útil (barra − 2 × refilo), com a serra, não se emenda.
  * As contas são em micrômetros inteiros. Puro: não lê banco nem rede.
  */
@@ -16,17 +18,20 @@
 export const REFILO_POR_PONTA_MM = 45
 /** A ÚNICA cor sem refilo, normalizada (sem acento, maiúscula, espaço simples). */
 export const COR_SEM_REFILO = 'BRANCO'
+/** O acabamento madeira, a única cor que o WVetro refila: pelas palavras do nome (as cores da tabela: AMADEIRADO GOLDEN OAK, AMADEIRADO NOGUEIRA, PINTURA MADEIRA). */
+export const COR_DE_MADEIRA = /\b(MADEIRA|AMADEIRADO|AMADEIRADA|GOLDEN OAK|NOGUEIRA|OAK)\b/
 export const normalizarCor = (cor: string | null) => (cor ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim()
 /**
- * O refilo por ponta da cor: 0 no BRANCO, 45 em qualquer outra; ou o motivo de não decidir — a cor ausente, ou um nome composto com BRANCO
+ * O refilo por ponta da cor: 45 no acabamento madeira, 0 em qualquer outra (branco, preto liso…); ou o motivo de não decidir — a cor ausente, ou um nome composto com BRANCO
  * ("EXTERNO BRANCO"), que o PO decide antes.
  */
 export function refiloDaCor(cor: string | null): number | { motivo: string } {
     const c = normalizarCor(cor)
     if (c === '') return { motivo: 'o item não tem a cor do perfil, e o refilo depende dela (o branco aproveita a barra inteira; as outras cores perdem 45 mm por ponta)' }
     if (c === COR_SEM_REFILO) return 0
+    if (COR_DE_MADEIRA.test(c)) return REFILO_POR_PONTA_MM
     if (/\bBRANCO\b/.test(c)) return { motivo: `a cor "${cor}" tem BRANCO num nome composto: se leva o refilo de 45 mm por ponta é decisão do dono do produto, e nenhuma é suposta` }
-    return REFILO_POR_PONTA_MM
+    return 0
 }
 
 export const UM_POR_MM = 1000
