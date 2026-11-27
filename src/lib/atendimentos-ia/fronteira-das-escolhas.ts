@@ -125,6 +125,11 @@ export function opcaoQueALarguraImpoe(v: { variavel: string; opcoes: string | nu
  */
 export const VARIAVEL_DO_TIPO_DE_ACIONAMENTO = 'LA'
 export const VARIAVEL_DO_ACIONAMENTO = 'AE'
+/**
+ * O TUBO DA PERSIANA PELO ACIONAMENTO (dono do produto, 27/11/2026, pedido 0043): Ø40MM no acionamento MANUAL (recolhedor) — o padrão da política (TB) —, e Ø60MM quando
+ * há MOTOR (é o tubo que recebe o motor; o 1930, o adaptador de ponteira de 60 mm, sai com ele). O código decide pelo acionamento; o que o vendedor disser vale sobre a regra.
+ */
+export const VARIAVEL_DO_TUBO = 'TB'
 /** A opção que a COR DA ESQUADRIA impõe na variável (a palheta ou a cor dos acessórios); null quando a cor não decide aquela variável. */
 export const opcaoQueACorImpoe = (v: { variavel: string; opcoes: string | null }, cor: string | null | undefined): number | null =>
     palhetaQueACorImpoe(v, cor) ?? corDosAcessoriosQueACorImpoe(v, cor)
@@ -157,7 +162,7 @@ export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<s
     // e a COR DOS ACESSÓRIOS segue a cor do perfil em qualquer cor (pedido 0040)
     const temAcionamento = tipologia.variaveis.some((x) => x.variavel === VARIAVEL_DO_ACIONAMENTO && (opcoesDaVariavel(x.opcoes)?.length ?? 0) > 0)
     const palhetaPelaCorVence = (v: { variavel: string; opcoes: string | null }) => opcaoQueACorImpoe(v, cor) !== null || opcaoQueALarguraImpoe(v, larguraMm) !== null
-        || (v.variavel === VARIAVEL_DO_TIPO_DE_ACIONAMENTO && temAcionamento)
+        || ((v.variavel === VARIAVEL_DO_TIPO_DE_ACIONAMENTO || v.variavel === VARIAVEL_DO_TUBO) && temAcionamento)
     // 2. a política da empresa
     for (const v of comOpcoes) {
         if (palhetaPelaCorVence(v)) continue
@@ -208,7 +213,7 @@ export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<s
     // 3, 4 e 5. o padrão do motor, só quando não acrescenta peça; senão a principal; senão volta ao agente
     for (const v of comOpcoes) {
         if (escolhas[v.variavel] !== undefined || voltas.some((x) => x.variavel === v.variavel)) continue
-        if (v.variavel === VARIAVEL_DO_TIPO_DE_ACIONAMENTO && temAcionamento) continue // pela regra do acionamento, abaixo
+        if ((v.variavel === VARIAVEL_DO_TIPO_DE_ACIONAMENTO || v.variavel === VARIAVEL_DO_TUBO) && temAcionamento) continue // pela regra do acionamento, abaixo
         if (!ativa(v.condicao, valores())) continue
         const padrao = numeroDoPadrao(v.padrao)
         if (padrao === null) continue // sem padrão: o avaliador recusa pelo nome, como sempre
@@ -254,6 +259,20 @@ export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<s
             if (!dividida) { escolhas[la.variavel] = unico; origem[la.variavel] = 'pelo_acionamento' }
             else voltas.push({ variavel: la.variavel, descricao: la.descricao ?? la.variavel,
                 frase: `o acionamento da persiana da tipologia ${tipologia.codigo} é a motor e a esquadria tem divisória (1800 mm ou mais): o motor é simultâneo (1 motor para os 2 panos) ou individual (1 motor por pano)? Diga qual.` })
+        }
+    }
+    // 6b. o TUBO da persiana pelo acionamento (pedido 0043): Ø60MM com motor; sem motor, o que a política diz (Ø40MM) ou o padrão do motor
+    const tb = comOpcoes.find((v) => v.variavel === VARIAVEL_DO_TUBO)
+    if (tb && temAcionamento && escolhas[tb.variavel] === undefined && escolhas[VARIAVEL_DO_ACIONAMENTO] !== undefined && ativa(tb.condicao, valores())) {
+        const aeOpcao = (opcoesDaVariavel(tipologia.variaveis.find((x) => x.variavel === VARIAVEL_DO_ACIONAMENTO)?.opcoes ?? null) ?? []).find((o) => o.valor === escolhas[VARIAVEL_DO_ACIONAMENTO])
+        const comMotor = semAcento(aeOpcao?.rotulo ?? '').toUpperCase().trim().startsWith('MOTOR')
+        const sessenta = (opcoesDaVariavel(tb.opcoes) ?? []).filter((o) => /60/.test(o.rotulo))
+        if (comMotor && sessenta.length === 1) { escolhas[tb.variavel] = sessenta[0].valor; origem[tb.variavel] = 'pelo_acionamento' }
+        else {
+            const t = traduzirPolitica(tipologia.codigo, tb, politica)
+            const padrao = numeroDoPadrao(tb.padrao)
+            if (t && 'valor' in t) { escolhas[tb.variavel] = t.valor; origem[tb.variavel] = 'politica' }
+            else if (padrao !== null) { escolhas[tb.variavel] = padrao; origem[tb.variavel] = 'padrao_do_motor' }
         }
     }
     return { escolhas, origem, voltas, ajustes, equivalencias, pelaTipologia }

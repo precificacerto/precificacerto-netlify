@@ -26,9 +26,9 @@ const INSUMOS = JSON.parse(fs.readFileSync(path.join(DIR, 'insumos-da-persiana.j
 const GAB = JSON.parse(fs.readFileSync(path.join(DIR, 'gabarito.json'), 'utf8')) as { politica: LinhaDaNatureza[]; itens: Array<{ n: number; t: string; L: number; H: number; q: number; esc: Record<string, number> }> }
 const abas: AbasDoMotor = Object.fromEntries(ABAS_DO_MOTOR.filter((a) => MOTOR.tabelas[a.tabela] || a.tabela === 'orcamentista_motor_insumo')
     .map((a) => [a.nome, abaDoBanco(a, a.tabela === 'orcamentista_motor_insumo' ? INSUMOS.insumos : MOTOR.tabelas[a.tabela])]))
-/** A política da De Paula com o acionamento do pedido 0043: AE = RECOLHEDOR EMBUTIDO (o SQL da resposta), e o resto como o gabarito pede. */
+/** A política da De Paula com o acionamento do pedido 0043: AE = RECOLHEDOR EMBUTIDO (o SQL da resposta); o tubo é Ø40MM (a política) e o código o troca por Ø60MM com motor. */
 const POLITICA: LinhaDaNatureza[] = [
-    ...GAB.politica.filter((l) => l.variavel !== 'AE' && l.variavel !== 'MAE').map((l) => (l.variavel === 'TB' ? { ...l, opcao_padrao: 'Ø60MM' } : l)),
+    ...GAB.politica.filter((l) => l.variavel !== 'AE' && l.variavel !== 'MAE'),
     { familia: 'PVC', linha: null, formato: null, variavel: 'AE', natureza: 'POLITICA', opcao_padrao: 'RECOLHEDOR EMBUTIDO' },
     { familia: 'PVC', linha: null, formato: null, variavel: 'MAE', natureza: 'POLITICA', opcao_padrao: 'VÃO+50MM (CORTE 90/90)' },
 ]
@@ -114,5 +114,31 @@ describe('acionamento da persiana — o que o vendedor pode dizer', () => {
         if ('recusas' in t) throw new Error('recusa')
         for (const v of ['AE', 'LA', 'LR']) expect(escolhaPedida(t.tipologia, v)?.opcoes.length).toBeGreaterThan(0)
         expect(lerEscolhasGravadas({ AE: 4, LA: 3, LR: 2 }, t.tipologia)).toEqual({ AE: 4, LA: 3, LR: 2 })
+    })
+})
+
+describe('acionamento da persiana — o tubo e o aviso de largura (resposta do PO a 0043-2 e 0043-3)', () => {
+    it('o tubo é Ø40MM no manual (a política) e Ø60MM com motor; o que o vendedor disser vale', () => {
+        expect(calcular(2).e.escolhas.TB).toBe(1)
+        expect(calcular(2).e.origem.TB).toBe('politica')
+        expect(calcular(2, { AE: MOTOR_220_CR }).e.escolhas.TB).toBe(2)
+        expect(calcular(2, { AE: MOTOR_220_CR }).e.origem.TB).toBe('pelo_acionamento')
+        expect(calcular(2, { AE: MOTOR_220_CR, TB: 1 }).e.escolhas.TB).toBe(1)
+        expect(calcular(2, { AE: MOTOR_220_CR }).insumo('1930')).toBe(2)
+        expect(calcular(2).insumo('1930')).toBe(0)
+    })
+    it('a largura recomendada por recolhedor é 1800 mm: acima dela o item SEGUE e o texto traz o aviso; o motor não tem aviso', () => {
+        const comLargura = (n: number, largura: number, ditas: Record<string, number> = {}) => {
+            const c = calcular(n, ditas, largura)
+            return descreverAcionamento(c.tipologia, c.escolhas, new Set(Object.keys(ditas)), largura)
+        }
+        const AVISO = 'aviso: largura acima da recomendada para o recolhimento: 1800 mm'
+        expect(comLargura(9, 3600)).not.toContain('aviso') // 2 recolhedores de 1800 mm cada
+        expect(comLargura(9, 3601)).toContain(AVISO)
+        expect(comLargura(9, 4000)).toContain(AVISO)
+        expect(comLargura(2, 1200)).not.toContain('aviso')
+        expect(comLargura(9, 4000, { AE: MOTOR_220_CR, LA: 2 })).not.toContain('aviso')
+        // o item segue: o cálculo não recusa
+        expect(() => calcular(9, {}, 4000)).not.toThrow()
     })
 })
