@@ -1,0 +1,461 @@
+{
+ "_leia_me": "Acessórios do WVetro 1207, total da obra (GABARITO-WVETRO-1207.md no Drive, relatório Acessórios com Valor). Sufixo W = /WOLFF.",
+ "acessorios": [
+  {
+   "codigo": "10158",
+   "un": "UN",
+   "qtd": 26.0,
+   "descricao": "ROLDANA ZAMAK 04 H33 1R"
+  },
+  {
+   "codigo": "10869",
+   "un": "UN",
+   "qtd": 4.0,
+   "descricao": "CILINDRO LT 35 X 35"
+  },
+  {
+   "codigo": "11612",
+   "un": "UN",
+   "qtd": 1.0,
+   "descricao": "DOBRADIÇA CENTRAL C/REG P/CANAL"
+  },
+  {
+   "codigo": "12183",
+   "un": "UN",
+   "qtd": 26.0,
+   "descricao": "CALÇO POM CINZA 4 X 14"
+  },
+  {
+   "codigo": "12349",
+   "un": "CJ",
+   "qtd": 4.0,
+   "descricao": "KIT CAPA OSCILO BATENTE PRETO"
+  },
+  {
+   "codigo": "12388",
+   "un": "UN",
+   "qtd": 26.0,
+   "descricao": "CALÇO POM CINZA 8 X 14"
+  },
+  {
+   "codigo": "13229W",
+   "un": "UN",
+   "qtd": 14.0,
+   "descricao": "BATENTE DE PERSIANA"
+  },
+  {
+   "codigo": "1325W",
+   "un": "MT",
+   "qtd": 7.9,
+   "descricao": "EIXO OITAVADO 60MM ZINCADO"
+  },
+  {
+   "codigo": "1354W",
+   "un": "MT",
+   "qtd": 45.0356,
+   "descricao": "BORRACHA PARA TELA MOSQ"
+  },
+  {
+   "codigo": "1399W",
+   "un": "UN",
+   "qtd": 42.0,
+   "descricao": "BATENTE CORRER (STOPPER)"
+  },
+  {
+   "codigo": "14545",
+   "un": "UN",
+   "qtd": 12.0,
+   "descricao": "ROLDANA PVC 03 H13 2RC"
+  },
+  {
+   "codigo": "15248",
+   "un": "UN",
+   "qtd": 5.0,
+   "descricao": "SUPORTE COMPASSO Ø7MM"
+  },
+  {
+   "codigo": "15249",
+   "un": "PC",
+   "qtd": 5.0,
+   "descricao": "LEME P/COMPASSO 12/20"
+  },
+  {
+   "codigo": "15250",
+   "un": "UN",
+   "qtd": 4.0,
+   "descricao": "SUPORTE DOB. DE CANTO"
+  },
+  {
+   "codigo": "15251",
+   "un": "UN",
+   "qtd": 4.0,
+   "descricao": "DOBRADIÇA DE CANTO P.23"
+  },
+  {
+   "codigo": "15391",
+   "un": "UN",
+   "qtd": 4.0,
+   "descricao": "CREMONA CORRER CELSUS (600)"
+  },
+  {
+   "codigo": "15396",
+   "un": "UN",
+   "qtd": 3.0,
+   "descricao": "CREMONA CORRER CELSUS (1600)"
+  },
+  {
+   "codigo": "15397",
+   "un": "UN",
+   "qtd": 3.0,
+   "descricao": "CREMONA CORRER CELSUS"
+  },
+  {
+   "codigo": "15398",
+   "un": "UN",
+   "qtd": 1.0,
+   "descricao": "CREMONA CORRER CELSUS"
+  },
+  {
+   "codigo": "15401",
+   "un": "UN",
+   "qtd": 2.0,
+   "descricao": "CREMONA MAXIN-AR CELSUS"
+  },
+  {
+   "codigo": "15406",
+   "un": "UN",
+   "qtd": 1.0,
+   "descricao": "FECHADURA COMANDO MAÇANETA"
+  },
+  {
+   "codigo": "15409",
+   "un": "UN",
+   "qtd": 2.0,
+   "descricao": "LIMITADOR ABERTURA CELSUS"
+  },
+  {
+   "codigo": "15416",
+   "un": "UN",
+   "qtd": 1.0,
+   "descricao": "CHAPA TESTA AMBIDESTRA"
+  },
+  {
+   "codigo": "15855",
+   "un": "UN",
+   "qtd": 1.0,
+   "descricao": "CREMONA CORRER CELSUS (2140)"
+  },
+  {
+   "codigo": "1707W",
+   "un": "UN",
+   "qtd": 3.0,
+   "descricao": "TESTEIRO CENTRAL PASSANTE"
+  },
+  {
+   "codigo": "17569",
+   "un": "UN",
+   "qtd": 9.0,
+   "descricao": "MAÇANETA CELSUS MD1 QU"
+  },
+  {
+   "codigo": "17574",
+   "un": "PR",
+   "qtd": 4.0,
+   "descricao": "MAÇANETA CELSUS MD1 QU (PAR)"
+  },
+  {
+   "codigo": "17900",
+   "un": "PC",
+   "qtd": 168.0,
+   "descricao": "PARAF. CHIP C/CH PH 4,2"
+  },
+  {
+   "codigo": "18189",
+   "un": "UN",
+   "qtd": 2.0,
+   "descricao": "CONCHA ALAVANCA P.20"
+  },
+  {
+   "codigo": "18297",
+   "un": "UN",
+   "qtd": 135.0,
+   "descricao": "PARAFUSO 4X30 CREMONA"
+  },
+  {
+   "codigo": "18842",
+   "un": "UN",
+   "qtd": 1.0,
+   "descricao": "MAÇANETA PARA FECHADURA"
+  },
+  {
+   "codigo": "1904W",
+   "un": "UN",
+   "qtd": 4.0,
+   "descricao": "MOTOR DE PERSIANA 23"
+  },
+  {
+   "codigo": "1927W",
+   "un": "MT",
+   "qtd": 72.4,
+   "descricao": "ESCOVA ENCAIXE 7X10MM"
+  },
+  {
+   "codigo": "1930W",
+   "un": "UN",
+   "qtd": 8.0,
+   "descricao": "ADAPTADOR PONTEIRA PERSIANA"
+  },
+  {
+   "codigo": "20207",
+   "un": "UN",
+   "qtd": 5.0,
+   "descricao": "CONCHA ZAMAK 26 X 152"
+  },
+  {
+   "codigo": "20354",
+   "un": "UN",
+   "qtd": 34.0,
+   "descricao": "CONTRAFECHO CORRER ZK (PRETO)"
+  },
+  {
+   "codigo": "21045",
+   "un": "PR",
+   "qtd": 4.0,
+   "descricao": "ROSETA INTEXT CELSUS"
+  },
+  {
+   "codigo": "21223",
+   "un": "UN",
+   "qtd": 2.0,
+   "descricao": "MAÇANETA ESTREITA AL C"
+  },
+  {
+   "codigo": "24079W",
+   "un": "UN",
+   "qtd": 16.0,
+   "descricao": "FILETE DE ACABAMENTO"
+  },
+  {
+   "codigo": "2537W",
+   "un": "MT",
+   "qtd": 7.64,
+   "descricao": "ESCOVA ENCAIXE COM BARREIRA"
+  },
+  {
+   "codigo": "3032W",
+   "un": "UN",
+   "qtd": 8.0,
+   "descricao": "ROLAMENTO PARA TESTEIRO"
+  },
+  {
+   "codigo": "3349W",
+   "un": "MT",
+   "qtd": 244.6728,
+   "descricao": "BORRACHA PARA VIDRO 1,5"
+  },
+  {
+   "codigo": "3579W",
+   "un": "UN",
+   "qtd": 404.0,
+   "descricao": "BOTÃO TAPA FURO - PRETO"
+  },
+  {
+   "codigo": "3609W",
+   "un": "UN",
+   "qtd": 4.0,
+   "descricao": "CALÇO FOLHA DE GIRO"
+  },
+  {
+   "codigo": "4057W",
+   "un": "UN",
+   "qtd": 10.0,
+   "descricao": "UNIÃO MECÂNICA DE PLASTICO"
+  },
+  {
+   "codigo": "450W",
+   "un": "UN",
+   "qtd": 14.0,
+   "descricao": "TRAVA PARA TERMINAL PERSIANA"
+  },
+  {
+   "codigo": "4569W",
+   "un": "UN",
+   "qtd": 8.0,
+   "descricao": "TESTEIRO LATERAL P/ CAIXA"
+  },
+  {
+   "codigo": "458W",
+   "un": "UN",
+   "qtd": 8.0,
+   "descricao": "GUIA DO TRILHO DA PERSIANA"
+  },
+  {
+   "codigo": "468W",
+   "un": "UN",
+   "qtd": 7.0,
+   "descricao": "RODÍZIO AFASTADOR DE PERSIANA"
+  },
+  {
+   "codigo": "478W",
+   "un": "UN",
+   "qtd": 14.0,
+   "descricao": "TIRANTE P/ PERSIANA"
+  },
+  {
+   "codigo": "4828",
+   "un": "UN",
+   "qtd": 2.0,
+   "descricao": "BRAÇO ATÉ 750"
+  },
+  {
+   "codigo": "4886",
+   "un": "UN",
+   "qtd": 1.0,
+   "descricao": "CILINDRO LT 45 X 45"
+  },
+  {
+   "codigo": "7434",
+   "un": "PC",
+   "qtd": 1.0,
+   "descricao": "CREMONA FIXA E6,5 BALANCIM"
+  },
+  {
+   "codigo": "7449",
+   "un": "UN",
+   "qtd": 1.0,
+   "descricao": "ANGULO FALSO COMPASSO"
+  },
+  {
+   "codigo": "7462",
+   "un": "UN",
+   "qtd": 5.0,
+   "descricao": "PERNIO SUPORTE COMPASSO"
+  },
+  {
+   "codigo": "7572",
+   "un": "UN",
+   "qtd": 1.0,
+   "descricao": "CONTRAFECHO FALSO ACION"
+  },
+  {
+   "codigo": "7586",
+   "un": "UN",
+   "qtd": 12.0,
+   "descricao": "CONTRAFECHO GIRO WEIKU"
+  },
+  {
+   "codigo": "7689",
+   "un": "UN",
+   "qtd": 1.0,
+   "descricao": "BRAÇO FALSO COMPASSO MARCO"
+  },
+  {
+   "codigo": "7765",
+   "un": "UN",
+   "qtd": 3.0,
+   "descricao": "CONTRAFECHO BALANCIM D"
+  },
+  {
+   "codigo": "7770",
+   "un": "UN",
+   "qtd": 3.0,
+   "descricao": "ANGULO 1FECHO LBB360"
+  },
+  {
+   "codigo": "8451",
+   "un": "UN",
+   "qtd": 3.0,
+   "descricao": "COMPASSO C/BRAÇO PRE M"
+  },
+  {
+   "codigo": "8510",
+   "un": "PC",
+   "qtd": 2.0,
+   "descricao": "CREMONA FIXA E6,5 BALANCIM"
+  },
+  {
+   "codigo": "8597W",
+   "un": "UN",
+   "qtd": 208.0,
+   "descricao": "CALÇO DE VIDRO - 5MM"
+  },
+  {
+   "codigo": "87349W",
+   "un": "UN",
+   "qtd": 37.0,
+   "descricao": "CAPA D'AGUA COM FLIP"
+  },
+  {
+   "codigo": "9074W",
+   "un": "UN",
+   "qtd": 254.0,
+   "descricao": "BOTÃO PARA GUARNIÇÃO"
+  },
+  {
+   "codigo": "919W",
+   "un": "MT",
+   "qtd": 36.908,
+   "descricao": "BORRACHA PARA BAGUETE"
+  },
+  {
+   "codigo": "9347W",
+   "un": "MT",
+   "qtd": 40.3146,
+   "descricao": "ESCOVA DE VEDAÇÃO COM"
+  },
+  {
+   "codigo": "9419W",
+   "un": "UN",
+   "qtd": 26.0,
+   "descricao": "CORTA VENTO - PRETO"
+  },
+  {
+   "codigo": "946W",
+   "un": "MT",
+   "qtd": 136.63,
+   "descricao": "ESCOVA DE VEDAÇÃO COM"
+  },
+  {
+   "codigo": "NYL-0630-NTR",
+   "un": "UN",
+   "qtd": 404.0,
+   "descricao": "Bucha S6"
+  },
+  {
+   "codigo": "PAR-39X16",
+   "un": "UN",
+   "qtd": 1036.0,
+   "descricao": "PARAFUSO 3,9 X 16"
+  },
+  {
+   "codigo": "PAR04295N",
+   "un": "UN",
+   "qtd": 120.0,
+   "descricao": "PARAFUSO INOX 304 A. A"
+  },
+  {
+   "codigo": "PAR04850N",
+   "un": "UN",
+   "qtd": 456.0,
+   "descricao": "PARAFUSO 304 4,8X50"
+  },
+  {
+   "codigo": "PAR1025",
+   "un": "UN",
+   "qtd": 306.0,
+   "descricao": "PARAFUSO AA CP 4,2 X 16"
+  },
+  {
+   "codigo": "SIL-DOWCOR",
+   "un": "TB",
+   "qtd": 37.45833,
+   "descricao": "SILICONE DOW CORNING"
+  },
+  {
+   "codigo": "TELAM01",
+   "un": "MT",
+   "qtd": 4.563,
+   "descricao": "TELA MOSQUETEIRA"
+  }
+ ]
+}
