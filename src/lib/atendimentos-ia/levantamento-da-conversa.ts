@@ -123,7 +123,7 @@ import { derivarTabelasDaConta } from '@/lib/atendimentos-ia/tabelas-da-conta'
 import { FRASE_SEM_LISTA_DE_TIPOLOGIAS, SECAO_DAS_FAMILIAS, SECAO_DOS_FORNECEDORES, fraseDeFalta, lerMotoresDaConta, type FonteDaFamilia, type MotivoDaFalta } from '@/lib/atendimentos-ia/motor-da-familia'
 export { FRASE_SEM_LISTA_DE_TIPOLOGIAS }
 import { normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
-import { lerVidro } from '@/lib/atendimentos-ia/vidro'
+import { lerVidro, vidroSemBaguete } from '@/lib/atendimentos-ia/vidro'
 import { tabelaNoEscopo, type CorDoFornecedor } from '@/lib/atendimentos-ia/resolucao-de-referencia'
 import { lerCoresDosFornecedores } from '@/lib/atendimentos-ia/cores-do-fornecedor'
 
@@ -1185,7 +1185,7 @@ async function calcularFamilia(
     const politica = await lerPoliticaDaEmpresa(tenantId, familia.familia)
     const decididas = itensDoGrupo.map((_, k) => {
         const t = lidas[dg.esquadrias[k].tipologia]
-        return t ? escolhasDoCalculo(t, ditas[k], politica, null, corDe(itensDoGrupo[k])) : { escolhas: ditas[k], origem: {}, voltas: [], ajustes: [], equivalencias: [], pelaTipologia: [] }
+        return t ? escolhasDoCalculo(t, ditas[k], politica, null, corDe(itensDoGrupo[k]), dg.esquadrias[k].largura_mm) : { escolhas: ditas[k], origem: {}, voltas: [], ajustes: [], equivalencias: [], pelaTipologia: [] }
     })
     // O AJUSTE EM OBRA NO RASTRO (dono do produto, 21/11/2026): a opção que entrou no lugar da política muda material e preço — nunca calada
     const ajustesEmObra = dg.esquadrias.flatMap((e, k) => decididas[k].ajustes.map((a) => ({ e, a, valor: decididas[k].escolhas[a.variavel] })))
@@ -1232,6 +1232,7 @@ async function calcularFamilia(
         esquadrias: dg.esquadrias.map((e, k) => ({
             tipologia: e.tipologia, L_mm: e.largura_mm, H_mm: e.altura_mm, quantidade: e.quantidade,
             escolhas: escolhas[k], espessura_vidro_mm: vidros[k].espessura_mm, semDecidirVariacao: lidas[e.tipologia] !== undefined,
+            semBagueteDoVidro: vidroSemBaguete(itensDoGrupo[k].vidro, vidros[k].espessura_mm),
             // A OPÇÃO PADRÃO QUE NÃO VALE (pedido 0030): o que não veio do vendedor (a política, a tipologia, o padrão do motor, a principal, o
             // cálculo) pode dar lugar à opção que vale; o que o vendedor disse, não — esse é recusa, e a conversa pergunta
             escolhasPorPadrao: Object.entries(decididas[k].origem).filter(([, o]) => o !== 'vendedor').map(([v]) => v),

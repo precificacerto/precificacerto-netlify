@@ -88,6 +88,8 @@ export type EsquadriaDoLevantamento = {
     espessura_vidro_mm?: number | null
     /** A fronteira (20/11/2026): as escolhas já vêm decididas fora do motor, e ele não usa padrão em variável com opções. */
     semDecidirVariacao?: boolean
+    /** O vidro mini boreal de 4 mm não leva baguete nas folhas de vidro (pedido 0041): `avaliarTipologia` não põe as linhas de baguete do vidro. */
+    semBagueteDoVidro?: boolean
     /** As variáveis decididas por PADRÃO, não pelo vendedor (pedido 0030): a opção que não vale dá lugar a uma que vale (`TrocaDaOpcao`). */
     escolhasPorPadrao?: readonly string[]
 }
@@ -440,6 +442,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
             return
         }
         const r = avaliarTipologia({ tipologia, L_mm: e.L_mm, H_mm: e.H_mm, escolhas: e.escolhas, espessura_vidro_mm: e.espessura_vidro_mm, semDecidirVariacao: e.semDecidirVariacao,
+            ...(e.semBagueteDoVidro ? { semBagueteDoVidro: true } : {}),
             ...(e.escolhasPorPadrao ? { escolhasPorPadrao: e.escolhasPorPadrao } : {}) })
         if ('recusas' in r) {
             // A ESPESSURA QUE NÃO FOI DITA, uma falta só (08/11/2026): o avaliador recusa linha a linha da aba Perfis (uma por baguete), e para o

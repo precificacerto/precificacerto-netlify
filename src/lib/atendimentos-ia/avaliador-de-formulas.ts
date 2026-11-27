@@ -167,7 +167,7 @@ export type InsumoAvaliado = { codigo: string; descricao: string | null; quantid
 export type VidroAvaliado = { vidro: string; largura_mm: number; altura_mm: number; quantidade: number; fixacao: string | null; linha?: number }
 /** A linha de insumo ou de vidro que não se avaliou: falta nomeada, que NÃO recusa a tipologia. */
 export type FaltaDoAvaliador = { aba: 'Insumos' | 'Vidros'; linha: number; codigo: string; mensagem: string }
-export type LinhaAvaliada = { linha: number; perfil: string; entrou: boolean; motivo: 'CONDICAO_FALSA' | 'ESPESSURA_NAO_ATENDIDA' | 'QUANTIDADE_ZERO' | null }
+export type LinhaAvaliada = { linha: number; perfil: string; entrou: boolean; motivo: 'CONDICAO_FALSA' | 'ESPESSURA_NAO_ATENDIDA' | 'QUANTIDADE_ZERO' | 'VIDRO_SEM_BAGUETE' | null }
 export type AvisoDoAvaliador =
     | { origem: 'VALIDACAO'; condicao: string; mensagem: string; valores: Record<string, number> }
     | { origem: 'LIMITE'; medida: 'L' | 'H'; limite: 'MIN' | 'MAX'; valor_mm: number; limite_mm: number; excesso_mm: number; excesso_pct: number }
@@ -231,6 +231,12 @@ export type EntradaDoAvaliador = {
      * (`fronteira-das-escolhas.ts`). Sem a marca, o de antes (os testes do avaliador e o caminho que ainda não passa pela fronteira).
      */
     semDecidirVariacao?: boolean
+    /**
+     * O VIDRO SEM BAGUETE (dono do produto, 27/11/2026, pedido 0041): o vidro mini boreal de 4 mm não leva baguete nas FOLHAS DE VIDRO. Com `true`,
+     * as linhas de perfil que dependem da espessura do vidro (a coluna Esp. vidro: os baguetes do vidro) não entram; o baguete da folha de TELA
+     * (sem espessura) e o do lambri continuam. A espessura do vidro deixa de ser exigida por essas linhas.
+     */
+    semBagueteDoVidro?: boolean
     /** As variáveis cuja escolha veio por PADRÃO, não dita pelo vendedor (pedido 0030): a opção delas que não vale dá lugar a uma que vale. */
     escolhasPorPadrao?: readonly string[]
 }
@@ -268,6 +274,9 @@ const teto = (a: Q): Q => racional(a.n >= Z ? (a.n + a.d - UM) / a.d : a.n / a.d
  *  divisão do BigInt trunca, e com os dois lados positivos truncar é o piso); para n < 0, o simétrico do de −n. */
 const arredonda = (a: Q): Q => a.n >= Z ? racional((DOIS * a.n + a.d) / (DOIS * a.d)) : racional(-((DOIS * -a.n + a.d) / (DOIS * a.d)))
 const ehInteiro = (a: Q) => a.d === UM
+/** As variáveis cujo `&X` vale 0 nas fórmulas (o colchete delas nunca encolhe peça nem vidro): ver o comentário em `amp`. */
+export const COLCHETES_QUE_NAO_DESCONTAM: ReadonlySet<string> = new Set(['FV', 'MD'])
+
 /** Número decimal escrito com ponto ("88.4") ou, nos colchetes das opções, com vírgula ("33,00"). */
 function deDecimal(texto: string, separador: '.' | ','): Q | null {
     const m = (separador === '.' ? /^(\d+)(?:\.(\d+))?$/ : /^(\d+)(?:,(\d+))?$/).exec(texto)
@@ -665,6 +674,10 @@ function ambienteDa(ctx: Contexto): Ambiente {
             const variavel = ctx.variaveis.get(nome)
             // R1: a variável inativa vale 0, e o &VAR dela também
             if (variavel && !ativa(variavel, [nome])) return racional(Z)
+            // O COLCHETE QUE NÃO DESCONTA (dono do produto, 27/11/2026, pedido 0041): o vidro sai na MEDIDA DO WVETRO, porque o relatório de vidros
+            // vai para a vidraçaria — a folga do FV (calço e folga) vale para o CALÇO, não para encolher o vidro; e a esteira da persiana dividida
+            // não desconta o mancal (&MD, 18 mm). A opção continua escolhida (decide o calço e o divisor); só o número do colchete não entra.
+            if (COLCHETES_QUE_NAO_DESCONTAM.has(nome)) return racional(Z)
             const escolhido = paraNumero(amb.nome(nome, []))
             const opcao = opcoes.find((o) => o.valor === escolhido)
             if (!opcao) {
@@ -802,6 +815,7 @@ export function avaliarTipologia(entrada: EntradaDoAvaliador): ResultadoDaAvalia
         } catch (e) { recusas.push(recusaDe(e, onde('Condição'))); return }
 
         if (p.esp_vidro !== null && p.esp_vidro.trim() !== '') {
+            if (entrada.semBagueteDoVidro === true) { linhas.push({ linha, perfil: p.perfil, entrou: false, motivo: 'VIDRO_SEM_BAGUETE' }); return }
             const lista = p.esp_vidro.split(',').map((x) => x.trim())
             if (!lista.every((x) => /^\d+$/.test(x))) {
                 recusas.push({ motivo: 'ESPESSURAS_NAO_PARSEIAM', ...onde('Esp. vidro'), mensagem: `Linha ${linha} da aba Perfis (${p.perfil}): as espessuras "${p.esp_vidro}" não se leem.` })
