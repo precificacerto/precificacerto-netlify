@@ -1,7 +1,7 @@
 /**
  * PORTÃO — A TELA DO ORÇAMENTO I.A. NUMA PÁGINA SÓ (pedidos 0051 e 0052, 27/11/2026, regra inviolável do dono do produto): de cima para baixo, na MESMA
  * página, 1) os ITENS COM CUSTO (bruto, líquido, tempo, valor do minuto, mão de obra e total por item) com o Calcular, 2) a precificação pela margem de
- * contribuição (o bloco de Produtos no modo orçamento, que traz 3) os itens precificados), e no rodapé SÓ o link "Abrir PDF do orçamento" — o visualizador
+ * contribuição (o bloco de Produtos no modo orçamento, que traz 3) os itens precificados), e no rodapé SÓ o link "Abrir proposta (PDF)" — o visualizador
  * embutido da 0051 saiu. O PDF é regerado a cada cálculo. A página `/precificacao` segue como atalho do mesmo bloco.
  */
 import React from 'react'

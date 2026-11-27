@@ -122,7 +122,7 @@ export function PrecificacaoDoOrcamento({ id, sinal = 0, aoMudarOArquivo, comLin
                         onRecalcularOrcamento={recalcular}
                         // o link do último PDF vai ao FIM da tela, abaixo dos itens precificados (dono do produto, 11/11/2026)
                         semTabelaDeItens={naPaginaDoOrcamento}
-                        rodapeDoOrcamento={id && comLinkDoArquivo ? <a href={`/api/atendimentos-ia/orcamentos/${id}/arquivo`} target="_blank" rel="noopener noreferrer" data-abrir-arquivo="">Abrir PDF do orçamento</a> : null}
+                        rodapeDoOrcamento={id && comLinkDoArquivo ? <a href={`/api/atendimentos-ia/orcamentos/${id}/arquivo`} target="_blank" rel="noopener noreferrer" data-abrir-arquivo="">Abrir proposta (PDF)</a> : null}
                     />
                 )}
             </div>

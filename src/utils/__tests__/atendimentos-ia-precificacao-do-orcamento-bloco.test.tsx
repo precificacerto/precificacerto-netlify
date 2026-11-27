@@ -1,7 +1,7 @@
 /**
  * PORTÃO — o BLOCO da precificação do orçamento I.A. (pedidos 0051 e 0052): o que ele passa à tela de Produtos no modo orçamento. Na página do orçamento
  * (`naPaginaDoOrcamento`) vai SEM o topo do cliente (a página já o mostra) e SEM a tabela de itens (são a seção de cima); no atalho `/precificacao`, com
- * os dois. O rodapé é só o link "Abrir PDF do orçamento"; e a configuração de despesas vem da ROTA, não do banco.
+ * os dois. O rodapé é só o link "Abrir proposta (PDF)"; e a configuração de despesas vem da ROTA, não do banco.
  */
 import React from 'react'
 import { act } from 'react'
@@ -39,12 +39,12 @@ async function montar(no: React.ReactElement) {
 }
 beforeEach(() => { capturado.props = null; chamadas.length = 0 })
 
-it('na página do orçamento: sem o topo do cliente e sem a tabela de itens; o rodapé é só o link "Abrir PDF do orçamento"', async () => {
+it('na página do orçamento: sem o topo do cliente e sem a tabela de itens; o rodapé é só o link "Abrir proposta (PDF)"', async () => {
     const host = await montar(<PrecificacaoDoOrcamento id="orc-14" comLinkDoArquivo naPaginaDoOrcamento />)
     expect(host.querySelector('[data-topo-stub]')).toBeNull()
     expect(capturado.props?.semTabelaDeItens).toBe(true)
     const link = host.querySelector('[data-abrir-arquivo]') as HTMLAnchorElement
-    expect(link.textContent).toBe('Abrir PDF do orçamento')
+    expect(link.textContent).toBe('Abrir proposta (PDF)')
     expect(link.getAttribute('href')).toBe('/api/atendimentos-ia/orcamentos/orc-14/arquivo')
 })
 it('no atalho /precificacao: com o topo e com a tabela de itens', async () => {
