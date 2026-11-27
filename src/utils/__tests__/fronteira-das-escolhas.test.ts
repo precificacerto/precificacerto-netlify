@@ -500,4 +500,12 @@ describe('PEDIDO 0040 — a política casa o rótulo sem o código na frente, e 
         expect(F().corDosAcessoriosQueACorImpoe({ variavel: 'CA', opcoes: '1 = BRANCO; 3 = MARROM' }, 'PRETO LISO')).toBeNull()
         expect(F().corDosAcessoriosQueACorImpoe({ variavel: 'CX', opcoes: CA }, 'PRETO LISO')).toBeNull()
     })
+    it('duas opções PRETO na tipologia: a cor não escolhe (nunca "a primeira")', () => {
+        expect(F().corDosAcessoriosQueACorImpoe({ variavel: 'CA', opcoes: '1 = PRETO; 2 = PRETO; 3 = BRANCO' }, 'PRETO LISO')).toBeNull()
+    })
+    it('a equivalência "SEM CHAVE" também vê a opção com o código na frente do rótulo', () => {
+        const r = P().traduzirPolitica('DP-X', { variavel: 'MFI', opcoes: '1 = CR1 - CREMONA COM MACANETA; 2 = CR2 - FECHO PUNHO', padrao: '1' }, pol('MFI', 'CREMONA COM MACANETA SEM CHAVE'))
+        expect(r).toMatchObject({ valor: 1, campo: 'MFI' })
+        expect((r as { equivalencia?: string }).equivalencia).toContain('por equivalência')
+    })
 })
