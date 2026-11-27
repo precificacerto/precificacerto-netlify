@@ -55,7 +55,12 @@ export function paraOAgente(t: VariaveisDaTipologia): VariaveisDaTipologia {
 }
 
 /** Decisão do dono do produto, 25/10/2026: as três que impediam a DP-02 de fechar. A ordem é a da aba. */
-export const ESCOLHAS_CAPTURADAS = ['ARI', 'ARE', 'MAE'] as const
+export const ESCOLHAS_CAPTURADAS = ['ARI', 'ARE', 'MAE', 'ID', 'TA'] as const
+/**
+ * AS MEDIDAS DO ITEM QUE O AGENTE PERGUNTA MESMO COM PADRÃO (dono do produto, 27/11/2026, pedido 0041): a altura da travessa (AT) é escolha do ITEM;
+ * o padrão do motor (1050) não decide a esquadria. ID (desnível) e TA (tipo de abertura) entram nas capturadas, acima.
+ */
+export const MEDIDAS_PERGUNTADAS = ['AT'] as const
 
 export type Escolhas = Readonly<Record<string, number>>
 export type OpcaoDaEscolha = { valor: number; rotulo: string }
@@ -298,7 +303,7 @@ export type VariavelSemPadrao = { variavel: string; descricao: string; condicao:
 /** As variáveis da aba Variáveis sem Padrão (vazio ou nulo) e sem opções, na ordem da aba. */
 export function variaveisSemPadrao(tipologia: VariaveisDaTipologia): VariavelSemPadrao[] {
     return tipologia.variaveis
-        .filter((v) => !temPadraoNoMotor(v) && !(opcoesDaVariavel(v.opcoes)?.length))
+        .filter((v) => (!temPadraoNoMotor(v) || (MEDIDAS_PERGUNTADAS as readonly string[]).includes(v.variavel)) && !(opcoesDaVariavel(v.opcoes)?.length))
         .map((v) => ({ variavel: v.variavel, descricao: (v.descricao ?? '').trim() || v.variavel, condicao: v.condicao }))
 }
 

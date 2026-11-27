@@ -509,3 +509,25 @@ describe('PEDIDO 0040 — a política casa o rótulo sem o código na frente, e 
         expect((r as { equivalencia?: string }).equivalencia).toContain('por equivalência')
     })
 })
+
+describe('PEDIDO 0041 — o divisor central da persiana só com a largura nominal >= 1800 mm', () => {
+    const MD = '1 = SIM [18,00]; 2 = NÃO'
+    const comDivisor = (): Tipologia => ({ ...dp02(), variaveis: [{ variavel: 'MD', descricao: 'USA MANCAL DIVISOR?', padrao: '1', condicao: 'sempre', opcoes: MD, condicao_opcoes: null }], perfis: [], vidros: [], insumos: [] })
+    const politicaSim = { porVariavel: { MD: { natureza: 'POLITICA' as const, opcao: 'SIM' } } }
+    it('abaixo de 1800: NÃO (lâmina inteira), pela largura; de 1800 em diante: a política (SIM)', () => {
+        for (const [largura, md, origem] of [[1200, 2, 'pela_largura'], [1799, 2, 'pela_largura'], [1800, 1, 'politica'], [2300, 1, 'politica']] as const) {
+            const r = F().escolhasDoCalculo(comDivisor(), {}, politicaSim, null, null, largura)
+            expect([largura, r.escolhas.MD, r.origem.MD]).toEqual([largura, md, origem])
+        }
+    })
+    it('sem largura a regra não decide (a política vale); o que o vendedor disse vale sobre a largura', () => {
+        expect(F().escolhasDoCalculo(comDivisor(), {}, politicaSim, null, null, null).escolhas.MD).toBe(1)
+        expect(F().escolhasDoCalculo(comDivisor(), { MD: 1 }, politicaSim, null, null, 1200).origem.MD).toBe('vendedor')
+    })
+    it('a opção é achada pelo RÓTULO "NÃO"; duas ou nenhuma, a largura não decide', () => {
+        expect(F().opcaoQueALarguraImpoe({ variavel: 'MD', opcoes: '1 = SIM; 2 = NÃO' }, 1000)).toBe(2)
+        expect(F().opcaoQueALarguraImpoe({ variavel: 'MD', opcoes: '1 = SIM; 2 = NÃO; 3 = NÃO SEI' }, 1000)).toBeNull()
+        expect(F().opcaoQueALarguraImpoe({ variavel: 'MD', opcoes: '1 = SIM' }, 1000)).toBeNull()
+        expect(F().opcaoQueALarguraImpoe({ variavel: 'PP', opcoes: '1 = SIM; 2 = NÃO' }, 1000)).toBeNull()
+    })
+})

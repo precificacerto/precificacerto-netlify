@@ -208,3 +208,11 @@ export function vidroPodado(proposto: unknown, mensagem: string): string | null 
 
 /** O vidro proposto foi DITO INTEIRO na mensagem: nada a podar. */
 export const vidroDito = (proposto: unknown, mensagem: string): boolean => typeof proposto === 'string' && vidroPodado(proposto, mensagem) === proposto.trim()
+
+/**
+ * O VIDRO SEM BAGUETE (dono do produto, 27/11/2026, pedido 0041): o vidro MINI BOREAL de 4 mm não leva baguete nas folhas de vidro (o WVetro não
+ * o corta). Pelo que o vendedor disse do vidro: a palavra BOREAL e a espessura de 4 mm — as duas; outro boreal ou outra espessura segue com baguete.
+ */
+export function vidroSemBaguete(texto: unknown, espessuraMm: number | null | undefined): boolean {
+    return typeof texto === 'string' && espessuraMm === 4 && texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().includes('BOREAL')
+}

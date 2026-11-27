@@ -32,7 +32,7 @@ import { avaliarTexto, opcoesDaVariavel, type Tipologia } from '@/lib/atendiment
 import { PECAS_QUE_NAO_ENTRAM_POR_PADRAO } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { naturezaNaPolitica, traduzirPolitica, type PoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa'
 
-export type OrigemDaEscolha = 'vendedor' | 'politica' | 'politica_ajuste_em_obra' | 'tipologia' | 'calculo' | 'pela_cor' | 'padrao_do_motor' | 'principal'
+export type OrigemDaEscolha = 'vendedor' | 'politica' | 'politica_ajuste_em_obra' | 'tipologia' | 'calculo' | 'pela_cor' | 'pela_largura' | 'padrao_do_motor' | 'principal'
 export type VoltaAoAgente = { variavel: string; descricao: string; frase: string }
 /** `ajustes`: as variáveis em que a política não existia na variação e entrou a opção de ajuste em obra (ou a 1), com o motivo — o rastro. */
 /** `equivalencias`: as variáveis em que a opção da política entrou com outro rótulo (a lista não separa a chave), com o motivo — o rastro. */
@@ -105,11 +105,23 @@ export function corDosAcessoriosQueACorImpoe(v: { variavel: string; opcoes: stri
     const achadas = (opcoesDaVariavel(v.opcoes) ?? []).filter((o) => semAcento(o.rotulo).toUpperCase().trim() === alvo)
     return achadas.length === 1 ? achadas[0].valor : null
 }
+/**
+ * O DIVISOR CENTRAL DA PERSIANA PELA LARGURA NOMINAL (dono do produto, 27/11/2026, pedido 0041): "regra da fábrica, igual para JP e PJP". A persiana
+ * só leva o mancal divisor (MD = SIM: BZ4556, 4661 ×2, duas esteiras) com a largura nominal do item >= 1800 mm; abaixo, lâmina inteira, sem divisor.
+ * A política diz SIM e vale para as largas; para as estreitas a LARGURA decide (a opção "NÃO" achada pelo RÓTULO); null quando a largura não decide.
+ */
+export const VARIAVEL_DO_DIVISOR_DA_PERSIANA = 'MD'
+export const LARGURA_MINIMA_DO_DIVISOR_MM = 1800
+export function opcaoQueALarguraImpoe(v: { variavel: string; opcoes: string | null }, larguraMm: number | null | undefined): number | null {
+    if (larguraMm === null || larguraMm === undefined || !(larguraMm > 0) || v.variavel !== VARIAVEL_DO_DIVISOR_DA_PERSIANA || larguraMm >= LARGURA_MINIMA_DO_DIVISOR_MM) return null
+    const achadas = (opcoesDaVariavel(v.opcoes) ?? []).filter((o) => semAcento(o.rotulo).toUpperCase().trim().startsWith('NAO'))
+    return achadas.length === 1 ? achadas[0].valor : null
+}
 /** A opção que a COR DA ESQUADRIA impõe na variável (a palheta ou a cor dos acessórios); null quando a cor não decide aquela variável. */
 export const opcaoQueACorImpoe = (v: { variavel: string; opcoes: string | null }, cor: string | null | undefined): number | null =>
     palhetaQueACorImpoe(v, cor) ?? corDosAcessoriosQueACorImpoe(v, cor)
 export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<string, number>>, politica: PoliticaDaEmpresa, descricao: string | null = null,
-    cor: string | null = null): EscolhasDoCalculo {
+    cor: string | null = null, larguraMm: number | null = null): EscolhasDoCalculo {
     const escolhas: Record<string, number> = { ...ditas }
     const origem: Record<string, OrigemDaEscolha> = Object.fromEntries(Object.keys(ditas).map((k) => [k, 'vendedor' as const]))
     const voltas: VoltaAoAgente[] = []
@@ -135,7 +147,7 @@ export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<s
     // A COR VENCE A POLÍTICA NA PERSIANA (dono do produto, 26/11/2026, pedido 0039): na esquadria que não é BRANCO, a política (a De Paula diz PP =
     // PVC 37) não decide o modelo da palheta — a persiana de PVC só existe em branco; quem decide é a cor (45, o alumínio). Na BRANCA, a política vale
     // e a COR DOS ACESSÓRIOS segue a cor do perfil em qualquer cor (pedido 0040)
-    const palhetaPelaCorVence = (v: { variavel: string; opcoes: string | null }) => opcaoQueACorImpoe(v, cor) !== null
+    const palhetaPelaCorVence = (v: { variavel: string; opcoes: string | null }) => opcaoQueACorImpoe(v, cor) !== null || opcaoQueALarguraImpoe(v, larguraMm) !== null
     // 2. a política da empresa
     for (const v of comOpcoes) {
         if (palhetaPelaCorVence(v)) continue
@@ -172,6 +184,15 @@ export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<s
         if (pelaCor !== null) {
             escolhas[acessorios.variavel] = pelaCor
             origem[acessorios.variavel] = 'pela_cor'
+        }
+    }
+    // 2d. o DIVISOR DA PERSIANA pela largura nominal (pedido 0041): abaixo de 1800 mm, sem mancal divisor
+    const divisor = comOpcoes.find((v) => v.variavel === VARIAVEL_DO_DIVISOR_DA_PERSIANA)
+    if (divisor && escolhas[divisor.variavel] === undefined && ativa(divisor.condicao, valores())) {
+        const pelaLargura = opcaoQueALarguraImpoe(divisor, larguraMm)
+        if (pelaLargura !== null) {
+            escolhas[divisor.variavel] = pelaLargura
+            origem[divisor.variavel] = 'pela_largura'
         }
     }
     // 3, 4 e 5. o padrão do motor, só quando não acrescenta peça; senão a principal; senão volta ao agente

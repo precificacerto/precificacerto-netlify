@@ -196,3 +196,14 @@ describe('(L) lerVidro: o único leitor do texto do vidro', () => {
         expect(V().vidroComEspessura('comum 6 mm incolor', 8)).toBe('comum 8 mm incolor')
     })
 })
+
+describe('(pedido 0041) o vidro mini boreal de 4 mm não leva baguete', () => {
+    it('só com a palavra BOREAL e a espessura de 4 mm, as duas', () => {
+        expect(V().vidroSemBaguete('VIDRO MINI BOREAL 04MM', 4)).toBe(true)
+        expect(V().vidroSemBaguete('mini-boreal 4 mm', 4)).toBe(true)
+        expect(V().vidroSemBaguete('VIDRO MINI BOREAL 06MM', 6)).toBe(false)
+        expect(V().vidroSemBaguete('VIDRO FLOAT (COMUM) INCOLOR 04MM', 4)).toBe(false)
+        expect(V().vidroSemBaguete(null, 4)).toBe(false)
+        expect(V().vidroSemBaguete('VIDRO MINI BOREAL', null)).toBe(false)
+    })
+})

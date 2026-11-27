@@ -1538,6 +1538,14 @@ describe('(R) a frase curta da falta: o nome e o que falta, e a mesma falta uma 
         expect((await M().mensagemDoLevantamento(TENANT, t, { nome: 'Renan Bauer', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'incolor 6 mm' }] })).desfecho).toBe('levantou')
     })
 
+    it('PEDIDO 0041: o vidro MINI BOREAL de 4 mm não leva baguete — a mesma DP-02 que recusava o 4 mm comum fecha, sem GB25; o 4 mm comum segue recusado', async () => {
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        const boreal = await M().mensagemDoLevantamento(TENANT, t, { nome: 'Renan Bauer', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'vidro mini boreal 4 mm' }] })
+        expect(boreal.desfecho).toBe('levantou')
+        expect(boreal.texto).not.toContain('GB25')
+        expect((await M().mensagemDoLevantamento(TENANT, t, { nome: 'Renan Bauer', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'incolor 4 mm comum' }] })).desfecho).toBe('recusou')
+    })
+
     // O CASO "Antonio Rock" (08/11/2026): o vidro "incolor 4", lido pelo leitor canônico com as espessuras que os baguetes da DP-02 aceitam
     const comO4NoMotor = () => { for (const p of banco.db.orcamentista_motor_perfil) if (p.tipologia === 'DP-02' && p.esp_vidro === '5,6,8') p.esp_vidro = '4,5,6,8' }
 
