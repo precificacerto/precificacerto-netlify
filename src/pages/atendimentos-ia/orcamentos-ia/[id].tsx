@@ -11,7 +11,7 @@
  * UMA PÁGINA SÓ (pedidos 0051 e 0052, 27/11/2026, regra inviolável do dono do produto), de cima para baixo: 1) os ITENS COM CUSTO — por item o custo bruto,
  * o líquido, o tempo e o valor da mão de obra e o total —, com o Calcular; 2) a PRECIFICAÇÃO pela margem de contribuição, o mesmo bloco da tela de Produtos
  * no modo orçamento, com os tributos das credenciais editáveis à mão (0044); 3) os ITENS PRECIFICADOS, uma linha por item com o valor de venda; 4) no
- * rodapé, só o LINK "Abrir PDF do orçamento" (o PDF é regerado a cada cálculo e a cada salvamento; a visualização embutida da 0051 saiu).
+ * rodapé, só o LINK "Abrir proposta (PDF)" (o PDF é regerado a cada cálculo e a cada salvamento; a visualização embutida da 0051 saiu).
  * A página `/precificacao` segue como atalho do mesmo bloco.
  */
 import { ROTULO_DA_ORIGEM_DO_PERCENTUAL, type ClienteDoLevantamento, type PercentualComZero, type PercentualNaTela } from '@/lib/atendimentos-ia/travessia-do-levantamento-plano'

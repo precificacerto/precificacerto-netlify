@@ -11,7 +11,8 @@ import { Alert, Card, Typography } from 'antd'
 import { ratearOperacaoInterna, reais } from '@/lib/atendimentos-ia/rateio-do-orcamento'
 import type { ItemDoArquivo } from '@/lib/atendimentos-ia/arquivo-do-orcamento'
 
-export const TITULO_DA_FAIXA = 'Itens precificados'
+/** A seção TOTAL da página do orçamento (0053): o preço final, com cada item precificado individualmente — uma linha por item, rateada pelo custo do item. */
+export const TITULO_DA_FAIXA = 'Total do orçamento — cada item precificado'
 export const FRASE_SEM_PRECO = 'O preço ainda não se formou: os itens aparecem aqui precificados quando a precificação sair.'
 
 type Props = {

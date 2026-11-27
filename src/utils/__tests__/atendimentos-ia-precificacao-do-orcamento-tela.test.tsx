@@ -267,6 +267,39 @@ describe('(C) OS DOIS MODOS SÃO O MESMO CÁLCULO, e cada um fica no seu ramo', 
         expect(tresNumeros(doOrcamento)).toEqual(tresNumeros(produto))
         expect(tresNumeros(doOrcamento).custo).toBe(CONGELADO.custo)
     })
+    it('0053 — TODAS as linhas da precificação do orçamento são as do produto, com os mesmos valores (mesmo componente, mesmo custo, mesmos percentuais)', async () => {
+        const produto = await montar({ isEditingMode: true, product: { ...PRODUTO_1008, pis_cofins_pct: 7.6775 } as typeof PRODUTO_1008, itemsFromApi: ITENS_DA_API })
+        const doOrcamento = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn() })
+        const LINHAS = ['Mão de obra administrativa', 'Despesas fixas', 'Despesas variáveis', 'Despesas financeiras', 'Compromissos Financeiros', 'RT — Comissão Reserva Técnica',
+            'Comissão total do vendedor', 'Lucro', 'IRPJ (15% sobre lucro)', 'CSLL (9% sobre lucro)', 'Alíq. adicional IRPJ', 'ICMS (%)']
+        const BLOCOS = ['Margem de contribuição aplicada', 'Coeficiente da operação por fora (c)', 'Valor do produto precificado']
+        // cada linha existe no orçamento (valorDe lança se faltar) e vale o mesmo que no produto, ao centavo
+        // a linha da tabela de precificação: o rótulo na segunda célula e a linha INTEIRA (% original, % efetivo, valor) como texto
+        const linha = (h: HTMLElement, rotulo: string) => {
+            const tr = Array.from(h.querySelectorAll('tr')).find((r) => Array.from(r.children).some((c) => (c.textContent ?? '').replace(/\s+/g, ' ').trim().startsWith(rotulo)))
+            if (!tr) throw new Error(`linha ausente: ${rotulo}`)
+            return Array.from(tr.querySelectorAll('td')).map((c) => (c.textContent ?? '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()).slice(-2)
+        }
+        for (const l of LINHAS) expect([l, linha(doOrcamento, l)]).toEqual([l, linha(produto, l)])
+        for (const b of BLOCOS) expect([b, valorDe(doOrcamento, b)]).toEqual([b, valorDe(produto, b)])
+        // o PIS/Cofins tem o mesmo valor; só o rótulo difere (o do orçamento é o da empresa, o do produto é o da NCM)
+        expect(linha(doOrcamento, 'PIS/Cofins (%)')).toEqual(linha(produto, 'PIS/Cofins (% NCM)'))
+    })
+    it('0053 — comissão, lucro e RT são editáveis à mão no orçamento, e qualquer mudança recalcula na hora (e vai ao salvar)', async () => {
+        const salvar = jest.fn<Promise<string[] | null>, [GravacaoDaPrecificacao]>(async () => null)
+        const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: salvar })
+        const antes = valorDe(host, 'Valor do produto precificado')
+        const tr = Array.from(host.querySelectorAll('tr')).find((r) => Array.from(r.children).some((c) => (c.textContent ?? '').trim().startsWith('Lucro')))!
+        const campo = tr.querySelector('input') as HTMLInputElement
+        expect(campo).not.toBeNull()
+        expect(campo.readOnly || campo.disabled).toBe(false)
+        const poe = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+        // eslint-disable-next-line testing-library/no-unnecessary-act
+        await act(async () => { poe.call(campo, '20'); campo.dispatchEvent(new Event('input', { bubbles: true })); campo.dispatchEvent(new Event('change', { bubbles: true })) })
+        expect(valorDe(host, 'Valor do produto precificado')).not.toBe(antes)
+        await clicar(botao(host, 'Salvar precificação do orçamento'))
+        expect(salvar.mock.calls[0][0].lucro_projetado_percentual).toBe(20)
+    })
     it('a entrada do orçamento é o LÍQUIDO e os MINUTOS: com outro líquido o custo muda, e pelo líquido', async () => {
         const host = await montar({ orcamento: orcamento({ itens: [item(1, 1000, 150)] }), onSalvarOrcamento: jest.fn() })
         expect(reais(valorDe(host, 'Custo produto'))).toBeCloseTo(1000 + Math.round(150 * VALOR_DO_MINUTO * 100) / 100, 2)
@@ -615,17 +648,29 @@ describe('(E) AS DECISÕES DE 11/11/2026 — a interna gravada, a faixa dos iten
         expect(Math.round(g.valor_operacao_interna * 100)).toBeLessThanOrEqual(Math.round(g.valor_venda * 100))
     })
     it('0052 — na página do orçamento a tabela dos itens NÃO se repete dentro da precificação (os itens com custo são a seção de cima); a margem, os itens precificados e o link ficam', async () => {
-        const link = <a href="/api/atendimentos-ia/orcamentos/o-1/arquivo" data-abrir-arquivo="">Abrir PDF do orçamento</a>
+        const link = <a href="/api/atendimentos-ia/orcamentos/o-1/arquivo" data-abrir-arquivo="">Abrir proposta (PDF)</a>
         const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn(), itensDoArquivo: ITENS_DO_ARQUIVO, rodapeDoOrcamento: link, semTabelaDeItens: true })
         const cabecalhos = Array.from(host.querySelectorAll('thead th')).map((t) => (t.textContent ?? '').trim())
         expect(cabecalhos).not.toContain('Bruto')
         expect(cabecalhos).not.toContain('Líquido')
         expect(botao(host, 'Salvar precificação do orçamento')).toBeDefined()
         expect(host.querySelector('[data-itens-precificados]')).not.toBeNull()
-        expect(host.querySelector('[data-abrir-arquivo]')?.textContent).toBe('Abrir PDF do orçamento')
+        expect(host.querySelector('[data-abrir-arquivo]')?.textContent).toBe('Abrir proposta (PDF)')
         // o contraste: sem a prop (a página /precificacao), a tabela dos itens continua
         const atalho = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn(), itensDoArquivo: ITENS_DO_ARQUIVO })
         expect(Array.from(atalho.querySelectorAll('thead th')).map((t) => (t.textContent ?? '').trim())).toEqual(expect.arrayContaining(['Bruto', 'Líquido']))
+    })
+    it('0053 — a seção TOTAL: o preço final do orçamento com cada item precificado (rateado pelo custo do item), e o link da proposta logo abaixo', async () => {
+        const link = <a href="/api/atendimentos-ia/orcamentos/o-1/arquivo" data-abrir-arquivo="">Abrir proposta (PDF)</a>
+        const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn(), itensDoArquivo: ITENS_DO_ARQUIVO, rodapeDoOrcamento: link })
+        const faixa = host.querySelector('[data-itens-precificados]') as HTMLElement
+        expect(faixa.textContent).toContain('Total do orçamento')
+        expect(faixa.querySelectorAll('[data-item-precificado]').length).toBe(ITENS_DO_ARQUIVO.length)
+        expect(faixa.querySelector('[data-total-dos-itens]')?.firstElementChild?.textContent).toBe('Total')
+        const total = reais((faixa.querySelector('[data-total-dos-itens]')?.lastElementChild?.textContent ?? '').trim())
+        const somaDasLinhas = Array.from(faixa.querySelectorAll('[data-valor-do-item] strong')).reduce((t, e) => t + reais((e.textContent ?? '').trim()), 0)
+        expect(Math.round(total * 100)).toBe(Math.round(somaDasLinhas * 100))
+        expect(host.querySelector('[data-abrir-arquivo]')?.textContent).toBe('Abrir proposta (PDF)')
     })
     it('A ORDEM DO FIM DA TELA (dono do produto, 11/11/2026, revisada depois de ver a tela): o botão, ABAIXO dele os itens precificados, ABAIXO deles o link do PDF', async () => {
         const link = <a href="/api/atendimentos-ia/orcamentos/o-1/arquivo" data-abrir-arquivo="">Abrir o último arquivo do orçamento (PDF)</a>
