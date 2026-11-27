@@ -8559,7 +8559,8 @@ describe('(43) OS DOIS CAMINHOS DO RESGATE (dono do produto, 18/11/2026): o pedi
         await chamar('Levantamento Marcelo e Rita: DP-02 de 1200 a 1700 x 1000, o segundo com 2 unidades; branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
         const id = (levantamentos().find((l) => l.nome === 'Marcelo e Rita') as Linha).id
         expect(itensDe(id).map((i) => i.quantidade)).toEqual([1, 2, 1, 1, 1, 1])
-        const { quantidade: _q, ...semQuantidade } = J(1300)
+        const semQuantidade: Record<string, unknown> = { ...J(1300) }
+        delete semQuantidade.quantidade
         llmResponde({ nome: 'Marcelo e Rita', itens: [{ ...semQuantidade, tipologia: 'DP-01', ordem: 2 }, { ...J(1550), ordem: 5 }] })
         await chamar('Marcelo e Rita:\nItem 2: janela de correr 1300 x 1000\nItem 5: DP-02 1550 x 1000')
         expect(itensDe(id).map((i) => [i.tipologia, i.quantidade])[1]).toEqual(['DP-02', 2])
