@@ -24,6 +24,7 @@ import { resolveIvaDualEffectiveRate } from '@/utils/item-tax-rates'
 import { resolvePisCofinsPctFromNcm } from '@/utils/ncm-pis-cofins'
 import { pisCofinsDaReferenciaDoTenant } from '@/utils/ncm-pis-cofins'
 import { FALTA_DA_CARGA_HORARIA, FALTA_DO_PRECO_FORMADO } from '@/lib/atendimentos-ia/preco-do-orcamento'
+import { editarTributo, tributosUsados, voltarAoValorDasCredenciais, type ChaveDoTributoManual, type TributosManuais } from '@/lib/atendimentos-ia/tributos-manuais'
 import { PRODUCT_PRICE_INFO_BASE } from '@/utils/product-price-info-base'
 import { calcularNoMotorDoProduto, tipoDeCalculoEfetivo } from '@/utils/motor-do-produto'
 import { doBanco, paraGravar } from '@/utils/tributo-por-dentro-informado'
@@ -416,6 +417,21 @@ export const Content: FC<ContentProps> = ({
   const [ipiPct, setIpiPct] = useState<number>(
     (product as any)?.ipi_pct != null ? Number((product as any).ipi_pct) : 0
   )
+
+  // TRIBUTOS EDITADOS A MÃO no orçamento (pedido 0044). Nulo = nada editado: a tela e o cálculo usam exatamente o de antes (credenciais da
+  // empresa). A chave presente é o tributo manual; o botão da linha a tira e o valor volta ao das credenciais.
+  const [tributosManuais, setTributosManuais] = useState<TributosManuais | null>(orcamento?.tributos_manuais ?? null)
+  const editarTributoManual = (chave: ChaveDoTributoManual, pct: number) => setTributosManuais((atual) => editarTributo(atual, chave, pct))
+  const voltarTributoManual = (chave: ChaveDoTributoManual) => setTributosManuais((atual) => voltarAoValorDasCredenciais(atual, chave))
+  const sugeridosDasCredenciais = {
+    icms: icmsPct,
+    pisCofinsNominal: isLucroRealProd ? 9.25 : isLucroPresumidoProdOnly ? 3.65 : null,
+    pisCofinsEfetivo: pisCofinsLRPct,
+    ibs: ibsDaEmpresa, cbs: cbsDaEmpresa, is: isPct, ipi: ipiPct,
+    reducaoIbs: reducoes.ibs ?? null, reducaoCbs: reducoes.cbs ?? null,
+  }
+  // fora do orçamento de industrialização não há edição manual: `null` faz `tributosUsados` devolver o sugerido, sem conta nenhuma
+  const tributosEmUso = tributosUsados(sugeridosDasCredenciais, ehOrcamentoDeIndustrializacao ? tributosManuais : null)
 
   // R3 — CÓDIGO DE BASE por tributo por fora (7.5, item 6: derivado do contexto da venda,
   // COM OVERRIDE MANUAL). `null` é NÃO CLASSIFICADO e cai no padrão (IPI e IS no 1, IBS e
@@ -1091,6 +1107,8 @@ export const Content: FC<ContentProps> = ({
         comissao_percentual: Number(productPriceInfo.salesCommissionPercent) || 0,
         reserva_tecnica_percentual: Number(productPriceInfo.rtReservePercent) || 0,
         lucro_projetado_percentual: Number(productPriceInfo.productProfitPercent) || 0,
+        // 0044: só quando MUDOU em relação ao gravado (nulo = nada editado → as credenciais). Sem edição, o corpo é o de sempre, byte a byte.
+        ...(ehOrcamentoDeIndustrializacao && JSON.stringify(tributosManuais) !== JSON.stringify(orcamento?.tributos_manuais ?? null) ? { tributos_manuais: tributosManuais } : {}),
       })
       const recusas = Array.isArray(resposta) ? resposta : null
       setRecusasDoOrcamento(recusas ?? [])
@@ -2585,24 +2603,28 @@ export const Content: FC<ContentProps> = ({
           onCustomTaxPercentChange={setCustomTaxPercent}
           additionalIrpjPercent={additionalIrpjPercent}
           onAdditionalIrpjChange={setAdditionalIrpjPercent}
-          icmsPct={icmsPct}
-          onIcmsPctChange={ehOrcamentoDeIndustrializacao ? undefined : handleIcmsPctChange}
-          pisCofinsLRPct={pisCofinsLRPct}
+          icmsPct={ehOrcamentoDeIndustrializacao ? tributosEmUso.icms : icmsPct}
+          onIcmsPctChange={ehOrcamentoDeIndustrializacao ? (v) => (v === null ? voltarTributoManual('icms') : editarTributoManual('icms', v)) : handleIcmsPctChange}
+          pisCofinsLRPct={ehOrcamentoDeIndustrializacao ? tributosEmUso.pisCofinsEfetivo : pisCofinsLRPct}
           onPisCofinsLRPctChange={ehOrcamentoDeIndustrializacao ? undefined : setPisCofinsLRPct}
           freightValue={freightValue}
           insuranceValue={insuranceValue}
           accessoryExpensesValue={accessoryExpensesValue}
-          ibsPct={ehOrcamentoDeIndustrializacao ? ibsDaEmpresa : ibsPct}
-          onIbsPctChange={ehOrcamentoDeIndustrializacao ? undefined : setIbsPct}
-          cbsPct={ehOrcamentoDeIndustrializacao ? cbsDaEmpresa : cbsPct}
-          onCbsPctChange={ehOrcamentoDeIndustrializacao ? undefined : setCbsPct}
+          ibsPct={ehOrcamentoDeIndustrializacao ? tributosEmUso.ibs : ibsPct}
+          onIbsPctChange={ehOrcamentoDeIndustrializacao ? (v) => editarTributoManual('ibs', v) : setIbsPct}
+          cbsPct={ehOrcamentoDeIndustrializacao ? tributosEmUso.cbs : cbsPct}
+          onCbsPctChange={ehOrcamentoDeIndustrializacao ? (v) => editarTributoManual('cbs', v) : setCbsPct}
           impostosDaEmpresa={ehOrcamentoDeIndustrializacao}
-          ivaReductionIbsPct={reducoes.ibs}
-          ivaReductionCbsPct={reducoes.cbs}
-          isPct={isPct}
-          onIsPctChange={setIsPct}
-          ipiPct={ipiPct}
-          onIpiPctChange={setIpiPct}
+          manuais={ehOrcamentoDeIndustrializacao ? {
+            origem: tributosEmUso.origem, sugeridos: sugeridosDasCredenciais, pisCofinsNominal: tributosEmUso.pisCofinsNominal,
+            onEditar: editarTributoManual, onVoltar: voltarTributoManual,
+          } : undefined}
+          ivaReductionIbsPct={ehOrcamentoDeIndustrializacao ? tributosEmUso.reducaoIbs : reducoes.ibs}
+          ivaReductionCbsPct={ehOrcamentoDeIndustrializacao ? tributosEmUso.reducaoCbs : reducoes.cbs}
+          isPct={ehOrcamentoDeIndustrializacao ? (tributosEmUso.is ?? 0) : isPct}
+          onIsPctChange={ehOrcamentoDeIndustrializacao ? (v) => editarTributoManual('is', v) : setIsPct}
+          ipiPct={ehOrcamentoDeIndustrializacao ? (tributosEmUso.ipi ?? 0) : ipiPct}
+          onIpiPctChange={ehOrcamentoDeIndustrializacao ? (v) => editarTributoManual('ipi', v) : setIpiPct}
           ibsBaseCode={ibsBaseCode}
           cbsBaseCode={cbsBaseCode}
           isBaseCode={isBaseCode}

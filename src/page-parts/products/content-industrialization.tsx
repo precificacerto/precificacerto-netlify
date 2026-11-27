@@ -6,7 +6,7 @@ import { IItemProductModel } from '@/server/model/item-product-item'
 import { ColumnsType } from 'antd/es/table'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { CalcBaseType } from '@/types/calc-base.type'
-import { ProductPrice, AdvancedTaxParams, type PrecoEmitido } from './product-price.component'
+import { ProductPrice, AdvancedTaxParams, type PrecoEmitido, type TributosManuaisDaTela } from './product-price.component'
 import { LoggedUser } from '@/types/logged-user.type'
 import { ProductPriceInfoType } from './content.component'
 import { useDevice } from '@/contexts/device.context'
@@ -46,6 +46,8 @@ interface ContentIndustrializationProps {
   cbsPct?: number | null
   /** orçamento I.A.: os impostos são os da empresa, só leitura (11/11/2026) */
   impostosDaEmpresa?: boolean
+  /** 0044: tributos editáveis à mão no orçamento I.A. */
+  manuais?: TributosManuaisDaTela
   onCbsPctChange?: (value: number) => void
   ivaReductionIbsPct?: number | null
   ivaReductionCbsPct?: number | null
@@ -111,6 +113,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   onIbsPctChange,
   cbsPct,
   impostosDaEmpresa,
+  manuais,
   onCbsPctChange,
   ivaReductionIbsPct,
   ivaReductionCbsPct,
@@ -278,6 +281,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
         onIbsPctChange={onIbsPctChange}
         cbsPct={cbsPct}
         impostosDaEmpresa={impostosDaEmpresa}
+        manuais={manuais}
         ivaReductionIbsPct={ivaReductionIbsPct}
         ivaReductionCbsPct={ivaReductionCbsPct}
         onCbsPctChange={onCbsPctChange}
