@@ -28,6 +28,7 @@
  *   - O DESENHO: o acervo não tem imagem de tipologia; o que existe é o ESQUEMA que a folha do levantamento já desenha (`desenhoDaTipologia`:
  *     o contorno na proporção real e as divisões que a descrição do motor e as variáveis dizem). Sem medida, o bloco fecha sem desenho.
  */
+import { separarComuns } from '@/lib/atendimentos-ia/escolhas-comuns'
 import { jsPDF } from 'jspdf'
 import { separarBloco } from './bloco-da-falta'
 import { desenharFiguraProporcional, tracosDoDesenho, type DesenhoDaTipologia } from '@/lib/atendimentos-ia/folha-do-levantamento'
@@ -355,15 +356,19 @@ function blocoDoItem(doc: Doc, i: ItemDoArquivo, r: ItemRateado, y: number): num
  * existe (`ausente-vs-falso`): o " / / " em branco saiu.
  */
 export function linhasDoRodape(itens: readonly Pick<ItemDoArquivo, 'ordem' | 'definicoes'>[], dataEntrega: string | null): string[] {
+    // 0049: o que é igual em todos os itens que têm definições sai UMA vez; cada conjunto que difere diz só o que é dele, nomeando os itens
+    const ordenados = [...itens].sort((a, b) => a.ordem - b.ordem).filter((i) => i.definicoes.length > 0)
+    const { comuns, doItem } = separarComuns(ordenados.map((i) => i.definicoes))
     const porConjunto = new Map<string, number[]>()
-    for (const i of [...itens].sort((a, b) => a.ordem - b.ordem)) {
-        if (!i.definicoes.length) continue
-        const chave = i.definicoes.join(' · ')
+    ordenados.forEach((i, k) => {
+        if (!doItem[k].length) return
+        const chave = doItem[k].join(' · ')
         porConjunto.set(chave, [...(porConjunto.get(chave) ?? []), i.ordem])
-    }
-    const linhas = porConjunto.size === 1
-        ? [`DEFINIÇÕES: ${[...porConjunto.keys()][0]}`]
-        : [...porConjunto].map(([chave, ordens]) => `DEFINIÇÕES (${ordens.length > 1 ? 'ITENS' : 'ITEM'} ${ordens.join(', ')}): ${chave}`)
+    })
+    const linhas = [
+        ...(comuns.length ? [`DEFINIÇÕES: ${comuns.join(' · ')}`] : []),
+        ...[...porConjunto].map(([chave, ordens]) => `DEFINIÇÕES (${ordens.length > 1 ? 'ITENS' : 'ITEM'} ${ordens.join(', ')}): ${chave}`),
+    ]
     const entrega = dataDeEntrega(dataEntrega)
     if (entrega.trim() !== '/ /') linhas.push(`DATA DE ENTREGA: ${entrega}`)
     return linhas

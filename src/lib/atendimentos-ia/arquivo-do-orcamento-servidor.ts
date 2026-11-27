@@ -26,6 +26,8 @@ import { BUCKET_DO_CATALOGO } from '@/utils/atendimentos-ia-catalogo'
 import { contextoDaFolhaDaEmpresa } from './conversa-da-ia'
 import { corDoAcessorio, trilhosParaADescricao, variaveisDitas } from './arquivo-do-levantamento'
 import { desenhoDaTipologia, linhaDosAmbientes, variavelNaFolha } from './folha-do-levantamento'
+import { arremateNaMedidaDoVaoDaPolitica } from './politica-da-empresa'
+import { medidaDoArremateNaMedidaDoVao } from './escolhas-comuns'
 import { escolhasDescritas, lerEscolhasDoItem, paraOAgente } from './escolhas-da-tipologia'
 import { escolhasDoCalculo } from './fronteira-das-escolhas'
 import type { Tipologia } from './avaliador-de-formulas'
@@ -87,7 +89,10 @@ export function definicoesDoItem(def: Parameters<typeof escolhasDescritas>[0], e
     const doCalculo = def.variaveis.some((v) => v.variavel === 'AE') ? escolhasDoCalculo(def as unknown as Tipologia, escolhas as Record<string, number>, politica, null, cor, larguraMm).escolhas : {}
     const acionamento: Record<string, number> = {}
     for (const k of ['AE', 'LA', 'LR', 'MD']) if (doCalculo[k] !== undefined) acionamento[k] = doCalculo[k]
+    const naMedidaDoVao = arremateNaMedidaDoVaoDaPolitica(politica)
     return escolhasDescritas(semPadrao, { ...daPolitica, ...acionamento, ...escolhas }, Object.fromEntries(Object.keys(escolhas).map((k) => [k, 'vendedor'])), larguraMm).map((e) =>
+        // 0049: o texto diz o que o cálculo faz (a medida do vão, sem o acréscimo), não o rótulo da opção
+        (naMedidaDoVao ? medidaDoArremateNaMedidaDoVao(e.variavel, e.descricao, e.rotulo) : null) ??
         `${e.descricao}: ${e.rotulo ?? (naoUsa.has(e.variavel) ? 'não usa' : ARREMATE_NAO_DEFINIDO)}${e.doVendedor ? (daPolitica[e.variavel] !== undefined ? ' (política da empresa)' : '') : naoUsa.has(e.variavel) ? ' (política da empresa)' : ''}`)
 }
 

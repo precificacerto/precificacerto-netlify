@@ -338,6 +338,13 @@ describe('O ARQUIVO VAI AO VENDEDOR (12/11/2026, o comando único)', () => {
             .toEqual(['DEFINIÇÕES (ITENS 1, 3): ARREMATE INTERNO: 65 mm', 'DEFINIÇÕES (ITEM 2): ARREMATE INTERNO: sem', 'DATA DE ENTREGA: 01/12/2026'])
         expect(linhasDoRodape([{ ordem: 1, definicoes: [] }], null)).toEqual([])
     })
+    it('0049 — linhasDoRodape: o que é igual em todos sai UMA vez; cada conjunto diz só o que difere, nomeando os itens', () => {
+        const ext = 'ARREMATE EXTERNO: 20 mm'
+        expect(linhasDoRodape([{ ordem: 1, definicoes: ['ARREMATE INTERNO: 65 mm', ext] }, { ordem: 2, definicoes: ['ARREMATE INTERNO: 70 mm', ext] }, { ordem: 3, definicoes: ['ARREMATE INTERNO: 70 mm', ext] }], null))
+            .toEqual([`DEFINIÇÕES: ${ext}`, 'DEFINIÇÕES (ITEM 1): ARREMATE INTERNO: 65 mm', 'DEFINIÇÕES (ITENS 2, 3): ARREMATE INTERNO: 70 mm'])
+        // o item que não tem a variável não desfaz o comum
+        expect(linhasDoRodape([{ ordem: 1, definicoes: [ext] }, { ordem: 2, definicoes: [] }, { ordem: 3, definicoes: [ext] }], null)).toEqual([`DEFINIÇÕES: ${ext}`])
+    })
     it('4.1 — o RODAPÉ no PÉ da página, sempre: as observações e o fecho encostados no fim, com poucos itens também', () => {
         const pdf = gerar().pdf
         const aceite = alturaDe(pdf, 'Aceite do Cliente')!

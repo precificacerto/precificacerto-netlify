@@ -33,6 +33,14 @@ describe('as definições do item', () => {
         expect(d.every((x: string) => x.includes('não definido'))).toBe(true)
         expect(d.some((x: string) => x.includes('BZ0006'))).toBe(false)
     })
+    it('0049 — com ARREMATE_NA_MEDIDA_DO_VAO = SIM o texto diz o que se calcula ("na medida do vão, corte 90/90"), não o rótulo "VÃO+50MM"; sem a política, o rótulo', () => {
+        const sim = { ...POLITICA, porVariavel: { ARREMATE_NA_MEDIDA_DO_VAO: { natureza: 'POLITICA', opcao: 'SIM' } } } as never
+        const com = S().definicoesDoItem(dp02(), { ARI: 4, MAE: 2 }, sim, 'DP-02')
+        expect(com).toContain('arremate externo na medida do vão, corte 90/90')
+        expect(com.some((x: string) => /VÃO\+50|vão \+ 50/i.test(x))).toBe(false)
+        const sem = S().definicoesDoItem(dp02(), { ARI: 4, MAE: 2 }, POLITICA, 'DP-02')
+        expect(sem.some((x: string) => /VÃO\+50MM/.test(x))).toBe(true)
+    })
 })
 
 export {}

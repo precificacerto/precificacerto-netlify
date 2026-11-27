@@ -19,6 +19,8 @@ import fs from 'fs'
 import path from 'path'
 import { abaDoBanco, ABAS_DO_MOTOR } from '@/utils/atendimentos-ia-abas-do-motor'
 import { avaliarTipologia, lerTipologia, type AbasDoMotor } from '@/lib/atendimentos-ia/avaliador-de-formulas'
+import { arremateDaColetaEmPartes } from '@/lib/atendimentos-ia/apanhado'
+import { separarComuns } from '@/lib/atendimentos-ia/escolhas-comuns'
 import { lerEscolhasGravadas } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { escolhasDoCalculo } from '@/lib/atendimentos-ia/fronteira-das-escolhas'
 import { naturezasPara, type LinhaDaNatureza } from '@/lib/atendimentos-ia/natureza-da-variavel'
@@ -107,6 +109,22 @@ describe('acessórios do WVetro 1207 — por função e quantidade', () => {
             const lidas = lerEscolhasGravadas(gravadas, t.tipologia)
             for (const k of ['MFV', 'MF', 'TD']) if (k in gravadas) expect([item.n, k, lidas[k]]).toEqual([item.n, k, gravadas[k]])
         }
+    })
+    it('0049 — levantamento 31: o acabamento comum sai UMA vez; nenhum item repete a linha comum; o texto diz o que se calcula (na medida do vão, corte 90/90), não "vão + 50 mm"', () => {
+        const comFlag = { porVariavel: { ...politica().porVariavel, ARREMATE_NA_MEDIDA_DO_VAO: { natureza: 'POLITICA', opcao: 'SIM' } } } as unknown as PoliticaDaEmpresa
+        const partes = GAB.itens.map((item) => {
+            const t = lerTipologia(abas, item.t)
+            if ('recusas' in t) throw new Error(t.recusas[0].mensagem)
+            return arremateDaColetaEmPartes(t.tipologia, { ...item.esc, ...(DO_WVETRO[item.n] ?? {}) }, comFlag, item.t) ?? []
+        })
+        const { comuns, doItem } = separarComuns(partes)
+        expect(comuns.length).toBeGreaterThan(0)
+        doItem.forEach((d) => comuns.forEach((c) => expect(d).not.toContain(c)))
+        const tudo = [...comuns, ...doItem.flat()]
+        expect(tudo.some((x) => /vão \+ 50|VÃO\+50/i.test(x))).toBe(false)
+        const naMedida = tudo.filter((x) => x.startsWith('arremate externo na medida do vão'))
+        expect(naMedida.length).toBeGreaterThan(0)
+        expect(comuns.filter((x) => x === 'arremate externo na medida do vão, corte 90/90').length).toBeLessThanOrEqual(1)
     })
     it('CONTRASTE — SEM elas (o padrão da De Paula e o que o levantamento 31 já diz), o motor erra, e o erro tem nome', () => {
         const p = problemas(totais(false))

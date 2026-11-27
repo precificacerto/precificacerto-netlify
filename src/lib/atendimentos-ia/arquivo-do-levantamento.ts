@@ -22,7 +22,8 @@
  */
 import { oQueAEsquadriaE, panosDaNatureza } from './tipologia-padrao'
 import { supabaseAdmin } from '@/supabase/admin'
-import { arremateDaColeta, rotuloSemCodigo } from '@/lib/atendimentos-ia/apanhado'
+import { arremateDaColetaEmPartes, rotuloSemCodigo } from '@/lib/atendimentos-ia/apanhado'
+import { separarComuns } from '@/lib/atendimentos-ia/escolhas-comuns'
 import type { PoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa'
 import { lerPoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa-servidor'
 import { opcoesDaVariavel } from '@/lib/atendimentos-ia/avaliador-de-formulas'
@@ -228,8 +229,9 @@ export function montarDadosDaFolha(a: {
     politica?: PoliticaDaEmpresa
 }): DadosDaFolha {
     const ordenados = [...a.itens].sort((x, y) => x.ordem - y.ordem)
-    const arremates = ordenados.map((i) => arremateDaColeta(a.definicao(i), i.escolhas, a.politica ?? {}, i.tipologia ?? ''))
-    const arremateComum = unico(arremates)
+    // 0049: o que é igual em todas as esquadrias vai UMA vez nas pré-definições (observações); no item fica só o que é diferente dele
+    const { comuns: arremateComuns, doItem: arremateDoItem } = separarComuns(ordenados.map((i) => arremateDaColetaEmPartes(a.definicao(i), i.escolhas, a.politica ?? {}, i.tipologia ?? '') ?? []))
+    const arremateComum = arremateComuns.length ? arremateComuns.join('; ') : null
     const itens: ItemDaFolha[] = ordenados.map((i, k): ItemDaFolha => {
         const d = i.tipologia ? a.detalhe(i.tipologia, i.familia) : null
         // a cor como está gravada (a da lista da base, 05/11/2026): o arquivo não a reescreve
@@ -249,7 +251,7 @@ export function montarDadosDaFolha(a: {
                     panosDaPersiana({ descricao: d.descricao, tipo: d.tipo ?? null, linha: d.linha }, i, a.definicao)), a.vidroPadrao?.(i) ?? null)
                 : null,
             // igual em todos (ou nenhum tem arremate): nada aqui; o rodapé o diz uma vez
-            perfilEAcessorio: perfilEAcessorio(cor, corDoAcessorio(i, a.definicao), arremateComum === null ? arremates[k] : null),
+            perfilEAcessorio: perfilEAcessorio(cor, corDoAcessorio(i, a.definicao), arremateDoItem[k].length ? arremateDoItem[k].join('; ') : null),
             // o vidro COMO O VENDEDOR DISSE (04/11/2026: copiado, nunca completado), sem rótulo: o rótulo é o da célula ("VIDRO:")
             vidro: i.vidro,
             ambientes: i.ambientes && i.ambientes.length ? i.ambientes : null,
