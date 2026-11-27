@@ -5996,7 +5996,8 @@ describe('(39) observabilidade por etapa: coletar, casar, montar, calcular e res
         await fecharDp02('Casa do João')
         const calcular = doTurno()[3]
         expect(calcular).toMatch(/^\[ETAPA 4 calcular\] esquadrias=1 pecas=\d+ barras=\d+ codigos=\d+ sem_preco=\d+ mao_de_obra=(ok|falta) desfecho=levantou faltou=/)
-        expect(calcular).not.toContain('rastro=')
+        // a cor dos acessórios pela cor do perfil (pedido 0040) é o único rastro de uma DP-02 branca sem exceção nenhuma
+        expect(calcular).toMatch(/ rastro=PELA_COR:1:DP-02:CA=1\/pela_cor /)
         const [, pecas, barras] = /pecas=(\d+) barras=(\d+)/.exec(calcular) ?? []
         expect(Number(pecas)).toBeGreaterThan(0)
         expect(Number(barras)).toBeGreaterThan(0)
@@ -6007,7 +6008,7 @@ describe('(39) observabilidade por etapa: coletar, casar, montar, calcular e res
         estado.db.orcamentista_natureza_da_variavel = ['MFI', 'MFE'].map((variavel) => ({ tenant_id: TENANT, familia: 'PVC', linha: null as string | null, formato: null as string | null,
             variavel, natureza: 'POLITICA', opcao_padrao: 'CREMONA COM MACANETA SEM CHAVE' }))
         await fecharDp02('Casa do João')
-        expect(doTurno()[3]).toMatch(/ faltou=\S+ rastro=POLITICA_POR_EQUIVALENCIA:1:DP-02:MFI=1,POLITICA_POR_EQUIVALENCIA:1:DP-02:MFE=1( |$)/)
+        expect(doTurno()[3]).toMatch(/ faltou=\S+ rastro=POLITICA_POR_EQUIVALENCIA:1:DP-02:MFI=1,POLITICA_POR_EQUIVALENCIA:1:DP-02:MFE=1,PELA_COR:1:DP-02:CA=1\/pela_cor( |$)/)
     })
 
     it('a pergunta: a montagem diz o que falta, por esquadria e campo; o cálculo não chega', async () => {
