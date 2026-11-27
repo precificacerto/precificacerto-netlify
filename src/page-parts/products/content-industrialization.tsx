@@ -84,6 +84,11 @@ interface ContentIndustrializationProps {
    * "0 minutos" afirmaria um tempo que não existe (`ausente-vs-falso.md`). O preço é o do motor com o tipo Revenda.
    */
   semMaoDeObra?: boolean
+  /**
+   * A TABELA DOS ITENS some (pedido 0052, 27/11/2026): na página do orçamento I.A. os itens com custo e mão de obra são a seção de CIMA da página, com o
+   * Calcular; repeti-los dentro da precificação seria a mesma tabela duas vezes. Só no orçamento; o produto comum não passa a prop.
+   */
+  semTabelaDeItens?: boolean
 }
 export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   itemsForm,
@@ -131,6 +136,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   advancedTaxesSection,
   workloadAlert,
   semMaoDeObra = false,
+  semTabelaDeItens = false,
   advancedTaxParams,
   mobileItemsList,
   somenteLeitura = false,
@@ -190,7 +196,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
           </Form>
         </div>
         )}
-        {isMobile && mobileItemsList ? (
+        {semTabelaDeItens ? null : isMobile && mobileItemsList ? (
           mobileItemsList
         ) : (
           <Table pagination={false} columns={columns} dataSource={productItemsData} scroll={{ x: 'max-content' }} />

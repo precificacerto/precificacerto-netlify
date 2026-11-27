@@ -85,6 +85,8 @@ type ContentProps = {
   onRecalcularOrcamento?: () => Promise<void>
   /** Só no modo orçamento: o que vem ABAIXO dos itens precificados, no fim da tela (o link do último PDF, 11/11/2026). Produtos não passa. */
   rodapeDoOrcamento?: React.ReactNode
+  /** Pedido 0052: os itens com custo estão na seção de cima da página do orçamento; a precificação não os repete. */
+  semTabelaDeItens?: boolean
 }
 
 export type ProductPriceInfoType = {
@@ -169,6 +171,7 @@ export const Content: FC<ContentProps> = ({
   onOrcamentoSalvo,
   onRecalcularOrcamento,
   rodapeDoOrcamento,
+  semTabelaDeItens = false,
 }: ContentProps) => {
   const { isMobile } = useDevice()
   // O modo decide SÓ a origem da entrada, o cabeçalho e o destino do salvar; o cálculo é o mesmo (`entradaDoMotor`).
@@ -2591,6 +2594,7 @@ export const Content: FC<ContentProps> = ({
           columns={ehOrcamento ? colunasDoOrcamento : columns}
           somenteLeitura={ehOrcamento}
           semMaoDeObra={ehOrcamento && tipoNoMotor === 'REVENDA'}
+          semTabelaDeItens={ehOrcamento && semTabelaDeItens}
           onPrecoNaoFormado={ehOrcamento ? zerarPrecoNaoFormado : undefined}
           productItemsData={productItemsData}
           handleChangePrecificationInputs={handleChangePrecificationInputs}
