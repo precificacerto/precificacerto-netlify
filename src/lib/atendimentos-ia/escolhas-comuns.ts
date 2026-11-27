@@ -7,7 +7,7 @@
  */
 export function separarComuns(porItem: ReadonlyArray<readonly string[]>): { comuns: string[]; doItem: string[][] } {
     const comItens = porItem.filter((p) => p.length > 0)
-    if (comItens.length === 0) return { comuns: [], doItem: porItem.map(() => []) }
+    if (comItens.length === 0) return { comuns: [], doItem: porItem.map((): string[] => []) }
     const comuns: string[] = [...new Set(comItens[0])].filter((parte: string) => comItens.every((p) => p.includes(parte)))
     return { comuns, doItem: porItem.map((p) => p.filter((parte) => !comuns.includes(parte))) }
 }
