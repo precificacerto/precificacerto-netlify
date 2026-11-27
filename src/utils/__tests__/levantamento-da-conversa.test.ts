@@ -946,7 +946,7 @@ describe('(5b) as ESCOLHAS gravadas chegam ao avaliador', () => {
         const r = await M().mensagemDoLevantamento(TENANT, t, lev())
         expect(r.desfecho).toBe('levantou')
         expect(r.texto).toContain('(a opção da política não cabe nesta tipologia: o padrão dela)')
-        expect(r.etapa?.rastro).toEqual(['PELA_TIPOLOGIA:1:DP-02:ARI=1'])
+        expect(r.etapa?.rastro).toEqual(['PELA_TIPOLOGIA:1:DP-02:ARI=1', 'PELA_COR:1:DP-02:CA=1/pela_cor'])
     })
     // A OPÇÃO PADRÃO QUE NÃO VALE (dono do produto, 26/11/2026; pedido 0030 — a DP-73 do orçamento 28-PVC com RL = SIM pela política): a opção que a
     // POLÍTICA deu e que a condição das opções não deixa valer no item dá lugar à que vale — o cálculo sai, e o rastro diz; a DITA continua recusa
@@ -960,7 +960,7 @@ describe('(5b) as ESCOLHAS gravadas chegam ao avaliador', () => {
         const r = await M().mensagemDoLevantamento(TENANT, t, lev())
         expect(r.desfecho).toBe('levantou')
         expect(r.texto).not.toContain('não vale neste item')
-        expect(r.etapa?.rastro).toEqual(['OPCAO_TROCADA:1:DP-02:ARI=1/primeira_valida_padrao_invalido'])
+        expect(r.etapa?.rastro).toEqual(['PELA_COR:1:DP-02:CA=1/pela_cor', 'OPCAO_TROCADA:1:DP-02:ARI=1/primeira_valida_padrao_invalido'])
     })
     it('0030: a MESMA opção DITA pelo vendedor não é trocada — o cálculo recusa, nomeando as que valem', async () => {
         comARIQueNaoVale()
@@ -1003,7 +1003,7 @@ describe('(5b) as ESCOLHAS gravadas chegam ao avaliador', () => {
         expect(r.desfecho).toBe('levantou')
         expect(r.texto).toContain('VÃO+40MM (CORTE 90/90) - PARA AJUSTE EM OBRA (a opção da política não existe nesta tipologia: ajuste em obra)')
         expect(r.texto).toContain('A política diz MAE = "VAO+50MM (CORTE 90/90)", que a tipologia DP-02 não oferece; entrou a opção 2 = VÃO+40MM (CORTE 90/90) - PARA AJUSTE EM OBRA (ajuste em obra de menor acréscimo).')
-        expect(r.etapa?.rastro).toEqual(['AJUSTE_EM_OBRA:1:DP-02:MAE=2'])
+        expect(r.etapa?.rastro).toEqual(['AJUSTE_EM_OBRA:1:DP-02:MAE=2', 'PELA_COR:1:DP-02:CA=1/pela_cor'])
     })
     it('O FECHAMENTO DA POLÍTICA NA EUROPA 42 (22/11/2026): a lista não fala em chave, "… SEM CHAVE" casa "CREMONA COM MAÇANETA" — o orçamento sai, e o rastro diz', async () => {
         // a DP-02 da fixture é a do motor: MFI e MFE com a lista que não fala em chave
@@ -1015,7 +1015,7 @@ describe('(5b) as ESCOLHAS gravadas chegam ao avaliador', () => {
         expect(r.desfecho).toBe('levantou')
         expect(r.texto).not.toContain('CREMONA COM MACANETA SEM CHAVE')
         // o rastro: o resumo da etapa do cálculo (a linha [IA]) diz que entrou por equivalência, item a item
-        expect(r.etapa?.rastro).toEqual(['POLITICA_POR_EQUIVALENCIA:1:DP-02:MFI=1', 'POLITICA_POR_EQUIVALENCIA:1:DP-02:MFE=1'])
+        expect(r.etapa?.rastro).toEqual(['POLITICA_POR_EQUIVALENCIA:1:DP-02:MFI=1', 'POLITICA_POR_EQUIVALENCIA:1:DP-02:MFE=1', 'PELA_COR:1:DP-02:CA=1/pela_cor'])
     })
     it('a natureza de OUTRA família não vale para a esquadria PVC', async () => {
         const t = await M().lerFamiliasDaEmpresa(TENANT)
@@ -1233,7 +1233,7 @@ describe('(8) a COR é a da pré-definição, comparada SEM CAIXA (e só sem cai
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ cor_perfil: 'BRANCO', escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
         expect(r.desfecho).toBe('levantou')
-        expect(r.etapa).toEqual({ esquadrias: 1, pecas: 40, barras: 9, codigos: 8, semPreco: 0, maoDeObra: 'ok', faltou: [], rastro: [] })
+        expect(r.etapa).toEqual({ esquadrias: 1, pecas: 40, barras: 9, codigos: 8, semPreco: 0, maoDeObra: 'ok', faltou: [], rastro: ['PELA_COR:1:DP-02:CA=1/pela_cor'] })
         // só contagens e códigos: nenhum número do resumo é dinheiro
         expect(JSON.stringify(r.etapa)).not.toMatch(/R\$|,\d{2}\b/)
     })

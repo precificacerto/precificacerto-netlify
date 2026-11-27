@@ -85,6 +85,18 @@ export type TraducaoDaPolitica =
     | { recusa: string; campo: string }
     | null
 
+/**
+ * O RÓTULO SEM O CÓDIGO NA FRENTE (dono do produto, 27/11/2026, pedido 0040): o motor escreve parte das opções com o código da peça antes do nome
+ * ("IL42 - INTERLOCK + CAPA", "IL36 - ÚNICO") e parte sem ele ("INTERLOCK + CAPA", na DP-69). A política diz o nome, não o código. A opção casa pelo
+ * começo do rótulo inteiro OU do rótulo sem o prefixo "<código> - "; a ambiguidade (mais de uma opção casando) continua recusa nomeada.
+ */
+const PREFIXO_DE_CODIGO = /^\s*[A-Z0-9][A-Z0-9./]*\s+-\s+/i
+export const rotuloSemCodigo = (rotulo: string): string => rotulo.replace(PREFIXO_DE_CODIGO, '')
+/** A opção cujo rótulo, inteiro ou sem o código na frente, começa pelo texto (já na `forma`). */
+const comecaPor = (rotulo: string, texto: string) => forma(rotulo).startsWith(texto) || forma(rotuloSemCodigo(rotulo)).startsWith(texto)
+/** O rótulo, inteiro ou sem o código na frente, é exatamente o texto (já na `forma`). */
+const eIgualA = (rotulo: string, texto: string) => forma(rotulo) === texto || forma(rotuloSemCodigo(rotulo)) === texto
+
 /** As opções da variável, por extenso, para a recusa. */
 const listaDasOpcoes = (opcoes: ReadonlyArray<{ valor: number; rotulo: string }>) => opcoes.map((o) => `${o.valor} = ${o.rotulo}`).join('; ')
 
@@ -96,7 +108,7 @@ export function traduzirPolitica(tipologia: string, v: Pick<VariavelDaTipologia,
     const mapa = (MAPA_DA_POLITICA as Record<string, Entrada>)[v.variavel]
     if (!mapa) return null
     const opcoes = opcoesDaVariavel(v.opcoes) ?? []
-    const casam = (texto: string) => opcoes.filter((o) => forma(o.rotulo).startsWith(forma(texto)))
+    const casam = (texto: string) => opcoes.filter((o) => comecaPor(o.rotulo, forma(texto)))
     const recusa = (campo: string, valor: string, achadas: number) => ({
         campo,
         recusa: `a política da empresa diz ${campo} = "${valor}", e na tipologia ${tipologia} ${achadas === 0 ? 'nenhuma opção' : 'mais de uma opção'} de ${v.variavel} começa assim (${listaDasOpcoes(opcoes)}): corrija a política ou o motor`,
@@ -161,14 +173,14 @@ function traduzirPelaNatureza(tipologia: string, v: Pick<VariavelDaTipologia, 'v
     const opcoes = opcoesDaVariavel(v.opcoes) ?? []
     const texto = forma(n.opcao)
     const booleano = texto === 'SIM' || texto === 'NAO'
-    const achadas = opcoes.filter((o) => (booleano ? forma(o.rotulo) === texto : forma(o.rotulo).startsWith(texto)))
+    const achadas = opcoes.filter((o) => (booleano ? forma(o.rotulo) === texto : comecaPor(o.rotulo, texto)))
     // A CHAVE QUE A LISTA NÃO SEPARA (dono do produto, 22/11/2026, medido no motor ativo): "CREMONA COM MAÇANETA" (EUROPA 42) e "CREMONA COM
     // MAÇANETA SEM CHAVE" (as que separam) acionam os MESMOS insumos; "COM CHAVE" é outra peça. Nenhuma lista oferece COM CHAVE sem oferecer SEM
     // CHAVE. Então, sem casar pelo texto, e SÓ quando nenhuma opção da tipologia fala em chave, "X SEM CHAVE" casa a opção "X". Nunca por prefixo
     // genérico ("CREMONA COM MAÇANETA" é o começo de "… COM CHAVE"): a equivalência vale pela ausência de ambiguidade na lista, e vai ao rastro.
     if (achadas.length === 0 && texto.endsWith('SEMCHAVE') && !opcoes.some((o) => forma(o.rotulo).includes('CHAVE'))) {
         const semAChave = texto.slice(0, -'SEMCHAVE'.length)
-        const iguais = opcoes.filter((o) => forma(o.rotulo) === semAChave)
+        const iguais = opcoes.filter((o) => eIgualA(o.rotulo, semAChave))
         if (iguais.length === 1) {
             return { valor: iguais[0].valor, campo: v.variavel, equivalencia:
                 `a política diz ${v.variavel} = "${n.opcao}", e a lista da tipologia ${tipologia} não fala em chave; entrou a opção ${iguais[0].valor} = ${iguais[0].rotulo} (a mesma peça, por equivalência)` }
@@ -193,7 +205,7 @@ function traduzirPelaNatureza(tipologia: string, v: Pick<VariavelDaTipologia, 'v
     // o começo dele —, não é falta: é a tipologia dizendo que ali não cabe (a folha de veneziana não leva maçaneta), e vale o PADRÃO dela, no rastro.
     // Quando a lista TEM uma opção que é o começo do texto (a "CREMONA COM MAÇANETA" de uma lista que separa a chave), o texto diverge de uma opção
     // que existe: aí é falta, e se pergunta. Mais de uma casando é ambiguidade: também se pergunta.
-    if (achadas.length === 0 && !opcoes.some((o) => { const r = forma(o.rotulo); return r !== '' && texto.startsWith(r) })) {
+    if (achadas.length === 0 && !opcoes.some((o) => [forma(o.rotulo), forma(rotuloSemCodigo(o.rotulo))].some((r) => r !== '' && texto.startsWith(r)))) {
         const p = (v.padrao ?? '').trim()
         const padrao = /^\d+$/.test(p) ? opcoes.find((o) => o.valor === Number(p)) : undefined
         if (padrao) {
