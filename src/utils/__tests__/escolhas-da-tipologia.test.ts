@@ -135,6 +135,25 @@ describe('(2) como perguntar — por extenso, em português, SEM código e SEM n
     })
 })
 
+describe('(2b) MFV, MF e TD — as escolhas do item do gabarito WVetro 1207 (0045-1 (a), 27/11/2026)', () => {
+    const v = (variavel: string) => ({ variavel, descricao: `DESC ${variavel}`, padrao: null as string | null, condicao: 'sempre', opcoes: '1 = UM; 2 = DOIS; 5 = CINCO', condicao_opcoes: null as string | null })
+    const t = { variaveis: [v('MFV'), v('MF'), v('TD'), v('XX')] } as unknown as Parameters<Modulo['escolhaPedida']>[0]
+    it('entram entre as escolhas do item (nunca perguntadas) e vão ao prompt', () => {
+        expect([...E().ESCOLHAS_DO_ITEM]).toEqual(expect.arrayContaining(['MFV', 'MF', 'TD']))
+        expect(E().escolhasParaOPrompt(t).map((x) => x.split(' ')[0])).toEqual(['MFV', 'MF', 'TD'])
+        expect(E().escolhasPendentes(t, {})).toEqual([])
+    })
+    it('o jsonb gravado é lido: o valor positivo vale; zero, texto e variável fora da lista não', () => {
+        expect(E().lerEscolhasGravadas({ MFV: 5, MF: 2, TD: 2, XX: 2 })).toEqual({ MFV: 5, MF: 2, TD: 2 })
+        expect(E().lerEscolhasGravadas({ MFV: 0, MF: '2' })).toEqual({})
+    })
+    it('o agente grava a que o vendedor disse, se a opção existe; opção que a aba não tem é descartada', () => {
+        expect(E().validarEscolha(t, {}, { variavel: 'MFV', opcao: 5 })).toEqual({ gravar: { MFV: 5 }, propostos: 1, descartados: 0 })
+        expect(E().validarEscolha(t, {}, { variavel: 'MFV', opcao: 9 })).toEqual({ gravar: null, propostos: 1, descartados: 1 })
+        expect(E().validarEscolha(t, {}, { variavel: 'XX', opcao: 1 })).toEqual({ gravar: null, propostos: 1, descartados: 1 })
+    })
+})
+
 describe('(3) o que aceitar como resposta — a LLM propõe, o código valida', () => {
     const validar = (escolhas: Record<string, number>, proposta: unknown) => E().validarEscolha(dp02(), escolhas, proposta)
 

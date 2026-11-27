@@ -19,6 +19,7 @@ import fs from 'fs'
 import path from 'path'
 import { abaDoBanco, ABAS_DO_MOTOR } from '@/utils/atendimentos-ia-abas-do-motor'
 import { avaliarTipologia, lerTipologia, type AbasDoMotor } from '@/lib/atendimentos-ia/avaliador-de-formulas'
+import { lerEscolhasGravadas } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { escolhasDoCalculo } from '@/lib/atendimentos-ia/fronteira-das-escolhas'
 import { naturezasPara, type LinhaDaNatureza } from '@/lib/atendimentos-ia/natureza-da-variavel'
 import type { PoliticaDaEmpresa } from '@/lib/atendimentos-ia/politica-da-empresa'
@@ -98,6 +99,15 @@ describe('acessórios do WVetro 1207 — por função e quantidade', () => {
         expect(problemas(totais(true))).toEqual([])
     })
 
+    it('MFV, MF e TD gravados no item (0045-1 a) são LIDOS: a concha da tela (itens 2, 4, 9, 10), o MF do 5 e do 11 e o TD do 11 chegam ao cálculo', () => {
+        for (const item of GAB.itens) {
+            const t = lerTipologia(abas, item.t)
+            if ('recusas' in t) throw new Error(t.recusas[0].mensagem)
+            const gravadas = DO_WVETRO[item.n] ?? {}
+            const lidas = lerEscolhasGravadas(gravadas, t.tipologia)
+            for (const k of ['MFV', 'MF', 'TD']) if (k in gravadas) expect([item.n, k, lidas[k]]).toEqual([item.n, k, gravadas[k]])
+        }
+    })
     it('CONTRASTE — SEM elas (o padrão da De Paula e o que o levantamento 31 já diz), o motor erra, e o erro tem nome', () => {
         const p = problemas(totais(false))
         expect(p.length).toBeGreaterThanOrEqual(15)
