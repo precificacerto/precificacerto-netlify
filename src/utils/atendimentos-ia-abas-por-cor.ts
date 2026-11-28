@@ -13,7 +13,10 @@
 export const COR_BASE_DAS_ABAS = 'BRANCO'
 
 export const COLUNAS_DA_ABA_POR_COR = ['REFERÊNCIA', 'CÓDIGO DO FORNECEDOR', 'DESCRIÇÃO', 'PREÇO', 'BARRA'] as const
-export type ColunaDaAbaPorCor = 'referencia' | 'codigo' | 'descricao' | 'preco' | 'barra'
+export type ColunaDaAbaPorCor = 'referencia' | 'codigo' | 'descricao' | 'preco' | 'barra' | 'cor'
+/** A aba do perfil de DUAS cores (lado maior e lado menor): a cor completa de cada linha vem da coluna COR (dono do produto, 0055b). */
+export const ABA_BICOLOR = 'BICOLOR'
+export const COLUNA_DA_COR_DA_BICOLOR = 'COR'
 
 const sem = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim()
 
@@ -24,14 +27,15 @@ const NOMES: Record<ColunaDaAbaPorCor, readonly string[]> = {
     descricao: ['DESCRICAO'],
     preco: ['PRECO'],
     barra: ['BARRA'],
+    cor: ['COR'],
 }
 export const COLUNAS_DA_ABA_NA_ORDEM: readonly ColunaDaAbaPorCor[] = ['referencia', 'codigo', 'descricao', 'preco', 'barra']
-export const nomeDaColunaDaAba = (c: ColunaDaAbaPorCor): string => COLUNAS_DA_ABA_POR_COR[COLUNAS_DA_ABA_NA_ORDEM.indexOf(c)]
+export const nomeDaColunaDaAba = (c: ColunaDaAbaPorCor): string => (c === 'cor' ? COLUNA_DA_COR_DA_BICOLOR : COLUNAS_DA_ABA_POR_COR[COLUNAS_DA_ABA_NA_ORDEM.indexOf(c as Exclude<ColunaDaAbaPorCor, 'cor'>)])
 
 /** A coluna que o texto do cabeçalho nomeia, ou null. */
 export function colunaDoCabecalho(texto: string): ColunaDaAbaPorCor | null {
     const t = sem(texto)
-    return COLUNAS_DA_ABA_NA_ORDEM.find((c) => NOMES[c].includes(t)) ?? null
+    return (Object.keys(NOMES) as ColunaDaAbaPorCor[]).find((c) => NOMES[c].includes(t)) ?? null
 }
 /** O arquivo é "por abas de cor" quando alguma aba traz a coluna REFERÊNCIA na linha 1. */
 export const cabecalhoDeAbaPorCor = (textosDaLinha1: readonly string[]): boolean => textosDaLinha1.some((t) => colunaDoCabecalho(t) === 'referencia')
@@ -121,3 +125,17 @@ export const itemDaAbaDoBanco = (l: Record<string, unknown>): ItemDaAba => ({
     codigo: String(l.codigo), descricao: (l.descricao as string | null) ?? null, cor: (l.cor as string | null) ?? null,
     referencia_perfil: (l.referencia_perfil as string | null) ?? null, custo: numeroOuNulo(l.custo), medida_barra_m: numeroOuNulo(l.medida_barra_m),
 })
+
+/** O LADO de uma cor de perfil bicolor ("… LADO MAIOR", "… LADO MENOR"): a cor é o nome da lista, e o lado vem depois dele. */
+const COM_O_LADO = /\s+LADO\s+(MAIOR|MENOR)$/
+export const fraseDaBicorSemCor = (linhas: ReadonlyArray<{ linha: number; codigo: string }>) =>
+    `${linhas.length} ${linhas.length === 1 ? 'linha' : 'linhas'} da aba ${ABA_BICOLOR} ${linhas.length === 1 ? 'veio' : 'vieram'} sem a cor — ${lista(linhas.map((l) => `linha ${l.linha} (${l.codigo})`), 20)}. Na aba ${ABA_BICOLOR} a cor completa de cada linha vem da coluna ${COLUNA_DA_COR_DA_BICOLOR}. Nada foi gravado.`
+export const fraseDaAbaBicorSemAColunaCor = `a aba ${ABA_BICOLOR} não tem a coluna ${COLUNA_DA_COR_DA_BICOLOR} na linha 1: a cor completa de cada linha (ex.: "PRETO LISO LADO MAIOR") vem dela. Nada foi gravado.`
+export const fraseDasCoresDaBicorInvalidas = (cs: ReadonlyArray<{ linha: number; cor: string }>, cores: readonly string[]) =>
+    `${cs.length} ${cs.length === 1 ? 'cor' : 'cores'} da aba ${ABA_BICOLOR} ${cs.length === 1 ? 'não vale' : 'não valem'} — ${lista(cs.map((c) => `linha ${c.linha}: "${c.cor}"`), 12)}. Cada parte da cor é um nome da lista do fornecedor seguido de LADO MAIOR ou LADO MENOR (as duas cores separadas por "/"): ${lista(cores, 40)}. Nada foi gravado.`
+/** Confere a COR de uma linha da BICOLOR: cada parte (separadas por "/") = nome da lista + LADO MAIOR|MENOR. `canonica` mapeia a cor comparável ao nome da lista. */
+export function corDaBicorValida(cor: string, ehDaLista: (nome: string) => boolean): boolean {
+    const partes = cor.split('/').map((p) => p.trim().toUpperCase()).filter((p) => p !== '')
+    if (partes.length === 0) return false
+    return partes.every((p) => COM_O_LADO.test(p) && ehDaLista(p.replace(COM_O_LADO, '')))
+}

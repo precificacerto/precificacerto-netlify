@@ -58,6 +58,7 @@ import {
     cabecalhoDeAbaPorCor, colunaDoCabecalho, fraseDaAbaComColunaRepetida, fraseDaAbaSemColunas, fraseDasAbasDaMesmaCor, fraseDasAbasForaDaLista,
     fraseDasCelulasInvalidasDasAbas, fraseDasLinhasSemCodigo, fraseDasLinhasSemReferencia, fraseDoArquivoSemAbasDeCor, FRASE_DAS_ABAS_SEM_LISTA_DE_CORES,
     COLUNAS_DA_ABA_NA_ORDEM, nomeDaColunaDaAba, type ColunaDaAbaPorCor,
+    ABA_BICOLOR, corDaBicorValida, fraseDaBicorSemCor, fraseDaAbaBicorSemAColunaCor, fraseDasCoresDaBicorInvalidas,
 } from '@/utils/atendimentos-ia-abas-por-cor'
 export { COLUNA_DA_CATEGORIA_DO_FORNECEDOR }
 
@@ -834,6 +835,8 @@ function lerAbasPorCor(wb: ExcelJS.Workbook, cores: readonly string[] | undefine
     const foraDaLista: string[] = []
     const porCor = new Map<string, ExcelJS.Worksheet[]>()
     for (const ws of wb.worksheets) {
+        // a aba BICOLOR (perfil de duas cores, lado maior e menor): a cor de cada linha vem da coluna COR (0055b)
+        if (corParaComparar(ws.name) === ABA_BICOLOR) { porCor.set(ABA_BICOLOR, [...(porCor.get(ABA_BICOLOR) ?? []), ws]); continue }
         const nome = canonica.get(corParaComparar(ws.name))
         if (nome === undefined) { foraDaLista.push(ws.name); continue }
         porCor.set(nome, [...(porCor.get(nome) ?? []), ws])
@@ -850,6 +853,8 @@ function lerAbasPorCor(wb: ExcelJS.Workbook, cores: readonly string[] | undefine
     const semCodigo: Array<{ aba: string; linha: number }> = []
     const invalidas: Array<{ aba: string; linha: number; coluna: string; valor: string }> = []
     const semCusto: string[] = []
+    const bicorSemCor: Array<{ linha: number; codigo: string }> = []
+    const bicorInvalidas: Array<{ linha: number; cor: string }> = []
     const primeira = new Map<string, number>()
     for (const [cor, wss] of porCor) {
         const ws = wss[0]
@@ -863,8 +868,10 @@ function lerAbasPorCor(wb: ExcelJS.Workbook, cores: readonly string[] | undefine
             if (col[k] !== undefined) repetidas.push(nomeDaColunaDaAba(k))
             else col[k] = c
         }
+        const ehBicolor = cor === ABA_BICOLOR
         const faltam = COLUNAS_DA_ABA_NA_ORDEM.filter((k) => col[k] === undefined).map(nomeDaColunaDaAba)
         if (faltam.length) { recusas.push(fraseDaAbaSemColunas(ws.name, faltam)); continue }
+        if (ehBicolor && col.cor === undefined) { recusas.push(fraseDaAbaBicorSemAColunaCor); continue }
         if (repetidas.length) { recusas.push(fraseDaAbaComColunaRepetida(ws.name, repetidas)); continue }
         const l = new Leitor(ws.name, ws)
         const coluna = (k: ColunaDaAbaPorCor) => col[k] as number
@@ -879,9 +886,17 @@ function lerAbasPorCor(wb: ExcelJS.Workbook, cores: readonly string[] | undefine
             if (codigo === null) { semCodigo.push({ aba: ws.name, linha: r }); continue }
             const referencia = l.texto(r, coluna('referencia'))?.trim() || null
             if (referencia === null) { semReferencia.push({ aba: ws.name, linha: r, codigo }); continue }
+            // na BICOLOR a cor é a da COLUNA (conferida na lista); nas outras abas é a da aba — a coluna COR, se houver, não vale
+            let corDoItem = cor
+            if (ehBicolor) {
+                const c = l.texto(r, coluna('cor'))?.trim() || null
+                if (c === null) { bicorSemCor.push({ linha: r, codigo }); continue }
+                if (!corDaBicorValida(c, (nome) => canonica.has(corParaComparar(nome)))) { bicorInvalidas.push({ linha: r, cor: c }); continue }
+                corDoItem = c
+            }
             const custo = numero(r, 'preco')
             const item: ItemLido = {
-                codigo, descricao: l.texto(r, coluna('descricao')), cor,
+                codigo, descricao: l.texto(r, coluna('descricao')), cor: corDoItem,
                 // a referência da COLUNA; o `referenciasDaCategoria` a leva a `referencia_perfil` na tabela de PERFIL
                 codigo_wvetro: referencia, referencia_perfil: null,
                 medida_barra_m: numero(r, 'barra'),
@@ -902,6 +917,8 @@ function lerAbasPorCor(wb: ExcelJS.Workbook, cores: readonly string[] | undefine
         avisos.push(...l.avisos)
     }
     if (semCodigo.length) recusas.push(fraseDasLinhasSemCodigo(semCodigo))
+    if (bicorSemCor.length) recusas.push(fraseDaBicorSemCor(bicorSemCor))
+    if (bicorInvalidas.length) recusas.push(fraseDasCoresDaBicorInvalidas(bicorInvalidas, [...canonica.values()]))
     if (semReferencia.length) recusas.push(fraseDasLinhasSemReferencia(semReferencia))
     if (invalidas.length) recusas.push(fraseDasCelulasInvalidasDasAbas(invalidas))
     if (semCusto.length) avisos.push({ tipo: 'itens_sem_custo', aba: 'abas por cor', itens: semCusto.length, codigos: semCusto, mensagem: fraseDosItensSemCusto(semCusto) })
