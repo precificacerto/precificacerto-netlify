@@ -54,6 +54,11 @@ import { lerTemposDoDetalhe, type TempoLido } from '@/utils/atendimentos-ia-temp
 // A declaração mora em `atendimentos-ia-importacao-celula.ts` (módulo leve, sem o `exceljs`), para a camada de
 // dados (`repositorio.ts`) ler a coluna sem carregar o leitor; daqui ela segue exportada como sempre.
 import { COLUNA_DA_CATEGORIA_DO_FORNECEDOR } from '@/utils/atendimentos-ia-importacao-celula'
+import {
+    cabecalhoDeAbaPorCor, colunaDoCabecalho, fraseDaAbaComColunaRepetida, fraseDaAbaSemColunas, fraseDasAbasDaMesmaCor, fraseDasAbasForaDaLista,
+    fraseDasCelulasInvalidasDasAbas, fraseDasLinhasSemCodigo, fraseDasLinhasSemReferencia, fraseDoArquivoSemAbasDeCor, FRASE_DAS_ABAS_SEM_LISTA_DE_CORES,
+    COLUNAS_DA_ABA_NA_ORDEM, nomeDaColunaDaAba, type ColunaDaAbaPorCor,
+} from '@/utils/atendimentos-ia-abas-por-cor'
 export { COLUNA_DA_CATEGORIA_DO_FORNECEDOR }
 
 /** A chave da categoria do fornecedor, pela constante. */
@@ -506,7 +511,7 @@ function conferirBlocoDoItem(l: Leitor, aba: string, linha: number, item: ItemLi
 export const ABAS_DO_LAYOUT_UNICO = { cabecalho: 'CABECALHO', itens: 'ITENS' } as const
 export const CAMPOS_DO_CABECALHO_UNICO = ['categoria', 'fornecedor', 'vigencia', 'regime_tributario', 'uf_origem', 'moeda'] as const
 export type CabecalhoDoLayoutUnico = Record<(typeof CAMPOS_DO_CABECALHO_UNICO)[number], string | null>
-export type LayoutDaTabela = 'unico' | 'por_posicao'
+export type LayoutDaTabela = 'unico' | 'por_posicao' | 'abas_por_cor'
 /** As 28 colunas, na ordem do pedido, com os nomes EXATOS do cabeçalho. */
 export const COLUNAS_DO_LAYOUT_UNICO = [
     'codigo', 'descricao', 'secao', COLUNA_DA_CATEGORIA_DO_FORNECEDOR, 'linha', 'cor', 'codigo_wvetro', 'unidade', 'vendido_por',
@@ -799,12 +804,116 @@ function lerItensDoLayoutUnico(ws: ExcelJS.Worksheet): LeituraDoPreco {
 
 type TabelaDePrecoLida = { preco: LeituraDoPreco; layout: LayoutDaTabela; cabecalho: CabecalhoDoLayoutUnico | null }
 
+// ── PERFIS POR COR EM ABAS (dono do produto, pedido 0055) ──────────────────────────────────────────────────────────────────────
+/** O arquivo é de perfis por cor quando não tem o layout único nem a aba do layout de antes, e alguma aba traz a coluna REFERÊNCIA na linha 1. */
+function ehAbasPorCor(wb: ExcelJS.Workbook): boolean {
+    // (as abas ITENS e CABECALHO do layout único já foram tratadas por `lerTabelaDePreco`, antes desta pergunta)
+    if (wb.worksheets.some((w) => w.name.trim() === ABAS_DA_IMPORTACAO.preco)) return false
+    return wb.worksheets.some((w) => {
+        const row1 = w.getRow(1)
+        const textos: string[] = []
+        for (let c = 1; c <= row1.cellCount; c++) { const v = valorDaCelula(row1.getCell(c).value).valor; if (typeof v === 'string') textos.push(v) }
+        return cabecalhoDeAbaPorCor(textos)
+    })
+}
+
+/**
+ * Lê o arquivo de perfis por cor: CADA aba é uma cor (o nome da aba é conferido contra a lista de cores do fornecedor, sem caixa, acento nem
+ * espaço de sobra, e o item grava o nome CANÔNICO da lista); a referência vem da coluna REFERÊNCIA e o código do fornecedor fica como veio — o
+ * sistema não decifra uma coisa pela outra. Recusa INTEIRA (nada é gravado), com a lista de cada defeito: sem lista de cores, aba fora da lista,
+ * duas abas da mesma cor, coluna ausente ou repetida, linha sem referência, linha sem código, célula numérica com texto.
+ * A referência vai em `codigo_wvetro`, como no layout único: `referenciasDaCategoria` a faz `referencia_perfil` na tabela de PERFIL.
+ */
+function lerAbasPorCor(wb: ExcelJS.Workbook, cores: readonly string[] | undefined): LeituraDoPreco {
+    const vazia: LeituraDoPreco = { itens: [], avisos: [], normalizados: 0, recusas: [] }
+    if (!cores || cores.length === 0) return { ...vazia, recusas: [FRASE_DAS_ABAS_SEM_LISTA_DE_CORES] }
+    if (wb.worksheets.length === 0) return { ...vazia, recusas: [fraseDoArquivoSemAbasDeCor] }
+    const canonica = new Map<string, string>()
+    for (const c of cores) { const k = corParaComparar(c); if (k !== '' && !canonica.has(k)) canonica.set(k, c) }
+
+    const foraDaLista: string[] = []
+    const porCor = new Map<string, ExcelJS.Worksheet[]>()
+    for (const ws of wb.worksheets) {
+        const nome = canonica.get(corParaComparar(ws.name))
+        if (nome === undefined) { foraDaLista.push(ws.name); continue }
+        porCor.set(nome, [...(porCor.get(nome) ?? []), ws])
+    }
+    const recusas: string[] = []
+    if (foraDaLista.length) recusas.push(fraseDasAbasForaDaLista(foraDaLista, [...canonica.values()]))
+    const duas = [...porCor.entries()].filter(([, ws]) => ws.length > 1).map(([cor, ws]) => ({ cor, abas: ws.map((w) => w.name) }))
+    if (duas.length) recusas.push(fraseDasAbasDaMesmaCor(duas))
+
+    const itens: ItemLido[] = []
+    const avisos: Aviso[] = []
+    let normalizados = 0
+    const semReferencia: Array<{ aba: string; linha: number; codigo: string }> = []
+    const semCodigo: Array<{ aba: string; linha: number }> = []
+    const invalidas: Array<{ aba: string; linha: number; coluna: string; valor: string }> = []
+    const semCusto: string[] = []
+    const primeira = new Map<string, number>()
+    for (const [cor, wss] of porCor) {
+        const ws = wss[0]
+        const col: Partial<Record<ColunaDaAbaPorCor, number>> = {}
+        const repetidas: string[] = []
+        const row1 = ws.getRow(1)
+        for (let c = 1; c <= row1.cellCount; c++) {
+            const v = valorDaCelula(row1.getCell(c).value).valor
+            const k = typeof v === 'string' ? colunaDoCabecalho(v) : null
+            if (k === null) continue
+            if (col[k] !== undefined) repetidas.push(nomeDaColunaDaAba(k))
+            else col[k] = c
+        }
+        const faltam = COLUNAS_DA_ABA_NA_ORDEM.filter((k) => col[k] === undefined).map(nomeDaColunaDaAba)
+        if (faltam.length) { recusas.push(fraseDaAbaSemColunas(ws.name, faltam)); continue }
+        if (repetidas.length) { recusas.push(fraseDaAbaComColunaRepetida(ws.name, repetidas)); continue }
+        const l = new Leitor(ws.name, ws)
+        const coluna = (k: ColunaDaAbaPorCor) => col[k] as number
+        const numero = (r: number, k: 'preco' | 'barra'): number | null => {
+            const lida = celulaDoBloco(ws, r, coluna(k))
+            if ('invalida' in lida) { invalidas.push({ aba: ws.name, linha: r, coluna: nomeDaColunaDaAba(k), valor: lida.invalida }); return null }
+            return lida.valor
+        }
+        for (let r = 2; r <= ws.rowCount; r++) {
+            if (l.linhaVazia(r)) continue
+            const codigo = l.codigo(r, coluna('codigo'))
+            if (codigo === null) { semCodigo.push({ aba: ws.name, linha: r }); continue }
+            const referencia = l.texto(r, coluna('referencia'))?.trim() || null
+            if (referencia === null) { semReferencia.push({ aba: ws.name, linha: r, codigo }); continue }
+            const custo = numero(r, 'preco')
+            const item: ItemLido = {
+                codigo, descricao: l.texto(r, coluna('descricao')), cor,
+                // a referência da COLUNA; o `referenciasDaCategoria` a leva a `referencia_perfil` na tabela de PERFIL
+                codigo_wvetro: referencia, referencia_perfil: null,
+                medida_barra_m: numero(r, 'barra'),
+                unidade: null, ncm: null, peso: null, ipi: null, pacote: null,
+                [COLUNA_DA_CATEGORIA_DO_FORNECEDOR]: null,
+                custo, secao: null, aliquota_interna_pct: null,
+                // o preço da aba é o da BARRA (o valor da barra inteira): `valor_barra_interno = custo`, como no layout único
+                vendido_por: 'barra', valor_metro_interno: null, valor_barra_interno: custo, valor_metro_12: null, valor_barra_12: null,
+                ...blocoVazio(),
+            }
+            if (custo === null) semCusto.push(codigo)
+            const antes = primeira.get(item.codigo)
+            if (antes !== undefined) { recusas.push(`o código ${item.codigo} aparece em mais de uma linha (aba "${ws.name}", linha ${r}, e a de antes): o código do fornecedor é único na tabela. Nada foi gravado.`); continue }
+            primeira.set(item.codigo, r)
+            itens.push(item)
+        }
+        normalizados += l.normalizados
+        avisos.push(...l.avisos)
+    }
+    if (semCodigo.length) recusas.push(fraseDasLinhasSemCodigo(semCodigo))
+    if (semReferencia.length) recusas.push(fraseDasLinhasSemReferencia(semReferencia))
+    if (invalidas.length) recusas.push(fraseDasCelulasInvalidasDasAbas(invalidas))
+    if (semCusto.length) avisos.push({ tipo: 'itens_sem_custo', aba: 'abas por cor', itens: semCusto.length, codigos: semCusto, mensagem: fraseDosItensSemCusto(semCusto) })
+    return { itens, avisos, normalizados, recusas }
+}
+
 /**
  * A tabela de preço, pelo layout que o arquivo tem: com a aba ITENS ou a CABECALHO, o layout único (e a ITENS tem de estar lá); sem as duas,
  * o de antes — a aba pelo nome (`ABAS_DA_IMPORTACAO.preco`) e as colunas por posição. A recusa do layout de antes diz que o único também não
  * foi achado. Devolve a frase da recusa (já com o nome do arquivo) ou a leitura.
  */
-function lerTabelaDePreco(wb: ExcelJS.Workbook, nomeDoArquivo: string): TabelaDePrecoLida | string {
+function lerTabelaDePreco(wb: ExcelJS.Workbook, nomeDoArquivo: string, cores?: readonly string[]): TabelaDePrecoLida | string {
     const itens = abaDoLayoutUnico(wb, ABAS_DO_LAYOUT_UNICO.itens)
     const cabecalho = abaDoLayoutUnico(wb, ABAS_DO_LAYOUT_UNICO.cabecalho)
     if (itens || cabecalho) {
@@ -812,6 +921,12 @@ function lerTabelaDePreco(wb: ExcelJS.Workbook, nomeDoArquivo: string): TabelaDe
         const preco = lerItensDoLayoutUnico(itens)
         if (preco.recusas.length) return fraseDoArquivo(nomeDoArquivo, preco.recusas.join(' '))
         return { preco, layout: 'unico', cabecalho: lerCabecalhoDoLayoutUnico(cabecalho) }
+    }
+    // os perfis por cor, uma aba por cor (pedido 0055): a forma é a coluna REFERÊNCIA na linha 1 de alguma aba, sem as abas dos outros dois layouts
+    if (ehAbasPorCor(wb)) {
+        const preco = lerAbasPorCor(wb, cores)
+        if (preco.recusas.length) return fraseDoArquivo(nomeDoArquivo, preco.recusas.join(' '))
+        return { preco, layout: 'abas_por_cor', cabecalho: null }
     }
     const ws = aba(wb, nomeDoArquivo, ABAS_DA_IMPORTACAO.preco)
     if (typeof ws === 'string') return `${ws} O layout único (abas "${ABAS_DO_LAYOUT_UNICO.cabecalho}" e "${ABAS_DO_LAYOUT_UNICO.itens}", colunas por nome) também não foi encontrado.`
@@ -1069,11 +1184,11 @@ export async function lerArquivoDoMotor(arquivo: ArquivoDaImportacao): Promise<R
 }
 
 /** Lê os dois arquivos e devolve as linhas prontas para gravar, as contagens e os avisos. */
-export async function lerArquivosDaImportacao(arquivos: { tabela: ArquivoDaImportacao; motor: ArquivoDaImportacao | null }): Promise<ResultadoDaLeitura> {
+export async function lerArquivosDaImportacao(arquivos: { tabela: ArquivoDaImportacao; motor: ArquivoDaImportacao | null; coresDoFornecedor?: readonly string[] }): Promise<ResultadoDaLeitura> {
     const wbTabela = await abrir(arquivos.tabela)
     if (typeof wbTabela === 'string') return { ok: false, erro: wbTabela }
     // o layout único ou o de antes, pela forma do arquivo (02/11/2026); a recusa já vem com o nome do arquivo
-    const tabela = lerTabelaDePreco(wbTabela, arquivos.tabela.nome)
+    const tabela = lerTabelaDePreco(wbTabela, arquivos.tabela.nome, arquivos.coresDoFornecedor)
     if (typeof tabela === 'string') return { ok: false, erro: tabela }
     const { preco, layout, cabecalho } = tabela
 

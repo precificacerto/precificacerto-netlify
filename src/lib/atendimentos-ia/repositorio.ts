@@ -31,6 +31,7 @@ import {
     type TabelaEmUso,
 } from '@/utils/atendimentos-ia-catalogo'
 import { COLUNA_DA_CATEGORIA_DO_FORNECEDOR } from '@/utils/atendimentos-ia-importacao-celula'
+import { itemDaAbaDoBanco, type ItemDaAba } from '@/utils/atendimentos-ia-abas-por-cor'
 import { contasQueVinculam, derivarTabelasDaConta } from '@/lib/atendimentos-ia/tabelas-da-conta'
 
 export class ErroDoBanco extends Error {
@@ -477,6 +478,20 @@ export async function contarItensDaTabela(tabelaId: string): Promise<number> {
     const { count, error } = await db().from('orcamentista_tabela_item').select('id', { count: 'exact', head: true }).eq('tabela_id', tabelaId)
     if (error) throw new ErroDoBanco(error)
     return count ?? 0
+}
+
+/**
+ * Os itens de preço da tabela com a cor e a referência do perfil, paginados de mil em mil (cortar em mil esconderia cor). A tela das abas por cor
+ * (pedido 0055) os agrupa; `custo` e `medida_barra_m` vêm como número ou nulo — nunca zero.
+ */
+export async function itensDePerfisDaTabela(tabelaId: string): Promise<ItemDaAba[]> {
+    const PAGINA = 1000
+    const itens: ItemDaAba[] = []
+    for (let de = 0; ; de += PAGINA) {
+        const linhas = await q(db().from('orcamentista_tabela_item').select('codigo, descricao, cor, referencia_perfil, custo, medida_barra_m').eq('tabela_id', tabelaId).order('id').range(de, de + PAGINA - 1)) as Linha[]
+        itens.push(...linhas.map(itemDaAbaDoBanco))
+        if (linhas.length < PAGINA) return itens
+    }
 }
 
 /** Copia UM objeto dentro do bucket (o motor que muda de fornecedor leva o arquivo para a pasta do novo). Falha LANÇA. */

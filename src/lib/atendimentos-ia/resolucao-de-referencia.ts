@@ -327,7 +327,7 @@ export function resolverPelaReferencia<I extends ItemResolvivel>(ref: Pick<Refer
         if (emPreto.length > 1) return ambigua(emPreto, ' na cor PRETO')
     }
     const cores = [...new Set(daReferencia.map((i) => (corParaComparar(i.cor) === null ? '(sem cor)' : String(i.cor))))]
-    return faltou('REFERENCIA_SEM_A_COR', `${quem}: a referência ${referencia} existe na tabela de preço, mas não na cor ${ref.corPedida} — as cores dela: ${cores.join(', ')}`, `é da referência ${referencia}, em outra cor`)
+    return faltou('REFERENCIA_SEM_A_COR', `${quem}: referência ${referencia} não existe na aba ${ref.corPedida} — ela existe nas abas: ${cores.join(', ')}`, `é da referência ${referencia}, em outra cor`)
 }
 
 /** A resolução de UMA referência, no escopo já filtrado: a referência do perfil + cor primeiro; sem ela no escopo, a escada sobre os itens sem referência. */

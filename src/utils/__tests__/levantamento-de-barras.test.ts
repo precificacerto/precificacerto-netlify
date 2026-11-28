@@ -405,7 +405,7 @@ describe('(4b) A REFERÊNCIA DO PERFIL + COR vem antes da ponte e da escada (don
         // a SF66 só tem BRANCO na tabela: falta nomeada com as cores dela, e o branco não entra
         const sf66 = r.faltas.find((f) => f.codigo_do_motor === 'SF66/WOLFF')
         expect(sf66).toMatchObject({ caminho: 'perfil', motivo: 'REFERENCIA_SEM_A_COR' })
-        expect(sf66!.frase).toContain('a referência SF66 existe na tabela de preço, mas não na cor PRETO TEXTURADO — as cores dela: BRANCO')
+        expect(sf66!.frase).toContain('referência SF66 não existe na aba PRETO TEXTURADO — ela existe nas abas: BRANCO')
         expect(r.total.barras_por_codigo['9681']).toBeUndefined()
     })
     it('a referência decide SEM consultar a ponte: com DOIS CÓDIGOS na ponte para o mesmo perfil e cor (que seria PONTE_AMBIGUA), o item da referência sai, sem falta', () => {

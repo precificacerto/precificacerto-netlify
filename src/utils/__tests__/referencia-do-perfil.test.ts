@@ -75,7 +75,7 @@ describe('a falta é nomeada, nunca o parecido', () => {
         const r = resolverReferencia(pedido('HF88/WOLFF', 'BRONZE'), TABELA, CTX)
         expect(r).toMatchObject({ achada: false, motivo: 'REFERENCIA_SEM_A_COR', procurado: 'HF88/WOLFF' })
         if ('item' in r) throw new Error('achou')
-        expect(r.frase).toBe('HF88/WOLFF (MARCO CORRER DUPLO COM ABA) em BRONZE: a referência HF88 existe na tabela de preço, mas não na cor BRONZE — as cores dela: BRANCO, PRETO TEXTURADO, AMADEIRADO GOLDEN OAK')
+        expect(r.frase).toBe('HF88/WOLFF (MARCO CORRER DUPLO COM ABA) em BRONZE: referência HF88 não existe na aba BRONZE — ela existe nas abas: BRANCO, PRETO TEXTURADO, AMADEIRADO GOLDEN OAK')
         expect(r.candidatas.map((c) => c.item.codigo)).toEqual(['9641', '96420', '96421'])
     })
     it('sem cor pedida, a referência que tem um item por cor não escolhe nenhum (não se assume branco)', () => {

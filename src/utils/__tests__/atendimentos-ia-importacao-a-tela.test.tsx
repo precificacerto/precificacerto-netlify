@@ -346,3 +346,37 @@ describe('(6) a linha da tabela, no fornecedor, leva à importação', () => {
         expect(pushes).toEqual([`${ROUTES.SUPER_ADMIN_IA_TABELAS}/${T}/importacao`])
     })
 })
+
+describe('PERFIS POR COR na tela da tabela (pedido 0055): as abas por cor e o quadro cor × referências', () => {
+    const PERFIS = {
+        quadro: [{ cor: 'BRANCO', referencias: 2, semReferencia: 0, itens: 2 }, { cor: 'PRETO LISO', referencias: 1, semReferencia: 1, itens: 2 }],
+        faltas: [{ cor: 'PRETO LISO', faltam: ['KT42'], sobram: [] as string[] }],
+        abas: [
+            { cor: 'BRANCO', itens: [{ codigo: 'IL421', descricao: 'INTERLOCK', cor: 'BRANCO', referencia_perfil: 'IL42', custo: 19.4, medida_barra_m: 6 }, { codigo: 'KT421', descricao: 'CAPA', cor: 'BRANCO', referencia_perfil: 'KT42', custo: 19.4, medida_barra_m: 6 }] },
+            { cor: 'PRETO LISO', itens: [{ codigo: 'IL4236', descricao: 'INTERLOCK PRETO', cor: 'PRETO LISO', referencia_perfil: 'IL42', custo: 58.7, medida_barra_m: 6 }, { codigo: 'KT4236', descricao: 'CAPA PRETA', cor: 'PRETO LISO', referencia_perfil: null, custo: 58.7, medida_barra_m: 6 }] },
+        ],
+    }
+    it('mostra o quadro (cor, referências, sem referência, faltam) e uma aba por cor, com a falta da aba nomeada', async () => {
+        responder(`GET ${ROTAS_DO_CATALOGO.conteudoDaTabela(T)}`, { status: 200, body: { formulas: 0, tipologias: [], itens: 4, perfis_por_cor: PERFIS } })
+        const host = await montar(<Pagina />)
+        const quadro = host.querySelector('[data-perfis-por-cor]') as HTMLElement
+        expect(quadro).not.toBeNull()
+        const linha = (cor: string) => quadro.querySelector(`[data-quadro-cor="${cor}"]`) as HTMLElement
+        expect(linha('BRANCO').querySelector('[data-referencias]')!.textContent).toBe('2')
+        expect(linha('PRETO LISO').querySelector('[data-referencias]')!.textContent).toBe('1')
+        expect(linha('PRETO LISO').querySelector('[data-sem-referencia]')!.textContent).toBe('1')
+        expect(linha('PRETO LISO').querySelector('[data-faltam]')!.textContent).toBe('1')
+        expect(Array.from(quadro.querySelectorAll('.ant-tabs-tab')).map((t) => t.textContent)).toEqual(['BRANCO', 'PRETO LISO'])
+        expect(quadro.textContent).toContain('IL421')
+        // a aba da cor diz o que falta nela; a do BRANCO (a base) não tem falta
+        expect(quadro.querySelector('[data-faltas-da-aba="BRANCO"]')).toBeNull()
+        const aba = Array.from(quadro.querySelectorAll('.ant-tabs-tab')).find((t) => t.textContent === 'PRETO LISO') as HTMLElement
+        await act(async () => { aba.click() })
+        await assentar()
+        expect(quadro.querySelector('[data-faltas-da-aba="PRETO LISO"]')!.textContent).toContain('KT42')
+    })
+    it('a tabela sem item com cor não monta o cartão (ausente não é "zero cores")', async () => {
+        const host = await montar(<Pagina />)
+        expect(host.querySelector('[data-perfis-por-cor]')).toBeNull()
+    })
+})

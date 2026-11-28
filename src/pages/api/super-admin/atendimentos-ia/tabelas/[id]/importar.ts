@@ -81,6 +81,7 @@ import {
   referenciasDaCategoria,
 } from '@/utils/atendimentos-ia-importacao'
 import { lerCoresDosFornecedores } from '@/lib/atendimentos-ia/cores-do-fornecedor'
+import { FRASE_DAS_ABAS_SEM_CATEGORIA_DE_PERFIL } from '@/utils/atendimentos-ia-abas-por-cor'
 
 // 90 s: ~9 s lendo do Storage e parseando, ~19 s até o comando começar no banco (18,1 MB de corpo,
 // medidos em produção em 25/10/2026), até LIMITE_DA_GRAVACAO_S (35 s) de gravação, e folga. Há portão
@@ -148,12 +149,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return falhaInterna(res, 'importação (download)', e, 'Não foi possível baixar os arquivos da tabela.')
   }
 
+  // A LISTA DE CORES DO FORNECEDOR é lida ANTES da leitura do arquivo: o arquivo de perfis por cor (uma aba por cor, pedido 0055) confere o nome
+  // de cada aba contra ela, e recusa inteiro a aba que não é uma cor da lista. A conferência da cor dos itens (5b') usa a mesma lista.
+  let listaDeCores: string[]
+  try {
+    listaDeCores = ((await lerCoresDosFornecedores([tabela.fornecedor_id])).porFornecedor.get(tabela.fornecedor_id) ?? []).map((c) => c.nome)
+  } catch (e) {
+    return falhaInterna(res, 'importação (cores do fornecedor)', e, 'Não foi possível ler a lista de cores do fornecedor.')
+  }
+
   const leitura = await lerArquivosDaImportacao({
     tabela: { nome: daTabela.nome, bytes: bytes[0] },
     motor: comMotor ? { nome: tabela.motor_nome as string, bytes: bytes[1] } : null,
+    coresDoFornecedor: listaDeCores,
   })
   if (!leitura.ok) return res.status(422).json({ error: (leitura as Recusa).erro })
   const lida = leitura as Lida
+  // O arquivo por abas de cor é de PERFIL: a referência da coluna vira `referencia_perfil`, e isso só existe na tabela com categoria declarada que
+  // não é a de vidro. Na tabela sem categoria a referência seria descartada em silêncio — recusa nomeada, antes de gravar.
+  if (lida.layout === 'abas_por_cor' && (tabela.categoria_chave === null || tabela.categoria_chave === CATEGORIA_COM_VARIANTES)) {
+    return res.status(422).json({ error: fraseDoArquivo(daTabela.nome, FRASE_DAS_ABAS_SEM_CATEGORIA_DE_PERFIL) })
+  }
 
   // 5b. UMA TABELA, UMA CATEGORIA DO FORNECEDOR — antes de montar o payload e de qualquer gravação.
   const doArquivo = categoriasDoFornecedorNosItens(lida.itens.map((i) => i[COLUNA_DA_CATEGORIA_DO_FORNECEDOR]))
@@ -171,13 +187,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // 5b'. A COR SÓ VALE SE ESTIVER NA LISTA DO FORNECEDOR (pedido 0038): fora da lista, a cor do item vai vazia e o aviso nomeia — nunca outro nome.
   // A tabela de VIDRO não passa: a coluna dela é a variante do vidro
   if (declarada !== CATEGORIA_COM_VARIANTES) {
-    let lista: string[]
-    try {
-      lista = ((await lerCoresDosFornecedores([tabela.fornecedor_id])).porFornecedor.get(tabela.fornecedor_id) ?? []).map((c) => c.nome)
-    } catch (e) {
-      return falhaInterna(res, 'importação (cores do fornecedor)', e, 'Não foi possível ler a lista de cores do fornecedor.')
-    }
-    const conferidas = coresDaListaDoFornecedor(lida.itens, lista)
+    const conferidas = coresDaListaDoFornecedor(lida.itens, listaDeCores)
     lida.itens = conferidas.itens
     if (conferidas.aviso) lida.avisos.push(conferidas.aviso)
   }
