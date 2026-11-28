@@ -68,7 +68,12 @@ const ITENS_DE_VIDRO = [{
     // a referência (codigo_wvetro, 24/11/2026): é por ela que o padrão da base acha a descrição e o custo acha o item
     codigo: 'VTIN05', codigo_wvetro: 'VTIN05', descricao: 'VIDRO TEMPERADO INCOLOR 05MM', unidade: 'PC', custo: 100, medida_barra_m: null as number | null, valor_barra_interno: null as number | null, valor_metro_interno: null as number | null,
     cred_icms_pct: 12, cred_pis_cofins_pct: 9.25, cred_ipi_pct: 0, nc_ipi_pct: null as number | null, tabela_id: TABELA_DE_VIDRO,
-}]
+},
+// os vidros que os casos do vendedor dizem ("vidro 4mm", "temperado 8mm"): com o catálogo, o vidro dito vira a REFERÊNCIA e a descrição (pedido 0056)
+{ codigo: 'VCIN04', codigo_wvetro: 'VCIN04', descricao: 'VIDRO COMUM INCOLOR 04MM', unidade: 'PC', custo: 80, medida_barra_m: null as number | null, valor_barra_interno: null as number | null, valor_metro_interno: null as number | null,
+    cred_icms_pct: 12, cred_pis_cofins_pct: 9.25, cred_ipi_pct: 0, nc_ipi_pct: null as number | null, tabela_id: TABELA_DE_VIDRO },
+{ codigo: 'VTIN08', codigo_wvetro: 'VTIN08', descricao: 'VIDRO TEMPERADO INCOLOR 08MM', unidade: 'PC', custo: 140, medida_barra_m: null as number | null, valor_barra_interno: null as number | null, valor_metro_interno: null as number | null,
+    cred_icms_pct: 12, cred_pis_cofins_pct: 9.25, cred_ipi_pct: 0, nc_ipi_pct: null as number | null, tabela_id: TABELA_DE_VIDRO }]
 const CANDIDATAS = [
     // a `linha` é a da Detalhe de produção ("PVC WOLFF EUROPA 42"): a lista enxuta tira da descrição o sufixo que ela já contém (05/11/2026)
     { tabela_id: null as string | null, motor_id: MOTOR, tipologia: 'DP-01', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | DESIGN', tipo: 'Maxim-ar', linha: 'PVC WOLFF DESIGN', ordem: null as number | null },
@@ -90,6 +95,8 @@ const DE_PARA = { ...DE_PARA_DE_HOJE, regras: (require('./fixtures/arquivo-do-mo
 
 /** A esquadria do aceite: DP-02, 1200 x 1000, branco, temperado 5 mm. */
 const DP02 = { tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm' }
+// como o item fica GRAVADO (pedido 0056, 28/11/2026): o vidro dito vira a descrição do catálogo e a referência (VTIN05), nunca o texto livre
+const DP02_GRAVADO = { ...DP02, vidro: 'VIDRO TEMPERADO INCOLOR 05MM', vidro_codigo: 'VTIN05' }
 /** O nome da tipologia como o vendedor o lê, pela Detalhe do motor do teste (24/11/2026): as frases de acréscimo não levam o código. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const nomeDoTeste = (e: Record<string, unknown>): string | null => conversa.nomePelaDetalhe((tipologia: string) => (estado.db.orcamentista_motor_tipologia_detalhe as any[]).find((x) => x.tipologia === tipologia) ?? null)(e)
@@ -844,7 +851,7 @@ describe('(1) O TESTE QUE VALE: pedidos seguidos do MESMO telefone, todos respon
         expect(erros.join('\n')).toContain('so_arquivo=sim')
         // e o formal, que não foi por texto, é o mesmo de sempre quando o PDF não chega (o caso 1 e o grupo 20)
         expect(LEVANTAMENTO_CASA_DO_JOAO.split('\n')[0]).toBe('Levantamento “Casa do João”, perfil BRANCO.')
-        expect(itensDe(levantamentos()[0].id)).toEqual([expect.objectContaining({ ordem: 1, ...DP02, escolhas: { ARI: 4, MAE: 2 } })])
+        expect(itensDe(levantamentos()[0].id)).toEqual([expect.objectContaining({ ordem: 1, ...DP02_GRAVADO, escolhas: { ARI: 4, MAE: 2 } })])
         expect(LEVANTAMENTO_CASA_DO_JOAO).not.toMatch(VOCABULARIO_INTERNO)
     })
 
@@ -1837,7 +1844,7 @@ describe('(15) DEFEITO de 26/10/2026 (b0465e57, print do dono do produto): o nom
         const { casa } = await oPrintInteiro()
         const joao = levantamentos().filter((l) => l.nome_normalizado === 'joao medeiros')
         expect(joao).toHaveLength(1)
-        expect(itensDe(joao[0].id)).toEqual([expect.objectContaining({ ordem: 1, ...DP02 })])
+        expect(itensDe(joao[0].id)).toEqual([expect.objectContaining({ ordem: 1, ...DP02_GRAVADO })])
         // e o "Casa do João" segue com as duas de antes: nada foi acrescentado a ele
         expect(itensDe(casa.id)).toHaveLength(2)
     })
@@ -1905,7 +1912,7 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
         expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'CONFIRMAR_ACRESCIMO', nome: null, levantamentos: [casa.id], itens: [{ ...DP02 }] })])
         await chamar('sim')
         expect(itensDe(casa.id)).toHaveLength(1)
-        expect(itensDe(casa.id)[0]).toEqual(expect.objectContaining({ ordem: 1, ...DP02 }))
+        expect(itensDe(casa.id)[0]).toEqual(expect.objectContaining({ ordem: 1, ...DP02_GRAVADO }))
         // a confirmação do acréscimo se resolveu; a que fica é a do apanhado, que espera o seu "sim"
         expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'CONFIRMAR_APANHADO', levantamentos: [casa.id] })])
         // o levantamento já virou o orçamento 1 (preparar): o item atualizado continua o 1 dele (13/11/2026)
@@ -1929,7 +1936,7 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
         expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'SEM_NOME', levantamentos: [], itens: [{ ...DP02 }] })])
         await chamar('Obra Nova')
         const obra = levantamentos().find((l) => l.nome === 'Obra Nova')
-        expect(itensDe(obra?.id)).toEqual([expect.objectContaining({ ordem: 1, ...DP02 })])
+        expect(itensDe(obra?.id)).toEqual([expect.objectContaining({ ordem: 1, ...DP02_GRAVADO })])
         expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'CONFIRMAR_APANHADO', levantamentos: [obra?.id] })])
     })
 
@@ -2060,7 +2067,7 @@ describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/202
         expect(arquivo).not.toContain(DP02.tipologia)
         expect(arquivo).not.toMatch(/europa/i)
         // a linha do item com os rótulos do mockup: "PERFIL / ACESSÓRIO:" (cor do perfil / cor do acessório, "padrão" não dita) e "VIDRO:"
-        expect(arquivo).toContain('PERFIL / ACESSÓRIO: BRANCO / padrão VIDRO: Temperado 5mm')
+        expect(arquivo).toContain('PERFIL / ACESSÓRIO: BRANCO / padrão VIDRO: VIDRO TEMPERADO INCOLOR 05MM')
         // o arremate e a guarnição são comuns à obra: só no RODAPÉ, nas pré-definições — com O QUE O CÁLCULO USA (o padrão do motor, por extenso),
         // nunca a palavra "Padrão" (dono do produto, 07/11/2026)
         expect(arquivo.match(/Arremate e guarnição/g)).toHaveLength(1)
@@ -2747,7 +2754,7 @@ describe('(23) o nome do levantamento é o do cliente', () => {
         llmResponde({ cliente: 'Geronimo Silva' })
         await chamar('Geronimo Silva')
         expect(levantamentos().map((l) => l.nome)).toEqual(['Geronimo Silva'])
-        expect(itensDe(levantamentos()[0].id)).toEqual([expect.objectContaining({ ordem: 1, ...DP02 })])
+        expect(itensDe(levantamentos()[0].id)).toEqual([expect.objectContaining({ ordem: 1, ...DP02_GRAVADO })])
     })
 })
 
@@ -3211,7 +3218,7 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
         montar()
         llmResponde({ cliente: 'Bia', itens: [{ ...DP02 }, { ...DP02, vidro: 'Laminado 8mm' }]  })
         await chamar('Cliente: Bia. DP-02 1200 x 1000 branco temperado 5mm; outra DP-02 1200 x 1000 branco laminado 8mm')
-        expect(itensDe(levantamentos()[0].id).map((i) => [i.ordem, i.quantidade, i.vidro])).toEqual([[1, 1, 'Temperado 5mm'], [2, 1, 'Laminado 8mm']])
+        expect(itensDe(levantamentos()[0].id).map((i) => [i.ordem, i.quantidade, i.vidro])).toEqual([[1, 1, 'VIDRO TEMPERADO INCOLOR 05MM'], [2, 1, null]])
         expect(linhaIa().pop()).not.toContain('agrupados=')
     })
 
@@ -3242,7 +3249,7 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
         const idDaSegunda = item(1).id
         llmResponde({ nome: 'Levantamento Ana', alteracao: true, itens: [{ ordem: 2, vidro: 'Temperado 5mm' }] })
         await chamar('Levantamento Ana: a esquadria 2 é temperado 5mm também')
-        expect(itensDe(levantamentos()[0].id).map((i) => [i.ordem, i.quantidade, i.vidro])).toEqual([[1, 2, 'Temperado 5mm']])
+        expect(itensDe(levantamentos()[0].id).map((i) => [i.ordem, i.quantidade, i.vidro])).toEqual([[1, 2, 'VIDRO TEMPERADO INCOLOR 05MM']])
         expect(estado.escritas.filter((e) => e.tabela === 'orcamentista_levantamento_item' && e.op === 'delete').map((e) => e.carga)).toEqual([[{ id: idDaSegunda }]])
         expect(linhaIa().pop()).toMatch(/ agrupados=1(\s|$)/)
     })
@@ -3277,6 +3284,8 @@ describe('(25) o resgate do levantamento antigo e o contexto que não se perde (
     // o vidro COPIADO como o vendedor disse (04/11/2026): "vidro 4mm", não "Vidro comum 4 mm"
     const JANELA = { tipologia: 'DP-02', largura_mm: 1500, altura_mm: 1200, vidro: 'vidro 4mm' }
     const PORTA = { tipologia: 'DP-100', largura_mm: 2500, altura_mm: 2400, vidro: 'vidro 8mm' }
+    const JANELA_GRAVADA = { ...JANELA, vidro: 'VIDRO COMUM INCOLOR 04MM', vidro_codigo: 'VCIN04' }
+    const PORTA_GRAVADA = { ...PORTA, vidro: 'VIDRO TEMPERADO INCOLOR 08MM', vidro_codigo: 'VTIN08' }
     const MSG_GERONIMO = 'Janela de correr 1,50x1,20 vidro 4mm / porta janela 2,50x2,40 vidro 8mm / Cliente: Geronimo Silva'
     const perguntas = () => estado.db.orcamentista_pergunta_em_aberto ?? []
     const porNome = (n: string) => levantamentos().find((l) => l.nome === n) as Linha
@@ -3349,7 +3358,7 @@ describe('(25) o resgate do levantamento antigo e o contexto que não se perde (
         llmResponde({ confirma: true })
         await chamar('sim')
         expect(itensDe(costa.id)).toHaveLength(2)
-        expect(itensDe(costa.id)[1]).toEqual(expect.objectContaining({ ordem: 2, ...JANELA }))
+        expect(itensDe(costa.id)[1]).toEqual(expect.objectContaining({ ordem: 2, ...JANELA_GRAVADA }))
         expect(enviados().filter((e) => e.startsWith('Vou acrescentar'))).toEqual([])
         // a janela retida não tinha cor: o levantamento fica em montagem, a pergunta do resgate se resolveu, e a conversa segue na cor
         expect(perguntas()).toEqual([])
@@ -3417,7 +3426,7 @@ describe('(25) o resgate do levantamento antigo e o contexto que não se perde (
         await chamar('Geison Silva novo')
         const geison = porNome('Geison Silva')
         expect(geison).toBeDefined()
-        expect(itensDe(geison.id)).toEqual([expect.objectContaining({ ordem: 1, ...JANELA })])
+        expect(itensDe(geison.id)).toEqual([expect.objectContaining({ ordem: 1, ...JANELA_GRAVADA })])
         expect(linhaIa().pop()).toMatch(/ rota=NOVO .* nome=veio /)
         expect(enviados().filter((e) => e === conversa.FRASE_SEM_NOME)).toEqual([])
     })
@@ -3917,6 +3926,8 @@ describe('(29) o vidro copiado, a forma canônica e a dedupe por equivalência (
     const perguntas = () => estado.db.orcamentista_pergunta_em_aberto ?? []
     const JANELA = { tipologia: 'DP-02', largura_mm: 1500, altura_mm: 1200, vidro: 'vidro 4mm' }
     const PORTA = { tipologia: 'DP-100', largura_mm: 2500, altura_mm: 2400, vidro: 'vidro 8mm' }
+    const JANELA_GRAVADA = { ...JANELA, vidro: 'VIDRO COMUM INCOLOR 04MM', vidro_codigo: 'VCIN04' }
+    const PORTA_GRAVADA = { ...PORTA, vidro: 'VIDRO TEMPERADO INCOLOR 08MM', vidro_codigo: 'VTIN08' }
     /** Os 10 itens em espera COMO ESTAVAM em produção (orcamentista_pergunta_em_aberto da De Paula, 03/11/2026 21:20 UTC). */
     const OS_DEZ = [
         { vidro: 'Vidro comum 4 mm', altura_mm: 1200, tipologia: 'DP-02', largura_mm: 1500 },
@@ -3983,7 +3994,7 @@ describe('(29) o vidro copiado, a forma canônica e a dedupe por equivalência (
         expect(ia).toMatch(/ reenviadas=2(\s|$)/)
         expect(ia).toMatch(/ intencao=distinguiu:alterados=0,acrescentados=2(\s|$)/)
         const geronimo = levantamentos().find((l) => l.nome === 'Geronimo Silva') as Linha
-        expect(itensDe(geronimo.id).map((i) => [i.tipologia, i.vidro])).toEqual([['DP-02', 'Temperado 5mm'], ['DP-02', 'vidro 4mm'], ['DP-100', 'vidro 8mm']])
+        expect(itensDe(geronimo.id).map((i) => [i.tipologia, i.vidro])).toEqual([['DP-02', 'VIDRO TEMPERADO INCOLOR 05MM'], ['DP-02', 'VIDRO COMUM INCOLOR 04MM'], ['DP-100', 'VIDRO TEMPERADO INCOLOR 08MM']])
         expect(enviados().some((e) => e.includes('1.500') || e.includes('para acrescentar, ou altera'))).toBe(false)
     })
 
@@ -5351,13 +5362,13 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
             llmResponde({ nome: 'jorge koss', itens: [{ vidro: 'Temperado 5mm' }] })
             await chamar('jorge koss: vidro temperado 5mm')
             expect(levantamentos()).toHaveLength(1)
-            expect(itens('Jorge Koss')[0].vidro).toBe('Temperado 5mm')
+            expect(itens('Jorge Koss')[0].vidro).toBe('VIDRO TEMPERADO INCOLOR 05MM')
             expect(linhaIa().pop()).toContain('rota=MONTAGEM')
             expect(linhaIa().pop()).not.toContain('montagem=')
             await abrirSemVidro('Casa do Pedro')
             llmResponde({ itens: [{ vidro: 'Temperado 5mm' }] })
             await chamar('temperado 5mm')
-            expect(itens('Casa do Pedro')[0].vidro).toBe('Temperado 5mm')
+            expect(itens('Casa do Pedro')[0].vidro).toBe('VIDRO TEMPERADO INCOLOR 05MM')
             expect(linhaIa().pop()).toContain('rota=MONTAGEM')
         })
 
@@ -5374,7 +5385,7 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
             llmResponde({ cliente: 'Ana', itens: [] })
             await chamar('Cliente: Ana')
             expect(levantamentos().map((l) => l.nome)).toEqual(['Jorge Koss', 'Ana'])
-            expect(itens('Ana')).toEqual([expect.objectContaining({ tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm' })])
+            expect(itens('Ana')).toEqual([expect.objectContaining({ tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, cor_perfil: 'BRANCO', vidro: 'VIDRO TEMPERADO INCOLOR 05MM' })])
             expect(itens('Jorge Koss')[0].vidro).toBeNull()
         })
 
@@ -5406,7 +5417,7 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
             porNome('Casa do Pedro').atualizado_em = new Date(Date.now() - 23 * HORA).toISOString()
             llmResponde({ itens: [{ vidro: 'Temperado 5mm' }] })
             await chamar('temperado 5mm')
-            expect(itens('Casa do Pedro')[0].vidro).toBe('Temperado 5mm')
+            expect(itens('Casa do Pedro')[0].vidro).toBe('VIDRO TEMPERADO INCOLOR 05MM')
             expect(linhaIa().pop()).toContain('rota=MONTAGEM')
             expect(linhaIa().pop()).not.toContain('montagem=')
         })
@@ -7909,7 +7920,7 @@ describe('(30) a FOTO e o PDF do vendedor (dono do produto, 18/11/2026): baixado
             await chamarComMidia(foto({ caption: 'Alterar orçamento' }))
             expect(ultimoEnviado()).toBe(conversa.fraseDosItensSemNada(2))
             expect(ultimoEnviado()).toBe('Li 2 itens na sua mensagem, mas não consegui tirar deles o que muda (tipologia, medida, quantidade, cor ou vidro). Nada foi alterado. Mande de novo, com o que muda em cada item.')
-            expect(itensDe(levantamentos()[0].id).map((i) => [i.largura_mm, i.vidro])).toEqual([[1200, 'Temperado 5mm'], [1300, 'Temperado 5mm']])
+            expect(itensDe(levantamentos()[0].id).map((i) => [i.largura_mm, i.vidro])).toEqual([[1200, 'VIDRO TEMPERADO INCOLOR 05MM'], [1300, 'VIDRO TEMPERADO INCOLOR 05MM']])
             expect((estado.db.orcamentista_orcamento ?? []) as Linha[]).toEqual([])
         })
     })
@@ -8709,7 +8720,7 @@ describe('(44) O CONTEXTO DO TURNO (dono do produto, 18/11/2026): o turno só al
         llmResponde({ nome: DAIANE, itens: [{ ordem: 1, vidro: 'Temperado 5mm' }] })
         await chamar(`${DAIANE}: temperado 5mm`)
         expect(linhaIa().pop()).toContain(`levantamento=${porNomeDoLevantamento(DAIANE).id}`)
-        expect(itensDe(porNomeDoLevantamento(DAIANE).id)[0].vidro).toBe('Temperado 5mm')
+        expect(itensDe(porNomeDoLevantamento(DAIANE).id)[0].vidro).toBe('VIDRO TEMPERADO INCOLOR 05MM')
     })
 
     it('a confirmação do Alfredo guardada NÃO vale depois que a conversa passou à Daiane: o "sim" seguinte não fecha o Alfredo', async () => {
@@ -8800,7 +8811,7 @@ describe('(45) TAREFA 0016 — o nome do cliente já resolvido no fio não se pe
         llmResponde({ alteracao: true, itens: [{ ordem: 1, vidro: 'Temperado 8mm' }] })
         await chamar('Recalcular esse orçamento, item 1 é temperado 8mm')
         expect(linhaIa().pop()).toContain('rota=SEM_NOME')
-        expect(itensDe(doJoao().id)[0].vidro).toBe('Temperado 5mm')
+        expect(itensDe(doJoao().id)[0].vidro).toBe('VIDRO TEMPERADO INCOLOR 05MM')
     })
 
     it('o "novo" (outro cliente) não cai no levantamento do fio, mesmo como alteração', async () => {
@@ -8810,7 +8821,7 @@ describe('(45) TAREFA 0016 — o nome do cliente já resolvido no fio não se pe
         const ia = linhaIa().pop() as string
         expect(ia).not.toContain(`levantamento=${doJoao().id}`)
         expect(ia).not.toContain('nome=do_contexto')
-        expect(itensDe(doJoao().id)[0].vidro).toBe('Temperado 5mm')
+        expect(itensDe(doJoao().id)[0].vidro).toBe('VIDRO TEMPERADO INCOLOR 05MM')
     })
 
     it('o que NÃO é alteração (esquadria nova, sem nome) não cai no levantamento do fio: pergunta o cliente', async () => {

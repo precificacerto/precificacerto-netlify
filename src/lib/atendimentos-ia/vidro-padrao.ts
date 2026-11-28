@@ -24,6 +24,7 @@ import { supabaseAdmin } from '@/supabase/admin'
 import { atributosDaDescricao } from '@/lib/atendimentos-ia/tipologia-padrao'
 import { derivarTabelasDaConta, principaisDaConta } from '@/lib/atendimentos-ia/tabelas-da-conta'
 import type { Abertura } from '@/lib/atendimentos-ia/tipologias-candidatas'
+import type { ItemDeVidro } from '@/lib/atendimentos-ia/vidro-da-tabela'
 import { grupoDoFormato, TABELA_DA_NATUREZA, type LinhaDaNatureza } from '@/lib/atendimentos-ia/natureza-da-variavel'
 
 export const TABELA_DO_VIDRO_PADRAO = 'orcamentista_vidro_padrao'
@@ -163,6 +164,26 @@ export async function referenciasDeVidroDoPrincipal(tenantId: string): Promise<R
         ultima = linhas.length
     }
     return todas.sort((a, b) => a.referencia.localeCompare(b.referencia, 'pt-BR'))
+}
+
+/**
+ * OS ITENS das tabelas de vidro do principal, com o que a tradução do texto lê (código, descrição, variante, cor e a REFERÊNCIA): é contra eles que o
+ * vidro DITO pelo vendedor vira a referência única (`codigo_wvetro`) na gravação do levantamento (pedido 0056). Sem principal ou sem tabela: vazio.
+ */
+export async function itensDeVidroDoPrincipal(tenantId: string): Promise<ItemDeVidro[]> {
+    const tabelas = await tabelasDeVidroDoPrincipal(tenantId)
+    if (tabelas.length === 0) return []
+    const PAGINA = 1000
+    const todos: ItemDeVidro[] = []
+    for (let de = 0, ultima = PAGINA; ultima === PAGINA; de += PAGINA) {
+        const { data, error } = await db().from('orcamentista_tabela_item').select('codigo, descricao, cor, segmento, codigo_wvetro').in('tabela_id', tabelas)
+            .order('id', { ascending: true }).range(de, de + PAGINA - 1)
+        if (error) { if (semAColunaDaReferencia(error)) return []; throw new Error(`orcamentista_tabela_item: ${error.code ?? error.message}`) }
+        const linhas = (data ?? []) as ItemDeVidro[]
+        todos.push(...linhas)
+        ultima = linhas.length
+    }
+    return todos
 }
 
 /** A frase da referência que a tabela de vidro do principal não tem (a tela da natureza, na conferência e na recusa da gravação). */

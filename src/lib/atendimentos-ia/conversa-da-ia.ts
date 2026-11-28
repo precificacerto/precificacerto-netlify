@@ -213,6 +213,8 @@ import { CONTINUACOES_DA_LISTA_CORTADA, MAX_TOKENS_DA_PRIMEIRA_CHAMADA, PRAZO_AT
 import { lerFluxo } from '@/lib/atendimentos-ia/resposta-em-fluxo'
 import { CODIGO_DE_FORNECEDOR, PALAVRA_ESQUADRIA, redigir, type MotivoDaRedacao, type Redacao } from '@/lib/atendimentos-ia/redacao-da-resposta'
 import { vidroPodado } from '@/lib/atendimentos-ia/vidro'
+import { referenciaDaDescricao, resolverVidroDito } from '@/lib/atendimentos-ia/vidro-do-catalogo'
+import type { ItemDeVidro } from '@/lib/atendimentos-ia/vidro-da-tabela'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { compararNome, formaComparavel, nomeDaMensagem, nomeDitoOuRetomado, nomeDoCliente, nomeSemPrefixo, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 import { fraseDaCorForaDaLista, perguntasDaTipologia, type JaDito } from '@/lib/atendimentos-ia/pre-definicao'
@@ -242,7 +244,7 @@ import {
 } from '@/lib/atendimentos-ia/pergunta-em-aberto'
 import { descricaoParaOVendedor } from '@/lib/atendimentos-ia/descricao-para-o-vendedor'
 import type { MarcosDaTipologia } from '@/lib/atendimentos-ia/trilhos-do-marco'
-import { lerVidrosPadraoDaConta, vidroCodigoDaEsquadria, vidroNoConsiderado, vidroPadraoDaEsquadria, type VidrosPadraoDaConta } from '@/lib/atendimentos-ia/vidro-padrao'
+import { itensDeVidroDoPrincipal, lerVidrosPadraoDaConta, vidroCodigoDaEsquadria, vidroNoConsiderado, vidroPadraoDaEsquadria, type VidrosPadraoDaConta } from '@/lib/atendimentos-ia/vidro-padrao'
 import { DESCRICAO_DA_FALA, blocoDoContexto, falaValida, lerContextoDoAtendimento, temDinheiro, type ContextoLido, type FalaLida } from '@/lib/atendimentos-ia/contexto-do-atendimento'
 
 export const PREFIXO_DO_LOG_DA_IA = '[IA]'
@@ -401,6 +403,7 @@ type Rastro = {
     vidrosPodados: number
     /** Esquadrias que receberam o vidro padrão da base de conhecimento — o CÓDIGO, por grupo de tipologia (13/11/2026; era o da instrução até então). */
     vidrosPadrao: number
+    vidrosSemCodigo: number
     /** A conferência da lista (25/11/2026): "lidas:N/itens:K unidades:A/B"; '-' quando a mensagem não é a lista inteira do levantamento. */
     contagem: string
     /** As tipologias que o MODELO escolheu para um item com pedido de autorização em aberto, e que não entraram (25/11/2026, pedido 0026). */
@@ -469,7 +472,7 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
         + (r.instrucoesSemEfeito === '' ? '' : ` instrucao_sem_efeito=${r.instrucoesSemEfeito}`)
         + (r.fundidos > 0 ? ` agrupados=${r.fundidos}` : '') + (r.caminhos.length > 0 ? ` caminhos=${r.caminhos.join(',')}` : '') + (r.reenviadas > 0 ? ` reenviadas=${r.reenviadas}` : '')
         + (r.historico === '-' ? '' : ` historico=${r.historico}`) + (r.gravacao === '-' ? '' : ` gravacao=${r.gravacao}`) + (r.redacao === '-' ? '' : ` redacao=${r.redacao}`)
-        + (r.vidrosNaoDitos > 0 ? ` vidro_nao_dito=${r.vidrosNaoDitos}` : '') + (r.vidrosPodados > 0 ? ` vidro_podado=${r.vidrosPodados}` : '') + (r.vidrosPadrao > 0 ? ` vidro_padrao=${r.vidrosPadrao}` : '') + (r.contagem === '-' ? '' : ` contagem=${r.contagem}`) + (r.tipologiasDoModeloRecusadas > 0 ? ` tipologia_do_modelo_recusada=${r.tipologiasDoModeloRecusadas}` : '') + (r.vidrosForaDaTabela > 0 ? ` vidro_fora_da_tabela=${r.vidrosForaDaTabela}` : '') + (r.vidroPadraoLeitura === '-' ? '' : ` vidro_padrao_leitura=${r.vidroPadraoLeitura}`)
+        + (r.vidrosNaoDitos > 0 ? ` vidro_nao_dito=${r.vidrosNaoDitos}` : '') + (r.vidrosPodados > 0 ? ` vidro_podado=${r.vidrosPodados}` : '') + (r.vidrosPadrao > 0 ? ` vidro_padrao=${r.vidrosPadrao}` : '') + (r.vidrosSemCodigo > 0 ? ` vidro_sem_codigo=${r.vidrosSemCodigo}` : '') + (r.contagem === '-' ? '' : ` contagem=${r.contagem}`) + (r.tipologiasDoModeloRecusadas > 0 ? ` tipologia_do_modelo_recusada=${r.tipologiasDoModeloRecusadas}` : '') + (r.vidrosForaDaTabela > 0 ? ` vidro_fora_da_tabela=${r.vidrosForaDaTabela}` : '') + (r.vidroPadraoLeitura === '-' ? '' : ` vidro_padrao_leitura=${r.vidroPadraoLeitura}`)
         // a lista pelo acumulado e os itens vazios (05/11/2026): só números
         + (r.lista === '-' ? '' : ` lista=${r.lista} trechos=${r.trechos}`) + (r.trechosSemCandidata > 0 ? ` trechos_sem_candidata=${r.trechosSemCandidata}` : '')
         + (r.itensSemCampos > 0 ? ` itens_sem_campos=${r.itensSemCampos}` : '')
@@ -1492,7 +1495,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = {
         etapas: { coletar: null, casar: null, montar: null, calcular: null },
         levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null, raciocinio: null, parada: null, cacheLido: null, cacheEscrito: null, cabecalhosMs: null, primeiroTokenMs: null, tentativas: null, requestId: null },
-        midia: '-', rajada: '-', complementos: 0, tipologiasDoModeloNoComplemento: 0, contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', intencao: '-', descricoesDasEtapas: '-', textosDoCaminho: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, contagem: '-', tipologiasDoModeloRecusadas: 0, vidrosForaDaTabela: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', contextoDoTurno: '-', coresPadrao: 0, tipologiasPadrao: 0, linhaPadrao: 0, pecasNaoPedidas: 0, limite: '-', qualOrcamento: '-', daImagem: '-', medidasNaOrdem: 0,
+        midia: '-', rajada: '-', complementos: 0, tipologiasDoModeloNoComplemento: 0, contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', intencao: '-', descricoesDasEtapas: '-', textosDoCaminho: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, vidrosSemCodigo: 0, contagem: '-', tipologiasDoModeloRecusadas: 0, vidrosForaDaTabela: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', contextoDoTurno: '-', coresPadrao: 0, tipologiasPadrao: 0, linhaPadrao: 0, pecasNaoPedidas: 0, limite: '-', qualOrcamento: '-', daImagem: '-', medidasNaOrdem: 0,
     }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
@@ -1926,6 +1929,28 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // O VIDRO também (04/11/2026): "copiado, nunca completado" — a palavra que não está na mensagem veio da instrução e cai; o que está fica
         // ("pode, não derrube": "incolor temperado 8 mm" sobre "vidro 8mm" vira "8 mm"); cai inteiro só quando NADA do vidro está na mensagem
         // O VIDRO LIDO DA IMAGEM (18/11/2026) passa pela mesma poda contra o texto da imagem, e só vale na confirmação da imagem (`comImagem`)
+        // O VIDRO DITO VIRA A REFERÊNCIA DO CATÁLOGO (dono do produto, 28/11/2026, pedido 0056): o vidro que o vendedor disse é resolvido, na entrada,
+        // contra a tabela de vidro do principal — o item retido e o gravado passam a trazer a DESCRIÇÃO do catálogo (a referência vai em `vidro_codigo`,
+        // achada por ela na gravação). Não resolvido (ambíguo, sem cadastro, sem referência), o texto livre NÃO entra: o item fica sem vidro e a conversa
+        // pergunta. Sem tabela de vidro do principal não há contra o que resolver: segue como antes, e o custo nomeia a falta.
+        let catalogoDoVidro: ItemDeVidro[] = []
+        const padroesDoVidroDaConta: string[] = [] // o desempate pelo padrão da empresa não é lido na entrada: "mini boreal" sem espessura pergunta
+        const propostosComVidro = (Array.isArray(dadosDaMensagem.proposta.itens) ? dadosDaMensagem.proposta.itens : [])
+            .some((i) => !!i && typeof i === 'object' && typeof (i as { vidro?: unknown }).vidro === 'string' && String((i as { vidro: string }).vidro).trim() !== '')
+        let catalogoLido = false
+        const lerCatalogoDoVidro = async () => {
+            if (catalogoLido) return
+            catalogoLido = true
+            try { catalogoDoVidro = await itensDeVidroDoPrincipal(c.tenantId) } catch { rastro.vidroPadraoLeitura = 'falhou' }
+        }
+        if (propostosComVidro) await lerCatalogoDoVidro()
+        const vidroDoCatalogo = (texto: string): string | undefined => {
+            if (catalogoDoVidro.length === 0) return texto
+            const r = resolverVidroDito(texto, catalogoDoVidro, padroesDoVidroDaConta)
+            if (r.ok) return r.descricao
+            rastro.vidrosSemCodigo += 1
+            return undefined
+        }
         const semFornecedorInventado = (itens: unknown, comImagem = false) => (Array.isArray(itens) ? itens.map((i) => {
             if (!i || typeof i !== 'object') return i
             const item = { ...(i as Record<string, unknown>) }
@@ -1941,6 +1966,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 if (comImagem) item.vidro = podado ?? undefined
                 else if (podado === null) { item.vidro = undefined; rastro.vidrosNaoDitos += 1 }
                 else if (podado !== String(item.vidro).trim()) { item.vidro = podado; rastro.vidrosPodados += 1 }
+                if (typeof item.vidro === 'string' && item.vidro.trim() !== '') item.vidro = vidroDoCatalogo(item.vidro)
             }
             return item
         }) : itens)
@@ -2781,12 +2807,14 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         if (temLinha) await apagarPerguntaEmAberto(c.tenantId, c.remetenteId)
         // decisão 3: o rastro é atualizado_em — só se grava o que MUDOU
         if (!(nadaMudou && alvo && alvo.estado === estado && Object.keys(congelar).length === 0)) {
+            // o código do vidro de TODO item gravado com vidro, também no turno em que o vendedor não falou de vidro (o nome, o "sim"): o catálogo é lido aqui
+            if (aplicada.itens.some((i) => typeof i.vidro === 'string' && i.vidro.trim() !== '')) await lerCatalogoDoVidro()
             gravando = true
             rastro.levantamento = await gravarLevantamento(c.tenantId, alvo ? alvo.donoId : c.remetenteId, nome, alvo, aplicada.itens, estado, { ...colunasQueMudam, ...congelar },
                 // O CÓDIGO DO VIDRO PADRÃO (13/11/2026): com os padrões LIDOS, o código do padrão (ou nulo, para o vidro dito); SEM a leitura, não se
                 // adivinha o código — mas "nenhum turno fecha com vidro_codigo apontando para vidro que não é mais o da esquadria" (dono do produto,
                 // 13/11/2026): o vidro que MUDOU neste turno grava nulo; o que não mudou fica como estava (não se apaga por falha de leitura)
-                (i, anterior) => (vidrosDaConta?.ok ? vidroCodigoDaEsquadria(vidrosDaConta, i, tabela.candidatos) : anterior && anterior.vidro !== i.vidro ? null : undefined))
+                (i, anterior) => (referenciaDaDescricao(catalogoDoVidro, i.vidro) ?? (vidrosDaConta?.ok ? vidroCodigoDaEsquadria(vidrosDaConta, i, tabela.candidatos) : anterior && anterior.vidro !== i.vidro ? null : undefined)))
             gravando = false
         }
         gravado = true
