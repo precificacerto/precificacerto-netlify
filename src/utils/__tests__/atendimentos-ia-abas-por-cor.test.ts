@@ -12,7 +12,7 @@ import ExcelJS from 'exceljs'
 
 import { lerArquivosDaImportacao, referenciasDaCategoria, type ResultadoDaLeitura } from '@/utils/atendimentos-ia-importacao'
 import { resolverPelaReferencia, type ItemResolvivel } from '@/lib/atendimentos-ia/resolucao-de-referencia'
-import { faltasPorCor, itemDaAbaDoBanco, perfisPorCor, quadroCorPorReferencias } from '@/utils/atendimentos-ia-abas-por-cor'
+import { faltasPorCor, itemDaAbaDoBanco, perfisPorCor, quadroCorPorReferencias, type ItemDaAba } from '@/utils/atendimentos-ia-abas-por-cor'
 
 type Linha = [referencia: ExcelJS.CellValue, codigo: ExcelJS.CellValue, descricao: ExcelJS.CellValue, preco: ExcelJS.CellValue, barra: ExcelJS.CellValue]
 const CABECALHO = ['REFERÊNCIA', 'CÓDIGO DO FORNECEDOR', 'DESCRIÇÃO', 'PREÇO', 'BARRA']
@@ -49,6 +49,43 @@ describe('0055 — a aba é a cor, a coluna é a referência', () => {
         const il42 = r.itens.find((i) => i.codigo === 'IL4236')
         expect(il42).toMatchObject({ cor: 'PRETO LISO', codigo_wvetro: 'IL42', descricao: 'INTERLOCK LINHA 42MM - PRETO LISO', custo: 58.704, medida_barra_m: 6 })
         expect(r.itens.find((i) => i.codigo === 'IL421')).toMatchObject({ cor: 'BRANCO', codigo_wvetro: 'IL42' })
+        // o preço da aba é o da barra inteira: valor_barra_interno = custo, vendido por barra (como no layout único)
+        expect(il42).toMatchObject({ vendido_por: 'barra', valor_barra_interno: 58.704, valor_metro_interno: null })
+    })
+
+    it('o cabeçalho aceita CÓDIGO no lugar de CÓDIGO DO FORNECEDOR, e as colunas fora das cinco (a origem da referência) são ignoradas', async () => {
+        const r = await ler(ABAS, CORES, ['REFERÊNCIA', 'CÓDIGO', 'DESCRIÇÃO', 'PREÇO', 'BARRA', 'ORIGEM DA REFERÊNCIA'])
+        expect(r.ok).toBe(true)
+    })
+
+    it('a linha sem o código do fornecedor recusa a importação inteira, nomeando a aba e a linha', async () => {
+        const r = await ler({ BRANCO: [['IL42', 'IL421', 'a', 1, 6], ['KT42', null, 'b', 1, 6]] })
+        expect(r.ok).toBe(false)
+        expect(erroDe(r)).toContain('sem o código do fornecedor')
+        expect(erroDe(r)).toContain('aba "BRANCO", linha 3')
+    })
+
+    it('o mesmo código do fornecedor em duas abas é recusa nomeada (o código é único na tabela)', async () => {
+        const r = await ler({ BRANCO: [['IL42', 'IL421', 'a', 1, 6]], 'PRETO LISO': [['IL42', 'IL421', 'b', 2, 6]] })
+        expect(r.ok).toBe(false)
+        expect(erroDe(r)).toContain('IL421')
+        expect(erroDe(r)).toContain('mais de uma linha')
+    })
+
+    it('coluna repetida no cabeçalho de uma aba é recusa nomeada', async () => {
+        const r = await ler(ABAS, CORES, ['REFERÊNCIA', 'CÓDIGO DO FORNECEDOR', 'DESCRIÇÃO', 'PREÇO', 'BARRA', 'REFERENCIA'])
+        expect(r.ok).toBe(false)
+        expect(erroDe(r)).toContain('coluna repetida')
+    })
+
+    it('o arquivo com a aba "Tabela Wolff" segue o layout de antes, mesmo que outra aba tenha a coluna REFERÊNCIA', async () => {
+        const wb = new ExcelJS.Workbook()
+        wb.addWorksheet('Tabela Wolff').getRow(1).getCell(1).value = 'x'
+        const aba = wb.addWorksheet('BRANCO')
+        CABECALHO.forEach((c, k) => { aba.getRow(1).getCell(k + 1).value = c })
+        const r = await lerArquivosDaImportacao({ tabela: { nome: 'x.xlsx', bytes: new Uint8Array(await wb.xlsx.writeBuffer()) }, motor: null, coresDoFornecedor: CORES })
+        expect(r.ok).toBe(true)
+        expect((r as Lida).layout).toBe('por_posicao')
     })
 
     it('a aba vale pelo nome canônico da lista, sem olhar caixa, acento nem espaço de sobra', async () => {
@@ -165,7 +202,7 @@ describe('0055 — o item como o banco o devolve, e o que a tela monta', () => {
         expect(p.quadro).toEqual([{ cor: 'PRETO LISO', referencias: 1, semReferencia: 0, itens: 1 }])
     })
     it('os itens da aba saem por referência (a sem referência por último) e depois pelo código', () => {
-        const mk = (codigo: string, ref: string | null) => ({ codigo, descricao: null, cor: 'BRANCO', referencia_perfil: ref, custo: 1, medida_barra_m: 6 })
+        const mk = (codigo: string, ref: string | null): ItemDaAba => ({ codigo, descricao: null, cor: 'BRANCO', referencia_perfil: ref, custo: 1, medida_barra_m: 6 })
         const p = perfisPorCor([mk('C', null), mk('B', 'KT42'), mk('A', 'IL42'), mk('D', 'IL42')])!
         expect(p.abas[0].itens.map((i) => i.codigo)).toEqual(['A', 'D', 'B', 'C'])
     })

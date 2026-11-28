@@ -807,7 +807,7 @@ type TabelaDePrecoLida = { preco: LeituraDoPreco; layout: LayoutDaTabela; cabeca
 // ── PERFIS POR COR EM ABAS (dono do produto, pedido 0055) ──────────────────────────────────────────────────────────────────────
 /** O arquivo é de perfis por cor quando não tem o layout único nem a aba do layout de antes, e alguma aba traz a coluna REFERÊNCIA na linha 1. */
 function ehAbasPorCor(wb: ExcelJS.Workbook): boolean {
-    if (abaDoLayoutUnico(wb, ABAS_DO_LAYOUT_UNICO.itens) || abaDoLayoutUnico(wb, ABAS_DO_LAYOUT_UNICO.cabecalho)) return false
+    // (as abas ITENS e CABECALHO do layout único já foram tratadas por `lerTabelaDePreco`, antes desta pergunta)
     if (wb.worksheets.some((w) => w.name.trim() === ABAS_DA_IMPORTACAO.preco)) return false
     return wb.worksheets.some((w) => {
         const row1 = w.getRow(1)
