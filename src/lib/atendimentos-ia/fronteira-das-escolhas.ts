@@ -133,6 +133,21 @@ export const VARIAVEL_DO_TUBO = 'TB'
 /** A opção que a COR DA ESQUADRIA impõe na variável (a palheta ou a cor dos acessórios); null quando a cor não decide aquela variável. */
 export const opcaoQueACorImpoe = (v: { variavel: string; opcoes: string | null }, cor: string | null | undefined): number | null =>
     palhetaQueACorImpoe(v, cor) ?? corDosAcessoriosQueACorImpoe(v, cor)
+/**
+ * A tipologia SÓ COM AS VARIÁVEIS (pedido 0054, 28/11/2026, produção quebrada): o contexto dos documentos (o arquivo do orçamento, a precificação) lê da
+ * tipologia só a aba Variáveis (`VariaveisDaTipologia`); as linhas de peça (perfis, insumos, vidros, fórmulas) ficam no motor. `escolhasDoCalculo` percorre
+ * as linhas (`condicoesDasLinhas`), e passar a definição parcial no lugar da tipologia — um cast — derrubava com "Cannot read properties of undefined
+ * (reading 'map')" todo item com acionamento (AE: DP-17, DP-69…). Aqui a falta das linhas é declarada: lista vazia. Com ela, as decisões que não olham as
+ * peças (a política, a persiana pela cor, a divisória pela largura, o tipo de acionamento e o tubo) saem como no cálculo; o "padrão do motor só quando
+ * não acrescenta peça" vê zero peças e assume o padrão — nunca a "principal" —, e é por isso que só o ACIONAMENTO é lido daqui.
+ */
+export function tipologiaSoComVariaveis(def: Pick<Tipologia, 'variaveis'>, codigo: string): Tipologia {
+    return {
+        codigo, detalhe: { larg_min_mm: null, larg_max_mm: null, alt_min_mm: null, alt_max_mm: null },
+        variaveis: def.variaveis, formulas: [], perfis: [], validacoes: [],
+    }
+}
+
 export function escolhasDoCalculo(tipologia: Tipologia, ditas: Readonly<Record<string, number>>, politica: PoliticaDaEmpresa, descricao: string | null = null,
     cor: string | null = null, larguraMm: number | null = null): EscolhasDoCalculo {
     const escolhas: Record<string, number> = { ...ditas }
