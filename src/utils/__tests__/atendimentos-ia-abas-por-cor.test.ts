@@ -207,3 +207,51 @@ describe('0055 — o item como o banco o devolve, e o que a tela monta', () => {
         expect(p.abas[0].itens.map((i) => i.codigo)).toEqual(['A', 'D', 'B', 'C'])
     })
 })
+
+describe('0055b — a aba BICOLOR: a cor completa de cada linha vem da coluna COR, conferida contra a lista do fornecedor', () => {
+    const CAB_BI = ['REFERÊNCIA', 'CÓDIGO DO FORNECEDOR', 'DESCRIÇÃO', 'PREÇO', 'BARRA', 'COR']
+    const bi = (linhas: Array<[string, string, string, number, number, string | null]>) => ({ BICOLOR: linhas as unknown as Linha[] })
+    const CORES_BI = [...CORES, 'EXTERNO PRETO LISO']
+
+    it('lê a aba BICOLOR: cada item leva a cor da COLUNA, e a mesma referência em dois lados são dois itens', async () => {
+        const r = await ler({ ...ABAS, ...bi([['BR60', '94738', 'BR60 LADO MAIOR', 254.352, 6, 'EXTERNO PRETO LISO LADO MAIOR'], ['BR60', '94738.1', 'BR60 LADO MENOR', 254.352, 6, 'EXTERNO PRETO LISO LADO MENOR']]) }, CORES_BI, CAB_BI)
+        expect(r.ok).toBe(true)
+        const l = r as Lida
+        expect(l.itens.filter((i) => i.codigo_wvetro === 'BR60').map((i) => [i.codigo, i.cor])).toEqual([['94738', 'EXTERNO PRETO LISO LADO MAIOR'], ['94738.1', 'EXTERNO PRETO LISO LADO MENOR']])
+        expect(referenciasDaCategoria(l, 'PERFIL')).toBeNull()
+    })
+    it('aceita a cor com os dois lados ("A LADO MAIOR / B LADO MENOR"), cada parte conferida na lista', async () => {
+        const r = await ler(bi([['BR60', '94799', 'x', 1, 6, 'PRETO LISO LADO MAIOR / BRANCO LADO MENOR']]), CORES_BI, CAB_BI)
+        expect(r.ok).toBe(true)
+        expect((r as Lida).itens[0].cor).toBe('PRETO LISO LADO MAIOR / BRANCO LADO MENOR')
+    })
+    it('cor fora da lista, ou sem LADO MAIOR/MENOR, recusa a importação inteira nomeando a linha', async () => {
+        const a = await ler(bi([['BR60', '94738', 'x', 1, 6, 'AZUL BEBE LADO MAIOR']]), CORES_BI, CAB_BI)
+        expect(a.ok).toBe(false)
+        expect(erroDe(a)).toContain('AZUL BEBE LADO MAIOR')
+        expect(erroDe(a)).toContain('linha 2')
+        const b = await ler(bi([['BR60', '94738', 'x', 1, 6, 'PRETO LISO']]), CORES_BI, CAB_BI)
+        expect(b.ok).toBe(false)
+        expect(erroDe(b)).toContain('LADO MAIOR')
+    })
+    it('linha da BICOLOR sem a COR recusa; aba BICOLOR sem a coluna COR recusa', async () => {
+        const a = await ler(bi([['BR60', '94738', 'x', 1, 6, null]]), CORES_BI, CAB_BI)
+        expect(a.ok).toBe(false)
+        expect(erroDe(a)).toContain('sem a cor')
+        const b = await ler(bi([['BR60', '94738', 'x', 1, 6, 'EXTERNO PRETO LISO LADO MAIOR']]), CORES_BI, CABECALHO)
+        expect(b.ok).toBe(false)
+        expect(erroDe(b)).toContain('COR')
+    })
+    it('a COR numa aba de cor comum NÃO vale: a cor é a da aba', async () => {
+        const r = await ler({ BRANCO: [['IL42', 'IL421', 'a', 1, 6, 'PRETO LISO'] as unknown as Linha] }, CORES, ['REFERÊNCIA', 'CÓDIGO DO FORNECEDOR', 'DESCRIÇÃO', 'PREÇO', 'BARRA', 'COR'])
+        expect(r.ok).toBe(true)
+        expect((r as Lida).itens[0].cor).toBe('BRANCO')
+    })
+    it('o item sem sufixo de cor entra com a referência = o próprio código (a conversão põe assim; o leitor só lê)', async () => {
+        const r = await ler({ BRANCO: [['9921', '9921', 'BAGUETE DE 10MM - BRANCO', 25.3008, 6]] })
+        expect(r.ok).toBe(true)
+        const l = r as Lida
+        expect(referenciasDaCategoria(l, 'PERFIL')).toBeNull()
+        expect(l.itens[0]).toMatchObject({ codigo: '9921', referencia_perfil: '9921', codigo_wvetro: null, cor: 'BRANCO' })
+    })
+})
