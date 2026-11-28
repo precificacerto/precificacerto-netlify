@@ -113,3 +113,11 @@ export function perfisPorCor(itens: readonly ItemDaAba[]): PerfisPorCor | null {
     }))
     return { quadro, faltas: faltasPorCor(comCor), abas }
 }
+
+/** O número do banco (numeric vem como texto) ou nulo: vazio e ausente NÃO viram zero (`ausente-vs-falso.md`). */
+const numeroOuNulo = (v: unknown): number | null => (v === null || v === undefined || (typeof v === 'string' && v.trim() === '') ? null : Number.isFinite(Number(v)) ? Number(v) : null)
+/** A linha de `orcamentista_tabela_item` como a tela das abas a usa. */
+export const itemDaAbaDoBanco = (l: Record<string, unknown>): ItemDaAba => ({
+    codigo: String(l.codigo), descricao: (l.descricao as string | null) ?? null, cor: (l.cor as string | null) ?? null,
+    referencia_perfil: (l.referencia_perfil as string | null) ?? null, custo: numeroOuNulo(l.custo), medida_barra_m: numeroOuNulo(l.medida_barra_m),
+})

@@ -12,7 +12,7 @@ import ExcelJS from 'exceljs'
 
 import { lerArquivosDaImportacao, referenciasDaCategoria, type ResultadoDaLeitura } from '@/utils/atendimentos-ia-importacao'
 import { resolverPelaReferencia, type ItemResolvivel } from '@/lib/atendimentos-ia/resolucao-de-referencia'
-import { faltasPorCor, quadroCorPorReferencias } from '@/utils/atendimentos-ia-abas-por-cor'
+import { faltasPorCor, itemDaAbaDoBanco, perfisPorCor, quadroCorPorReferencias } from '@/utils/atendimentos-ia-abas-por-cor'
 
 type Linha = [referencia: ExcelJS.CellValue, codigo: ExcelJS.CellValue, descricao: ExcelJS.CellValue, preco: ExcelJS.CellValue, barra: ExcelJS.CellValue]
 const CABECALHO = ['REFERÊNCIA', 'CÓDIGO DO FORNECEDOR', 'DESCRIÇÃO', 'PREÇO', 'BARRA']
@@ -145,5 +145,28 @@ describe('0055 — o quadro cor × referências e a lista do que falta', () => {
     })
     it('sem aba BRANCO não há base para comparar: lista vazia, não invento outra base', () => {
         expect(faltasPorCor(itens.filter((i) => i.cor !== 'BRANCO'))).toEqual([])
+    })
+})
+
+describe('0055 — o item como o banco o devolve, e o que a tela monta', () => {
+    it('numeric vem como texto: vira número; vazio e ausente ficam nulos, nunca zero', () => {
+        expect(itemDaAbaDoBanco({ codigo: 'IL4236', descricao: 'x', cor: 'PRETO LISO', referencia_perfil: 'IL42', custo: '58.704', medida_barra_m: '6' }))
+            .toEqual({ codigo: 'IL4236', descricao: 'x', cor: 'PRETO LISO', referencia_perfil: 'IL42', custo: 58.704, medida_barra_m: 6 })
+        expect(itemDaAbaDoBanco({ codigo: 'A', custo: null, medida_barra_m: '' })).toEqual({ codigo: 'A', descricao: null, cor: null, referencia_perfil: null, custo: null, medida_barra_m: null })
+        expect(itemDaAbaDoBanco({ codigo: 'A', custo: '0' }).custo).toBe(0)
+    })
+    it('sem item com cor, não há abas (null); item sem cor fica fora delas', () => {
+        expect(perfisPorCor([{ codigo: 'A', descricao: null, cor: null, referencia_perfil: null, custo: 1, medida_barra_m: 6 }])).toBeNull()
+        const p = perfisPorCor([
+            { codigo: 'A', descricao: null, cor: null, referencia_perfil: 'X', custo: 1, medida_barra_m: 6 },
+            { codigo: 'IL4236', descricao: null, cor: 'PRETO LISO', referencia_perfil: 'IL42', custo: 1, medida_barra_m: 6 },
+        ])!
+        expect(p.abas.map((a) => [a.cor, a.itens.map((i) => i.codigo)])).toEqual([['PRETO LISO', ['IL4236']]])
+        expect(p.quadro).toEqual([{ cor: 'PRETO LISO', referencias: 1, semReferencia: 0, itens: 1 }])
+    })
+    it('os itens da aba saem por referência (a sem referência por último) e depois pelo código', () => {
+        const mk = (codigo: string, ref: string | null) => ({ codigo, descricao: null, cor: 'BRANCO', referencia_perfil: ref, custo: 1, medida_barra_m: 6 })
+        const p = perfisPorCor([mk('C', null), mk('B', 'KT42'), mk('A', 'IL42'), mk('D', 'IL42')])!
+        expect(p.abas[0].itens.map((i) => i.codigo)).toEqual(['A', 'D', 'B', 'C'])
     })
 })

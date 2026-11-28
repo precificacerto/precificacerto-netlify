@@ -31,7 +31,7 @@ import {
     type TabelaEmUso,
 } from '@/utils/atendimentos-ia-catalogo'
 import { COLUNA_DA_CATEGORIA_DO_FORNECEDOR } from '@/utils/atendimentos-ia-importacao-celula'
-import type { ItemDaAba } from '@/utils/atendimentos-ia-abas-por-cor'
+import { itemDaAbaDoBanco, type ItemDaAba } from '@/utils/atendimentos-ia-abas-por-cor'
 import { contasQueVinculam, derivarTabelasDaConta } from '@/lib/atendimentos-ia/tabelas-da-conta'
 
 export class ErroDoBanco extends Error {
@@ -487,13 +487,9 @@ export async function contarItensDaTabela(tabelaId: string): Promise<number> {
 export async function itensDePerfisDaTabela(tabelaId: string): Promise<ItemDaAba[]> {
     const PAGINA = 1000
     const itens: ItemDaAba[] = []
-    const num = (v: unknown): number | null => (v === null || v === undefined || v === '' ? null : Number.isFinite(Number(v)) ? Number(v) : null)
     for (let de = 0; ; de += PAGINA) {
         const linhas = await q(db().from('orcamentista_tabela_item').select('codigo, descricao, cor, referencia_perfil, custo, medida_barra_m').eq('tabela_id', tabelaId).order('id').range(de, de + PAGINA - 1)) as Linha[]
-        itens.push(...linhas.map((l) => ({
-            codigo: String(l.codigo), descricao: (l.descricao as string | null) ?? null, cor: (l.cor as string | null) ?? null,
-            referencia_perfil: (l.referencia_perfil as string | null) ?? null, custo: num(l.custo), medida_barra_m: num(l.medida_barra_m),
-        })))
+        itens.push(...linhas.map(itemDaAbaDoBanco))
         if (linhas.length < PAGINA) return itens
     }
 }
