@@ -86,6 +86,8 @@ jest.mock('@/lib/atendimentos-ia/repositorio', () => {
         // os casos da importação ficariam vermelhos
         contarTemposGravados: fn('contarTemposGravados', () => ({ total: 164, ESTIMADO: 164, IMPORTADO: 0 })),
         codigosDosItensGravados: fn('codigosDosItensGravados', () => []),
+        // as abas por cor da tela (pedido 0055): sem item com cor, a rota não leva a chave
+        itensDePerfisDaTabela: fn('itensDePerfisDaTabela', () => []),
     }
 })
 const DADOS = { id: T, fornecedor_id: 'f1', fornecedor_nome: 'Wolf Perfis', arquivo_nome: 'Tabela Wolff.xlsm', motor_nome: 'Motor.xlsx', vigencia: null as string | null }
@@ -875,5 +877,65 @@ describe('TABELA DE PREÇO PURO — sem arquivo de motor (Reforço, Acessórios�
         const r = await chamar('POST')
         expect(r.status).toBe(200)
         expect(JSON.stringify(r.json)).not.toContain('null')
+    })
+})
+
+describe('PERFIS POR COR EM ABAS pela rota (pedido 0055): a aba é a cor, a referência é a coluna', () => {
+    const CABECALHO = { 1: 'REFERÊNCIA', 2: 'CÓDIGO DO FORNECEDOR', 3: 'DESCRIÇÃO', 4: 'PREÇO', 5: 'BARRA' }
+    const linha = (ref: string | null, codigo: string, preco = 58.7) => ({ 1: ref, 2: codigo, 3: `PEÇA ${codigo}`, 4: preco, 5: 6 })
+    const subir = async (abas: Record<string, Array<Record<number, ExcelJS.CellValue>>>, categoria: string | null, cores = ['BRANCO', 'PRETO LISO']) => {
+        listaDeCores.nomes = cores
+        repo.obterArquivosDaTabela.mockImplementation(async () => ({ ...TABELA, motor_path: null, motor_nome: null, categoria_chave: categoria }))
+        objetos[TABELA.arquivo_path] = await planilha(abas)
+    }
+    afterEach(() => { listaDeCores.nomes = [] })
+
+    it('tabela de PERFIL: cada item leva a cor da ABA (nome canônico) e a referência da COLUNA em referencia_perfil — IL42 em PRETO LISO entra', async () => {
+        await subir({ BRANCO: [CABECALHO, linha('IL42', 'IL421')], 'preto liso': [CABECALHO, linha('IL42', 'IL4236')] }, 'PERFIL')
+        const r = await chamar('POST')
+        expect(r.status).toBe(200)
+        expect(r.json.layout).toBe('abas_por_cor')
+        expect(repo.importarTabela.mock.calls[0][0].payload.itens.map((i: any) => [i.codigo, i.cor, i.referencia_perfil, i.codigo_wvetro]))
+            .toEqual([['IL421', 'BRANCO', 'IL42', null], ['IL4236', 'PRETO LISO', 'IL42', null]])
+    })
+    it('tabela SEM categoria declarada (ou de VIDRO) recusa: a referência seria descartada em silêncio', async () => {
+        await subir({ BRANCO: [CABECALHO, linha('IL42', 'IL421')] }, null)
+        const r = await chamar('POST')
+        expect(r.status).toBe(422)
+        expect(r.json.error).toContain('categoria de perfil declarada')
+        expect(repo.importarTabela).not.toHaveBeenCalled()
+        await subir({ BRANCO: [CABECALHO, linha('IL42', 'IL421')] }, 'VIDRO')
+        expect((await chamar('POST')).status).toBe(422)
+        expect(repo.importarTabela).not.toHaveBeenCalled()
+    })
+    it('aba fora da lista de cores do fornecedor, ou linha sem referência: 422 com a lista, e NADA é gravado', async () => {
+        await subir({ BRANCO: [CABECALHO, linha('IL42', 'IL421')], 'AZUL BEBE': [CABECALHO, linha('IL42', 'IL4299')] }, 'PERFIL')
+        const a = await chamar('POST')
+        expect(a.status).toBe(422)
+        expect(a.json.error).toContain('"AZUL BEBE"')
+        await subir({ BRANCO: [CABECALHO, linha(null, 'IL421')] }, 'PERFIL')
+        const b = await chamar('POST')
+        expect(b.status).toBe(422)
+        expect(b.json.error).toContain('sem a referência')
+        expect(repo.importarTabela).not.toHaveBeenCalled()
+    })
+    it('o fornecedor sem lista de cores: 422 nomeando a falta da lista', async () => {
+        await subir({ BRANCO: [CABECALHO, linha('IL42', 'IL421')] }, 'PERFIL', [])
+        const r = await chamar('POST')
+        expect(r.status).toBe(422)
+        expect(r.json.error).toContain('lista de cores')
+    })
+    it('GET /conteudo: a tabela com item com cor devolve as abas por cor, o quadro cor × referências e o que falta contra o BRANCO; sem cor, a chave não existe', async () => {
+        repo.itensDePerfisDaTabela.mockImplementation(async () => [
+            { codigo: 'IL421', descricao: 'a', cor: 'BRANCO', referencia_perfil: 'IL42', custo: 19.4, medida_barra_m: 6 },
+            { codigo: 'KT421', descricao: 'b', cor: 'BRANCO', referencia_perfil: 'KT42', custo: 19.4, medida_barra_m: 6 },
+            { codigo: 'IL4236', descricao: 'c', cor: 'PRETO LISO', referencia_perfil: 'IL42', custo: 58.7, medida_barra_m: 6 },
+        ])
+        const r = await chamar('GET', T, ROTA_DO_CONTEUDO)
+        expect(r.json.perfis_por_cor.quadro).toEqual([{ cor: 'BRANCO', referencias: 2, semReferencia: 0, itens: 2 }, { cor: 'PRETO LISO', referencias: 1, semReferencia: 0, itens: 1 }])
+        expect(r.json.perfis_por_cor.faltas).toEqual([{ cor: 'PRETO LISO', faltam: ['KT42'], sobram: [] }])
+        expect(r.json.perfis_por_cor.abas.map((a: any) => [a.cor, a.itens.map((i: any) => i.codigo)])).toEqual([['BRANCO', ['IL421', 'KT421']], ['PRETO LISO', ['IL4236']]])
+        repo.itensDePerfisDaTabela.mockImplementation(async () => [])
+        expect('perfis_por_cor' in (await chamar('GET', T, ROTA_DO_CONTEUDO)).json).toBe(false)
     })
 })

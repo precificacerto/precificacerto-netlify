@@ -90,3 +90,26 @@ export function faltasPorCor(itens: readonly ComCor[]): Array<{ cor: string; fal
 
 export const FRASE_DAS_ABAS_SEM_CATEGORIA_DE_PERFIL =
     'o arquivo é de perfis por cor (uma aba por cor), e a tabela não tem uma categoria de perfil declarada: a referência da coluna só é gravada na tabela de PERFIL (ou outra categoria declarada que não seja vidro). Declare a categoria da tabela e importe de novo. Nada foi gravado.'
+
+/** Um item da tabela como a tela das abas o mostra. */
+export type ItemDaAba = { codigo: string; descricao: string | null; cor: string | null; referencia_perfil: string | null; custo: number | null; medida_barra_m: number | null }
+export type PerfisPorCor = {
+    /** O quadro cor × quantidade de referências. */
+    quadro: Array<{ cor: string; referencias: number; semReferencia: number; itens: number }>
+    /** Cada cor contra o BRANCO. */
+    faltas: Array<{ cor: string; faltam: string[]; sobram: string[] }>
+    /** As abas: uma por cor, na ordem do quadro, com os itens por referência. */
+    abas: Array<{ cor: string; itens: ItemDaAba[] }>
+}
+
+/** O que a tela mostra de uma tabela de perfis: as abas por cor, o quadro e as faltas. Itens sem cor ficam fora das abas (e `null` se nenhum item tem cor). */
+export function perfisPorCor(itens: readonly ItemDaAba[]): PerfisPorCor | null {
+    const comCor = itens.filter((i) => i.cor !== null)
+    if (comCor.length === 0) return null
+    const quadro = quadroCorPorReferencias(comCor).map((q) => ({ ...q, itens: comCor.filter((i) => i.cor === q.cor).length }))
+    const abas = quadro.map((q) => ({
+        cor: q.cor,
+        itens: comCor.filter((i) => i.cor === q.cor).sort((a, b) => (a.referencia_perfil ?? '\uffff').localeCompare(b.referencia_perfil ?? '\uffff') || a.codigo.localeCompare(b.codigo)),
+    }))
+    return { quadro, faltas: faltasPorCor(comCor), abas }
+}

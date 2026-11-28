@@ -46,6 +46,8 @@ import type { Aviso, ContagensDaGravacao, TipologiaLida } from '@/utils/atendime
 import { quandoFoiImportado, textoDoAviso } from '@/utils/atendimentos-ia-importacao-apresentacao'
 import { ErroDaRota, chamarRota } from '@/page-parts/atendimentos-ia/api'
 import { ESTILO_DA_DATA } from '@/page-parts/atendimentos-ia/linha-da-tabela.component'
+import { PerfisPorCorCard } from '@/page-parts/atendimentos-ia/perfis-por-cor.component'
+import type { PerfisPorCor } from '@/utils/atendimentos-ia-abas-por-cor'
 
 interface DadosDaTabela { id: string; fornecedor_id: string; fornecedor_nome: string | null; arquivo_nome: string; motor_nome: string | null; vigencia: string | null; categoria_chave: string | null; categoria_rotulo: string | null }
 interface UltimaImportacao {
@@ -60,7 +62,7 @@ interface UltimaImportacao {
     avisos: Aviso[]
 }
 /** `itens` são os de preço GRAVADOS no banco (02/11/2026) — é com eles que a tela diz "não importada". */
-interface Conteudo { formulas: number; tipologias: TipologiaLida[]; itens: number }
+interface Conteudo { formulas: number; tipologias: TipologiaLida[]; itens: number; perfis_por_cor?: PerfisPorCor }
 /** A prévia da troca, como a rota a devolve (`previaDaTroca` + a frase, o sha256 e o arquivo lido). */
 export interface PreviaDaImportacao { antes: number; entram: number; ficam: number; novos: number; saem: string[]; encolhe: boolean; frase: string; sha256: string; arquivo_nome: string; arquivo_trocado: boolean }
 interface ErroDaImportacao { motivo: string; divergencia: { enviado: ContagensDaGravacao; gravado: ContagensDaGravacao } | null }
@@ -292,6 +294,8 @@ export default function ImportacaoDaTabela() {
                             })}
                         </Space>
                     </Card>
+
+                    {conteudo?.perfis_por_cor && <PerfisPorCorCard perfis={conteudo.perfis_por_cor} />}
 
                     {!ultima ? (
                         <Typography.Text type="secondary">Esta tabela ainda não foi importada.</Typography.Text>
