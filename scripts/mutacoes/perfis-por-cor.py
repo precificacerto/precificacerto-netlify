@@ -15,7 +15,7 @@ M = [
  (IMP, "            if (codigo === null) { semCodigo.push({ aba: ws.name, linha: r }); continue }", "            if (codigo === null) continue"),
  (IMP, "            const custo = numero(r, 'preco')", "            const custo = numero(r, 'barra')"),
  (IMP, "                medida_barra_m: numero(r, 'barra'),", "                medida_barra_m: numero(r, 'preco'),"),
- (IMP, "                codigo, descricao: l.texto(r, coluna('descricao')), cor,", "                codigo, descricao: l.texto(r, coluna('descricao')), cor: ws.name,"),
+ (IMP, "                codigo, descricao: l.texto(r, coluna('descricao')), cor: corDoItem,", "                codigo, descricao: l.texto(r, coluna('descricao')), cor: ws.name,"),
  (IMP, "                vendido_por: 'barra', valor_metro_interno: null, valor_barra_interno: custo,", "                vendido_por: 'barra', valor_metro_interno: null, valor_barra_interno: null,"),
  (IMP, "            if (antes !== undefined) { recusas.push(", "            if (false) { recusas.push("),
  (IMP, "    if (semReferencia.length) recusas.push(fraseDasLinhasSemReferencia(semReferencia))", "    if (false) recusas.push(fraseDasLinhasSemReferencia(semReferencia))"),
@@ -29,7 +29,7 @@ M = [
  (ROTA, "    coresDoFornecedor: listaDeCores,", "    coresDoFornecedor: [],"),
  (CONT, "...(perfis ? { perfis_por_cor: perfis } : {})", "...({})"),
  (RES, "referência ${referencia} não existe na aba ${ref.corPedida} — ela existe nas abas: ${cores.join(', ')}", "referência ${referencia} existe na tabela de preço, mas não na cor ${ref.corPedida} — as cores dela: ${cores.join(', ')}"),
- (ABA, "    const t = sem(texto)\n    return COLUNAS_DA_ABA_NA_ORDEM.find((c) => NOMES[c].includes(t)) ?? null", "    return null"),
+ (ABA, "    return (Object.keys(NOMES) as ColunaDaAbaPorCor[]).find((c) => NOMES[c].includes(t)) ?? null", "    return null"),
  (ABA, "    codigo: ['CODIGO DO FORNECEDOR', 'CODIGO'],", "    codigo: ['CODIGO DO FORNECEDOR'],"),
  (ABA, "    const comCor = itens.filter((i) => i.cor !== null)\n    if (comCor.length === 0) return null", "    const comCor = [...itens]\n    if (comCor.length === 0) return null"),
  (ABA, "        if (i.referencia_perfil === null) g.sem += 1\n        else g.refs.add(i.referencia_perfil)", "        g.refs.add(i.referencia_perfil ?? '')"),
@@ -39,6 +39,14 @@ M = [
  (ABA, "(v === null || v === undefined || (typeof v === 'string' && v.trim() === '') ? null :", "(v === null || v === undefined ? null :"),
  (TELA, "{f && f.faltam.length > 0 && (\n                                        <Typography.Text data-faltas-da-aba", "{false && (\n                                        <Typography.Text data-faltas-da-aba"),
  (TELA, "return f && f.faltam.length > 0 ? <span data-faltam>{f.faltam.length}</span> : <span data-faltam>0</span>", "return <span data-faltam>0</span>"),
+ (IMP, "        if (corParaComparar(ws.name) === ABA_BICOLOR) {", "        if (false) {"),
+ (IMP, "                if (!corDaBicorValida(c, (nome) => canonica.has(corParaComparar(nome)))) { bicorInvalidas.push({ linha: r, cor: c }); continue }", "                if (false) { bicorInvalidas.push({ linha: r, cor: c }); continue }"),
+ (IMP, "                if (c === null) { bicorSemCor.push({ linha: r, codigo }); continue }", "                if (c === null) continue"),
+ (IMP, "                corDoItem = c\n", "                corDoItem = cor\n"),
+ (IMP, "        if (ehBicolor && col.cor === undefined) { recusas.push(fraseDaAbaBicorSemAColunaCor); continue }", "        if (false) { recusas.push(fraseDaAbaBicorSemAColunaCor); continue }"),
+ (IMP, "    if (bicorInvalidas.length) recusas.push(", "    if (false) recusas.push("),
+ (ABA, "    return partes.every((p) => COM_O_LADO.test(p) && ehDaLista(p.replace(COM_O_LADO, '')))", "    return partes.every((p) => ehDaLista(p.replace(COM_O_LADO, '')))"),
+ (ABA, "    if (partes.length === 0) return false\n", ""),
 ]
 M = [x for x in M if os.environ.get('SO', '') in x[1]]
 for arq, a, b in M:

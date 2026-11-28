@@ -12,7 +12,7 @@ import ExcelJS from 'exceljs'
 
 import { lerArquivosDaImportacao, referenciasDaCategoria, type ResultadoDaLeitura } from '@/utils/atendimentos-ia-importacao'
 import { resolverPelaReferencia, type ItemResolvivel } from '@/lib/atendimentos-ia/resolucao-de-referencia'
-import { faltasPorCor, itemDaAbaDoBanco, perfisPorCor, quadroCorPorReferencias, type ItemDaAba } from '@/utils/atendimentos-ia-abas-por-cor'
+import { corDaBicorValida, faltasPorCor, itemDaAbaDoBanco, perfisPorCor, quadroCorPorReferencias, type ItemDaAba } from '@/utils/atendimentos-ia-abas-por-cor'
 
 type Linha = [referencia: ExcelJS.CellValue, codigo: ExcelJS.CellValue, descricao: ExcelJS.CellValue, preco: ExcelJS.CellValue, barra: ExcelJS.CellValue]
 const CABECALHO = ['REFERÊNCIA', 'CÓDIGO DO FORNECEDOR', 'DESCRIÇÃO', 'PREÇO', 'BARRA']
@@ -253,5 +253,10 @@ describe('0055b — a aba BICOLOR: a cor completa de cada linha vem da coluna CO
         const l = r as Lida
         expect(referenciasDaCategoria(l, 'PERFIL')).toBeNull()
         expect(l.itens[0]).toMatchObject({ codigo: '9921', referencia_perfil: '9921', codigo_wvetro: null, cor: 'BRANCO' })
+    })
+    it('a cor vazia de partes ("/") não vale', () => {
+        expect(corDaBicorValida('/', () => true)).toBe(false)
+        expect(corDaBicorValida('PRETO LISO LADO MAIOR', (n) => n === 'PRETO LISO')).toBe(true)
+        expect(corDaBicorValida('PRETO LISO LADO MAIOR / BRANCO LADO MENOR', (n) => n === 'PRETO LISO')).toBe(false)
     })
 })
