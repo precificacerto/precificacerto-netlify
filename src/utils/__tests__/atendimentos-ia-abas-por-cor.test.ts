@@ -26,8 +26,8 @@ async function arquivo(abas: Record<string, Linha[]>, cabecalho: string[] = CABE
     }
     return new Uint8Array(await wb.xlsx.writeBuffer())
 }
-const ler = async (abas: Record<string, Linha[]>, cores: string[] | undefined = CORES, cabecalho?: string[]) =>
-    lerArquivosDaImportacao({ tabela: { nome: 'Perfis.xlsx', bytes: await arquivo(abas, cabecalho) }, motor: null, coresDoFornecedor: cores })
+const ler = async (abas: Record<string, Linha[]>, cores: string[] | null = CORES, cabecalho?: string[]) =>
+    lerArquivosDaImportacao({ tabela: { nome: 'Perfis.xlsx', bytes: await arquivo(abas, cabecalho) }, motor: null, coresDoFornecedor: cores ?? undefined })
 type Lida = Extract<ResultadoDaLeitura, { ok: true }>
 const lida = async (abas: Record<string, Linha[]>) => {
     const r = await ler(abas)
@@ -97,7 +97,7 @@ describe('0055 — a aba é a cor, a coluna é a referência', () => {
     })
 
     it('duas abas da mesma cor (grafias diferentes) são recusa nomeada', async () => {
-        const r = await ler({ BRANCO: ABAS.BRANCO, branco: ABAS.BRANCO })
+        const r = await ler({ BRANCO: ABAS.BRANCO, 'Branco ': [['HF88S', 'HF88S1', 'x', 1, 6]] })
         expect(r.ok).toBe(false)
         expect(erroDe(r)).toContain('mais de uma aba')
     })
@@ -106,7 +106,7 @@ describe('0055 — a aba é a cor, a coluna é a referência', () => {
         const r = await ler(ABAS, [])
         expect(r.ok).toBe(false)
         expect(erroDe(r)).toContain('lista de cores')
-        const nao = await ler(ABAS, undefined)
+        const nao = await ler(ABAS, null)
         expect(nao.ok).toBe(false)
     })
 
