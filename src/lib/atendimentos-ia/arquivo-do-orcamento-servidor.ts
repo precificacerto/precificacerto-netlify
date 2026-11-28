@@ -29,8 +29,7 @@ import { desenhoDaTipologia, linhaDosAmbientes, variavelNaFolha } from './folha-
 import { arremateNaMedidaDoVaoDaPolitica } from './politica-da-empresa'
 import { medidaDoArremateNaMedidaDoVao } from './escolhas-comuns'
 import { escolhasDescritas, lerEscolhasDoItem, paraOAgente } from './escolhas-da-tipologia'
-import { escolhasDoCalculo } from './fronteira-das-escolhas'
-import type { Tipologia } from './avaliador-de-formulas'
+import { escolhasDoCalculo, tipologiaSoComVariaveis } from './fronteira-das-escolhas'
 import { ARREMATE_NAO_DEFINIDO } from './apanhado'
 import { traduzirPolitica, type PoliticaDaEmpresa } from './politica-da-empresa'
 import { lerPoliticaDaEmpresa } from './politica-da-empresa-servidor'
@@ -86,7 +85,7 @@ export function definicoesDoItem(def: Parameters<typeof escolhasDescritas>[0], e
     }
     // O ACIONAMENTO DA PERSIANA (pedido 0043): a regra da fronteira (manual por fita sem perguntar; a divisória pela largura nominal) decide AE, LA, LR e MD — o
     // que o cálculo usa é o que o orçamento mostra
-    const doCalculo = def.variaveis.some((v) => v.variavel === 'AE') ? escolhasDoCalculo(def as unknown as Tipologia, escolhas as Record<string, number>, politica, null, cor, larguraMm).escolhas : {}
+    const doCalculo = def.variaveis.some((v) => v.variavel === 'AE') ? escolhasDoCalculo(tipologiaSoComVariaveis(def, codigo), escolhas as Record<string, number>, politica, null, cor, larguraMm).escolhas : {}
     const acionamento: Record<string, number> = {}
     for (const k of ['AE', 'LA', 'LR', 'MD']) if (doCalculo[k] !== undefined) acionamento[k] = doCalculo[k]
     const naMedidaDoVao = arremateNaMedidaDoVaoDaPolitica(politica)
